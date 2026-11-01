@@ -74,8 +74,6 @@ pub trait GraphRepository: Send + Sync {
 
     async fn get_node_positions(&self) -> Result<Vec<(u32, Vec3)>>;
 
-    async fn get_bots_graph(&self) -> Result<Arc<GraphData>>;
-
     async fn get_constraints(&self) -> Result<ConstraintSet>;
 
     async fn get_auto_balance_notifications(&self) -> Result<Vec<AutoBalanceNotification>>;

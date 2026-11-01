@@ -364,7 +364,7 @@ export const DEFAULT_GRAPH_TYPE_VISUALS = {
     // Action-beam (0x23) styling consumed by TransientBeamsLayer via GraphManager.
     beamRadius: 0.35,
     beamOpacity: 0.85,
-    // Motion-trail ribbons behind each agent (BotsNode → AgentTrail). Client-only.
+    // Motion-trail ribbons behind each agent (AgentOverlay → AgentTrail). Client-only.
     showTrails: true,
     trailLength: 24,
     // Nameplate LOD (W3D): declutter dense swarms — full nameplate only close in

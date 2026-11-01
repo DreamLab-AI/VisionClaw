@@ -1,10 +1,12 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.26
+version: 0.1.28
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.28 (2026-11-01): a finished agent eases out to the edge of the scene in 30 s and holds there, the desktop's rule (ADR-2135 one done rule; ADR-2109 amended). The park beat is deleted: no `PH_PARK`, `PH_COMPLETE` or park event. A lapsed work record relaxes onto the rest slot. The edge is the knowledge volume's `bounds` diagonal (`SpatialVolume.edge_radius`). No invariant changed."
+  - "0.1.27 (2026-11-01): cross-volume link ends are resolved and packed in Rust (`pack_links`), through the same fold-aware `drawn_position_of` the edge pack uses; `link_layer.gd` no longer reads positions or builds instances (ADR-2164 D8 amended). `RenderStore::position_of` and the gdext `node_position` answer with the drawn (fold-aware) position. No invariant changed."
   - "0.1.26 (2026-11-01): ADR-2170 (proposed, none, inactive; source evidence only): Gaussian splat scenes as their own volume; a Compatibility-safe CPU-sorted quad layer with a separate splat account (owner decision pending). New proposed section only; Current State, Invariants and verified_commit untouched. Version skips 0.1.25, which xr/grab-client (ADR-2168) uses."
   - "0.1.25 (2026-11-01): ADR-2172 (partial, inactive, headless-GUT evidence only): a node can be grabbed with either hand, up to two at once, in any VisionClaw volume (knowledge or ontology), in the ring and inside an entered room; Codescape still refuses (E9); a portal never grabs; a drag release is no longer recorded for Unpin All (so the Unpin All count and the fold's `?pinned=` stay empty until a client-side Pin exists); a held node never refits its own volume (R15 F1); the gold-edge breathe is 36 s at depth 0.8 and swells brightness as well as alpha (its true trough is about 0.04 of peak). Volumes section only; Current State, Invariants and verified_commit untouched."
   - "0.1.24 (2026-10-31): ADR-2166 (partial, inactive, headless-GUT evidence only): a volume can be entered (room-scale bounds, centred on the user) and the others become portals on a ring outside it, with a one-draw-call membrane; Enter/Leave on the HUD; reduced-motion dim-and-snap, 0.5 s ease otherwise for Enter and for re-laying the portals (Leave and swap always dim); refused while the native arm is active. Volumes section only; Current State, Invariants and verified_commit untouched."
@@ -163,8 +165,13 @@ in the Rust agent registry (fed by `0x23 AGENT_ACTION` frames): embodied at
 unit-scale `AgentsRoot` (never under `GraphRoot`, so avatars keep physical size
 while the graph is fitted). Exactly one writer owns a work-layer avatar's
 position and alpha: `scripts/agent_choreography.gd` (materialise at a rim slot →
-travel at ~0.32 m/s → work 0.32 m off the node → explicit complete → park to the
-rim at 0.3 alpha → rest → re-task). The body is a faceted 0.14 m core inside a
+travel at ~0.32 m/s → work 0.32 m off the node → explicit done → ease out to the
+scene edge in 30 s at 0.3 alpha and hold (stopping at the 1 m head-exclusion sphere if the
+head is on its way) → re-task; a lapsed work record relaxes onto
+the rest slot instead). The done run is the desktop's rule, one definition in ADR-2135:
+radius r0 + (edge − r0)·easeOutCubic(elapsed / 30 s) from the volume origin, with
+`SpatialVolume.edge_radius` (half the knowledge volume's smallest `bounds` extent, world
+metres) as the edge; `tests/unit/test_agent_edge_run.gd` pins its 30 s to the desktop's. The body is a faceted 0.14 m core inside a
 procedural role frame (`scripts/agent_role.gd`: Architect cage, Analyst ring,
 Coder chevrons, Reviewer diamond, Tester fins, Optimizer hoops, generic hoop;
 role inferred from name then task) with a 0.09 m pointer cone aimed at the
@@ -456,8 +463,8 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   places the knowledge (−60°) and ontology (+60°) graphs on the other vertices
   and keeps agent nodes at the centroid. Work-layer avatars still have one pose
   writer (Invariant 8) and travel to target nodes on the separated graphs.
-  `GraphScene._apply_drift_rest_slots` (4 Hz) moves the slot each avatar parks
-  at to the centroid plus its activity drift. That is
+  `GraphScene._apply_drift_rest_slots` (4 Hz) moves the slot each avatar rests
+  at (where a lapsed work record relaxes it) to the centroid plus its activity drift. That is
   `BinaryProtocolClient.agent_drift_offset`, from the shared `DriftField` in the
   render store: applied `0x23` actions credit their target's class vertex, and
   `memory_flash` frames credit memory through `record_memory_flash`
@@ -753,8 +760,10 @@ replays it while a `visual_epoch` is unchanged. Every mutation that can change a
 instance's look or the drawn set bumps the epoch (`touch()`); per-frame feeds bump
 only on a real change (`upsert` analytics, node kind, agent expiry, label-fade
 membership). Edge tiers are chosen from midpoints; near cylinders are transformed
-every frame and far ribbons half per frame (alternating parity, in place), so each
-ribbon is at most one frame old and any tier change rebuilds the far tier at once.
+every frame and far ribbons every frame too, in place (they were half per frame until
+viz/edge-tracking: half the ribbons were a frame behind their nodes; the full refresh
+costs about 0.3 ms more at 20 000 edges on an x86 host), so every edge endpoint is its
+node's drawn position of the same frame; any tier change rebuilds the far tier at once.
 Per-frame tints that must not invalidate a plan (attention heat) go through
 `RenderStore::live_tint`. Steady state allocates nothing (`tests/pack_alloc.rs`,
 counting allocator: 79 allocations per frame before, 0 after). GraphScene now runs
@@ -977,7 +986,7 @@ The operator accepted these on 2026-10-30 for implementation. Nothing below exis
 
   A selection is one node in one box. It clears when its connection starts a new generation or drops, or when its box is hidden. There is no non-XR mouse pick path: the flat camera is a diagnostic view, and its only mouse events are those synthesised for the HUD. Desktop mouse picking is therefore not built.
 - **Cross-volume links (ADR-2158 D6, ADR-2164).**
-  - **What is drawn.** One link layer draws knowledge↔ontology bridges and code→concept links, and later federated data-space links.
+  - **What is drawn.** One link layer draws knowledge↔ontology bridges and code→concept links, and later federated data-space links. Its endpoints are resolved and packed in Rust every frame (`LinkPacker.pack` → `pack_links`, `render_store_pack.rs`), after the volumes move and the packs run: each end is the volume's content-to-world transform applied to the connection's `RenderStore::drawn_position_of`, the fold-aware answer the edge pack draws with (a link on a folded node ends on its representative, where its edges end; `node_position` answers the same way). `link_layer.gd` keeps the records, their order and the per-volume and per-connection state, and uploads the buffer. A link ends where its node is drawn that frame; there is no refresh timer.
   - **The switch.** Links are drawn only while `xr.cross_volume_links` is on. It is **on in debug builds (`OS.is_debug_build()`) and off in release**, toggled at runtime from the XR menu, and stored per device in `user://xr_prefs.cfg` under a key per build type (`cross_volume_links_debug` or `cross_volume_links_release`), so a dev-build choice never carries into release. Turning it off removes the geometry at once, and the switch never changes what any server sends.
   - **Budget.** One draw call, at most 512 links and at most 6 144 triangles.
 - **Code links (ADR-2164).**

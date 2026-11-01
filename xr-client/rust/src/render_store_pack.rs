@@ -338,9 +338,9 @@ impl RenderStore {
     ///
     /// With a valid plan the tier choice uses only edge midpoints (cheap), the
     /// near cylinders are transformed every frame, and the far ribbons — about
-    /// 19 900 of 20 000 at production density — are re-transformed half per
-    /// frame (alternating instance parity, in place), so each is at most one frame
-    /// old and the frame cost is flat. Any change of tier membership rebuilds the
+    /// 19 900 of 20 000 at production density — are re-transformed in
+    /// place every frame, so every endpoint is the node's drawn position of THIS
+    /// frame (the earlier half-per-frame parity left half of them up to one frame behind). Any change of tier membership rebuilds the
     /// far tier at once, so the tiers always partition the drawn set (no edge
     /// drawn twice or dropped).
     pub(super) fn pack_edges_lod(
@@ -411,7 +411,6 @@ impl RenderStore {
             }
         }
         let changed = sc.inst_near != self.edge_plan.near;
-        self.edge_frame = self.edge_frame.wrapping_add(1);
         let rebuild_far = fresh || changed || sc.ribbon_stale;
         sc.ribbon_stale = false;
         sc.edge_near_buf.clear();
@@ -443,12 +442,11 @@ impl RenderStore {
             }
         }
         if !rebuild_far {
-            // Interleaved: this frame's parity of ribbon instances, in place, so
-            // every ribbon is at most one frame old and the cost is flat.
-            let parity = (self.edge_frame % 2) as usize;
-            let mut j = parity;
-            while j < sc.ribbon_entry.len() {
-                let e = self.edge_plan.entries[sc.ribbon_entry[j] as usize];
+            // Every ribbon is re-transformed in place every frame, so an edge's far-tier
+            // endpoints are the same chased positions its nodes are drawn at in this frame
+            // (the previous half-per-frame parity left half the ribbons a frame behind).
+            for (j, &ei) in sc.ribbon_entry.iter().enumerate() {
+                let e = self.edge_plan.entries[ei as usize];
                 match edge_transform12(
                     self.positions[e.s as usize],
                     self.positions[e.t as usize],
@@ -459,7 +457,6 @@ impl RenderStore {
                     // Collapsed this frame: keep the old transform, rebuild next frame.
                     None => sc.ribbon_stale = true,
                 }
-                j += 2;
             }
         }
         self.edge_plan.near.clone_from(&sc.inst_near);
@@ -490,4 +487,264 @@ impl RenderStore {
             &mut sc.cand,
         );
     }
+}
+
+// ------------------------------------------------------------------------------------------------
+// Cross-volume links (ADR-2164 D8, ADR-2158 D6).
+//
+// A link's two ends sit in two stores (two connections) and two volumes, so no single store can
+// pack it. The endpoint resolution is still one function, `RenderStore::drawn_position_of`, the
+// same fold-aware answer `pack_edges` draws its edge ends with; this is the pack that turns two
+// such answers into an instance of the link MultiMesh. GDScript keeps the records, their order and
+// the per-volume and per-connection state; it uploads the buffer this returns and nothing else.
+// ------------------------------------------------------------------------------------------------
+
+/// Floats per link instance: 12 transform + 4 custom data (colour), the edge stride.
+pub const LINK_STRIDE: usize = 16;
+/// Radius of a plain link, in layer metres.
+pub const LINK_RADIUS_M: f32 = 0.004;
+/// A segment shorter than this (layer metres) is not drawn.
+pub const LINK_MIN_LENGTH_M: f32 = 1.0e-4;
+/// Radius factor of a highlighted link.
+pub const LINK_HIGHLIGHT_RADIUS_SCALE: f32 = 2.5;
+/// Colour lift of a highlighted link toward white.
+pub const LINK_HIGHLIGHT_LIFT: f32 = 0.55;
+/// Ring marker on each end of a highlighted link: radius, in layer metres.
+pub const LINK_MARKER_RADIUS_M: f32 = 0.018;
+/// Ring marker height, in layer metres.
+pub const LINK_MARKER_HEIGHT_M: f32 = 0.006;
+
+/// A volume that is absent, or cannot map content: its links count as unresolved.
+pub const LINK_VOL_UNMAPPED: u8 = 0;
+/// A volume that exists but is hidden or closed: its links are skipped, not counted.
+pub const LINK_VOL_HIDDEN: u8 = 1;
+/// A volume that maps content this frame.
+pub const LINK_VOL_DRAWABLE: u8 = 2;
+
+/// A volume's state for one pack: `state` is one of the `LINK_VOL_*` codes and `xf` is its
+/// content-to-world transform, row-major 3×4 (basis rows with the origin in column 4).
+#[derive(Clone, Copy, Debug)]
+pub struct LinkVolume {
+    /// `LINK_VOL_UNMAPPED`, `LINK_VOL_HIDDEN` or `LINK_VOL_DRAWABLE`.
+    pub state: u8,
+    /// Content-to-world transform, row-major 3×4.
+    pub xf: [f32; 12],
+    /// The pack slot of the connection's store that this volume's nodes are packed into
+    /// (`ConnectionVolumeSource.slot`). A link end is drawn when its node is in this slot's
+    /// drawn set.
+    pub slot: i64,
+}
+
+/// One link, as the record table holds it: which store and volume each end sits in, the node ids,
+/// the base colour and whether the link is highlighted. `*_conn` indexes the `stores` slice and
+/// `*_vol` the `volumes` slice given to [`pack_links`].
+#[derive(Clone, Copy, Debug)]
+pub struct LinkSpec {
+    /// Index of the source end's store.
+    pub src_conn: usize,
+    /// Index of the target end's store.
+    pub dst_conn: usize,
+    /// Source node id.
+    pub src_id: u32,
+    /// Target node id.
+    pub dst_id: u32,
+    /// Index of the source end's volume.
+    pub src_vol: usize,
+    /// Index of the target end's volume.
+    pub dst_vol: usize,
+    /// Base colour (RGBA).
+    pub colour: [f32; 4],
+    /// Highlighted: brighter, thicker, ring markers on both ends.
+    pub lit: bool,
+}
+
+/// One drawn link in world space, for `drawn_segments()` and the link picker.
+#[derive(Clone, Copy, Debug)]
+pub struct LinkSegment {
+    /// Source end, world space.
+    pub a: [f32; 3],
+    /// Target end, world space.
+    pub b: [f32; 3],
+    /// Index into the specs the segment came from.
+    pub spec: u32,
+}
+
+/// The output of [`pack_links`]. Reused from frame to frame: its vectors keep their capacity.
+#[derive(Default, Debug)]
+pub struct LinkFrame {
+    /// `links + markers` instances of [`LINK_STRIDE`] floats: links in spec order, then markers.
+    pub buf: Vec<f32>,
+    /// Link instances drawn.
+    pub links: usize,
+    /// Ring-marker instances drawn.
+    pub markers: usize,
+    /// Links whose ends could not be resolved this frame (volume unmapped, connection unusable,
+    /// or a node the store does not hold).
+    pub unresolved: usize,
+    /// The drawn links in world space, in draw order.
+    pub segments: Vec<LinkSegment>,
+    marks: Vec<((usize, u32), [f32; 3])>,
+}
+
+#[inline]
+fn xf_point(m: &[f32; 12], p: [f32; 3]) -> [f32; 3] {
+    [
+        m[0] * p[0] + m[1] * p[1] + m[2] * p[2] + m[3],
+        m[4] * p[0] + m[5] * p[1] + m[6] * p[2] + m[7],
+        m[8] * p[0] + m[9] * p[1] + m[10] * p[2] + m[11],
+    ]
+}
+
+#[inline]
+fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+#[inline]
+fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+#[inline]
+fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+#[inline]
+fn normalized(a: [f32; 3]) -> [f32; 3] {
+    let l = dot(a, a).sqrt();
+    if l > 0.0 {
+        [a[0] / l, a[1] / l, a[2] / l]
+    } else {
+        [0.0; 3]
+    }
+}
+
+#[inline]
+fn scaled(a: [f32; 3], s: f32) -> [f32; 3] {
+    [a[0] * s, a[1] * s, a[2] * s]
+}
+
+/// Append one link instance: a unit segment along local Y (-0.5..0.5, radius 1) stretched from `a`
+/// to `b`, with cross-section `radius`, plus the colour. The basis is the segment direction with
+/// an `UP`-or-`RIGHT` reference (RIGHT when the segment is within 0.99 of vertical).
+fn push_link_instance(buf: &mut Vec<f32>, a: [f32; 3], b: [f32; 3], colour: [f32; 4], radius: f32) {
+    let y = sub(b, a);
+    let dir = normalized(y);
+    let reference = if dir[1].abs() < 0.99 {
+        [0.0, 1.0, 0.0]
+    } else {
+        [1.0, 0.0, 0.0]
+    };
+    let x = scaled(normalized(cross(dir, reference)), radius);
+    let z = scaled(normalized(cross(x, dir)), radius);
+    let o = scaled([a[0] + b[0], a[1] + b[1], a[2] + b[2]], 0.5);
+    // MultiMesh 3D layout: rows of the basis with the origin in the 4th column.
+    buf.extend_from_slice(&[
+        x[0], y[0], z[0], o[0], x[1], y[1], z[1], o[1], x[2], y[2], z[2], o[2],
+    ]);
+    buf.extend_from_slice(&colour);
+}
+
+/// Pack every link of `specs` into `out`.
+///
+/// Each end is `volume.xf * store.drawn_position_of(id)`, read now, then taken into the layer's
+/// local space by `inv` (row-major 3×4, identity when the layer is not in the tree). The ends go
+/// through [`RenderStore::drawn_position_of`], so an end on a folded node lands where the node's
+/// edges land (the fold remap in `edge_endpoint`), and one on a moving node lands where the node is
+/// drawn this frame.
+///
+/// A link whose source or target volume is `LINK_VOL_HIDDEN`, or whose end is not drawn
+/// ([`RenderStore::is_drawn_in_slot`] for the end's own volume slot: folded away, type-filtered or LOD-culled, the edge pack's own
+/// test) is skipped without being counted; one
+/// with an `UNMAPPED` volume, a `None` store or an id the store does not hold counts as
+/// unresolved; one shorter than [`LINK_MIN_LENGTH_M`] is skipped. A highlighted link is lifted
+/// toward white, thickened, and adds one ring marker per distinct end `(store, id)`.
+pub fn pack_links(
+    stores: &[Option<&RenderStore>],
+    volumes: &[LinkVolume],
+    specs: &[LinkSpec],
+    inv: &[f32; 12],
+    out: &mut LinkFrame,
+) {
+    out.buf.clear();
+    out.segments.clear();
+    out.marks.clear();
+    out.unresolved = 0;
+    for (i, s) in specs.iter().enumerate() {
+        let (Some(sv), Some(tv)) = (volumes.get(s.src_vol), volumes.get(s.dst_vol)) else {
+            out.unresolved += 1;
+            continue;
+        };
+        if sv.state == LINK_VOL_HIDDEN || tv.state == LINK_VOL_HIDDEN {
+            continue;
+        }
+        let ends = (
+            stores.get(s.src_conn).copied().flatten(),
+            stores.get(s.dst_conn).copied().flatten(),
+        );
+        let (Some(ss), Some(ts)) = ends else {
+            out.unresolved += 1;
+            continue;
+        };
+        if sv.state != LINK_VOL_DRAWABLE || tv.state != LINK_VOL_DRAWABLE {
+            out.unresolved += 1;
+            continue;
+        }
+        let (Some(pa), Some(pb)) = (
+            ss.drawn_position_of(s.src_id),
+            ts.drawn_position_of(s.dst_id),
+        ) else {
+            out.unresolved += 1;
+            continue;
+        };
+        if !ss.is_drawn_in_slot(sv.slot, s.src_id) || !ts.is_drawn_in_slot(tv.slot, s.dst_id) {
+            continue;
+        }
+        let a = xf_point(&sv.xf, pa);
+        let b = xf_point(&tv.xf, pb);
+        let (la, lb) = (xf_point(inv, a), xf_point(inv, b));
+        let d = sub(lb, la);
+        if dot(d, d).sqrt() < LINK_MIN_LENGTH_M {
+            continue;
+        }
+        let mut colour = s.colour;
+        let mut radius = LINK_RADIUS_M;
+        if s.lit {
+            for c in &mut colour {
+                *c += (1.0 - *c) * LINK_HIGHLIGHT_LIFT;
+            }
+            radius *= LINK_HIGHLIGHT_RADIUS_SCALE;
+            for (key, p) in [((s.src_conn, s.src_id), la), ((s.dst_conn, s.dst_id), lb)] {
+                match out.marks.iter_mut().find(|(k, _)| *k == key) {
+                    Some(m) => m.1 = p,
+                    None => out.marks.push((key, p)),
+                }
+            }
+        }
+        push_link_instance(&mut out.buf, la, lb, colour, radius);
+        out.segments.push(LinkSegment {
+            a,
+            b,
+            spec: i as u32,
+        });
+    }
+    out.links = out.segments.len();
+    // `inv.basis * UP` is the second basis column; markers stand along it.
+    let up = normalized([inv[1], inv[5], inv[9]]);
+    let h = scaled(up, LINK_MARKER_HEIGHT_M * 0.5);
+    for &(_, c) in &out.marks {
+        push_link_instance(
+            &mut out.buf,
+            sub(c, h),
+            [c[0] + h[0], c[1] + h[1], c[2] + h[2]],
+            [1.0; 4],
+            LINK_MARKER_RADIUS_M,
+        );
+    }
+    out.markers = out.marks.len();
 }

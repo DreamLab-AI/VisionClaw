@@ -8,7 +8,9 @@ use super::types::SocketFlowServer;
 /// Text message dispatch -- routes parsed JSON messages to the appropriate handler.
 ///
 /// Handles: ping, requestInitialData (the JSON topology), authenticate, filter_update,
-/// requestSwarmTelemetry, the node drag/unpin messages and ontology_* messages.
+/// the node drag/unpin messages and ontology_* messages. (`requestSwarmTelemetry` is gone:
+/// it streamed made-up agent positions; agents reach clients only as `0x23` frames,
+/// ADR-2142.)
 ///
 /// There is NO position request message: every registered session is streamed its positions by
 /// the client coordinator (ADR-2141) and acknowledges each chunk with a binary `BroadcastAck`.
@@ -36,9 +38,6 @@ impl SocketFlowServer {
                 }
                 Some("filter_update") => {
                     super::filter_auth::handle_filter_update(self, &msg, ctx);
-                }
-                Some("requestSwarmTelemetry") => {
-                    super::position_updates::handle_request_swarm_telemetry(self, ctx);
                 }
                 Some("ontology_validation") | Some("ontology_validation_report") => {
                     super::filter_auth::handle_ontology_validation(self, &msg, ctx);

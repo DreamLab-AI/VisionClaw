@@ -425,6 +425,10 @@ pub struct GraphServiceSupervisor {
     semantic: Option<Addr<SemanticProcessorActor>>,
     client: Option<Addr<ClientCoordinatorActor>>,
 
+    /// The real-agent `0x23` producer (ADR-2142 amendment 2026-11-01): swarm rosters and
+    /// the S5 payment projection go to it; agents are not graph nodes.
+    agent_beam: Option<Addr<crate::actors::agent_beam_actor::AgentBeamActor>>,
+
     // GPU manager address for GPU physics initialization
     gpu_manager: Option<Addr<GPUManagerActor>>,
 
@@ -517,6 +521,7 @@ impl GraphServiceSupervisor {
             gpu_manager: None,
             fc_subscribed_physics: false,
             app_gpu_compute_addr: None,
+            agent_beam: None,
             kg_repo: Some(kg_repo),
             strategy: GraphSupervisionStrategy::OneForOne,
             restart_policy: RestartPolicy::default(),
@@ -1813,30 +1818,22 @@ impl Handler<msgs::GetBotsGraphData> for GraphServiceSupervisor {
         Result<std::sync::Arc<visionclaw_domain::models::graph::GraphData>, String>,
     >;
 
+    /// The `/bots/data` roster view, from the real-agent producer (ADR-2142 amendment).
     fn handle(&mut self, msg: msgs::GetBotsGraphData, _ctx: &mut Self::Context) -> Self::Result {
-        if let Some(ref graph_state_addr) = self.graph_state {
-            let addr = graph_state_addr.clone();
-            Box::pin(
-                async move {
-                    match addr.send(msg).await {
-                        Ok(result) => result,
-                        Err(e) => {
-                            error!(
-                                "Failed to forward GetBotsGraphData to GraphStateActor: {}",
-                                e
-                            );
-                            Err(format!("Message forwarding failed: {}", e))
-                        }
-                    }
-                }
-                .into_actor(self),
-            )
-        } else {
-            warn!("GetBotsGraphData: GraphStateActor not initialized");
-            Box::pin(actix::fut::ready(Err(
-                "GraphStateActor not initialized".to_string()
-            )))
-        }
+        let Some(addr) = self.agent_beam.clone() else {
+            warn!("GetBotsGraphData: AgentBeamActor not registered");
+            return Box::pin(actix::fut::ready(Err(
+                "AgentBeamActor not registered".to_string()
+            )));
+        };
+        Box::pin(
+            async move {
+                addr.send(msg)
+                    .await
+                    .map_err(|e| format!("Message forwarding failed: {}", e))?
+            }
+            .into_actor(self),
+        )
     }
 }
 
@@ -2013,29 +2010,43 @@ impl Handler<msgs::SetAppGpuComputeAddr> for GraphServiceSupervisor {
     }
 }
 
-/// Handler for UpdateBotsGraph - delegates to GraphStateActor
+/// Register the real-agent producer (AppState starts it before the supervisor).
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct SetAgentBeamAddr {
+    pub addr: Addr<crate::actors::agent_beam_actor::AgentBeamActor>,
+}
+
+impl Handler<SetAgentBeamAddr> for GraphServiceSupervisor {
+    type Result = ();
+
+    fn handle(&mut self, msg: SetAgentBeamAddr, _ctx: &mut Self::Context) -> Self::Result {
+        self.agent_beam = Some(msg.addr);
+    }
+}
+
+/// Handler for UpdateBotsGraph: a swarm roster goes to the real-agent producer, which
+/// turns it into `0x23` presence and state frames (ADR-2142 amendment). Agents are not
+/// graph nodes, so the graph, physics and topology are untouched.
 impl Handler<msgs::UpdateBotsGraph> for GraphServiceSupervisor {
     type Result = ();
 
     fn handle(&mut self, msg: msgs::UpdateBotsGraph, _ctx: &mut Self::Context) -> Self::Result {
-        if let Some(ref graph_state_addr) = self.graph_state {
-            debug!("Forwarding UpdateBotsGraph to GraphStateActor");
-            graph_state_addr.do_send(msg);
-        } else {
-            warn!("Cannot forward UpdateBotsGraph: GraphStateActor not initialized");
+        match self.agent_beam {
+            Some(ref addr) => addr.do_send(msg),
+            None => warn!("Cannot forward UpdateBotsGraph: AgentBeamActor not registered"),
         }
     }
 }
 
-/// Handler for UpdateChainPayments - delegates to GraphStateActor (S5).
+/// Handler for UpdateChainPayments (S5): the payment projection rides the roster view.
 impl Handler<msgs::UpdateChainPayments> for GraphServiceSupervisor {
     type Result = ();
 
     fn handle(&mut self, msg: msgs::UpdateChainPayments, _ctx: &mut Self::Context) -> Self::Result {
-        if let Some(ref graph_state_addr) = self.graph_state {
-            graph_state_addr.do_send(msg);
-        } else {
-            warn!("Cannot forward UpdateChainPayments: GraphStateActor not initialized");
+        match self.agent_beam {
+            Some(ref addr) => addr.do_send(msg),
+            None => warn!("Cannot forward UpdateChainPayments: AgentBeamActor not registered"),
         }
     }
 }

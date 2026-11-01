@@ -7,8 +7,8 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 46c77c465195612c908026139731c3cef75ddefb
-verified_paths: [xr-client/rust/src/memory_route.rs, crates/visionclaw-tri-layout/src, crates/visionclaw-tri-layout/fixtures, src/actors/gpu/display_projection.rs, src/handlers/memory_flash_handler.rs, client/src/features/graph/triLayout.ts, client/src/features/graph/agentDrift.ts, client/src/features/bots/agentDriftFeed.ts, client/src/features/graph/utils/agentNudge.ts, client/src/features/visualisation/memoryCloud/cloudFrame.ts, client/src/features/graph/utils/sceneFitBounds.ts, client/src/features/visualisation/memoryCloud/cloudSprites.ts, xr-client/rust/src/cloud_frame.rs]
+verified_commit: abcf36db1460f68015133ba5196d14cdf4112e19
+verified_paths: [xr-client/rust/src/memory_route.rs, crates/visionclaw-tri-layout/src, crates/visionclaw-tri-layout/fixtures, src/actors/gpu/display_projection.rs, src/handlers/memory_flash_handler.rs, client/src/features/graph/triLayout.ts, client/src/features/graph/agentDrift.ts, client/src/features/bots/agentDriftFeed.ts, client/src/features/graph/utils/agentNudge.ts, client/src/features/graph/utils/drawnPositions.ts, client/src/features/bots/agentMarkerPass.ts, client/src/features/visualisation/memoryCloud/cloudFrame.ts, client/src/features/graph/utils/sceneFitBounds.ts, client/src/features/visualisation/memoryCloud/cloudSprites.ts, xr-client/rust/src/cloud_frame.rs, xr-client/scripts/spatial_volume.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): the operator seeing the triangle live on a backend built from main. Review: a change of the default camera direction; a fourth body joining the separated layout; agent nodes leaving the GPU graph; the XR work-layer pose rules (ADR-2109) changing; the live graph's p99 radius passing LIVE_GRAPH_RADIUS (152)"
 repo: visionclaw
@@ -57,7 +57,8 @@ back lets ~56k knowledge↔ontology cross-links (rest length ~30) pull the popul
   beads, bursts and camera rig live in the cloud's groups and follow it.
 - **Agent drift is one rule, run where agents are drawn.** Every agent body is positioned
   client-side. Desktop demo agents are injected into the client graph, live swarm agents come
-  from the separate bots graph, and XR avatars are placed by `agent_choreography.gd`. None of
+  from the separate bots graph (*superseded 2026-11-01: every agent, demo or real, reaches both
+  clients only as `0x23` frames and is drawn on the ADR-2142 marker or registry path*), and XR avatars are placed by `agent_choreography.gd`. None of
   them passes through the GPU projection, so the server keeps GPU-graph agent nodes at the
   centroid and leaves the drift to the clients. Both clients run `DriftField` from the shared
   crate: XR links it in the render store; the desktop uses `agentDrift.ts`, which replays the
@@ -70,12 +71,31 @@ back lets ~56k knowledge↔ontology cross-links (rest length ~30) pull the popul
   shown offset follows it through a first-order lag (τ 1.5 s): no overshoot or oscillation,
   and a calm glide home when idle. Drift is stored as vertex coefficients, so slider moves
   carry agents with the triangle. Agents spawn at the centroid. On the desktop the offset is
-  added to the agent's position in `GemNodes`. In XR it moves the slot a work agent rests at
+  added to the agent's position once a frame by `DrawnPositions.applyAgents` (the one drawn-positions
+  array every desktop consumer reads; 2026-11-01). That includes the bots overlay: each agent's
+  membrane, nameplate, trail, collaboration edges and payment labels ask `agentDrawnPosition` for the
+  position in their own frame, and the overlay keeps no position, smoothing or nudge of its own.
+  *Superseded 2026-11-01 (ADR-2142 amendment):* `applyAgents` and `agentDrawnPosition` are deleted; the
+  offset is added by the one marker pass (`agentMarkerPass.ts`), which every agent visual reads. In XR it moves the slot a work agent rests at
   (centroid plus drift, on an 0.18 m ring), and a new avatar materialises at the centroid.
   The choreography stays the only pose writer (Invariant 8).
-- **Desktop nudge.** In the separated layout a done or idle agent's client-side nudge offset
-  relaxes back to its server position instead of drifting outward (`agentNudge.ts`). Working
-  agents still converge on their target node, so they visit the graph they act on.
+- **Done rule (both clients) and desktop nudge.** ~~Working agents converge on their target node, so they visit the graph they
+  act on.~~ *Amended 2026-11-01:* a working agent hovers beside its target on the marker pass, with no
+  convergence; only the done run and the idle relax below act on it. **A finished agent reaches the edge of the scene in about 30 seconds and stops there
+  (owner decisions, 2026-11-01).** The edge is the bounding sphere the camera already frames
+  (`sceneFitBounds`, `sceneFitBounds.ts:57`, taken from the server positions and refreshed twice a
+  second by GraphManager), not a constant of its own. The motion runs on time, not frames: from the
+  moment the agent is recorded as `done` its distance from the scene centre is
+  `r0 + (edge - r0) * easeOutCubic(elapsed / 30 s)`, where `r0` is its distance at that moment
+  (`AGENT_EDGE_SECONDS`, `agentNudge.ts`). It therefore takes the same 30 s at 60 or 120 fps, slows
+  as it arrives, never passes the edge (an agent already beyond it is put straight onto it), and
+  once there its offset is constant: the drawn position is bit-identical and the edge skip gate
+  skips. Going back to work, or losing its work record, restarts the clock for its next finish. An
+  agent with no work on record relaxes back to its server position (`AGENT_RELAX_SNAP` ends that
+  tail), and with no known scene edge a finished agent holds still. The nudge is applied once a
+  frame by `DrawnPositions.applyAgents` (`agentNudge.ts`) from the frame's `performance.now()`,
+  not in `GemNodes`. It reads the agent's base and its work target from the drawn copy, after any
+  layout-transition LERP, so agents move with the rest of the graph during a transition.
 - **Camera.** On the desktop the auto-fit frames the sphere enclosing all three bodies whenever
   separation is above 0: each graph is one graph's folded extent at its vertex, and the cloud is
   where and as large as `cloudPlacement` puts it (only while it is on and loaded). At separation
@@ -88,8 +108,8 @@ back lets ~56k knowledge↔ontology cross-links (rest length ~30) pull the popul
 - With dual-disc on, a non-zero separation no longer means ±Z: the discs sit on the triangle.
   Anyone who relied on the depth pair must use separation 0 with dual-disc on.
 - The XR work layer keeps its single pose writer (Invariant 8). Avatars travel to their target
-  nodes, which now sit on the separated graphs, and park at centroid + drift instead of the
-  front-arc rim while separated (the rim returns at separation 0).
+  nodes, which now sit on the separated graphs, and rest at centroid + drift while separated
+  (a lapsed work record relaxes onto that slot); a finished agent runs out to the scene edge in 30 s (the done rule above, ADR-2109 amendment).
 - The two clients run the drift independently from the same events and rule, so they agree up
   to event arrival timing. There is no drift wire frame.
 - Memory activity is attributed per agent only when producers send `agentId`. Until then a
@@ -259,3 +279,62 @@ The walk fix (470dd26ae) changed `xr-client/rust/src/memory_route.rs`. It adds a
 ## Re-verification — 2026-10-31 (`46c77c465`)
 
 Re-verified 2026-11-01 at `46c77c465` (three.js 0.183 → 0.187.0, owner-approved): the only change to a governed path is a type-only cast in `cloudSprites.ts`, which passes `instancedBufferAttribute(colAttr)` as `TslNode<'vec3'>` to satisfy 0.187's stricter TSL typings. The runtime node graph is unchanged and nothing this record decides is affected. Evidence: `git diff 46c77c465^..46c77c465 -- '*cloudSprites.ts'` (2 lines). R17 review: tsc 0, vitest 140/1462, vite build OK.
+
+## Re-verification — 2026-11-01 (finished-agent drift)
+
+`client/src/features/graph/utils/agentNudge.ts` runs a finished agent's drift on time: it reaches the scene edge (`sceneFitBounds`) in `AGENT_EDGE_SECONDS` (30 s), easing out, and holds there. An agent with no work relaxes home and snaps to zero. The nudge runs in `DrawnPositions.applyAgents` (once a frame, on the single drawn-positions array). The Done rule (both clients) bullet and the 2026-11-01 amendment record the rule, which the headset shares. Tests: `agentNudge.test.ts` and `drawnPositions.test.ts` (arrival at 60 and 120 fps, never past the edge, the edge gate skipping once every finished agent has arrived).
+
+## Re-verification — 2026-11-01 (one drawn position for the bots overlay)
+
+R20 found the bots overlay (`BotsVisualization`, `BotsNode`, `BotsEdges`, `ChainPaymentLabels`, `AgentTrail`) drawing agents from the server position with its own 0.35 nudge and 0.15 smoothing, so a finished agent's body and its gem could end a scene radius apart. The overlay now resolves every agent through `agentDrawnPosition` (`client/src/features/bots/agentDrawnPosition.ts`, which calls `resolveNodeWorldPosition` on the drawn array); the nudge plumbing and the smoothing are deleted. An agent with no slot in the drawn array is hidden, not drawn elsewhere. The same change moved the drag override into the drawn array (`DrawnPositions.applyDrag`, called by GraphManager after the agent pass), so the gem, its edges, labels and inferred edges agree during a drag, and made the agent pass read its base and target from the drawn copy. Tests: `singleDrawnSource.test.ts` (no `agent.position`, `nudgeTargets` or `lerpVector3` in the overlay) and `drawnPositions.test.ts` (D1 to D3, D5).
+
+## Amendment — 2026-11-01: the drift and the done run live on the one agent path
+
+Agents are not graph nodes (ADR-2142 amendment, 2026-11-01).
+
+**What moves.** The desktop agent offset no longer runs in `DrawnPositions.applyAgents` over graph-node agent slots. That pass is deleted, along with the bots overlay's `agentDrawnPosition`. One marker pass per frame computes each registry agent's position, and every agent visual reads it:
+- the base is the hover point beside its target or, with no target, a slot on an id-hashed ring around the scene centre (at the exact centre a done agent would have no outward direction);
+- plus the `DriftField` offset (`agentDriftFeed`, unchanged);
+- plus the done run (`stepAgentOffset`, unchanged: 30 s to the scene edge, then stop).
+
+**What changes in meaning.**
+- `done` is the agent's explicit `done` state from the registry. For a real agent that comes from the server's state frame on a `Completed` or `Failed` roster status.
+- A 15 s idle no longer counts as done: resting demo agents (18–26 s rests) would otherwise run for the edge.
+- A working agent's marker is not pulled into its target node: only the done-run and relax branches of `stepAgentOffset` act on the marker.
+
+~~The headset keeps ADR-2109's park on done.~~ *Superseded 2026-11-01 (one done rule):* the headset runs the same rule, see the done-rule bullet and the amendment below.
+
+**Evidence moved.** The arrival-at-the-edge pins at 60 and 120 fps, previously in `drawnPositions.test.ts`, are now in `client/src/features/bots/__tests__/agentMarkerPass.test.ts`. That file also pins the run-then-hold for a real `task-1` agent decoded from `tests/fixtures/agents/real-agent-frames.v1.json`. `singleDrawnSource.test.ts` pins the single path: no bots component reads a position other than the marker map, and `applyAgents` and `agentDrawnPosition.ts` do not exist. The "Re-verification" paragraphs above cite the old files and are history.
+
+## Amendment — 2026-11-01: one done rule for both clients
+
+**The single definition.** A finished agent eases out from where it was to the edge of the visual scene in `AGENT_EDGE_SECONDS = 30` and stops there. Its distance from the scene centre at elapsed time `t` since it was recorded done is `r0 + (edge - r0) * easeOutCubic(t / 30 s)`, with `easeOutCubic(u) = 1 - (1 - u)^3`, `u` clamped to 0..1, along the outward direction it had when it finished. It is a function of time, never of frames, never passes the edge (an agent beyond it, or whose edge shrinks, is put straight onto it) and is constant once on it. Going back to work restarts the clock. These two values, 30 s and `easeOutCubic`, are defined here and cited by both clients:
+
+| Client | Where | The edge |
+|---|---|---|
+| Desktop | `agentNudge.ts` (`AGENT_EDGE_SECONDS`, `stepAgentOffset`) | the camera's bounding sphere (`sceneFitBounds`) |
+| Headset | `agent_choreography.gd` (`EDGE_SECONDS`, `ease_out_cubic`, `PH_EDGE`) | the overlay volume's box: `SpatialVolume.edge_radius`, half the `bounds` diagonal in world metres, about the volume origin |
+
+They are in different languages and cannot share code, so the pin is a test: `test_agent_edge_run.gd` reads `AGENT_EDGE_SECONDS` out of `agentNudge.ts` and fails if it differs from `EDGE_SECONDS`. Changing either number means changing this record and both files.
+
+**Governed change.** `agent_choreography.gd`, `spatial_volume.gd`, `graph_scene.gd`, `agentNudge.ts` (comment only). ADR-2109's park beat is deleted outright (see its amendment for the list and the verification).
+
+**What the owner should know.**
+- The headset run also stops at the head-exclusion sphere (1 m) if the user's head is on its outward ray, found once at the start of the run (ADR-2109 amendment); the desktop has no head.
+- The headset edge is the box's *inscribed* sphere (half its smallest extent), so a finished agent always stops inside the drawn knowledge-volume box. This is the owner's choice (2026-11-01) over the circumscribed sphere, which could leave an agent standing outside a box face.
+- The headset edge is the knowledge (overlay) volume's box, not the whole arrangement of three volumes: the agents' centre is that volume's origin, and an edge about a different centre would not be reached along the agent's outward line.
+- Not measured on the headset.
+
+**Re-verified at b9aed414334b9d7898e49ff399962b36ff38e084.** What ran: `cargo test` in `xr-client/rust` (620 passed, 0 failed); the full GUT suite on x86 headless Godot 4.6.1 (50 scripts, 555 tests, 545 passing, 7 failing, all in `test_memory_search.gd` and the same seven as on the parent commit in the same harness; `tests/gut_guard.sh` exit 0), including all of `test_agent_edge_run.gd` (19) and `test_agent_choreography.gd` (9); `adr-index-gen --check` (only the four baseline stale records) and the ratchet. Not repeated: the HP-Desktop VIVE run and the `--all-features` build named in the original Verification paragraph; nothing was measured in the headset.
+
+## Re-verification — 2026-10-31 (`633423357`)
+
+Re-verified 2026-11-01 after the inscribed-sphere edge change: `git diff df3e2aca5..6334233576941af20879a2b3d3d00b30ecb3c231 -- xr-client/scripts/spatial_volume.gd` replaces half the box diagonal with half its smallest extent (owner decision); this record's claims about volume bounds and agent edge placement hold.
+
+## Amendment — 2026-11-01: the finished agent holds at the edge until it leaves the roster
+
+(Owner decision.) The done rule above ends at the scene edge and does not end there in time: a finished agent holds on the edge, bit-constant, until it leaves the roster. Nothing retires it on arrival. The server's separate 30 s retirement timer (`DONE_RUN_MS`) is deleted; `retired` is sent only when the agent leaves the roster (ADR-2142 amendment of the same date), and both clients remove it on that frame. The 30 s remains defined here once, in `AGENT_EDGE_SECONDS` and `EDGE_SECONDS`, pinned equal by `test_agent_edge_run.gd`. The desktop's dead working nudge (`AGENT_NUDGE_SPEED`, the `target` parameter) and the parallel `agentWorkTargets` tracker are deleted.
+
+## Re-verification — 2026-11-01 (`abcf36db1`, branch `viz/edge-tracking`)
+
+Re-verified after the R23 fixes. The hold-at-the-edge amendment is recorded above. `agentNudge.ts` drops the working branch, `target` and `AGENT_NUDGE_SPEED`; `agentMarkerPass.ts` drops the `null` target argument. The done rule is unchanged. Every claim in this record holds. Evidence: `cargo test` in `xr-client/rust` (623 passed), server `cargo test --lib` (1781 passed, `CUDA_VISIBLE_DEVICES=1`), client vitest (1540 passed), GUT on a fresh `.so` (553 passed, 0 failed, `gut_guard` ok). Not run: the headset.

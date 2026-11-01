@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 484d9392f00967420a418cb10dc3eea331e627db
+verified_commit: 69b16867d0910f1475c4e8eb3aa9bc4df26778e5
 verified_paths: [src/layout/scc.rs, src/handlers/api_handler/analytics/cycles_handlers.rs, src/settings/api/settings_routes.rs, client/src/api/layoutApi.ts, client/src/features/graph/hooks/useCyclicNodeIds.ts, xr-client/rust/src/render_store.rs, xr-client/scripts/hud.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): the XR Shapes tab first run on a headset against a live graph. Review: before any cycle datum is added to the 52-byte position frame"
@@ -93,3 +93,23 @@ Re-stamped to `a71b2608dc905e970c69a5383eeb6880654aa4d6` (2026-11-01, ADR-2140 s
 Re-verified 2026-11-01 at `ecd78b6cb`: the only change to the governed path is `xr-client/scripts/hud.gd`, where `KEY_EDGE_FLOW` (the Key page swatch mirroring the graph's flow-edge colour) moves from cyan to gold and its label gains "breathes slowly". It changes no HUD panel palette, no tab, and nothing this record decides. Evidence: `git diff 8e92c5d5c..ecd78b6cb -- xr-client/scripts/hud.gd` (2 lines).
 
 Re-verified 2026-11-01 at `484d9392f` (xr/grab-client, ADR-2172). Changes since `a71b2608d`: `render_store.rs` gains `hunt_grabs` (ADR-2172) and `hud.gd` has a two-line edge-key edit (colour and text). Neither touches the cycle analysis or its single adjacency. The decision holds.
+
+Re-verified 2026-11-01 at `03ddc61e1` (viz/edge-tracking). `xr-client/rust/src/render_store.rs` gains seven edge/node coincidence tests, appended after the last test so no cited line moves, and `render_store_pack.rs` and `tests/node_lod.rs` re-transform the far-tier ribbons every frame instead of half per frame. Nothing this record decides changed. Evidence: `git diff 531df5ef7..838e06c13 -- xr-client/rust/src/render_store.rs xr-client/rust/src/render_store_pack.rs`; xr-client `cargo test` passes (486 library tests).
+
+## Re-verification — 2026-11-01 (`0df96bc52`)
+
+`render_store.rs` loses the dead `edge_frame` counter (field, `PackSlot` field, swap, increment; never read). The cycle analysis and layout-mode claims are untouched; `cargo test` (xr-client/rust): 610 passed, 0 failed.
+
+## Re-verification — 2026-11-01 (`e99c16d31`)
+
+`render_store.rs` changed in two ways that touch no cycle code: `position_of` goes through the fold-aware resolver (`drawn_position_of`), and the cross-volume link pack (`pack_links`) is re-exported. Cycle overlays read `position_of` only for nodes they draw, which are visible; for them the answer is unchanged. Evidence: `cargo test` 618 passed, 0 failed.
+
+## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
+
+`15acb9219` adds agent state handling to `xr-client/rust/src/render_store.rs`. The record keeps a `done` flag, and `retired` removes the agent through the existing retire path. Both are fed by ADR-2142 state frames. Nothing this record decides is touched. The decision holds unchanged.
+
+## Re-verification — 2026-11-01 (`abcf36db1`, branch `viz/edge-tracking`)
+
+Re-verified after the R23 fixes. `render_store.rs` adds `is_drawn` (the edge pack's drawn test, now also asked by the plan, beam and link packs) and removes the beam's node-id fallback. No cycle-overlay code is touched. Every claim in this record holds. Evidence: `cargo test` in `xr-client/rust` (623 passed), server `cargo test --lib` (1781 passed, `CUDA_VISIBLE_DEVICES=1`), client vitest (1540 passed), GUT on a fresh `.so` (553 passed, 0 failed, `gut_guard` ok). Not run: the headset.
+
+Re-verified again at `69b16867d`: A later commit adds `is_drawn_in_slot` (the link pack asks each end's own volume slot) beside `is_drawn`. No cycle-overlay code is touched. GUT on a fresh `.so`: 554 passed, 0 failed; `xr-client/rust` `cargo test`: 624 passed.

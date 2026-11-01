@@ -2,8 +2,6 @@ use actix::prelude::*;
 use log::{debug, info, warn};
 use std::time::Instant;
 
-use crate::utils::binary_protocol;
-use crate::utils::socket_flow_messages::BinaryNodeData;
 
 use super::types::SocketFlowServer;
 
@@ -75,99 +73,6 @@ pub(crate) fn handle_request_initial_data(
     info!("Client requested initial data - pushing initialGraphLoad directly");
     act.last_activity = now;
     act.send_full_state_sync(ctx);
-}
-
-pub(crate) fn handle_request_swarm_telemetry(
-    act: &mut SocketFlowServer,
-    ctx: &mut <SocketFlowServer as Actor>::Context,
-) {
-    debug!("Client requested enhanced swarm telemetry");
-
-    let app_state = act.app_state.clone();
-
-    ctx.spawn(
-        actix::fut::wrap_future::<_, SocketFlowServer>(async move {
-            match crate::handlers::bots_handler::fetch_hive_mind_agents(&app_state).await {
-                Ok(agents) => {
-                    let mut nodes_data = Vec::new();
-                    let mut swarm_metrics = serde_json::json!({
-                        "total_agents": agents.len(),
-                        "active_agents": 0,
-                        "avg_health": 0.0,
-                        "avg_cpu": 0.0,
-                        "avg_workload": 0.0,
-                        "total_tokens": 0,
-                        "swarm_ids": std::collections::HashSet::<String>::new(),
-                    });
-
-                    let (mut active_count, mut total_health, mut total_cpu, mut total_workload) =
-                        (0u32, 0.0f32, 0.0f32, 0.0f32);
-
-                    for (idx, agent) in agents.iter().enumerate() {
-                        if agent.status == "active" {
-                            active_count += 1;
-                        }
-                        total_health += agent.health;
-                        total_cpu += agent.cpu_usage;
-                        total_workload += agent.workload;
-
-                        let id = (1000 + idx) as u32;
-                        // Flag swarm telemetry nodes as agents for client-side rendering
-                        let flagged_id = binary_protocol::set_agent_flag(id);
-                        let node_data = BinaryNodeData {
-                            node_id: flagged_id,
-                            x: (idx as f32 * 100.0).sin() * 500.0,
-                            y: (idx as f32 * 100.0).cos() * 500.0,
-                            z: 0.0,
-                            vx: 0.0,
-                            vy: 0.0,
-                            vz: 0.0,
-                        };
-                        nodes_data.push((flagged_id, node_data));
-                    }
-
-                    let n = agents.len() as f32;
-                    if n > 0.0 {
-                        swarm_metrics["active_agents"] = serde_json::json!(active_count);
-                        swarm_metrics["avg_health"] = serde_json::json!(total_health / n);
-                        swarm_metrics["avg_cpu"] = serde_json::json!(total_cpu / n);
-                        swarm_metrics["avg_workload"] = serde_json::json!(total_workload / n);
-                        swarm_metrics["total_tokens"] = serde_json::json!(0);
-                        swarm_metrics["swarm_count"] = serde_json::json!(0);
-                    }
-
-                    (nodes_data, swarm_metrics)
-                }
-                Err(_) => (vec![], serde_json::json!({})),
-            }
-        })
-        .map(|(nodes_data, swarm_metrics), _act, ctx| {
-            if !nodes_data.is_empty() {
-                let analytics = _act.app_state.node_analytics.read().ok();
-                let analytics_ref = analytics.as_deref();
-                let sssp = _act.app_state.node_sssp.read().ok();
-                let sssp_ref = sssp.as_deref();
-                let binary_data = binary_protocol::encode_node_data_with_live_analytics(
-                    &nodes_data,
-                    analytics_ref,
-                    sssp_ref,
-                );
-                ctx.binary(binary_data);
-            }
-
-            let telemetry_response = serde_json::json!({
-                "type": "swarmTelemetry",
-                "timestamp": chrono::Utc::now().timestamp_millis(),
-                "data_source": "live",
-                "metrics": swarm_metrics,
-                "node_count": nodes_data.len()
-            });
-
-            if let Ok(msg_str) = serde_json::to_string(&telemetry_response) {
-                ctx.text(msg_str);
-            }
-        }),
-    );
 }
 
 // ---------------------------------------------------------------------------

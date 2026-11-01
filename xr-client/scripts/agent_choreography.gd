@@ -12,17 +12,27 @@ extends RefCounted
 ##
 ## Presentation phases (separate from the activity states the avatar shows):
 ##   MATERIALISE → TRAVEL → ARRIVE → WORK → (TRAVEL to a new target …)
-##   WORK → COMPLETE → PARK → REST → (brighten + TRAVEL when re-tasked)
+##   any phase, on done → EDGE (ease out to the scene edge, hold) → (TRAVEL when re-tasked)
+##   WORK, work record lapsed → REST (relax onto the rest slot) → (TRAVEL when re-tasked)
 ## Timings, speeds and comfort rules follow the embodiment plan
 ## (~/.claude/plans/agent-embodiment-redesign.md §2.3–2.5).
+##
+## The done beat is the headset half of ONE rule both clients follow (ADR-2135,
+## "Done rule (both clients)" bullet and amendment; ADR-2109): from the moment an agent is recorded as done its
+## distance from the scene centre is r0 + (edge - r0) * easeOutCubic(elapsed / 30 s),
+## r0 being its distance then. It is a function of elapsed time, so 72 and 90 Hz
+## take the same 30 s; it never passes the edge and, once on it, does not change.
+## The desktop implementation is `AGENT_EDGE_SECONDS` in
+## client/src/features/graph/utils/agentNudge.ts; the 30 s below is that value, and
+## tests/unit/test_agent_edge_run.gd fails if the two differ. The edge is the
+## overlay volume's box (SpatialVolume.edge_radius), set by GraphScene each frame.
 
 const PH_MATERIALISE := 0
 const PH_TRAVEL := 1
 const PH_ARRIVE := 2
 const PH_WORK := 3
-const PH_COMPLETE := 4
-const PH_PARK := 5
-const PH_REST := 6
+const PH_EDGE := 4     # done: easing out to the scene edge, then holding there
+const PH_REST := 5     # no work on record: relaxed onto the rest slot
 
 # Registry status codes (render_store.rs AGENT_*): 0 idle, 1 working, 2 blocked, 3 done.
 const ST_IDLE := 0
@@ -32,18 +42,22 @@ const ST_DONE := 3
 
 const MATERIALISE_SEC := 0.8
 const ARRIVE_SEC := 0.7
-const COMPLETE_SEC := 1.2
 const TRAVEL_SPEED := 0.32        # m/s, medium — legible but not a dart
 const TRAVEL_MIN_SEC := 1.0
 const TRAVEL_MAX_SEC := 6.0
-const PARK_SPEED := 0.10          # m/s, the slow drift to the rim
-const PARK_MIN_SEC := 2.0
-const PARK_MAX_SEC := 12.0
+## Seconds from done to the scene edge: ADR-2135's single value, the same number as
+## AGENT_EDGE_SECONDS in agentNudge.ts (the desktop). Do not change one without the other.
+const EDGE_SECONDS := 30.0
+## Per-90 Hz-frame relaxation toward the rest slot (the desktop AGENT_RELAX_SPEED).
+const REST_RELAX := 0.03
+const REST_REFERENCE_HZ := 90.0
+## Closer than this to the rest slot (metres) the agent sits on it.
+const REST_SNAP := 1.0e-4
 const SLOT_DISTANCE := 0.32       # work slot stands this far off the node …
 const SLOT_LIFT := 0.10           # … and this much above it
 const HOVER_AMP := 0.01           # 1 cm hover while working
 const HEAD_EXCLUSION := 1.0       # routes and slots keep this far from the head
-const ALPHA_PARKED := 0.3
+const ALPHA_FADED := 0.3          # a finished or resting agent stays present but dim
 const FADE_SEC := 2.0
 const BRIGHTEN_SEC := 0.8
 const RM_FADE_SEC := 0.4          # reduced motion: fade-out / relocate / fade-in
@@ -55,13 +69,15 @@ var reduced_motion: bool = false
 
 var _head: Vector3 = Vector3.ZERO
 var _centre: Vector3 = Vector3.ZERO
+var _edge: float = 0.0          # scene-edge radius about _centre, world metres; <= 0: unknown
 var _agents: Dictionary = {}   # id -> record Dictionary
 var _events: Array = []
 var _next_idx: int = 0
 
 
 ## Register an agent. It materialises in place at `spawn_pos` after `delay`
-## seconds (the demo staggers entrances) and parks back to `rim_slot` when done.
+## seconds (the demo staggers entrances); `rim_slot` is its rest slot (ADR-2135:
+## the centroid plus its activity drift), where it relaxes if its work record lapses.
 func add_agent(id: String, spawn_pos: Vector3, delay: float, rim_slot: Vector3) -> void:
 	if _agents.has(id):
 		return
@@ -73,7 +89,7 @@ func add_agent(id: String, spawn_pos: Vector3, delay: float, rim_slot: Vector3) 
 		"status": ST_IDLE, "has_target": false, "target_id": -1, "target_world": spawn_pos,
 		"slot": spawn_pos, "rim": rim_slot, "seed": seed_f, "idx": _next_idx,
 		"hover_t": 0.0, "lift": 0.0, "lateral": Vector3.ZERO, "rm_jumped": false,
-		"working_target": -1,
+		"working_target": -1, "run_dir": Vector3.RIGHT, "run_r0": 0.0, "run_ok": false, "run_head_limit": INF,
 	}
 	_next_idx += 1
 
@@ -98,6 +114,13 @@ func set_graph_centre(c: Vector3) -> void:
 	_centre = c
 
 
+## The scene edge, a radius in world metres about the graph centre: the overlay
+## volume's box (SpatialVolume.edge_radius). <= 0 or non-finite means unknown, and
+## a done agent then holds where it is (the desktop does the same).
+func set_scene_edge(radius: float) -> void:
+	_edge = radius if is_finite(radius) and radius > 0.0 else 0.0
+
+
 func set_rim_slot(id: String, p: Vector3) -> void:
 	if _agents.has(id):
 		_agents[id]["rim"] = p
@@ -109,11 +132,17 @@ func update_registry(id: String, status: int, has_target: bool, target_id: int, 
 	if not _agents.has(id):
 		return
 	var a: Dictionary = _agents[id]
+	var was_done: bool = int(a["status"]) == ST_DONE
 	a["status"] = status
 	a["has_target"] = has_target
 	a["target_id"] = target_id if has_target else -1
 	if has_target:
 		a["target_world"] = target_world
+	# The clock starts at the done transition, from whatever the agent was doing.
+	# (A not-yet-materialised agent starts its run when it appears: _after_settled.)
+	var phase: int = a["phase"]
+	if status == ST_DONE and not was_done and phase != PH_MATERIALISE and phase != PH_EDGE:
+		_begin_edge_run(id, a)
 
 
 ## Advance every agent by `delta` seconds.
@@ -136,7 +165,7 @@ func pose(id: String) -> Dictionary:
 		"pos": a["pos"], "alpha": a["alpha"], "phase": phase, "aim": aim,
 		"has_target": a["has_target"], "target_id": a["target_id"], "target_world": a["target_world"],
 		"working": phase == PH_ARRIVE or phase == PH_WORK,
-		"done": phase == PH_COMPLETE or phase == PH_PARK or phase == PH_REST,
+		"done": phase == PH_EDGE or phase == PH_REST,
 	}
 
 
@@ -146,6 +175,13 @@ func take_events() -> Array:
 	var out: Array = _events
 	_events = []
 	return out
+
+
+## easeOutCubic, the done run's easing (`eased` in agentNudge.ts).
+static func ease_out_cubic(u: float) -> float:
+	var x: float = clampf(u, 0.0, 1.0)
+	var inv: float = 1.0 - x
+	return 1.0 - inv * inv * inv
 
 
 static func ease_quintic(u: float) -> float:
@@ -171,7 +207,7 @@ func _tick_agent(id: String, a: Dictionary, delta: float) -> void:
 					a["alpha"] = 1.0
 					_after_settled(id, a)
 		PH_TRAVEL:
-			_advance_move(id, a, delta, false)
+			_advance_move(id, a, delta)
 		PH_ARRIVE:
 			a["pos"] = _slot_with_hover(a)
 			if float(a["t"]) >= ARRIVE_SEC:
@@ -180,14 +216,10 @@ func _tick_agent(id: String, a: Dictionary, delta: float) -> void:
 		PH_WORK:
 			a["pos"] = _slot_with_hover(a)
 			_check_work_transitions(id, a)
-		PH_COMPLETE:
-			a["pos"] = _slot_with_hover(a)
-			if float(a["t"]) >= COMPLETE_SEC:
-				_begin_park(id, a)
-		PH_PARK:
-			_advance_move(id, a, delta, true)
-			_check_rest_transitions(id, a)
+		PH_EDGE:
+			_advance_edge_run(id, a)
 		PH_REST:
+			_relax_to_rest(a, delta)
 			_check_rest_transitions(id, a)
 	_step_alpha(a, delta)
 
@@ -198,11 +230,12 @@ func _enter(a: Dictionary, phase: int) -> void:
 
 
 func _after_settled(id: String, a: Dictionary) -> void:
-	if _is_live(a) and a["has_target"]:
+	if int(a["status"]) == ST_DONE:
+		_begin_edge_run(id, a)
+	elif _is_live(a) and a["has_target"]:
 		_begin_travel(id, a)
 	else:
-		_enter(a, PH_REST)
-		_alpha_goal(a, ALPHA_PARKED, FADE_SEC)
+		_begin_rest(a)
 
 
 func _is_live(a: Dictionary) -> bool:
@@ -212,12 +245,11 @@ func _is_live(a: Dictionary) -> bool:
 
 func _check_work_transitions(id: String, a: Dictionary) -> void:
 	if int(a["status"]) == ST_DONE:
-		_enter(a, PH_COMPLETE)
-		_emit(id, a, "complete")
+		_begin_edge_run(id, a)
 		return
 	if not a["has_target"] or int(a["status"]) == ST_IDLE:
 		# Evidence expired or the agent went idle without reporting completion.
-		_begin_park(id, a)
+		_begin_rest(a)
 		return
 	if int(a["target_id"]) != int(a["working_target"]):
 		_begin_travel(id, a)
@@ -247,14 +279,83 @@ func _begin_travel(id: String, a: Dictionary) -> void:
 	_emit(id, a, "depart")
 
 
-func _begin_park(id: String, a: Dictionary) -> void:
+## Done: ease out from where the agent is to the scene edge and hold there. The run
+## is stored as a direction from the live centre and the starting radius, so a moved
+## or rescaled volume carries the agent with it (the desktop offset does the same).
+func _begin_edge_run(id: String, a: Dictionary) -> void:
 	a["working_target"] = -1
 	a.erase("working_target_world")
-	var rim: Vector3 = _away_from_head(a["rim"])
-	_setup_move(a, rim, PARK_SPEED, PARK_MIN_SEC, PARK_MAX_SEC)
-	_alpha_goal(a, ALPHA_PARKED, FADE_SEC)
-	_enter(a, PH_PARK)
-	_emit(id, a, "park")
+	var from: Vector3 = (a["pos"] as Vector3) - _centre
+	var r0: float = from.length()
+	a["run_ok"] = r0 > 0.0   # exactly at the centre there is no outward direction: hold
+	a["run_r0"] = r0
+	a["run_head_limit"] = INF
+	if r0 > 0.0:
+		a["run_dir"] = from / r0
+		a["run_head_limit"] = _head_limit(from / r0, r0)
+	_alpha_goal(a, ALPHA_FADED, FADE_SEC)
+	_enter(a, PH_EDGE)
+	_emit(id, a, "complete")
+
+
+## Radius r0 + (edge - r0) * easeOutCubic(t / EDGE_SECONDS), straight along the
+## outward direction: no lift, no head bulge, and the same under reduced motion
+## (it is slow and never a dart). It stops at the edge or, if the user's head is in
+## the way, at the head-exclusion sphere (`_head_limit`), whichever is nearer. An agent
+## that began beyond the stop, or whose edge shrank, is put straight onto it, never further out.
+func _advance_edge_run(id: String, a: Dictionary) -> void:
+	if int(a["status"]) != ST_DONE:
+		# Named again during the run (or its record lapsed): the run is over.
+		if _is_live(a) and a["has_target"]:
+			_begin_travel(id, a)
+		else:
+			_begin_rest(a)
+		return
+	if _edge <= 0.0 or not bool(a["run_ok"]):
+		a["t"] = 0.0   # the clock starts when there is an edge to run to (the desktop returns first, too)
+		return
+	var r0: float = a["run_r0"]
+	var stop: float = minf(_edge, float(a["run_head_limit"]))
+	var u: float = clampf(float(a["t"]) / EDGE_SECONDS, 0.0, 1.0)
+	var r: float = stop
+	if u < 1.0 and r0 < stop:
+		r = r0 + (stop - r0) * ease_out_cubic(u)
+	a["pos"] = _centre + (a["run_dir"] as Vector3) * r
+
+
+## Where the outward ray first enters the head-exclusion sphere, as a distance from the
+## centre, or INF when it never does ahead of the agent. Taken once when the run begins
+## and frozen, like a work slot, so turning the head moves nothing and the hold stays
+## bit-constant. The old park respected HEAD_EXCLUSION; so does the run, which stops
+## at the sphere's surface instead of passing through the user's head. An agent that
+## begins inside the sphere or past it is left alone (nothing ahead of it to protect).
+func _head_limit(dir: Vector3, r0: float) -> float:
+	var oc: Vector3 = _centre - _head
+	var b: float = oc.dot(dir)
+	var disc: float = b * b - (oc.length_squared() - HEAD_EXCLUSION * HEAD_EXCLUSION)
+	if disc < 0.0:
+		return INF
+	var entry: float = -b - sqrt(disc)
+	return entry if entry > r0 else INF
+
+
+## No work on record (not done): the agent goes back to its rest slot.
+func _begin_rest(a: Dictionary) -> void:
+	a["working_target"] = -1
+	a.erase("working_target_world")
+	_alpha_goal(a, ALPHA_FADED, FADE_SEC)
+	_enter(a, PH_REST)
+
+
+## Exponential relaxation onto the live rest slot (the desktop's relax to base):
+## frame-rate independent, and it follows the slot as the drift moves it.
+func _relax_to_rest(a: Dictionary, delta: float) -> void:
+	var pos: Vector3 = a["pos"]
+	var slot: Vector3 = _away_from_head(a["rim"])
+	if pos.distance_to(slot) < REST_SNAP:
+		a["pos"] = slot
+		return
+	a["pos"] = slot.lerp(pos, pow(1.0 - REST_RELAX, delta * REST_REFERENCE_HZ))
 
 
 func _setup_move(a: Dictionary, to: Vector3, speed: float, min_sec: float, max_sec: float) -> void:
@@ -273,7 +374,7 @@ func _setup_move(a: Dictionary, to: Vector3, speed: float, min_sec: float, max_s
 	a["lateral"] = _head_avoidance(from, to)
 
 
-func _advance_move(id: String, a: Dictionary, _delta: float, parking: bool) -> void:
+func _advance_move(id: String, a: Dictionary, _delta: float) -> void:
 	var t: float = a["t"]
 	var dur: float = maxf(float(a["dur"]), 0.001)
 	var from: Vector3 = a["from"]
@@ -288,10 +389,10 @@ func _advance_move(id: String, a: Dictionary, _delta: float, parking: bool) -> v
 			if not bool(a["rm_jumped"]):
 				a["rm_jumped"] = true
 				a["pos"] = to
-				_alpha_goal(a, ALPHA_PARKED if parking else 1.0, RM_FADE_SEC)
+				_alpha_goal(a, 1.0, RM_FADE_SEC)
 		if t >= dur:
 			a["pos"] = to
-			_finish_move(id, a, parking)
+			_finish_move(id, a)
 		return
 	var u: float = clampf(t / dur, 0.0, 1.0)
 	var e: float = ease_quintic(u)
@@ -299,15 +400,12 @@ func _advance_move(id: String, a: Dictionary, _delta: float, parking: bool) -> v
 	a["pos"] = from.lerp(to, e) + Vector3.UP * float(a["lift"]) * bulge + (a["lateral"] as Vector3) * bulge
 	if u >= 1.0:
 		a["pos"] = to
-		_finish_move(id, a, parking)
+		_finish_move(id, a)
 
 
-func _finish_move(id: String, a: Dictionary, parking: bool) -> void:
-	if parking:
-		_enter(a, PH_REST)
-	else:
-		_enter(a, PH_ARRIVE)
-		_emit(id, a, "arrive")
+func _finish_move(id: String, a: Dictionary) -> void:
+	_enter(a, PH_ARRIVE)
+	_emit(id, a, "arrive")
 
 
 func _slot_with_hover(a: Dictionary) -> Vector3:

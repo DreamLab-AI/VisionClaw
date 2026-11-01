@@ -18,6 +18,7 @@
 
 import { create } from 'zustand';
 import type { AgentActionEvent, AgentActionType } from '../services/binaryProtocol/frameTypes';
+import { isAgentStateFrame } from '../services/binaryProtocol/agentActionPayload';
 
 /** Default beam lifetime when the frame's durationMs is zero/absent (ms). */
 export const DEFAULT_BEAM_DURATION_MS = 1500;
@@ -66,6 +67,9 @@ export const useTransientBeamStore = create<TransientBeamState>((set, get) => ({
 
   pushBeams: (events: AgentActionEvent[]) => {
     if (!events || events.length === 0) return;
+    // A state frame (ADR-2142 / ADR-2135) is presence plus state: no beam, hence no heat or drift credit.
+    events = events.filter(ev => !isAgentStateFrame(ev));
+    if (events.length === 0) return;
 
     const now = performance.now();
     const incoming: TransientBeam[] = events.map(ev => ({

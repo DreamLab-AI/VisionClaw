@@ -474,7 +474,7 @@ export interface AgentVisualSettings {
   showTaskCount?: boolean;
   bioluminescentIntensity?: number;
   /** Client-only: hue-rotate each agent's base colour by a stable per-swarm
-   *  offset so swarms read as related-but-distinct families (BotsNode swarmTint).
+   *  offset so swarms read as related-but-distinct families (swarmTint, applySwarmTint).
    *  No Rust field — persisted via localStorage like the other graphTypeVisuals. */
   swarmTint?: boolean;
   /** Client-only: four configurable health→glow stops (excellent/good/warning/
@@ -491,7 +491,7 @@ export interface AgentVisualSettings {
   beamRadius?: number;
   /** Client-only: peak opacity of an action beam during its hold phase. Default 0.85. */
   beamOpacity?: number;
-  /** Client-only: fading motion-trail ribbons behind each moving agent (BotsNode →
+  /** Client-only: fading motion-trail ribbons behind each moving agent (AgentOverlay →
    *  AgentTrail). No Rust field — persisted via localStorage like the other
    *  graphTypeVisuals. Default true. */
   showTrails?: boolean;
@@ -502,7 +502,7 @@ export interface AgentVisualSettings {
    *  (default), the full 3-line nameplate only renders within nameplateFullDistance
    *  (or when the agent is hovered/selected/queen); it collapses to a single name
    *  line mid-range and hides beyond ~2.25× that distance, with ±10% hysteresis and
-   *  a near-field density guard so clustered swarms stay legible (BotsNode). No Rust
+   *  a near-field density guard so clustered swarms stay legible (AgentNameplate). No Rust
    *  field — persisted via localStorage like the other graphTypeVisuals. Default true. */
   nameplateLod?: boolean;
   /** Client-only: camera distance (world units, 10-120) under which an agent shows

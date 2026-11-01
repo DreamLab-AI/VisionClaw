@@ -30,6 +30,7 @@ import {
 } from './connectionManager';
 import { pushTransientBeams } from '../transientBeamStore';
 import { useAgentTargetStore } from '../agentTargetStore';
+import { isAgentStateFrame } from '../../services/binaryProtocol/agentActionPayload';
 import { nodeAnalyticsStore } from '../../features/analytics/store/nodeAnalyticsStore';
 
 const logger = createLogger('WebSocketStore');
@@ -432,12 +433,17 @@ function handleAgentActionTagged(data: ArrayBuffer) {
 
 function dispatchAgentActions(actions: ReturnType<typeof binaryProtocol.decodeAgentActions>) {
   if (actions.length === 0) return;
-  // Live transcript + attention heat consume this event.
-  emit('agent-action', actions);
-  // Embodied transient beams (0x23 → TransientBeamsLayer). Distinct sink,
-  // pushed in parallel so neither path can starve the other.
-  pushTransientBeams(actions);
-  // Agent→target tracking (momentum nudge in BotsVisualization).
+  // State frames (ADR-2142 / ADR-2135) are presence plus lifecycle only: they reach the registry and
+  // nothing else, so the 5 s keep-alive adds no beam, heat, drift credit or transcript line.
+  const work = actions.some(isAgentStateFrame) ? actions.filter(a => !isAgentStateFrame(a)) : actions;
+  if (work.length > 0) {
+    // Live transcript + attention heat consume this event.
+    emit('agent-action', work);
+    // Embodied transient beams (0x23 → TransientBeamsLayer). Distinct sink,
+    // pushed in parallel so neither path can starve the other.
+    pushTransientBeams(work);
+  }
+  // The agent registry: every source id with live evidence, and its lifecycle (agentTargetStore).
   useAgentTargetStore.getState().pushActions(actions);
 
   if (debugState.isDataDebugEnabled()) {

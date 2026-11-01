@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158, ADR-2166]
-verified_commit: f1fa1862c00ad627af8f45249d51b94c3a1c238f
+verified_commit: 69b16867d0910f1475c4e8eb3aa9bc4df26778e5
 verified_paths: [xr-client/scripts/graph_scene.gd, xr-client/scripts/spatial_environment.gd, xr-client/scripts/backend_connection.gd, xr-client/scripts/connection_volume_source.gd, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs, xr-client/materials/edge_flow_common.gdshaderinc, xr-client/materials/edge_flow.tres]
 owner: jjohare
 review_trigger: the first headset session grabbing in the Ontology volume and inside an entered room (reach, depth feel, two-hand comfort); or the server's drag-release unpin (stream GS) merging
@@ -60,3 +60,27 @@ acceptance_boundary: the gate, the per-hand state, the routing and transform ari
 ## Re-verification — 2026-10-31 (`f1fa1862c`)
 
 Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (ADR-2172), client/three-0187 and docs/splat-adr, each Opus-reviewed (R15/R16/R17). The governed-path changes are those merges: drag holds and release in the GPU actor and socket handler, the held-only global_speed floor, two-hand grab and the edge breathe in the XR client, and the ADR 2168->2172 comment renames. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1768 passed, 0 failed (GPU 1); vitest 142 files / 1468 (installed three 0.183; the 0.187 run is on client/three-0187); XR GUT 522 passing on 4.6.1 and 4.8 at the grab-client head. Re-run: `git diff 2257ee7fa..f1fa1862c -- <governed path>`.
+
+Re-verified 2026-11-01 at `03ddc61e1` (viz/edge-tracking). `xr-client/rust/src/render_store.rs` gains seven edge/node coincidence tests, appended after the last test so no cited line moves, and `render_store_pack.rs` and `tests/node_lod.rs` re-transform the far-tier ribbons every frame instead of half per frame. Nothing this record decides changed. Evidence: `git diff 531df5ef7..838e06c13 -- xr-client/rust/src/render_store.rs xr-client/rust/src/render_store_pack.rs`; xr-client `cargo test` passes (486 library tests).
+
+## Re-verification — 2026-11-01 (`0df96bc52`)
+
+`render_store.rs` loses the dead `edge_frame` counter and `graph_scene.gd` gains a comment edit; the two-hand grab path (`hunt_grabs`, `_grab_id`) is untouched. `cargo test` (xr-client/rust): 610 passed, 0 failed.
+
+## Re-verification — 2026-11-01 (`e99c16d31`)
+
+`RenderStore::position_of`, the gdext `node_position` and `render_aabb_ids` now answer with the node's drawn position through the fold-aware resolver. Grab start reads them (`graph_scene.gd`, `node_position` at the grab, hover and select sites): the answer differs from before only for a node fully folded into a representative. Such a member is not drawn, so it cannot be hit by a ray, and search and proximity results already map it to its representative (`canonical_visible`), so a grab never starts on one (read from the code, not exercised end to end). The held-node pack path reads the raw slots through `hunt_grabs`, unchanged. Evidence: `cargo test` 618 passed, 0 failed; the full GUT suite (including `test_grab_client.gd`, 49 scripts, 0 failing).
+
+## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
+
+`15acb9219` changes `xr-client/rust/src/binary_protocol.rs` and `render_store.rs` only on the `0x23` agent-action ingest and agent records (state frames, pure `ingest_agent_actions`, fixture tests). Nothing this record decides is touched. The decision holds unchanged.
+
+## Re-verification — 2026-11-01 at ef021a41d438d930559d9724006de56500388260
+
+`ef021a41d` changes `xr-client/scripts/graph_scene.gd` for the agent done run (a `SpatialVolume` preload, two read-only volume helpers, one `set_scene_edge` call in `_update_agents`, comment text). No grab, hold or pick code is touched; the decision holds unchanged. A claim read from the diff, not exercised separately: the grab GUT tests are in the full suite, which passes as at the parent apart from the seven baseline `test_memory_search` failures.
+
+## Re-verification — 2026-11-01 (`abcf36db1`, branch `viz/edge-tracking`)
+
+Re-verified after the R23 fixes. `binary_protocol.rs` (a doc comment, one test), `render_store.rs` (`is_drawn`, the beam-source fallback removed) and `graph_scene.gd` (a doc comment). The grab path reads `position_of`, which is unchanged. Every claim in this record holds. Evidence: `cargo test` in `xr-client/rust` (623 passed), server `cargo test --lib` (1781 passed, `CUDA_VISIBLE_DEVICES=1`), client vitest (1540 passed), GUT on a fresh `.so` (553 passed, 0 failed, `gut_guard` ok). Not run: the headset.
+
+Re-verified again at `69b16867d`: A later commit adds `is_drawn_in_slot` to `render_store.rs` and a `slots` argument to the `_tick_links` call in `graph_scene.gd`. The grab path reads `position_of`, which is unchanged. GUT on a fresh `.so`: 554 passed, 0 failed; `xr-client/rust` `cargo test`: 624 passed.

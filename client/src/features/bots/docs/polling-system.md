@@ -45,7 +45,7 @@ WebSocket Binary Updates → BotsWebSocketIntegration → Binary Protocol → Po
 ### 2. Efficient State Management
 
 - **Change Detection**: Only updates React state when data actually changes
-- **Position Interpolation**: Smooth transitions between position updates
+- **Drawn position**: the overlay draws agents at the drawn-positions array, with no interpolation of its own
 - **Batched Updates**: Prevents excessive re-renders
 - **Memory-efficient Maps**: Uses Maps instead of arrays for O(1) lookups
 
@@ -105,17 +105,13 @@ agentPollingService.configure(POLLING_PRESETS.performance);
 The polling system provides smooth real-time updates to the Three.js visualization:
 
 1. **Position Updates**: Agent positions from GPU force-directed graph
-2. **Smooth Interpolation**: Uses lerp (linear interpolation) for smooth movement
+2. **Drawn position**: `/bots/data` positions are meaningless and ignored. Agents are drawn only at their marker (`agentMarkerPass`, ADR-2142 / ADR-2135); `nodes[].id` is the agent's wire id masked to 26 bits (`BotsAgent.wireId`) and `metadataId` the agent key (`BotsAgent.id`)
 3. **Metadata Updates**: Health, status, CPU usage, etc.
 4. **Edge Updates**: Communication patterns between agents
 
-### Position Interpolation
+### Agent position
 
-```typescript
-// In BotsVisualizationFixed.tsx
-const lerpFactor = 0.15; // Smoothness factor
-lerpVector3(currentPosition, targetPosition, lerpFactor);
-```
+The bots overlay keeps no position of its own. `AgentNameplate`, `AgentTrail`, `AgentCollabEdges` and `ChainPaymentLabels` each read the marker map (`agentMarkerPosition(wireId, out)`) in their frame, joined to `/bots/data` by wire id.
 
 ## Performance Considerations
 

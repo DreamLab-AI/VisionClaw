@@ -6,7 +6,7 @@
  * Why a separate overlay (reuse-first, GPU-only-solving compliant):
  *  - It does NOT modify the optimised GlassEdges instanced pipeline or the
  *    GraphManager per-frame edge hot loop — zero risk to the asserted-edge path.
- *  - It does NO solving/layout. It reads node positions from the SAB-backed
+ *  - It does NO solving/layout. It reads node positions from the drawn-positions
  *    `nodePositionsRef` (the same buffer GlassEdges/labels read) and draws line
  *    segments between the inferred (source → target) node pairs each frame.
  *  - Gated by the `showInferred` toggle. Empty inferred set → renders nothing.
@@ -27,7 +27,7 @@ const GAP_SIZE = 0.9;
 const LINE_OPACITY = 0.85;
 
 interface InferredEdgesProps {
-  /** SAB-backed node positions, [x,y,z] per node, shared with GlassEdges. */
+  /** Drawn node positions, [x,y,z] per node, shared with GlassEdges. */
   nodePositionsRef: React.MutableRefObject<Float32Array | null>;
   /** Map from string node id to its index in the position buffer. */
   nodeIdToIndexMap: Map<string, number>;
@@ -87,7 +87,7 @@ export const InferredEdges: React.FC<InferredEdgesProps> = ({
     };
   }, [material]);
 
-  // Per-frame: pull current positions from the SAB and update the line buffer.
+  // Per-frame: pull current positions from the drawn array and update the line buffer.
   useFrame(() => {
     if (!showInferred || resolved.length === 0) {
       if (linesRef.current) linesRef.current.visible = false;

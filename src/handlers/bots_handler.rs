@@ -1,19 +1,17 @@
-use crate::actors::messages::GetBotsGraphData;
+use crate::actors::agent_roster_feed::RosterSource;
+use crate::actors::messages::{GetBotsGraphData, UpdateBotsGraph};
 use crate::actors::{CreateTask, GetTaskStatus, InterruptAgentTask, InterruptError, StopTask};
-use crate::services::bots_client::{Agent, BotsClient};
+use crate::services::bots_client::Agent;
 use crate::services::liveness_harness::CANARY_D2_STEER;
-use crate::utils::socket_flow_messages::BinaryNodeData;
 use crate::AppState;
 use actix_web::{web, HttpResponse, Responder, Result};
 use log::{error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use visionclaw_domain::models::edge::Edge;
 use visionclaw_domain::models::graph::GraphData;
-use visionclaw_domain::models::metadata::MetadataStore;
 use visionclaw_domain::models::node::Node;
 
 #[derive(Debug, Deserialize)]
@@ -86,8 +84,6 @@ pub struct SpawnAgentResponse {
 use crate::{accepted, error_json, ok_json};
 use once_cell::sync::Lazy;
 
-static BOTS_GRAPH: Lazy<Arc<RwLock<GraphData>>> =
-    Lazy::new(|| Arc::new(RwLock::new(GraphData::new())));
 static CURRENT_SWARM_ID: Lazy<Arc<RwLock<Option<String>>>> =
     Lazy::new(|| Arc::new(RwLock::new(None)));
 
@@ -108,149 +104,55 @@ pub async fn fetch_hive_mind_agents(
     }
 }
 
-// Enhanced agent to nodes conversion with hive-mind properties and Queen agent special handling
-fn convert_agents_to_nodes(agents: Vec<Agent>) -> Vec<Node> {
-    agents
-        .into_iter()
-        .enumerate()
-        .map(|(idx, agent)| {
-            let node_id = (idx + 1000) as u32;
-
-            let (_radius, vertical_offset) = match agent.agent_type.as_str() {
-                "queen" => (0.0, 0.0),
-                "coordinator" => (20.0, 2.0),
-                "researcher" => (30.0, 0.0),
-                "analyst" => (30.0, 0.0),
-                "coder" => (40.0, -1.0),
-                "optimizer" => (40.0, -1.0),
-                "tester" => (50.0, -2.0),
-                _ => (60.0, -3.0),
-            };
-
-            let (color, size) = match agent.agent_type.as_str() {
-                "queen" => ("#FFD700", 25.0),
-                "coordinator" => ("#FF6B6B", 20.0),
-                "researcher" => ("#4ECDC4", 18.0),
-                "analyst" => ("#45B7D1", 18.0),
-                "coder" => ("#95E1D3", 16.0),
-                "optimizer" => ("#F38181", 16.0),
-                "tester" => ("#F6B93B", 14.0),
-                "worker" => ("#B8E994", 12.0),
-                _ => ("#DFE4EA", 10.0),
-            };
-
-            Node {
-                id: node_id,
-                metadata_id: agent.id.clone(),
-                label: format!("{} ({})", agent.name, agent.agent_type),
-                data: BinaryNodeData {
-                    node_id,
-                    x: agent.x,
-                    y: agent.y + vertical_offset,
-                    z: agent.z,
-                    vx: 0.0,
-                    vy: 0.0,
-                    vz: 0.0,
-                }
-                .into(),
-                metadata: {
-                    let mut meta = HashMap::new();
-                    meta.insert("agent_type".to_string(), agent.agent_type.clone());
-                    meta.insert("name".to_string(), agent.name.clone());
-                    meta.insert("status".to_string(), agent.status.clone());
-                    meta.insert("cpu_usage".to_string(), agent.cpu_usage.to_string());
-                    meta.insert("memory_usage".to_string(), agent.memory_usage.to_string());
-                    meta.insert("health".to_string(), agent.health.to_string());
-                    meta.insert("workload".to_string(), agent.workload.to_string());
-                    if let Some(age) = agent.age {
-                        meta.insert("age".to_string(), age.to_string());
-                    }
-                    meta
-                },
-                file_size: 0,
-                node_type: Some("agent".to_string()),
-                size: Some(size),
-                color: Some(color.to_string()),
-                group: None,
-                user_data: None,
-                weight: Some(1.0),
-                mass: Some(1.0),
-                x: Some(agent.x),
-                y: Some(agent.y + vertical_offset),
-                z: Some(agent.z),
-                vx: Some(0.0),
-                vy: Some(0.0),
-                vz: Some(0.0),
-                owl_class_iri: None,
-            }
-        })
-        .collect()
-}
-
+/// `POST /api/bots/update` and `POST /api/bots/data`: the authenticated REST roster
+/// producer (the dev beam driver). The agents are embodied through `0x23` frames by the
+/// real-agent producer (ADR-2142 amendment 2026-11-01); the reply is the roster view.
 pub async fn update_bots_graph(
     _auth: crate::settings::auth_extractor::AuthenticatedUser,
     request: web::Json<BotsDataRequest>,
-    _state: web::Data<AppState>,
+    state: web::Data<AppState>,
 ) -> Result<impl Responder> {
-    info!(
-        "Received bots graph update with {} nodes",
-        request.nodes.len()
-    );
+    info!("Received bots roster update with {} agents", request.nodes.len());
 
-    let nodes = convert_agents_to_nodes(request.nodes.clone());
-    let edges = vec![];
-
-    let mut graph = BOTS_GRAPH.write().await;
-    graph.nodes = nodes;
-    graph.edges = edges;
-    graph.metadata = MetadataStore::default();
+    state.graph_service_addr.do_send(UpdateBotsGraph {
+        source: RosterSource::Rest,
+        agents: request.into_inner().nodes,
+        targets: Vec::new(),
+    });
+    let view = match state.graph_service_addr.send(GetBotsGraphData).await {
+        Ok(Ok(view)) => view,
+        _ => Arc::new(GraphData::new()),
+    };
 
     ok_json!(BotsResponse {
         success: true,
-        message: "Graph updated successfully".to_string(),
-        nodes: Some(graph.nodes.clone()),
-        edges: Some(graph.edges.clone()),
+        message: "Roster accepted".to_string(),
+        nodes: Some(view.nodes.clone()),
+        edges: Some(view.edges.clone()),
     })
 }
 
+/// `GET /api/bots/data`: the live roster, one record per agent keyed by its `0x23` wire id,
+/// the collaboration and payment edges between them, and the S5 `chain` view. Data for
+/// panels and docks; agents are drawn from `0x23` frames, never from this (ADR-2142).
 pub async fn get_bots_data(state: web::Data<AppState>) -> Result<impl Responder> {
-    // S5: the sidechain payment projection rides alongside the agent graph:
-    // the payments panel, the node badges' anchor state and the rehearsal
-    // script's settled-figure diff all read this one object.
+    // S5: the sidechain payment projection rides alongside the roster: the payments
+    // panel, the badges' anchor state and the rehearsal script's settled-figure diff
+    // all read this one object.
     let chain = state
         .agent_monitor_addr
         .send(crate::actors::messages::GetChainPaymentsView)
         .await
         .unwrap_or_default();
 
-    if let Ok(Ok(graph)) = state.graph_service_addr.send(GetBotsGraphData).await {
-        let nodes = &graph.nodes;
-        let edges = &graph.edges;
-        if !nodes.is_empty() {
-            info!(
-                "Retrieved bots data from graph actor: {} nodes",
-                nodes.len()
-            );
-            return ok_json!(json!({
-                "success": true,
-                "nodes": nodes,
-                "edges": edges,
-                "chain": chain,
-            }));
-        }
-    }
-
-    let graph = BOTS_GRAPH.read().await;
-    info!(
-        "Retrieved bots data from static storage: {} nodes",
-        graph.nodes.len()
-    );
-
+    let view = match state.graph_service_addr.send(GetBotsGraphData).await {
+        Ok(Ok(view)) => view,
+        _ => Arc::new(GraphData::new()),
+    };
     ok_json!(json!({
         "success": true,
-        "nodes": graph.nodes.clone(),
-        "edges": graph.edges.clone(),
-        "metadata": graph.metadata,
+        "nodes": &view.nodes,
+        "edges": &view.edges,
         "chain": chain,
     }))
 }
@@ -384,22 +286,6 @@ pub async fn get_bots_agents(state: web::Data<AppState>) -> Result<impl Responde
     }
 }
 
-// Structure for bot node data used by socket handler
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BotsNodeData {
-    pub id: u32,
-    pub data: BotData,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BotData {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-    pub vx: f32,
-    pub vy: f32,
-    pub vz: f32,
-}
 
 pub async fn spawn_agent_hybrid(
     _auth: crate::settings::auth_extractor::AuthenticatedUser,
@@ -925,30 +811,6 @@ pub async fn get_task_status(
 
 // pause_task and resume_task removed - Management API does not support pause/resume
 
-// Helper function for socket handler to get bot positions
-pub async fn get_bots_positions(bots_client: &Arc<BotsClient>) -> Vec<BotsNodeData> {
-    match bots_client.get_agents_snapshot().await {
-        Ok(agents) => agents
-            .into_iter()
-            .enumerate()
-            .map(|(idx, agent)| BotsNodeData {
-                id: (idx as u32) + 1000,
-                data: BotData {
-                    x: agent.x,
-                    y: agent.y,
-                    z: agent.z,
-                    vx: 0.0,
-                    vy: 0.0,
-                    vz: 0.0,
-                },
-            })
-            .collect(),
-        Err(e) => {
-            error!("Failed to get bots positions: {}", e);
-            vec![]
-        }
-    }
-}
 
 #[cfg(test)]
 mod steering_tests {

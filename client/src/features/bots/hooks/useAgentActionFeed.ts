@@ -4,6 +4,7 @@ import {
   AgentActionType,
   type AgentActionEvent,
 } from '@/services/BinaryWebSocketProtocol';
+import { parseActionPayload, isAgentStateFrame } from '@/services/binaryProtocol/agentActionPayload';
 
 const DEFAULT_LIMIT = 200;
 
@@ -53,32 +54,6 @@ export interface UseAgentActionFeedReturn {
   clear: () => void;
 }
 
-// The optional 0x23 payload is free-form metadata. Producers either send a JSON
-// object ({intent, verification}) or a bare intent string; decode both shapes,
-// and anything undecodable leaves both fields undefined.
-function parseActionPayload(payload?: Uint8Array): { intent?: string; verification?: string } {
-  if (!payload || payload.length === 0) return {};
-  let text: string;
-  try {
-    text = new TextDecoder('utf-8', { fatal: false }).decode(payload).trim();
-  } catch {
-    return {};
-  }
-  if (!text) return {};
-
-  if (text.startsWith('{')) {
-    try {
-      const obj = JSON.parse(text) as { intent?: unknown; verification?: unknown };
-      const intent = typeof obj.intent === 'string' ? obj.intent : undefined;
-      const verification = typeof obj.verification === 'string' ? obj.verification : undefined;
-      if (intent || verification) return { intent, verification };
-    } catch {
-      // Not JSON after all — fall through and treat the whole string as intent.
-    }
-  }
-  return { intent: text };
-}
-
 function toFeedEntry(event: AgentActionEvent, seq: number): AgentActionFeedEntry {
   const { intent, verification } = parseActionPayload(event.payload);
   return {
@@ -120,10 +95,13 @@ export function useAgentActionFeed(
       if (!Array.isArray(actions) || actions.length === 0) return;
 
       // Wire order is chronological; reverse so the batch's newest lands first.
+      // State frames are presence, not activity: the registry takes them, the transcript does not.
       const incoming = actions
+        .filter(action => !isAgentStateFrame(action))
         .map(action => toFeedEntry(action, seqRef.current++))
         .reverse();
 
+      if (incoming.length === 0) return;
       setEntries(prev => {
         const merged = incoming.concat(prev);
         return merged.length > limit ? merged.slice(0, limit) : merged;

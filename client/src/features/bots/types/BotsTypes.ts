@@ -44,23 +44,13 @@ export interface BotsAgent {
   tokenUsage?: TokenUsage;
 
 
-  position?: {
-    x: number;
-    y: number;
-    z: number;
-  };
-  velocity?: {
-    x: number;
-    y: number;
-    z: number;
-  };
+  /**
+   * The agent's wire id masked to 26 bits (`/bots/data` `nodes[].id`). The client registry keys agents by
+   * the flagged form (`agentWireId`); this is the join to the marker map. Agents have no position here:
+   * where one is drawn is decided only by the marker pass (ADR-2142 / ADR-2135).
+   */
+  wireId?: number;
 
-  
-  ssspDistance?: number; 
-  ssspParent?: number;   
-  lastPositionUpdate?: number; 
-
-  
   swarmId?: string; 
   agentMode?: 'centralized' | 'distributed' | 'strategic';
   parentQueenId?: string; 
@@ -97,6 +87,9 @@ export interface BotsEdge {
   source: string;
   target: string;
   type?: string;
+  /** Wire ids of the ends (`/bots/data` edge `source`/`target`); the markers they join are looked up by these. */
+  sourceWireId?: number;
+  targetWireId?: number;
   /** S5: present on `chain_payment` edges (one sidechain transaction each). */
   chainPayment?: ChainPaymentEdgeInfo;
   dataVolume: number;

@@ -4,6 +4,7 @@ const BackendCaps := preload("res://scripts/backend_caps.gd")
 const BackendConnection := preload("res://scripts/backend_connection.gd")
 const ConnectionVolumeSource := preload("res://scripts/connection_volume_source.gd")
 const VolumeArrangementScript := preload("res://scripts/volume_arrangement.gd")
+const SpatialVolume := preload("res://scripts/spatial_volume.gd")
 const EmulatedVolumeScene := preload("res://scenes/EmulatedVolume.tscn")
 const NativeContainerShim := preload("res://scripts/native_container_shim.gd")
 const LinkLayerScript := preload("res://scripts/link_layer.gd")
@@ -727,8 +728,8 @@ func _on_link_counts(drawn: int, unresolved: int, overflow: int) -> void:
 		hud.set_link_counts(drawn, unresolved, overflow)
 
 
-# §7.4/§7.5: refresh endpoints every frame (the layer throttles itself to
-# REFRESH_HZ) and rebuild the records when their inputs moved.
+# §7.4/§7.5: the layer rebuilds its endpoints on every tick, after the volumes and packs
+# have moved this frame; the records are rebuilt when their inputs moved.
 func _tick_links(delta: float) -> void:
 	if _link_layer == null:
 		return
@@ -736,7 +737,10 @@ func _tick_links(delta: float) -> void:
 	if _link_join_accum >= LINK_JOIN_SEC:
 		_link_join_accum = 0.0
 		_rebuild_links()
-	_link_layer.tick(delta, _volumes, _conns)
+	var slots: Dictionary = {}
+	for vid: Variant in _sources:
+		slots[vid] = int(_sources[vid].slot)
+	_link_layer.tick(delta, _volumes, _conns, slots)
 
 
 func _rebuild_links() -> void:
@@ -2679,7 +2683,7 @@ func _physics_process(delta: float) -> void:
 	# Both packs run every frame: the Rust pack plans (render_store_pack.rs) cost
 	# ~1 ms for 13k nodes + 20k edges together, so the old 45 Hz alternation (from
 	# when GDScript looped over the instances) is gone — it also left edge ends a
-	# frame behind their nodes. The far ribbon tier refreshes half per frame.
+	# frame behind their nodes. The far ribbon tier is re-transformed every frame too.
 	_pack_volumes()
 	_tick_frame_budget(delta)
 	_log_volumes(delta)
@@ -3776,6 +3780,20 @@ func _graph_centre_world() -> Vector3:
 	return v.global_position if v != null and v.is_inside_tree() else GRAPH_ANCHOR
 
 
+## The overlay volume's box (metres, its own frame) and its global scale: the scene
+## edge a finished agent runs out to is half the box's smallest extent (the inscribed sphere) in world metres
+## (SpatialVolume.edge_radius). Zeros when the volume is not in the tree, which the
+## choreography reads as "edge unknown".
+func _overlay_box() -> Vector3:
+	var v: Node3D = _volumes.get(OVERLAY_VOLUME, null)
+	return v.bounds if v != null and v.is_inside_tree() else Vector3.ZERO
+
+
+func _overlay_world_scale() -> float:
+	var v: Node3D = _volumes.get(OVERLAY_VOLUME, null)
+	return v.global_transform.basis.get_scale().x if v != null and v.is_inside_tree() else 0.0
+
+
 # ~4 Hz: mirror the registry into embodiments. New ids materialise at a rim
 # slot, vanished ids (retired demo agents, or a cleared store) despawn, and
 # every embodied agent's registry view is handed to the choreography.
@@ -3816,7 +3834,7 @@ func _reconcile_embodiment() -> void:
 # ontology / memory triangle. Each work agent's rest slot is the centroid (server
 # origin) plus its activity drift, which leans it towards the graphs it has been
 # working on and decays home when it is idle. The choreography stays the only
-# pose writer (Invariant 8): this only moves the slot it parks at.
+# pose writer (Invariant 8): this only moves the rest slot it relaxes onto.
 func _apply_drift_rest_slots() -> void:
 	if _choreo == null or _binary_client == null or not _binary_client.has_method("agent_drift_offset"):
 		return
@@ -3936,6 +3954,7 @@ func _update_agents(delta: float) -> void:
 	_ensure_effects()
 	_choreo.set_head(cam_pos)
 	_choreo.set_graph_centre(_graph_centre_world())
+	_choreo.set_scene_edge(SpatialVolume.edge_radius(_overlay_box(), _overlay_world_scale()))
 	_choreo.tick(delta)
 	if _effects != null:
 		_effects.set_head(cam_pos)

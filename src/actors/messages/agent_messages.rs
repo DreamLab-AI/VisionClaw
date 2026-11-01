@@ -28,10 +28,16 @@ use actix::prelude::*;
 
 /// Update the bots graph with agents from the external bots service.
 /// Blocked: references `crate::services::bots_client::Agent` (webxr-internal).
+/// It goes to the real-agent producer (`AgentBeamActor`), which embodies the agents
+/// through `0x23` frames (ADR-2142 amendment 2026-11-01); agents are not graph nodes.
+/// A producer's own agents that it no longer names are retired; others' are untouched.
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct UpdateBotsGraph {
+    pub source: crate::actors::agent_roster_feed::RosterSource,
     pub agents: Vec<crate::services::bots_client::Agent>,
+    /// Initial work nodes by agent id (the mock producer picks real knowledge nodes).
+    pub targets: Vec<(String, u32)>,
 }
 
 /// Injects the `AgentMonitorActor` address into `TaskOrchestratorActor`.

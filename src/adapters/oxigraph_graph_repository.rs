@@ -787,27 +787,6 @@ impl GraphRepository for OxigraphGraphRepository {
         .map_err(|e| GraphRepositoryError::AccessError(format!("join error: {e}")))?
     }
 
-    async fn get_bots_graph(&self) -> RepoResult<Arc<GraphData>> {
-        let store = self.store.clone();
-        let nodes_edges: RepoResult<(Vec<Node>, Vec<Edge>)> =
-            tokio::task::spawn_blocking(move || -> RepoResult<(Vec<Node>, Vec<Edge>)> {
-                let nodes = load_nodes_in_graph(&store, GRAPH_AGENT)?;
-                let edges = load_edges_in_graph(&store, GRAPH_AGENT)?;
-                Ok((nodes, edges))
-            })
-            .await
-            .map_err(|e| GraphRepositoryError::AccessError(format!("join error: {e}")))?;
-
-        let (nodes, edges) = nodes_edges?;
-        let graph = GraphData {
-            nodes,
-            edges,
-            metadata: HashMap::new(),
-            id_to_metadata: HashMap::new(),
-        };
-        Ok(Arc::new(graph))
-    }
-
     async fn get_constraints(&self) -> RepoResult<ConstraintSet> {
         // Constraints are owned by the constraint-set actor (Section 1).
         // Persisted constraints (cold start) live as triples under

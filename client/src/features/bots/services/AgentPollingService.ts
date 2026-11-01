@@ -214,9 +214,8 @@ export class AgentPollingService {
     try {
       const startTime = Date.now();
 
-      // Request the agent population only. Agents live in GraphStateActor's
-      // SEPARATE bots_graph_data store (UpdateBotsGraph), served by
-      // /api/bots/data — they are never merged into the main graph, so
+      // Request the agent population only. /api/bots/data is the
+      // server's RosterFeed view (agent_roster_feed.rs): agents are never merged into the main graph, so
       // /graph/data?graph_type=agent always returns empty (its PopulationFilter
       // can only match main-graph nodes).
       const raw = await unifiedApiClient.getData<Record<string, unknown>>('/bots/data');

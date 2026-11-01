@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { graphWorkerProxy } from '../managers/graphWorkerProxy'
 import { createLogger } from '../../../utils/loggerConfig'
 import { useSettingsStore } from '../../../store/settingsStore'
-import { BinaryNodeData, getActualNodeId } from '../../../types/binaryProtocol'
+import { BinaryNodeData } from '../../../types/binaryProtocol'
 import { GemNodes, GemNodesHandle } from './GemNodes'
 import { GlassEdges, GlassEdgesHandle } from './GlassEdges'
 import { InferredEdges } from './InferredEdges'
@@ -15,10 +15,13 @@ import { EdgeSettings } from '../../settings/config/settings'
 import { useAnalyticsStore, useCurrentSSSPResult } from '../../analytics/store/analyticsStore'
 import { TransientBeamsLayer, type BeamPositionResolver } from '../../visualisation/components/TransientBeamsLayer'
 import { VirtualAgentMarkers } from '../../visualisation/components/VirtualAgentMarkers'
-import { isVirtualAgentId, resolveVirtualAgentPosition } from '../../bots/virtualAgents'
-import { useAgentTargetStore } from '../../../store/agentTargetStore'
+import { agentMarkers, agentMarkerPosition, liveMarkerDeps } from '../../bots/agentMarkerPass'
 import { resolveNodeWorldPosition } from '../../visualisation/cameraFocus'
-import { useBotsData } from '../../bots/contexts/BotsDataContext'
+import { drawnPositions, fillLabelPositions } from '../utils/drawnPositions'
+import { separatedFrame } from '../triLayout'
+import { sceneFitBounds } from '../utils/sceneFitBounds'
+import { cloudFitInput } from '../hooks/useCameraAutoFit'
+import type { SceneEdge } from '../utils/agentNudge'
 import { useGraphVisualState, type GraphVisualMode } from '../hooks/useGraphVisualState'
 import { useGraphFiltering } from '../hooks/useGraphFiltering'
 import { useFpsMonitor } from '../hooks/useFpsMonitor'
@@ -128,65 +131,26 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   // clusters actually live. Reuse `typeFilteredNodes` so hulls cover exactly the
   // node set the meshes and edges render (one source of truth via renderedNodeIds).
 
-  // BotsDataContext is the single agent state source (its useAgentPolling owns the
-  // `/api/bots/agents` poll and reconciles binary SAB positions). GraphManager reads
-  // it only for the beam anchor map below — the agent bodies are rendered by the
-  // instanced capsules (agentGemRef) plus the BotsNode overlay (BotsVisualization).
-  const { botsData } = useBotsData()
   useFpsMonitor()
 
+  // THE drawn-positions array (utils/drawnPositions.ts): this frame's copy of the worker's shared
+  // buffer with the dragged node's hand position applied (agents are not in it: they are drawn from
+  // the marker map). Every consumer below, and every child handed this ref, reads it; none adds
+  // an offset of its own.
   const nodePositionsRef = useRef<Float32Array | null>(null)
+  const triFrame = useMemo(() => separatedFrame(), [])
+  // The scene's edge, where finished agents stop: the bounding sphere the camera frames, from the
+  // SERVER positions (so agents moving cannot grow it), refreshed twice a second.
+  const sceneEdgeRef = useRef<SceneEdge | null>(null)
+  const sceneEdgeTickRef = useRef(0)
 
-  // === Transient agent-action beams (0x23) — id-space resolution ===
+  // === Transient agent-action beams (0x23): where a beam starts ===
   //
-  // BotsDataContext keys each agent by the MASKED numeric node id as a string
-  // (`String(getActualNodeId(nodeId))`) — that is how its binary-position
-  // reconciliation attaches SAB positions to agents. We build a lookup from that
-  // key to the agent's live world position so source_agent_id (which may arrive
-  // with the high AGENT_NODE_FLAG bit set) resolves consistently via
-  // getActualNodeId below. Sourcing from the context (rather than a second poll)
-  // makes the anchor track live physics instead of a ≤5s telemetry snapshot.
-  const botsAgents = botsData?.agents
-  const agentPositionByMaskedId = useMemo(() => {
-    const map = new Map<string, { x: number; y: number; z: number }>()
-    for (const agent of botsAgents ?? []) {
-      if (agent.position) map.set(String(agent.id), agent.position)
-    }
-    return map
-  }, [botsAgents])
-  const agentPositionMapRef = useRef(agentPositionByMaskedId)
-  agentPositionMapRef.current = agentPositionByMaskedId
-
-  // Resolve source_agent_id → agent world position. Mask the AGENT_NODE_FLAG
-  // (and any other high flag bits) via getActualNodeId, then look up by the
-  // masked string key; fall back to the raw id for safety. Returns false when
-  // unresolvable so the beam is skipped silently.
-  const resolveAgentPosition = useCallback<BeamPositionResolver>((id, out) => {
-    const map = agentPositionMapRef.current
-    const masked = getActualNodeId(id)
-    const pos = map.get(String(masked)) ?? map.get(String(id))
-    if (pos) {
-      out.set(pos.x, pos.y, pos.z)
-      return true
-    }
-    // The shared demo's agents are not graph nodes: hover beside the node they are working on
-    // (ADR-2142). Real agents always resolve above, so this never changes them.
-    if (isVirtualAgentId(id)) {
-      return resolveVirtualAgentPosition(
-        id,
-        out,
-        useAgentTargetStore.getState(),
-        (nodeId, p) => {
-          const w = resolveNodeWorldPosition(nodeId, nodeIdToIndexMap, nodePositionsRef.current)
-          if (!w) return false
-          p.x = w.x; p.y = w.y; p.z = w.z
-          return true
-        },
-        Date.now(),
-      )
-    }
-    return false
-  }, [nodeIdToIndexMap])
+  // Agents are not graph nodes (ADR-2142 / ADR-2135). A beam's source is the agent's marker, the point the
+  // marker pass wrote this frame (hover beside its target, plus drift, plus the finished-agent run), and
+  // nothing else: no node-first lookup, so an agentbox id that happens to equal a knowledge node id cannot
+  // start a beam from that node. Returns false for an agent without a marker; the beam is then skipped.
+  const resolveAgentPosition = agentMarkerPosition
 
   // Resolve target_node_id → KG node world position from the LIVE position
   // buffer (SAB), via the same nodeIdToIndexMap the edge renderer uses. Tries
@@ -269,7 +233,9 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
 
   // ===  Layout mode transition helpers ===
   const startLayoutTransition = useCallback((targetPositions: LayoutPosition[], durationMs: number) => {
-    const positions = nodePositionsRef.current
+    // The raw shared buffer: the transition interpolates server positions, and the drawn array is
+    // re-derived from the buffer every frame.
+    const positions = graphWorkerProxy.getPositionsSync()
     const nodeCount = graphData.nodes.length
     if (!positions || nodeCount === 0) return
 
@@ -451,8 +417,11 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
         }
         if (!hasNonZero && checkLen > 0) return
       }
-      nodePositionsRef.current = positions
-      setSharedNodePositions(positions)
+      // One copy of the shared buffer per frame; everything below writes the copy, never the buffer
+      // (the worker rewrites it every 16 ms).
+      const drawn = drawnPositions.copy(positions)
+      nodePositionsRef.current = drawn
+      setSharedNodePositions(drawn)
 
       // Layout mode transition: mass-aware LERP
       if (transitionRef.current?.active) {
@@ -465,20 +434,42 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
         const nodeCount = graphData.nodes.length
         for (let i = 0; i < nodeCount; i++) {
           const idx = i * 3
-          if (idx + 2 >= positions.length) break
+          if (idx + 2 >= drawn.length) break
           const cc = connectionCountMap.get(String(i)) || 0
           const massFactor = 1.0 / (1.0 + Math.sqrt(cc) * 0.3)
           const np = Math.min(progress / massFactor, 1.0)
-          positions[idx]     = t.startPositions[idx]     + (t.targetPositions[idx]     - t.startPositions[idx])     * np
-          positions[idx + 1] = t.startPositions[idx + 1] + (t.targetPositions[idx + 1] - t.startPositions[idx + 1]) * np
-          positions[idx + 2] = t.startPositions[idx + 2] + (t.targetPositions[idx + 2] - t.startPositions[idx + 2]) * np
+          drawn[idx]     = t.startPositions[idx]     + (t.targetPositions[idx]     - t.startPositions[idx])     * np
+          drawn[idx + 1] = t.startPositions[idx + 1] + (t.targetPositions[idx + 1] - t.startPositions[idx + 1]) * np
+          drawn[idx + 2] = t.startPositions[idx + 2] + (t.targetPositions[idx + 2] - t.startPositions[idx + 2]) * np
         }
         if (rawProgress >= 1.0) { transitionRef.current.active = false; setLayoutTransitioning(false) }
       }
 
+      if (sceneEdgeRef.current === null || ++sceneEdgeTickRef.current >= 30) {
+        sceneEdgeTickRef.current = 0
+        const count = Math.min(graphData.nodes.length, Math.floor(positions.length / 3))
+        const b = sceneFitBounds(positions, count, cloudFitInput())
+        if (b) sceneEdgeRef.current = { centre: b.centre, radius: b.radius }
+      }
+
+      // The marker pass, once, after the copy: every agent's drawn point (hover beside its target, drift, the
+      // finished-agent run) goes into the marker map, which is the only agent position (ADR-2142 / ADR-2135).
+      agentMarkers.step({
+        ...liveMarkerDeps(),
+        resolveNode: resolveNodePosition,
+        triFrame,
+        edge: sceneEdgeRef.current,
+        nowMs: performance.now(),
+        wallMs: Date.now(),
+      })
+      // The hand position goes into the drawn array, once.
+      const dragNodeId = dragDataRef.current.isDragging ? dragDataRef.current.nodeId : null
+      const dragIndex = dragNodeId === null ? -1 : (nodeIdToIndexMap.get(dragNodeId) ?? -1)
+      if (dragIndex >= 0) drawnPositions.applyDrag(dragIndex, dragDataRef.current.currentNodePos3D)
+
       requestCameraFit()
 
-      const positionsValid = positions.length >= graphData.nodes.length * 3
+      const positionsValid = drawn.length >= graphData.nodes.length * 3
 
       if (positionsValid) {
         // Update label positions ref every frame (fast, no re-render)
@@ -488,19 +479,14 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
           labelArr = new Array(labelCount)
           for (let i = 0; i < labelCount; i++) labelArr[i] = { x: 0, y: 0, z: 0 }
         }
-        for (let i = 0; i < labelCount; i++) {
-          const i3 = i * 3
-          labelArr[i].x = positions[i3]
-          labelArr[i].y = positions[i3 + 1]
-          labelArr[i].z = positions[i3 + 2]
-        }
+        fillLabelPositions(drawn, labelCount, labelArr)
         labelPositionsRef.current = labelArr
         prevLabelPositionsLengthRef.current = labelCount
       }
     }
   }, -2)
 
-  // === Edge buffer computation (extracted hot loop) — runs in its own useFrame(-2) ===
+  // === Edge buffer computation (extracted hot loop) — its own useFrame(-0.5), after this pass and GemNodes ===
   useEdgeBufferComputation({
     graphData,
     nodePositionsRef,
@@ -513,7 +499,6 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
     graphTypeVisuals,
     nodeSize: nodeSettings?.nodeSize ?? 0.5,
     selectedNodeId,
-    dragDataRef,
     edgeFlowRef,
     highlightEdgeFlowRef,
     highlightEdgePoints,
@@ -661,7 +646,6 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
             nodeIdToIndexMap={nodeIdToIndexMap}
             settings={settings}
             ssspResult={normalizedSSSPResult}
-            dragDataRef={dragDataRef}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={(event: any) => handlePointerUp(event)}
@@ -723,7 +707,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
       {/* Embodied agent-action beams (0x23): agent node → KG node, coloured
           by action type, opacity fades in → holds → out over duration_ms.
           Radius/opacity are control-centre Agents → Behaviour knobs. */}
-      <VirtualAgentMarkers resolveNodePosition={resolveNodePosition} />
+      <VirtualAgentMarkers />
 
       <TransientBeamsLayer
         resolveAgentPosition={resolveAgentPosition}

@@ -180,7 +180,6 @@ pub struct GraphQueryHandlers {
     pub get_node_map: Arc<GetNodeMapHandler>,
     pub get_physics_state: Arc<GetPhysicsStateHandler>,
     pub get_auto_balance_notifications: Arc<GetAutoBalanceNotificationsHandler>,
-    pub get_bots_graph_data: Arc<GetBotsGraphDataHandler>,
     pub get_constraints: Arc<GetConstraintsHandler>,
     pub get_equilibrium_status: Arc<GetEquilibriumStatusHandler>,
     pub compute_shortest_paths: Arc<ComputeShortestPathsHandler>,
@@ -693,7 +692,9 @@ impl AppState {
         // returned Addr is intentionally dropped: the actor is kept alive by its
         // hub stream subscription, not by an external handle.
         info!("[AppState::new] Starting AgentBeamActor (ADR-059 Phase 2b)");
-        AgentBeamActor::new(client_manager_addr.clone()).start();
+        // It is also the real-agent roster producer (ADR-2142 amendment 2026-11-01), so the
+        // graph supervisor keeps its address to forward swarm rosters to it.
+        let agent_beam_addr = AgentBeamActor::new(client_manager_addr.clone()).start();
 
         // Read persisted physics from SQLite (same source the API GET uses) so a fresh
         // boot applies runtime-persisted controls (axis_compression_z, enable_dual_disc_layout,
@@ -807,6 +808,9 @@ impl AppState {
                 addr: client_manager_addr.clone(),
             },
         );
+        graph_service_addr.do_send(crate::actors::graph_service_supervisor::SetAgentBeamAddr {
+            addr: agent_beam_addr,
+        });
 
         // Store graph service address in Arc for GitHub sync task to use
         let graph_service_addr_clone = graph_service_addr.clone();
@@ -871,7 +875,6 @@ impl AppState {
             get_auto_balance_notifications: Arc::new(GetAutoBalanceNotificationsHandler::new(
                 graph_repository.clone(),
             )),
-            get_bots_graph_data: Arc::new(GetBotsGraphDataHandler::new(graph_repository.clone())),
             get_constraints: Arc::new(GetConstraintsHandler::new(graph_repository.clone())),
             get_equilibrium_status: Arc::new(GetEquilibriumStatusHandler::new(
                 graph_repository.clone(),

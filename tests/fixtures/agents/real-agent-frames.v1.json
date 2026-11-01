@@ -1,0 +1,79 @@
+{
+  "schema": "visionclaw.real-agent-frames.v1",
+  "agentKey": "task-1",
+  "wireId": 2202449087,
+  "frames": [
+    {
+      "name": "spawn",
+      "hex": "01005000bfb446830000000000e803000000007b227374617465223a22776f726b696e67222c226e616d65223a226167656e74207461736b2d31222c22696e74656e74223a226167656e74207461736b2d31227d",
+      "events": [
+        {
+          "sourceAgentId": 2202449087,
+          "targetNodeId": 0,
+          "actionType": 0,
+          "timestamp": 1000,
+          "durationMs": 0,
+          "payload": {
+            "state": "working",
+            "name": "agent task-1",
+            "intent": "agent task-1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "keepalive",
+      "hex": "01005000bfb4468300000000007017000000007b227374617465223a22776f726b696e67222c226e616d65223a226167656e74207461736b2d31222c22696e74656e74223a226167656e74207461736b2d31227d",
+      "events": [
+        {
+          "sourceAgentId": 2202449087,
+          "targetNodeId": 0,
+          "actionType": 0,
+          "timestamp": 6000,
+          "durationMs": 0,
+          "payload": {
+            "state": "working",
+            "name": "agent task-1",
+            "intent": "agent task-1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "done",
+      "hex": "01004d00bfb446830000000000581b000000007b227374617465223a22646f6e65222c226e616d65223a226167656e74207461736b2d31222c22696e74656e74223a226167656e74207461736b2d31227d",
+      "events": [
+        {
+          "sourceAgentId": 2202449087,
+          "targetNodeId": 0,
+          "actionType": 0,
+          "timestamp": 7000,
+          "durationMs": 0,
+          "payload": {
+            "state": "done",
+            "name": "agent task-1",
+            "intent": "agent task-1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "retired",
+      "hex": "01005000bfb4468300000000002823000000007b227374617465223a2272657469726564222c226e616d65223a226167656e74207461736b2d31222c22696e74656e74223a226167656e74207461736b2d31227d",
+      "events": [
+        {
+          "sourceAgentId": 2202449087,
+          "targetNodeId": 0,
+          "actionType": 0,
+          "timestamp": 9000,
+          "durationMs": 0,
+          "payload": {
+            "state": "retired",
+            "name": "agent task-1",
+            "intent": "agent task-1"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -10,7 +10,6 @@
  */
 import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
-import type * as THREE from 'three'
 import type { GraphData } from '../managers/graphDataManager'
 import type { GlassEdgesHandle } from '../components/GlassEdges'
 import type { GraphVisualMode } from './useGraphVisualState'
@@ -38,11 +37,6 @@ export interface EdgeBufferComputationOptions {
   graphTypeVisuals: any
   nodeSize: number
   selectedNodeId: string | null
-  dragDataRef: React.MutableRefObject<{
-    isDragging: boolean
-    nodeId: string | null
-    currentNodePos3D: THREE.Vector3
-  }>
   edgeFlowRef: React.RefObject<GlassEdgesHandle | null>
   highlightEdgeFlowRef: React.RefObject<GlassEdgesHandle | null>
   highlightEdgePoints: number[]
@@ -54,7 +48,7 @@ export function useEdgeBufferComputation(opts: EdgeBufferComputationOptions) {
   const {
     graphData, nodePositionsRef, nodeIdToIndexMap, connectionCountMap,
     perNodeVisualModeMap, hierarchyMap, graphMode, visibleNodeIds,
-    graphTypeVisuals, nodeSize, selectedNodeId, dragDataRef,
+    graphTypeVisuals, nodeSize, selectedNodeId,
     edgeFlowRef, highlightEdgeFlowRef, highlightEdgePoints,
     setEdgePoints, setHighlightEdgePoints,
   } = opts
@@ -94,13 +88,11 @@ export function useEdgeBufferComputation(opts: EdgeBufferComputationOptions) {
     // refiltered/cleared, so node-type visibility toggles had no effect on them.
     if (graphData.nodes.length === 0 || positions.length < graphData.nodes.length * 3) return
 
-    const isDragging = dragDataRef.current.isDragging
     const frame = {
       plan, positions,
       edgeHandle: edgeFlowRef.current,
       highlightHandle: highlightEdgeFlowRef.current,
       selectedNodeId,
-      dragging: isDragging,
     }
     // Nothing that feeds the edge buffers changed since the last frame (the
     // settled steady state): the meshes already hold this exact output.
@@ -108,17 +100,14 @@ export function useEdgeBufferComputation(opts: EdgeBufferComputationOptions) {
     if (gate.shouldSkip(frame)) return
 
     const buffers   = buffersRef.current!
-    const dragNodeId = isDragging ? dragDataRef.current.nodeId : null
-    const dragIdx   = dragNodeId === null ? -1 : (nodeIdToIndexMap.get(dragNodeId) ?? -1)
-    const dragPos   = dragDataRef.current.currentNodePos3D
 
-    const emitted = fillEdgeFrame(plan, positions, dragIdx, dragPos, buffers)
+    const emitted = fillEdgeFrame(plan, positions, buffers)
     const edgePointIdx = emitted * 6
 
     // Highlight edges for selected node
     if (selectedNodeId) {
       const selIdx = nodeIdToIndexMap.get(selectedNodeId) ?? -1
-      const hlCount = fillHighlightFrame(plan, positions, selIdx, dragIdx, dragPos, buffers)
+      const hlCount = fillHighlightFrame(plan, positions, selIdx, buffers)
       const hlIdx = hlCount * 6
       if (highlightEdgeFlowRef.current) {
         highlightEdgeFlowRef.current.updatePoints(buffers.highlight, hlIdx)
@@ -179,5 +168,7 @@ export function useEdgeBufferComputation(opts: EdgeBufferComputationOptions) {
         hasEdgeFlowRef: !!edgeFlowRef.current,
       })
     }
-  }, -2)
+  // After GraphManager's -2 pass, which builds this frame's drawn-positions array (the array
+  // `positions` is), and before the priority-0 consumers.
+  }, -0.5)
 }

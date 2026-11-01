@@ -223,8 +223,8 @@ export const useGraphEventHandlers = (
 
         drag.currentNodePos3D.copy(intersection);
 
-        // GemNodes reads dragDataRef.current.currentNodePos3D directly in useFrame,
-        // so we do NOT need to call setGraphData or setMatrixAt here.
+        // DrawnPositions.applyDrag (GraphManager's frame pass) reads
+        // dragDataRef.current.currentNodePos3D, so we do NOT need to call setGraphData or setMatrixAt here.
         // This avoids expensive React re-renders during drag (was ~16ms/frame).
 
         updateNodePosition(drag.nodeId!, {

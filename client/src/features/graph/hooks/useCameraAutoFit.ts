@@ -78,7 +78,7 @@ function fitCameraToBounds(
 }
 
 /** The memory cloud's fit input when it is on and loaded, else null. */
-function cloudFitInput(): CloudFitInput | null {
+export function cloudFitInput(): CloudFitInput | null {
   const settings = useSettingsStore.getState();
   if (!settings.get<boolean>('visualisation.embeddingCloud.enabled')) return null;
   const snapshot = useMemoryCloudStore.getState().snapshot;

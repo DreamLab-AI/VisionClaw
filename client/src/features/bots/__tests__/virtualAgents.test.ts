@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 import {
   VIRTUAL_AGENT_TTL_MS,
   isVirtualAgentId,
-  virtualAgentHoverOffset,
+  agentHoverOffset,
+  agentWireId,
+  agentMarkerColour,
+  virtualWireId,
   VIRTUAL_ROLES,
   livePresence,
-  resolveVirtualAgentPosition,
-  VIRTUAL_HOVER_RADIUS,
-  VIRTUAL_HOVER_LIFT,
 } from '../virtualAgents';
 
 const FLAG = 0x80000000;
@@ -26,17 +26,28 @@ describe('virtual agents (ADR-2142)', () => {
     expect(VIRTUAL_ROLES.map((r) => r.label)).toEqual(['Architect', 'Analyst', 'Coder', 'Reviewer', 'Tester', 'Optimizer']);
   });
 
-  it('hovers each agent at a stable, distinct point around its target, never on it', () => {
-    const seen = new Set<string>();
-    for (const r of VIRTUAL_ROLES) {
-      const a = virtualAgentHoverOffset((FLAG | r.suffix) >>> 0, 20, 8);
-      const b = virtualAgentHoverOffset((FLAG | r.suffix) >>> 0, 20, 8);
-      expect(a).toEqual(b); // stable: no jitter between frames
-      expect(Math.hypot(a.x, a.z)).toBeCloseTo(20, 5);
-      expect(a.y).toBe(8);
-      seen.add(`${a.x.toFixed(2)},${a.z.toFixed(2)}`);
-    }
-    expect(seen.size).toBe(6); // six agents on one node do not stack
+  it('hovers each agent at a stable point on a ring around its anchor, from its id hash', () => {
+    const a = agentHoverOffset(0x82123456, 20, 8);
+    expect(a).toEqual(agentHoverOffset(0x82123456, 20, 8));
+    expect(Math.hypot(a.x, a.z)).toBeCloseTo(20, 5);
+    expect(a.y).toBe(8);
+    // the flag does not matter: the 26-bit id is hashed
+    expect(agentHoverOffset(0x02123456, 20, 8)).toEqual(a);
+  });
+
+  it('normalises any id form to the flagged unsigned registry key', () => {
+    expect(agentWireId(0xd001)).toBe(0x8000d001);
+    expect(agentWireId('13')).toBe(0x8000000d);
+    expect(agentWireId(0x8200_0007)).toBe(0x82000007);
+    expect(agentWireId(0x0200_0007)).toBe(0x82000007);
+    expect(agentWireId(0x82000007)).toBeGreaterThan(0);
+  });
+
+  it('colours: a demo role keeps its own, a known type takes the type colour, the rest a stable fallback', () => {
+    expect(agentMarkerColour(virtualWireId(0xd003))).toBe(VIRTUAL_ROLES[2].colour);
+    expect(agentMarkerColour(0x82000001, 'coder', () => '#123456')).toBe('#123456');
+    expect(agentMarkerColour(0x82000001)).toBe(agentMarkerColour(0x82000001));
+    expect(agentMarkerColour(0x82000001)).toMatch(/^#[0-9a-f]{6}$/);
   });
 
   it('keeps an agent present for 30 s after its last action and not a moment longer', () => {
@@ -50,38 +61,5 @@ describe('virtual agents (ADR-2142)', () => {
   it('is longer than the server keep-alive and the longest rest, so a resting agent stays', () => {
     expect(VIRTUAL_AGENT_TTL_MS).toBe(30_000);
     expect(VIRTUAL_AGENT_TTL_MS).toBeGreaterThan(26_000); // longest rest
-  });
-
-  describe('resolveVirtualAgentPosition', () => {
-    const id = 0x8000d002;
-    const node = (_: number, out: { x: number; y: number; z: number }) => { out.x = 100; out.y = 50; out.z = -30; return true; };
-    const grab = () => { const o = { x: 0, y: 0, z: 0 }; return { o, set: (x: number, y: number, z: number) => { o.x = x; o.y = y; o.z = z; } }; };
-
-    it('puts a present agent beside its target, at the hover radius and lift', () => {
-      const out = grab();
-      const ok = resolveVirtualAgentPosition(id, out, { targets: new Map([[id, 7]]), seenAt: new Map([[id, 1000]]) }, node, 2000);
-      expect(ok).toBe(true);
-      expect(Math.hypot(out.o.x - 100, out.o.z + 30)).toBeCloseTo(VIRTUAL_HOVER_RADIUS, 5);
-      expect(out.o.y).toBe(50 + VIRTUAL_HOVER_LIFT);
-    });
-
-    it('follows its target as the layout moves it', () => {
-      const out = grab();
-      const st = { targets: new Map([[id, 7]]), seenAt: new Map([[id, 1000]]) };
-      resolveVirtualAgentPosition(id, out, st, node, 1500);
-      const first = { ...out.o };
-      resolveVirtualAgentPosition(id, out, st, (_n, o) => { o.x = 200; o.y = 50; o.z = -30; return true; }, 1600);
-      expect(out.o.x - first.x).toBeCloseTo(100, 5);
-    });
-
-    it('is absent once expired, never seen, without a target, or when the target is off screen', () => {
-      const out = grab();
-      const fresh = { targets: new Map([[id, 7]]), seenAt: new Map([[id, 1000]]) };
-      expect(resolveVirtualAgentPosition(id, out, fresh, node, 1000 + VIRTUAL_AGENT_TTL_MS)).toBe(false);
-      expect(resolveVirtualAgentPosition(0x8000d003, out, fresh, node, 1500)).toBe(false);
-      expect(resolveVirtualAgentPosition(id, out, { targets: new Map(), seenAt: new Map([[id, 1000]]) }, node, 1500)).toBe(false);
-      expect(resolveVirtualAgentPosition(id, out, fresh, () => false, 1500)).toBe(false);
-      expect(out.o).toEqual({ x: 0, y: 0, z: 0 }); // never touched on failure
-    });
   });
 });

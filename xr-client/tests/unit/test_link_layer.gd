@@ -1,36 +1,14 @@
 extends "res://addons/gut/test.gd"
 const LinkLayer := preload("res://scripts/link_layer.gd")
+const LinkFakes := preload("res://tests/fixtures/link_fakes.gd")
 
 # ADR-2164 L4 and L5: the cross-volume link layer. One MultiMesh (one draw
 # call), at most 512 instances with an overflow count, 16-float stride, off ⇒
 # zero instances in the same frame, a reconnect drops the old generation's
 # records before anything new is drawn, and a closed connection draws nothing
-# without an error. Volumes and connections are duck-typed fakes.
-
-
-class FakeVolume extends RefCounted:
-	var offset := Vector3.ZERO
-	var visible_state := true
-	var is_closed := false
-
-	func world_from_content(p: Vector3) -> Vector3:
-		return p + offset
-
-
-class FakeConn extends RefCounted:
-	var conn_id: StringName
-	var generation := 1
-	var connected := true
-	var positions := {}
-
-	func _init(id: StringName) -> void:
-		conn_id = id
-
-	func node_position(id: int) -> Vector3:
-		return positions.get(id, Vector3(float(id), 0.0, 0.0))
-
-	func is_connected_now() -> bool:
-		return connected
+# without an error. Volumes are duck-typed fakes with a content-to-world transform; each
+# connection owns a REAL gdext `BinaryProtocolClient`, so the Rust pack resolves the ends through
+# the same fold-aware answer the edges use (there is no GDScript position path to fake).
 
 
 var layer: Node3D
@@ -41,14 +19,14 @@ var conns: Dictionary
 func before_each() -> void:
 	layer = LinkLayer.new()
 	add_child_autofree(layer)
-	var code := FakeVolume.new()
+	var code := LinkFakes.FakeVolume.new()
 	code.offset = Vector3(0, 0, -2)
-	var onto := FakeVolume.new()
+	var onto := LinkFakes.FakeVolume.new()
 	onto.offset = Vector3(2, 0, 0)
-	var know := FakeVolume.new()
+	var know := LinkFakes.FakeVolume.new()
 	know.offset = Vector3(-2, 0, 0)
 	volumes = {&"codescape": code, &"ontology": onto, &"knowledge": know}
-	conns = {&"codescape": FakeConn.new(&"codescape"), &"visionclaw": FakeConn.new(&"visionclaw")}
+	conns = {&"codescape": LinkFakes.FakeConn.new(&"codescape"), &"visionclaw": LinkFakes.FakeConn.new(&"visionclaw")}
 
 
 func _rec(sid: int, tid: int, kind := "annotates", tvol := "ontology", gens := [1, 1]) -> Dictionary:
@@ -88,6 +66,22 @@ func _custom(i: int) -> Color:
 
 func _mm() -> MultiMesh:
 	return layer.multimesh_instance.multimesh
+
+
+func test_each_end_is_drawn_when_its_own_volumes_pack_slot_drew_it() -> void:
+	# Knowledge and ontology volumes of one connection pack into different slots of one store, and the
+	# slot that packed last stays active. A bridge link joins them, so each end asks its volume's slot.
+	var client: RefCounted = (conns[&"visionclaw"] as RefCounted).get("client")
+	client.set_pack_slot(5)
+	client.build_node_buffer(PackedInt32Array([10]), 1.0, 0.7, 1.9)
+	client.set_pack_slot(7)
+	client.build_node_buffer(PackedInt32Array([20]), 1.0, 0.7, 1.9)
+	layer.set_enabled(true)
+	layer.set_records("bridge", [_rec(10, 20, "bridge", "ontology")])
+	layer.tick(0.0, volumes, conns, {&"knowledge": 7, &"ontology": 5})
+	assert_eq(layer.drawn_count(), 0, "node 10 was not drawn in slot 7, nor node 20 in slot 5")
+	layer.tick(0.0, volumes, conns, {&"knowledge": 5, &"ontology": 7})
+	assert_eq(layer.drawn_count(), 1, "node 10 is drawn in slot 5 and node 20 in slot 7")
 
 
 func test_off_by_default_costs_nothing() -> void:
@@ -143,7 +137,7 @@ func test_switching_off_empties_in_the_same_frame() -> void:
 	assert_false(layer.visible)
 	assert_eq(layer.draw_calls(), 0)
 	assert_eq(layer.triangle_count(), 0)
-	# Back on: drawn again at the next tick, whatever the refresh phase.
+	# Back on: drawn again at the next tick.
 	layer.set_enabled(true)
 	layer.tick(0.0, volumes, conns)
 	assert_eq(_mm().instance_count, 2)
@@ -195,7 +189,7 @@ func test_reconnect_drops_the_old_generation_before_drawing() -> void:
 	assert_eq(_mm().instance_count, 1)
 	# Codescape reconnects: its generation moves on and nobody called drop yet.
 	conns[&"codescape"].generation = 2
-	layer.tick(LinkLayer.REFRESH_HZ, volumes, conns)
+	layer.tick(0.0, volumes, conns)
 	assert_eq(_mm().instance_count, 0, "stale record never drawn")
 	assert_eq(layer.record_count(), 0, "and discarded")
 	# The fresh join arrives with the new generation and draws.
@@ -234,16 +228,30 @@ func test_hidden_volume_hides_its_links_without_counting_them() -> void:
 	assert_eq(_mm().instance_count, 0)
 
 
-func test_endpoints_refresh_at_10_hz() -> void:
+func test_endpoints_follow_the_node_in_the_same_frame() -> void:
 	layer.set_enabled(true)
 	layer.set_records("annotates", [_rec(1, 5)])
 	layer.tick(0.0, volumes, conns)
 	var before: Vector3 = _xf(0).origin
-	conns[&"visionclaw"].positions[5] = Vector3(50, 0, 0)
-	layer.tick(0.03, volumes, conns)
-	assert_eq(_xf(0).origin, before, "not yet")
-	layer.tick(0.08, volumes, conns)
-	assert_ne(_xf(0).origin, before, "after 1/10 s")
+	conns[&"visionclaw"].move_node(5, Vector3(50, 0, 0))
+	# One tick, a sliver of a frame later: the end is already on the moved node.
+	layer.tick(0.001, volumes, conns)
+	assert_ne(_xf(0).origin, before, "moved the same frame")
+	var seg: Dictionary = layer.drawn_segments()[0]
+	assert_eq(seg["b"], volumes[&"ontology"].world_from_content(Vector3(50, 0, 0)), "bridge end = drawn node")
+	# And again, with nothing else changed: every tick re-reads the node.
+	conns[&"visionclaw"].move_node(5, Vector3(50, 7, 0))
+	layer.tick(0.001, volumes, conns)
+	assert_eq(layer.drawn_segments()[0]["b"], volumes[&"ontology"].world_from_content(Vector3(50, 7, 0)))
+
+
+func test_bridge_link_tracks_a_moved_volume_in_the_same_frame() -> void:
+	layer.set_enabled(true)
+	layer.set_records("bridge", [_rec(3, 7, "bridge")])
+	layer.tick(0.0, volumes, conns)
+	volumes[&"knowledge"].offset = Vector3(-2, 4, 0)  # the volume is carried
+	layer.tick(0.001, volumes, conns)
+	assert_eq(layer.drawn_segments()[0]["a"], volumes[&"knowledge"].world_from_content(Vector3(3, 0, 0)))
 
 
 func test_external_unresolved_is_reported() -> void:
@@ -255,3 +263,36 @@ func test_external_unresolved_is_reported() -> void:
 	assert_signal_emitted_with_parameters(layer, "counts_changed", [1, 4, 0])
 	layer.drop_connection(&"codescape")
 	assert_eq(layer.unresolved_count(), 0, "dropped with its records")
+
+
+func test_bridge_end_on_a_folded_node_is_where_its_edges_are_drawn() -> void:
+	layer.set_enabled(true)
+	layer.set_records("bridge", [_rec(3, 7, "bridge")])
+	layer.tick(0.0, volumes, conns)
+	var plain: Dictionary = layer.drawn_segments()[0]
+	assert_eq(plain["a"], volumes[&"knowledge"].world_from_content(Vector3(3, 0, 0)))
+	# Node 3 folds into node 1 on the VisionClaw connection; once it has arrived, the edge pack
+	# draws node 3's edges on node 1, so the link end must be there too.
+	var vc: RefCounted = conns[&"visionclaw"].client
+	vc.set_fold_plan(PackedInt32Array(), PackedInt32Array([3]), PackedInt32Array([1]))
+	for _i: int in 200:
+		vc.hunt(0.5, -1, Vector3.ZERO)
+	layer.tick(0.001, volumes, conns)
+	var folded: Dictionary = layer.drawn_segments()[0]
+	assert_eq(folded["a"], volumes[&"knowledge"].world_from_content(vc.node_position(1)), "on the representative")
+	assert_ne(folded["a"], plain["a"], "no longer at the hidden member")
+	assert_eq(vc.node_position(3), vc.node_position(1), "the client answers with the drawn position")
+
+
+func test_an_id_the_store_does_not_hold_is_unresolved_not_drawn_at_the_origin() -> void:
+	layer.set_enabled(true)
+	layer.set_records("bridge", [_rec(3, 9000, "bridge")])
+	layer.tick(0.0, volumes, conns)
+	assert_eq(_mm().instance_count, 0)
+	assert_eq(layer.unresolved_count(), 1)
+
+
+func test_link_layer_holds_no_position_path_of_its_own() -> void:
+	var src := FileAccess.get_file_as_string("res://scripts/link_layer.gd")
+	for banned: String in ["node_position", "world_from_content", "func _pack", "_seg_a"]:
+		assert_false(src.contains(banned), "link_layer.gd must not contain '%s': the Rust pack resolves and packs" % banned)

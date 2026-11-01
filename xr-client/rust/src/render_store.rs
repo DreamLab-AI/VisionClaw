@@ -34,6 +34,11 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 // private state without widening any visibility.
 #[path = "render_store_pack.rs"]
 mod pack;
+pub use pack::{
+    pack_links, LinkFrame, LinkSegment, LinkSpec, LinkVolume, LINK_HIGHLIGHT_LIFT,
+    LINK_HIGHLIGHT_RADIUS_SCALE, LINK_MARKER_HEIGHT_M, LINK_MARKER_RADIUS_M, LINK_MIN_LENGTH_M,
+    LINK_RADIUS_M, LINK_STRIDE, LINK_VOL_DRAWABLE, LINK_VOL_HIDDEN, LINK_VOL_UNMAPPED,
+};
 
 /// One `search_labels` match. `Ord` is defined so that a GREATER value is a WORSE
 /// result (higher rank tier, then lower centrality, then larger id) — a max-heap
@@ -478,6 +483,9 @@ pub struct AgentRec {
     pub expired: bool,
     /// Current task line from the JSON `state` channel (empty until it arrives).
     pub task: String,
+    /// Display name from a `0x23` state frame (ADR-2142 amendment: real agents have
+    /// no graph node to take a label from). Empty until one arrives.
+    pub name: String,
 }
 
 impl AgentRec {
@@ -648,8 +656,6 @@ pub struct RenderStore {
     node_plan: pack::NodePlan,
     edge_plan: pack::EdgePlan,
     scratch: pack::PackScratch,
-    // Edge LOD frame counter: the far ribbon tier is repacked on even frames.
-    edge_frame: u64,
     // Pack slots (ADR-2159 D4, XR phase-1 §7.7): two volumes fed by one connection pack
     // different id lists every frame. Each slot keeps its own plans and last-pack outputs so
     // they never invalidate each other; the fields above always hold the active slot's state
@@ -674,7 +680,6 @@ struct PackSlot {
     node_plan: pack::NodePlan,
     edge_plan: pack::EdgePlan,
     scratch: pack::PackScratch,
-    edge_frame: u64,
 }
 
 /// Distinct query-variable palette colours before they cycle — matches the client
@@ -807,7 +812,6 @@ impl RenderStore {
         swap(&mut self.node_plan, &mut other.node_plan);
         swap(&mut self.edge_plan, &mut other.edge_plan);
         swap(&mut self.scratch, &mut other.scratch);
-        swap(&mut self.edge_frame, &mut other.edge_frame);
     }
 
     /// Record a node's `file_size` (bytes) for the metadata size formula. Merges
@@ -1152,8 +1156,8 @@ impl RenderStore {
         }
     }
 
-    /// Drop the embodiment anchor for one agent (its beam falls back to the
-    /// streamed node position, or disappears if the agent has none).
+    /// Drop the embodiment anchor for one agent; its beam disappears (the anchor is the only
+    /// beam source).
     pub fn clear_agent_anchor(&mut self, agent_id: u32) {
         self.agent_anchors.remove(&(agent_id & NODE_ID_MASK));
     }
@@ -1161,6 +1165,41 @@ impl RenderStore {
     /// Anchor for an agent, if the scene has published one.
     pub fn agent_anchor(&self, agent_id: u32) -> Option<[f32; 3]> {
         self.agent_anchors.get(&(agent_id & NODE_ID_MASK)).copied()
+    }
+
+    /// Apply a `0x23` **state frame** (ADR-2142 amendment 2026-11-01): presence and state
+    /// of a registry agent, from the server's real-agent producer. Unlike
+    /// [`record_agent_action`](Self::record_agent_action) it is not work evidence: it adds
+    /// no heat and no drift credit. `working`/`done` go through the timestamped state
+    /// channel ([`set_agent_state_at`](Self::set_agent_state_at)); a non-zero target
+    /// becomes the agent's work node; `name` labels it; `retired` removes it outright.
+    /// Returns whether anything was applied.
+    pub fn apply_agent_state_frame(
+        &mut self,
+        agent_id: u32,
+        target_node_id: u32,
+        state: &str,
+        task: &str,
+        name: &str,
+        timestamp: u32,
+    ) -> bool {
+        if state == "retired" {
+            return self.retire_agents(&[agent_id]) > 0;
+        }
+        if !self.set_agent_state_at(agent_id, state, task, timestamp) {
+            return false;
+        }
+        let rec = self
+            .agent_registry
+            .entry(agent_id & NODE_ID_MASK)
+            .or_default();
+        if target_node_id != 0 {
+            rec.target_node_id = target_node_id & NODE_ID_MASK;
+        }
+        if !name.is_empty() {
+            rec.name = name.to_owned();
+        }
+        true
     }
 
     /// Remove agents from the registry outright (record + anchor). This is the
@@ -1397,7 +1436,7 @@ impl RenderStore {
             }
         }
         for (m, old_r) in to_unfold {
-            let rp = self.position_of(old_r);
+            let rp = self.raw_position_of(old_r);
             if let Some(&slot) = self.id_index.get(&m) {
                 self.positions[slot] = rp;
             }
@@ -1532,11 +1571,15 @@ impl RenderStore {
         );
     }
 
-    /// Primary label for a node (empty string if unknown).
+    /// Primary label for a node (empty string if unknown). An agent with no graph node
+    /// (every swarm agent, ADR-2142) answers with the name its state frames carry.
     pub fn label_of(&self, node_id: u32) -> String {
-        self.meta
-            .get(&node_id)
-            .map(|m| m.label.clone())
+        if let Some(m) = self.meta.get(&node_id) {
+            return m.label.clone();
+        }
+        self.agent_registry
+            .get(&(node_id & NODE_ID_MASK))
+            .map(|r| r.name.clone())
             .unwrap_or_default()
     }
 
@@ -1750,7 +1793,9 @@ impl RenderStore {
             HashMap::new()
         } else {
             let reps: HashSet<u32> = self.folding.values().copied().collect();
-            reps.into_iter().map(|r| (r, self.position_of(r))).collect()
+            reps.into_iter()
+                .map(|r| (r, self.raw_position_of(r)))
+                .collect()
         };
         // Embodiment (Pillar 1): an active agent NODE eases toward a HOVER point near
         // the node it is working on, instead of its server layout target — so the
@@ -1810,7 +1855,7 @@ impl RenderStore {
                 .folding
                 .iter()
                 .filter(|(&m, &r)| {
-                    dist2(self.position_of(m), self.position_of(r)) < FOLD_ARRIVE_EPS2
+                    dist2(self.raw_position_of(m), self.raw_position_of(r)) < FOLD_ARRIVE_EPS2
                 })
                 .map(|(&m, _)| m)
                 .collect();
@@ -2039,7 +2084,7 @@ impl RenderStore {
                     continue;
                 }
             }
-            if !self.drawn.contains(&s) || !self.drawn.contains(&t) {
+            if !self.is_drawn(s) || !self.is_drawn(t) {
                 continue;
             }
             let (Some(&ss), Some(&ts)) = (self.id_index.get(&s), self.id_index.get(&t)) else {
@@ -2077,15 +2122,14 @@ impl RenderStore {
     /// colour and shape — and **a = agent status code** so the beam shader
     /// slows and dims a blocked agent's stream).
     ///
-    /// The beam's source is the agent's embodiment anchor when the scene has
-    /// published one ([`set_agent_anchors`](Self::set_agent_anchors)), else the
-    /// agent's own streamed node position (agent nodes ride the binary wire with
-    /// `AGENT_NODE_FLAG`, upserted like any node). `target_node_id` is a plain
-    /// graph node, so `id_index` resolves it — no DID mapping needed. The
-    /// cylinder's local Y runs agent→target, so the shader's pulse flows from the
-    /// agent toward the node it is working on. Agents whose source or target is
-    /// not yet known, or whose endpoints coincide, are skipped. Pure/per-frame —
-    /// GDScript does one buffer assignment.
+    /// The beam's source is the agent's embodiment anchor, published by the scene
+    /// ([`set_agent_anchors`](Self::set_agent_anchors)), and nothing else. An agent is not a
+    /// graph node, so its id is never looked up in `id_index`: a registry id that happens to
+    /// equal a node id must not start a beam on that node. An agent with no anchor yet has no
+    /// beam. `target_node_id` is a plain graph node, so `id_index` resolves it. The
+    /// cylinder's local Y runs agent→target, so the shader's pulse flows from the agent toward
+    /// the node it is working on. Agents whose source or target is not yet known, or whose
+    /// endpoints coincide, are skipped. Pure/per-frame — GDScript does one buffer assignment.
     pub fn build_beam_buffer(&self, radius_comp: f32) -> Vec<f32> {
         let mut buf = Vec::new();
         for (&agent_id, rec) in &self.agent_registry {
@@ -2099,18 +2143,14 @@ impl RenderStore {
             // build_edge_buffer's gate. This stops a hidden/folded/culled target
             // from receiving a beam into empty space.
             let target = self.edge_endpoint(rec.target_node_id);
-            if !self.drawn.contains(&target) {
+            if !self.is_drawn(target) {
                 continue;
             }
             let Some(&ts) = self.id_index.get(&target) else {
                 continue;
             };
-            let source = match self.agent_anchors.get(&agent_id) {
-                Some(&anchor) => anchor,
-                None => match self.id_index.get(&agent_id) {
-                    Some(&as_) => self.positions[as_],
-                    None => continue,
-                },
+            let Some(&source) = self.agent_anchors.get(&agent_id) else {
+                continue;
             };
             if let Some(tf) = edge_transform12(source, self.positions[ts], radius_comp) {
                 buf.extend_from_slice(&tf);
@@ -2234,8 +2274,49 @@ impl RenderStore {
         &self.ids
     }
 
-    /// Current render position of a node (zeros if unknown) — used at grab start.
+    /// Whether a node is DRAWN: the slot its edges attach to ([`edge_endpoint`](Self::edge_endpoint))
+    /// is in the `drawn` set, which encodes the fold plan, the type-visibility filter and the
+    /// LOD budget. The one drawn/visibility test: the edge pack, the edge plan, the beam pack
+    /// and the link pack all ask it, so a hidden or culled end hides everything that ends on it.
+    pub fn is_drawn(&self, node_id: u32) -> bool {
+        self.is_drawn_in_slot(self.active_slot, node_id)
+    }
+
+    /// [`is_drawn`](Self::is_drawn) against the drawn set of pack slot `slot`: the active slot's
+    /// set when it is the active one, else the parked one (an unknown slot has drawn nothing).
+    /// The volumes of one connection pack into different slots of one store, so a link end asks
+    /// its own volume's slot and not whichever slot packed last.
+    pub fn is_drawn_in_slot(&self, slot: i64, node_id: u32) -> bool {
+        let drawn = if slot == self.active_slot {
+            Some(&self.drawn)
+        } else {
+            self.parked_slots.get(&slot).map(|p| &p.drawn)
+        };
+        drawn.is_some_and(|d| d.contains(&self.edge_endpoint(node_id)))
+    }
+
+    /// Where a node is DRAWN: the position of the slot its edges attach to
+    /// ([`edge_endpoint`](Self::edge_endpoint)), so a fully folded member answers with
+    /// its representative's position and a member animating in or out with its own.
+    /// `None` when the store holds neither. This is the one answer to "where is this
+    /// node drawn" for an edge end, a link end or a grab: the edge pack, the link pack
+    /// and [`position_of`](Self::position_of) all read it.
+    pub fn drawn_position_of(&self, node_id: u32) -> Option<[f32; 3]> {
+        self.id_index
+            .get(&self.edge_endpoint(node_id))
+            .map(|&s| self.positions[s])
+    }
+
+    /// Current drawn position of a node (zeros if unknown) — used at grab start. Goes
+    /// through the fold-aware resolver ([`drawn_position_of`](Self::drawn_position_of)).
     pub fn position_of(&self, node_id: u32) -> [f32; 3] {
+        self.drawn_position_of(node_id).unwrap_or([0.0, 0.0, 0.0])
+    }
+
+    /// The node's own slot position, ignoring the fold plan. Only the fold animation
+    /// itself needs this (it moves members toward their representative's slot); every
+    /// reader of "where is it drawn" uses [`drawn_position_of`](Self::drawn_position_of).
+    fn raw_position_of(&self, node_id: u32) -> [f32; 3] {
         self.id_index
             .get(&node_id)
             .map(|&s| self.positions[s])
@@ -2587,6 +2668,8 @@ mod tests {
         // A 0x23 action makes agent 5 WORKING on node 20, agent 6 on the unknown 30.
         s.record_agent_action(5, 20, 0, 100, "reading");
         s.record_agent_action(6, 30, 0, 100, "");
+        // The scene publishes an embodiment anchor for each agent: the only beam source.
+        s.set_agent_anchors(&[5, 6], &[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]);
         // Beams gate on the target being DRAWN; draw agent+target (30 is unknown so
         // it never enters the drawn set even if listed).
         s.build_node_buffer(&[5, 6, 20, 30], 1.0, 0.7, 1.9);
@@ -2800,20 +2883,39 @@ mod tests {
         // midpoint: anchor (2,4,0) → target (0,4,0) ⇒ (1,4,0).
         assert!(approx(buf[3], 1.0) && approx(buf[7], 4.0) && approx(buf[11], 0.0));
 
-        // An anchor wins over a streamed node position for an embodied live agent.
-        s.upsert(5, [0.0, 0.0, 0.0], 0, 0.0, 0.0);
+        // A second embodied agent beams too, from its own anchor.
         s.record_agent_action(5, 20, 0, 100, "");
-        s.build_node_buffer(&[5, 20], 1.0, 0.7, 1.9);
+        s.build_node_buffer(&[20], 1.0, 0.7, 1.9);
         s.set_agent_anchors(&[5], &[[0.0, 2.0, 0.0]]);
         let buf = s.build_beam_buffer(1.0);
         let n = buf.len() / EDGE_STRIDE_TYPED;
         assert_eq!(n, 2, "both agents beam");
-        // Non-finite anchors are ignored; clearing falls back to the node position.
+        // Non-finite anchors are ignored; clearing the anchor removes that agent's beam.
         s.set_agent_anchors(&[5], &[[f32::NAN, 0.0, 0.0]]);
         assert_eq!(s.agent_anchor(5), Some([0.0, 2.0, 0.0]));
         s.clear_agent_anchor(5);
         assert_eq!(s.agent_anchor(5), None);
-        assert_eq!(s.build_beam_buffer(1.0).len() / EDGE_STRIDE_TYPED, 2);
+        assert_eq!(s.build_beam_buffer(1.0).len() / EDGE_STRIDE_TYPED, 1);
+    }
+
+    #[test]
+    fn a_beam_never_starts_on_a_graph_node_that_shares_the_agents_id() {
+        // Hub-counter agent ids are small numbers that collide with compact graph ids. The beam
+        // source is the agent registry's anchor only; an anchorless agent has no beam.
+        let mut s = RenderStore::new();
+        s.upsert(5, [0.0, 0.0, 0.0], 0, 0.0, 0.0); // a knowledge node that happens to be id 5
+        s.upsert(20, [0.0, 4.0, 0.0], 0, 0.0, 0.0);
+        s.record_agent_action(5, 20, 0, 100, "reading"); // an agent whose id is also 5
+        s.build_node_buffer(&[5, 20], 1.0, 0.7, 1.9);
+        assert!(
+            s.build_beam_buffer(1.0).is_empty(),
+            "no anchor ⇒ no beam, whatever node shares the id"
+        );
+        s.set_agent_anchors(&[5], &[[2.0, 4.0, 0.0]]);
+        let buf = s.build_beam_buffer(1.0);
+        assert_eq!(buf.len(), EDGE_STRIDE_TYPED);
+        // Midpoint of anchor (2,4,0) and target (0,4,0): the beam starts at the anchor, not node 5.
+        assert!(approx(buf[3], 1.0) && approx(buf[7], 4.0));
     }
 
     #[test]
@@ -2928,6 +3030,7 @@ mod tests {
         s.upsert(20, [0.0, 4.0, 0.0], 0, 0.0, 0.0); // target member
         s.upsert(21, [3.0, 4.0, 0.0], 0, 0.0, 0.0); // fold representative
         s.record_agent_action(5, 20, 0, 100, "working");
+        s.set_agent_anchors(&[5], &[[0.0, 0.0, 0.0]]);
 
         // (a) Target known but NOT drawn yet ⇒ no beam (no beam into an unrendered node).
         assert!(
@@ -4273,6 +4376,7 @@ mod tests {
         s.upsert(5, [0.0, 0.0, 0.0], 0, 0.0, 0.0);
         s.upsert(20, [0.0, 4.0, 0.0], 0, 0.0, 0.0);
         s.record_agent_action(5, 20, 0, 1_000, "reading");
+        s.set_agent_anchors(&[5], &[[0.0, 0.0, 0.0]]);
         s.build_node_buffer(&[5, 20], 1.0, 0.7, 1.9);
         assert_eq!(
             s.build_beam_buffer(1.0).len(),
@@ -4413,5 +4517,592 @@ mod tests {
             num.parse().unwrap_or_else(|_| panic!("no number after {key}"))
         };
         assert_eq!(find(&web, "responseMs:"), find(&xr, "const CHASE_MS"), "web responseMs vs XR CHASE_MS");
+    }
+
+    // --- Edge/node coincidence (viz/edge-tracking) --------------------------------
+    //
+    // Invariant: every drawn edge endpoint equals its node's DRAWN (chased) position in
+    // the same frame, never the raw server target. These use the real pack functions and
+    // decode the 12-float transform back to endpoints, so a lagging path shows as a gap.
+
+    /// Endpoints `(a, b)` of one packed edge instance (`edge_transform12` layout:
+    /// origin = midpoint, local-Y column = span vector).
+    fn edge_ends(inst: &[f32]) -> ([f32; 3], [f32; 3]) {
+        let o = [inst[3], inst[7], inst[11]];
+        let h = [inst[1] * 0.5, inst[5] * 0.5, inst[9] * 0.5];
+        ([o[0] - h[0], o[1] - h[1], o[2] - h[2]], [o[0] + h[0], o[1] + h[1], o[2] + h[2]])
+    }
+
+    fn v_eq(a: [f32; 3], b: [f32; 3]) -> bool {
+        (0..3).all(|k| (a[k] - b[k]).abs() < 1e-3)
+    }
+
+    /// Whether the edge instance joins `p` and `q` (either direction).
+    fn joins(inst: &[f32], p: [f32; 3], q: [f32; 3]) -> bool {
+        let (a, b) = edge_ends(inst);
+        (v_eq(a, p) && v_eq(b, q)) || (v_eq(a, q) && v_eq(b, p))
+    }
+
+    /// Whether any node instance in `bufs` is drawn at `p`.
+    fn node_drawn_at(bufs: &[&[f32]], p: [f32; 3]) -> bool {
+        bufs.iter()
+            .any(|b| b.chunks_exact(NODE_STRIDE).any(|n| v_eq([n[3], n[7], n[11]], p)))
+    }
+
+    /// Well-separated chain 1-2-3-4-5-6 along +X, edges between neighbours.
+    fn chain_store() -> (RenderStore, Vec<i32>, Vec<i32>) {
+        let mut s = RenderStore::new();
+        for id in 1u32..=6 {
+            s.upsert(id, [id as f32 * 10.0, 0.0, 0.0], 0, 0.0, 0.0);
+        }
+        let ids: Vec<i32> = (1..=6).collect();
+        let pairs = vec![1, 2, 2, 3, 3, 4, 4, 5, 5, 6];
+        (s, ids, pairs)
+    }
+
+    #[test]
+    fn edge_follows_the_eased_position_not_the_server_target() {
+        let (mut s, ids, pairs) = chain_store();
+        s.upsert(3, [30.0, 50.0, 0.0], 0, 0.0, 0.0); // server moves node 3; it has not arrived
+        s.hunt(0.3, None, [0.0; 3]);
+        let drawn3 = s.position_of(3);
+        assert!(drawn3[1] > 1.0 && drawn3[1] < 49.0, "node 3 is mid-ease: {drawn3:?}");
+        let nodes = s.build_node_buffer(&ids, 1.0, 0.7, 1.9);
+        assert!(node_drawn_at(&[&nodes], drawn3));
+        let edges = s.build_edge_buffer(&pairs, 0.1);
+        let (p2, p4) = (s.position_of(2), s.position_of(4));
+        assert!(joins(&edges[16..32], p2, drawn3), "edge 2-3 ends at the eased node 3");
+        assert!(joins(&edges[32..48], drawn3, p4), "edge 3-4 ends at the eased node 3");
+    }
+
+    #[test]
+    fn edges_follow_two_held_nodes_in_the_same_frame() {
+        let (mut s, ids, pairs) = chain_store();
+        let hands = [(2u32, [20.0, 7.0, 3.0]), (5u32, [50.0, -9.0, 4.0])];
+        s.hunt_grabs(0.3, &hands);
+        let nodes = s.build_node_buffer(&ids, 1.0, 0.7, 1.9);
+        let edges = s.build_edge_buffer(&pairs, 0.1);
+        for (id, p) in hands {
+            assert!(node_drawn_at(&[&nodes], p), "held node {id} drawn at the hand");
+        }
+        assert!(joins(&edges[0..16], s.position_of(1), hands[0].1));
+        assert!(joins(&edges[16..32], hands[0].1, s.position_of(3)));
+        assert!(joins(&edges[48..64], s.position_of(4), hands[1].1));
+        assert!(joins(&edges[64..80], hands[1].1, s.position_of(6)));
+    }
+
+    #[test]
+    fn edge_to_a_member_folding_in_ends_at_the_member_itself() {
+        let (mut s, ids, pairs) = chain_store();
+        s.set_fold_plan(&[], &[3], &[1]); // 3 folds into 1
+        s.hunt(0.2, None, [0.0; 3]);
+        let m = s.position_of(3);
+        assert!(m[0] > 10.0 && m[0] < 30.0, "member is in transit: {m:?}");
+        let nodes = s.build_node_buffer(&ids, 1.0, 0.7, 1.9);
+        assert!(node_drawn_at(&[&nodes], m), "member drawn at its eased position");
+        let edges = s.build_edge_buffer(&pairs, 0.1);
+        let hit = edges.chunks_exact(16).any(|e| joins(e, s.position_of(4), m));
+        assert!(hit, "edge 3-4 ends at the in-transit member, not the representative");
+    }
+
+    #[test]
+    fn edge_to_a_fully_folded_member_ends_at_the_drawn_representative() {
+        let (mut s, ids, pairs) = chain_store();
+        s.set_fold_plan(&[], &[3], &[1]);
+        for _ in 0..200 {
+            s.hunt(0.5, None, [0.0; 3]);
+        }
+        let rep = s.position_of(1);
+        let nodes = s.build_node_buffer(&ids, 1.0, 0.7, 1.9);
+        assert!(!node_drawn_at(&[&nodes], s.position_of(3)) || v_eq(s.position_of(3), rep));
+        assert!(node_drawn_at(&[&nodes], rep));
+        let edges = s.build_edge_buffer(&pairs, 0.1);
+        assert!(edges.chunks_exact(16).any(|e| joins(e, rep, s.position_of(4))), "3-4 remaps to 1-4");
+        // The LOD (fold-active) path agrees.
+        let mut l = s;
+        let _ = l.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, [0.0; 3], 100, f32::INFINITY);
+        let lod = l.build_edge_buffer_lod(&pairs, 0.1, [0.0; 3], 100, f32::INFINITY).to_vec();
+        assert!(lod.chunks_exact(16).any(|e| joins(e, rep, l.position_of(4))));
+    }
+
+    /// Far-tier ribbons are re-transformed half per frame (`pack_edges_lod`), so after the
+    /// nodes move with tiers unchanged some ribbons would still show last frame's endpoints.
+    #[test]
+    fn ribbons_track_moving_nodes_every_frame() {
+        let (mut s, ids, pairs) = chain_store();
+        let cam = [0.0; 3];
+        let _ = s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, f32::INFINITY);
+        let _ = s.build_edge_buffer_lod(&pairs, 0.1, cam, 0, f32::INFINITY);
+        for frame in 0..6 {
+            for id in 1u32..=6 {
+                let y = (frame + 1) as f32 * 3.0 * if id % 2 == 0 { 1.0 } else { -1.0 };
+                s.upsert(id, [id as f32 * 10.0, y, 0.0], 0, 0.0, 0.0);
+            }
+            s.hunt(0.5, None, [0.0; 3]);
+            let _ = s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, f32::INFINITY);
+            let near = s.build_edge_buffer_lod(&pairs, 0.1, cam, 0, f32::INFINITY).len();
+            assert_eq!(near, 0, "every edge is in the ribbon tier");
+            let ribbons = s.ribbon_edge_buffer().to_vec();
+            assert_eq!(ribbons.len(), 5 * 16);
+            for (i, r) in ribbons.chunks_exact(16).enumerate() {
+                let (a, b) = (s.position_of(i as u32 + 1), s.position_of(i as u32 + 2));
+                assert!(joins(r, a, b), "frame {frame}: ribbon {i} lags its nodes");
+            }
+        }
+    }
+
+    /// Two volumes (pack slots) each keep their own ribbon refresh phase.
+    #[test]
+    fn ribbons_track_in_both_pack_slots() {
+        let (mut s, ids, pairs) = chain_store();
+        let cam = [0.0; 3];
+        for slot in [1i64, 2] {
+            s.select_pack_slot(slot);
+            let _ = s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, f32::INFINITY);
+            let _ = s.build_edge_buffer_lod(&pairs, 0.1, cam, 0, f32::INFINITY);
+        }
+        for frame in 0..5 {
+            for id in 1u32..=6 {
+                s.upsert(id, [id as f32 * 10.0, (frame + 1) as f32 * 2.0 * id as f32, 0.0], 0, 0.0, 0.0);
+            }
+            s.hunt(0.5, None, [0.0; 3]);
+            for slot in [1i64, 2] {
+                s.select_pack_slot(slot);
+                let _ = s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, f32::INFINITY);
+                let _ = s.build_edge_buffer_lod(&pairs, 0.1, cam, 0, f32::INFINITY);
+                for (i, r) in s.ribbon_edge_buffer().chunks_exact(16).enumerate() {
+                    let (a, b) = (s.position_of(i as u32 + 1), s.position_of(i as u32 + 2));
+                    assert!(joins(r, a, b), "slot {slot} frame {frame}: ribbon {i} lags");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn plane_edges_coincide_with_plane_nodes() {
+        let (s, _ids, _pairs) = chain_store();
+        let ids = [2, 3, 4];
+        let nodes = s.build_plane_node_buffer(&ids, 100.0, 1.0, 0.7, 1.9);
+        let edges = s.build_plane_edge_buffer(&[2, 3, 3, 4], 100.0, 0.1);
+        let lift = |id: u32| {
+            let mut p = s.position_of(id);
+            p[1] += 100.0;
+            p
+        };
+        assert!(node_drawn_at(&[&nodes], lift(3)));
+        assert!(joins(&edges[0..12], lift(2), lift(3)));
+        assert!(joins(&edges[12..24], lift(3), lift(4)));
+    }
+
+    /// Cost probe (not a gate): `cargo test --release -- --ignored --nocapture ribbon_refresh_cost`.
+    #[test]
+    #[ignore = "timing probe, run by hand"]
+    fn ribbon_refresh_cost_at_production_density() {
+        use crate::perf_fixture::production_store;
+        let mut f = production_store(5_000, 20_000, 7);
+        let ids = f.ids.clone();
+        let pairs = f.pairs.clone();
+        let cam = [0.0f32; 3];
+        let mut ms = Vec::new();
+        for frame in 0..130 {
+            f.advance(frame);
+            let _ = f.store.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 400, f32::INFINITY);
+            let t = std::time::Instant::now();
+            let _ = f.store.build_edge_buffer_lod(&pairs, 1.0, cam, 100, f32::INFINITY);
+            if frame >= 30 {
+                ms.push(t.elapsed().as_secs_f64() * 1e3);
+            }
+        }
+        ms.sort_by(|a, b| a.total_cmp(b));
+        println!("edge pack ms: median {:.3} p95 {:.3} ribbons {}", ms[50], ms[95], f.store.ribbon_edge_buffer().len() / 16);
+    }
+
+    // ---- cross-volume links: one resolver (owner rule 2026-11-01) ---------------------------
+    //
+    // A link end is `volume.xf * store.drawn_position_of(id)`, the same answer the edge pack
+    // draws its ends with. These use the real `pack_links` and `build_edge_buffer`.
+
+    const IDENT: [f32; 12] = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0];
+
+    /// Draw every node the store holds, as the frame's node pack does before the link tick.
+    fn draw_all(s: &mut RenderStore) {
+        let ids: Vec<i32> = s.all_ids().iter().map(|&i| i as i32).collect();
+        let _ = s.build_node_buffer(&ids, 1.0, 0.7, 1.9);
+    }
+
+    fn vol(xf: [f32; 12]) -> LinkVolume {
+        LinkVolume {
+            state: LINK_VOL_DRAWABLE,
+            xf,
+            slot: 0,
+        }
+    }
+
+    fn vol_in_slot(slot: i64) -> LinkVolume {
+        LinkVolume { slot, ..vol(IDENT) }
+    }
+
+    fn spec(src: (usize, u32, usize), dst: (usize, u32, usize)) -> LinkSpec {
+        LinkSpec {
+            src_conn: src.0,
+            src_id: src.1,
+            src_vol: src.2,
+            dst_conn: dst.0,
+            dst_id: dst.1,
+            dst_vol: dst.2,
+            colour: [0.35, 0.85, 1.0, 1.0],
+            lit: false,
+        }
+    }
+
+    fn fold_3_into_1(s: &mut RenderStore) {
+        s.set_fold_plan(&[], &[3], &[1]);
+        for _ in 0..200 {
+            s.hunt(0.5, None, [0.0; 3]);
+        }
+    }
+
+    #[test]
+    fn a_link_end_on_a_folded_node_lands_where_its_edges_land() {
+        let (mut a, _, pairs) = chain_store();
+        let (mut b, _, _) = chain_store();
+        fold_3_into_1(&mut a);
+        let rep = a.position_of(1);
+        assert!(
+            !v_eq(rep, a.raw_position_of(3)),
+            "member 3 sits apart from its representative"
+        );
+        // Offset volumes prove the transform is applied to the resolved (representative) position.
+        let xf = [1.0, 0.0, 0.0, 100.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0];
+        let specs = [spec((0, 3, 0), (1, 2, 1))];
+        let mut out = LinkFrame::default();
+        draw_all(&mut a);
+        draw_all(&mut b);
+        pack_links(
+            &[Some(&a), Some(&b)],
+            &[vol(xf), vol(IDENT)],
+            &specs,
+            &IDENT,
+            &mut out,
+        );
+        assert_eq!(out.links, 1);
+        let end = out.segments[0].a;
+        assert!(
+            v_eq(end, [rep[0] + 100.0, rep[1], rep[2]]),
+            "link end {end:?} is not on {rep:?}"
+        );
+        // The edge 3-4 in the same store ends at the same drawn point.
+        let _ = a.build_node_buffer(&(1..=6).collect::<Vec<i32>>(), 1.0, 0.7, 1.9);
+        let edges = a.build_edge_buffer(&pairs, 0.1);
+        let at = [end[0] - 100.0, end[1], end[2]];
+        assert!(
+            edges
+                .as_chunks::<16>()
+                .0
+                .iter()
+                .any(|e| joins(e, at, a.position_of(4))),
+            "the edge and the link end disagree about where node 3 is drawn"
+        );
+        // The target end is a plain node, resolved the same way.
+        assert!(v_eq(out.segments[0].b, b.position_of(2)));
+    }
+
+    #[test]
+    fn a_member_folding_in_has_its_link_end_on_the_member_like_its_edges() {
+        let (mut a, _, pairs) = chain_store();
+        a.set_fold_plan(&[], &[3], &[1]);
+        a.hunt(0.2, None, [0.0; 3]);
+        let m = a.raw_position_of(3);
+        assert!(m[0] > 10.0 && m[0] < 30.0, "member is in transit: {m:?}");
+        let mut out = LinkFrame::default();
+        draw_all(&mut a);
+        pack_links(
+            &[Some(&a)],
+            &[vol(IDENT)],
+            &[spec((0, 3, 0), (0, 5, 0))],
+            &IDENT,
+            &mut out,
+        );
+        assert!(v_eq(out.segments[0].a, m));
+        let _ = a.build_node_buffer(&(1..=6).collect::<Vec<i32>>(), 1.0, 0.7, 1.9);
+        let edges = a.build_edge_buffer(&pairs, 0.1);
+        assert!(edges
+            .as_chunks::<16>()
+            .0
+            .iter()
+            .any(|e| joins(e, m, a.position_of(4))));
+    }
+
+    #[test]
+    fn a_link_with_a_filtered_end_is_not_drawn_and_is_not_unresolved() {
+        // Owner rule 5: a link follows the same drawn test as the edge pack. A hidden class
+        // removes the node, its edges and every link ending on it.
+        let (mut a, _, pairs) = chain_store();
+        a.set_node_kind(3, KIND_ONTOLOGY);
+        let ids = (1..=6).collect::<Vec<i32>>();
+        let specs = [spec((0, 3, 0), (0, 5, 0))];
+        let mut out = LinkFrame::default();
+        let _ = a.build_node_buffer(&ids, 1.0, 0.7, 1.9);
+        pack_links(&[Some(&a)], &[vol(IDENT)], &specs, &IDENT, &mut out);
+        assert_eq!(out.links, 1, "both ends drawn: the link is drawn");
+
+        a.set_type_visible(KIND_ONTOLOGY, false);
+        let _ = a.build_node_buffer(&ids, 1.0, 0.7, 1.9);
+        let edges = a.build_edge_buffer(&pairs, 0.1);
+        assert!(
+            !edges.as_chunks::<16>().0.iter().any(|e| joins(e, a.position_of(3), a.position_of(4))),
+            "the edge to the hidden node is gone"
+        );
+        pack_links(&[Some(&a)], &[vol(IDENT)], &specs, &IDENT, &mut out);
+        assert_eq!(out.links, 0, "a link to a hidden end is not drawn");
+        assert_eq!(out.unresolved, 0, "hidden is skipped, not unresolved");
+
+        // The source end filtered gives the same answer.
+        let rev = [spec((0, 5, 0), (0, 3, 0))];
+        pack_links(&[Some(&a)], &[vol(IDENT)], &rev, &IDENT, &mut out);
+        assert_eq!((out.links, out.unresolved), (0, 0));
+
+        a.set_type_visible(KIND_ONTOLOGY, true);
+        let _ = a.build_node_buffer(&ids, 1.0, 0.7, 1.9);
+        pack_links(&[Some(&a)], &[vol(IDENT)], &specs, &IDENT, &mut out);
+        assert_eq!(out.links, 1, "re-showing the class restores the link");
+    }
+
+    #[test]
+    fn a_link_between_volumes_that_share_one_store_asks_each_volumes_own_pack_slot() {
+        // Production: the knowledge and ontology volumes of one connection pack into different
+        // slots of one store, and the active slot is whichever packed last. A bridge link joins
+        // the two, so each end must be tested against its own volume's drawn set.
+        let (mut a, _, _) = chain_store();
+        a.select_pack_slot(1);
+        let _ = a.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9);
+        a.select_pack_slot(2);
+        let _ = a.build_node_buffer(&[4, 5, 6], 1.0, 0.7, 1.9);
+        assert_eq!(a.active_pack_slot(), 2, "the volume that packs last stays active");
+        let mut out = LinkFrame::default();
+        // Without the volumes' slots both ends are asked of the active slot 2, which never drew node 3.
+        pack_links(&[Some(&a)], &[vol(IDENT)], &[spec((0, 3, 0), (0, 4, 0))], &IDENT, &mut out);
+        assert_eq!(out.links, 0, "a volume at the default slot 0 drew nothing");
+        let vols = [vol_in_slot(1), vol_in_slot(2)];
+        pack_links(&[Some(&a)], &vols, &[spec((0, 3, 0), (0, 4, 1))], &IDENT, &mut out);
+        assert_eq!((out.links, out.unresolved), (1, 0), "node 3 is drawn in slot 1, node 4 in slot 2");
+        // The reverse pair, and a hidden class in one slot, still hide the link.
+        pack_links(&[Some(&a)], &vols, &[spec((0, 4, 1), (0, 3, 0))], &IDENT, &mut out);
+        assert_eq!(out.links, 1);
+        pack_links(&[Some(&a)], &vols, &[spec((0, 3, 1), (0, 4, 0))], &IDENT, &mut out);
+        assert_eq!(out.links, 0, "node 3 is not in slot 2's drawn set");
+    }
+
+    #[test]
+    fn a_moved_nodes_link_end_matches_it_in_the_same_frame() {
+        let (mut a, ids, pairs) = chain_store();
+        let (mut b, _, _) = chain_store();
+        draw_all(&mut b);
+        let specs = [spec((0, 3, 0), (1, 5, 0))];
+        let mut out = LinkFrame::default();
+        for step in 0..4 {
+            a.upsert(3, [30.0, 20.0 * (step + 1) as f32, 0.0], 0, 0.0, 0.0);
+            a.hunt(0.3, None, [0.0; 3]);
+            let drawn = a.position_of(3);
+            draw_all(&mut a);
+            pack_links(
+                &[Some(&a), Some(&b)],
+                &[vol(IDENT)],
+                &specs,
+                &IDENT,
+                &mut out,
+            );
+            assert!(
+                v_eq(out.segments[0].a, drawn),
+                "step {step}: link end lags the node"
+            );
+            let nodes = a.build_node_buffer(&ids, 1.0, 0.7, 1.9);
+            assert!(
+                node_drawn_at(&[&nodes], out.segments[0].a),
+                "step {step}: not where the gem is"
+            );
+            let edges = a.build_edge_buffer(&pairs, 0.1);
+            assert!(edges.as_chunks::<16>().0.iter().any(|e| joins(
+                e,
+                out.segments[0].a,
+                a.position_of(4)
+            )));
+        }
+        // A held node follows the hand the same frame.
+        a.hunt_grabs(0.3, &[(3, [5.0, 6.0, 7.0])]);
+        pack_links(
+            &[Some(&a), Some(&b)],
+            &[vol(IDENT)],
+            &specs,
+            &IDENT,
+            &mut out,
+        );
+        assert!(v_eq(out.segments[0].a, [5.0, 6.0, 7.0]));
+    }
+
+    #[test]
+    fn position_of_is_the_drawn_position() {
+        let (mut s, _, _) = chain_store();
+        fold_3_into_1(&mut s);
+        assert_eq!(s.position_of(3), s.position_of(1));
+        assert_eq!(s.drawn_position_of(3), Some(s.position_of(1)));
+        assert_eq!(s.drawn_position_of(99), None);
+        assert_eq!(s.position_of(99), [0.0; 3]);
+    }
+
+    /// `_pack` of the GDScript layer, captured from Godot 4.6.1 before it was deleted:
+    /// `(a, b, colour, radius, instance)`.
+    #[allow(clippy::type_complexity)]
+    #[rustfmt::skip]
+    const GOLDEN: [([f32; 3], [f32; 3], [f32; 4], f32, [f32; 16]); 5] = [
+        ([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.35, 0.85, 1.0, 1.0], 0.004,
+         [0.0, 1.0, 0.0, 0.5, 0.0, 0.0, 0.004, 0.0, 0.004, 0.0, 0.0, 0.0, 0.35, 0.85, 1.0, 1.0]),
+        ([0.1, 0.2, 0.3], [0.1, 0.7, 0.3], [1.0, 0.72, 0.2, 1.0], 0.004,
+         [0.0, 0.0, 0.004, 0.1, 0.0, 0.5, 0.0, 0.45, -0.004, 0.0, 0.0, 0.3, 1.0, 0.72, 0.2, 1.0]),
+        ([0.1, 0.7, 0.3], [0.1, 0.2, 0.3], [1.0, 0.72, 0.2, 1.0], 0.01,
+         [0.0, 0.0, 0.01, 0.1, 0.0, -0.5, 0.0, 0.45, 0.01, 0.0, 0.0, 0.3, 1.0, 0.72, 0.2, 1.0]),
+        ([-0.3, 0.2, 0.5], [0.4, -0.1, 0.25], [0.9, 0.4, 1.0, 1.0], 0.004,
+         [0.001345346, 0.70000005, 0.001409862, 0.049999997, 0.0, -0.3, 0.00370928, 0.05, 0.003766968, -0.25, -0.000503522, 0.375, 0.9, 0.4, 1.0, 1.0]),
+        ([0.0, 0.0, 0.0], [0.0, 0.995, 0.0999], [1.0, 1.0, 1.0, 1.0], 0.004,
+         [0.0, 0.0, 0.004, 0.0, 0.000399599, 0.995, 0.0, 0.4975, -0.00397999, 0.0999, 0.0, 0.04995, 1.0, 1.0, 1.0, 1.0]),
+    ];
+
+    #[test]
+    fn link_instances_match_the_deleted_gdscript_pack() {
+        for (i, (pa, pb, col, radius, want)) in GOLDEN.iter().enumerate() {
+            let mut s = RenderStore::new();
+            s.upsert(1, *pa, 0, 0.0, 0.0);
+            s.upsert(2, *pb, 0, 0.0, 0.0);
+            let mut spec1 = spec((0, 1, 0), (0, 2, 0));
+            spec1.colour = *col;
+            let mut out = LinkFrame::default();
+            draw_all(&mut s);
+            pack_links(&[Some(&s)], &[vol(IDENT)], &[spec1], &IDENT, &mut out);
+            assert_eq!(out.buf.len(), LINK_STRIDE, "case {i}");
+            // The golden radius is RADIUS_M except case 2 (a 0.01 test radius): rescale x and z.
+            let k = radius / LINK_RADIUS_M;
+            for (j, w) in want.iter().enumerate() {
+                let col_idx = j % 4;
+                let g = if j < 12 && col_idx != 1 && col_idx != 3 {
+                    out.buf[j] * k
+                } else {
+                    out.buf[j]
+                };
+                assert!((g - w).abs() < 1e-5, "case {i} float {j}: {g} vs {w}");
+            }
+        }
+    }
+
+    #[test]
+    fn hidden_unresolved_and_short_links_are_counted_as_before() {
+        let (mut a, _, _) = chain_store();
+        draw_all(&mut a);
+        let hidden = LinkVolume {
+            state: LINK_VOL_HIDDEN,
+            ..vol(IDENT)
+        };
+        let unmapped = LinkVolume {
+            state: LINK_VOL_UNMAPPED,
+            ..vol(IDENT)
+        };
+        let mut out = LinkFrame::default();
+        let specs = [
+            spec((0, 1, 0), (0, 2, 1)),  // target volume hidden: skipped, not counted
+            spec((0, 1, 0), (0, 2, 2)),  // target volume unmapped: unresolved
+            spec((0, 1, 0), (1, 2, 0)),  // target connection unusable: unresolved
+            spec((0, 1, 0), (0, 99, 0)), // node the store does not hold: unresolved
+            spec((0, 1, 0), (0, 1, 0)),  // zero length: skipped
+            spec((0, 1, 0), (0, 2, 0)),  // drawn
+        ];
+        pack_links(
+            &[Some(&a), None],
+            &[vol(IDENT), hidden, unmapped],
+            &specs,
+            &IDENT,
+            &mut out,
+        );
+        assert_eq!((out.links, out.unresolved), (1, 3));
+        assert_eq!(out.segments[0].spec, 5);
+    }
+
+    #[test]
+    fn highlighted_links_are_lifted_thickened_and_ringed_once_per_end() {
+        let (mut a, _, _) = chain_store();
+        draw_all(&mut a);
+        let mut s1 = spec((0, 1, 0), (0, 2, 0));
+        let mut s2 = spec((0, 2, 0), (0, 3, 0));
+        s1.lit = true;
+        s2.lit = true;
+        let mut out = LinkFrame::default();
+        pack_links(
+            &[Some(&a)],
+            &[vol(IDENT)],
+            &[s1, s2, spec((0, 4, 0), (0, 5, 0))],
+            &IDENT,
+            &mut out,
+        );
+        assert_eq!(
+            (out.links, out.markers),
+            (3, 3),
+            "ends 1, 2, 3: node 2 is shared"
+        );
+        assert_eq!(out.buf.len(), 6 * LINK_STRIDE);
+        let c = &out.buf[12..16];
+        assert!(
+            (c[0] - (0.35 + 0.65 * LINK_HIGHLIGHT_LIFT)).abs() < 1e-5,
+            "lifted: {c:?}"
+        );
+        let plain = &out.buf[2 * LINK_STRIDE..2 * LINK_STRIDE + 16];
+        assert!((plain[12] - 0.35).abs() < 1e-6);
+        // Lit radius is 2.5x the plain one (x column magnitude).
+        let mag = |i: &[f32]| (i[0] * i[0] + i[4] * i[4] + i[8] * i[8]).sqrt();
+        assert!((mag(&out.buf[0..16]) / mag(plain) - LINK_HIGHLIGHT_RADIUS_SCALE).abs() < 1e-3);
+    }
+
+    /// Cost of one `pack_links` at the 512-link cap, against the 2.6 ms the per-frame GDScript
+    /// rebuild cost (`f15-report.md`, Godot 4.6.1 x86_64 headless, fake endpoints). Measured here
+    /// at 0.07 ms median; the bound is 1 ms, so a loaded host does not flake it. Run with
+    /// `cargo test --lib link_pack_cost -- --nocapture` to see the numbers; the dev profile is
+    /// opt-level 2, the same codegen the headset loads.
+    #[test]
+    fn link_pack_cost_at_512_links() {
+        let mut a = RenderStore::new();
+        let mut b = RenderStore::new();
+        for id in 1u32..=2000 {
+            a.upsert(
+                id,
+                [id as f32 * 0.5, (id % 17) as f32, (id % 5) as f32],
+                0,
+                0.0,
+                0.0,
+            );
+            b.upsert(id, [(id % 11) as f32, id as f32 * 0.25, 0.0], 0, 0.0, 0.0);
+        }
+        let specs: Vec<LinkSpec> = (0..512u32)
+            .map(|i| spec((0, 1 + i, 0), (1, 1000 + i, 1)))
+            .collect();
+        let vols = [vol(IDENT), vol(IDENT)];
+        let mut out = LinkFrame::default();
+        draw_all(&mut a);
+        draw_all(&mut b);
+        let mut samples = Vec::new();
+        for k in 0..600 {
+            let t0 = std::time::Instant::now();
+            pack_links(&[Some(&a), Some(&b)], &vols, &specs, &IDENT, &mut out);
+            if k >= 100 {
+                samples.push(t0.elapsed().as_secs_f64() * 1e3);
+            }
+        }
+        samples.sort_by(|x, y| x.total_cmp(y));
+        let (med, p95) = (samples[250], samples[475]);
+        println!(
+            "LINK-PACK links={} median_ms={med:.4} p95_ms={p95:.4}",
+            out.links
+        );
+        assert_eq!(out.links, 512);
+        assert!(
+            med < 2.6,
+            "512 links must cost well under the old 2.6 ms, got {med} ms"
+        );
     }
 }

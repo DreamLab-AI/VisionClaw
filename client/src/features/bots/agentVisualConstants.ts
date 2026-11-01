@@ -2,7 +2,7 @@
  * agentVisualConstants.ts
  * Single source of truth for the state→visual mappings shared across every agent
  * renderer: the instanced agent capsules (GemNodes metadata pack +
- * AgentCapsuleMaterial shader) and the BotsNode overlay (BotsDataContext). These
+ * AgentCapsuleMaterial shader) and the agent overlay (BotsDataContext). These
  * are the two consolidated agent layers since AgentNodesLayer was retired.
  *
  * Centralising these here removes the byte-identical health→glow ramps the agent

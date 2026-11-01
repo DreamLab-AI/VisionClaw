@@ -63,7 +63,7 @@ pub use ontology::{
 // Re-export graph domain
 pub use graph::{
     ComputeShortestPaths, ComputeShortestPathsHandler, GetAutoBalanceNotifications,
-    GetAutoBalanceNotificationsHandler, GetBotsGraphData, GetBotsGraphDataHandler, GetConstraints,
+    GetAutoBalanceNotificationsHandler, GetConstraints,
     GetConstraintsHandler, GetEquilibriumStatus, GetEquilibriumStatusHandler, GetGraphData,
     GetGraphDataHandler, GetNodeMap, GetNodeMapHandler, GetPhysicsState, GetPhysicsStateHandler,
 };

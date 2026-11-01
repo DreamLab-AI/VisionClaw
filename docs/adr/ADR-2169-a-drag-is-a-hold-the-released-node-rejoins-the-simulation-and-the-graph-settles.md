@@ -71,3 +71,11 @@ Comment-only change since `8f796ad86` (the commit the tests and measurements in 
 ## Re-stamp — 2026-11-01 (constraint scheduling and the held-gain wording, `e2afd65d6`)
 
 Item 9 now says what the held gain scales: `max_force` and `spring_k` multiplied by `HOLD_SPRING_GAIN` also scale the overlap push, the boundary force and, in Hooke mode, the stored springs (R21 F3, read against `visionclaw_unified.cu` `sep_force = max_force * penetration` and `max_boundary_force = max_force`). Item 10 records that constraints are unaffected by holds. No gain, span or constant changed. Re-run: `git diff --stat 7fbcd997b e2afd65d6 -- crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu src/utils/unified_gpu_compute/execution.rs src/actors/gpu/force_compute_actor.rs`. `cargo test --lib` at `e2afd65d6`: 1794 passed, 0 failed, 11 ignored.
+
+## Re-verification — 2026-11-01 (`3f25181a2`, branch `viz/edge-tracking`)
+
+Re-verified against two changes to governed paths since `f1fa1862c`. Re-run: `git diff f1fa1862c 3f25181a2 --stat -- src/actors/gpu/hold_registry.rs src/actors/gpu/force_compute_actor.rs src/actors/physics_orchestrator_actor.rs src/handlers/socket_flow_handler/position_updates.rs src/handlers/socket_flow_handler/types.rs src/handlers/layout_handler.rs scripts/drag-physics-acceptance.mjs` lists exactly two files:
+- `src/handlers/socket_flow_handler/position_updates.rs` (this branch, `15acb9219`): 95 deleted lines, the `handle_request_swarm_telemetry` handler and nothing else (`git diff 531df5ef7 3f25181a2 -- src/handlers/socket_flow_handler/position_updates.rs`). The hold path (`may_hold`, `HoldNodes`, the per-connection hand limit) is untouched. Unrelated to holds; every claim above holds.
+- `src/actors/gpu/force_compute_actor.rs` (already on `main`, not this branch; `git diff f1fa1862c 531df5ef7 -- src/actors/gpu/force_compute_actor.rs`): the settle window keeps the `HOLD_GLOBAL_SPEED` floor and damping is always the stored value (`RELEASE_SETTLE_DAMPING` deleted). Item 5 and item 6 above already say exactly this, so the record needs no change.
+
+Evidence: `cargo test --lib -- hold_physics_tests hold_registry socket_flow_handler stored_layout_mode`, 57 passed, 0 failed (`CUDA_VISIBLE_DEVICES=1`). Not repeated: the GPU tests on the A6000 and the acceptance script against a mock.

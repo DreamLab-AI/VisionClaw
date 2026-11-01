@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: f1fa1862c00ad627af8f45249d51b94c3a1c238f
+verified_commit: 69b16867d0910f1475c4e8eb3aa9bc4df26778e5
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -201,3 +201,23 @@ Re-verified 2026-11-01 at `232130a64` (xr/grab-client, ADR-2172 review fixes). T
 ## Re-verification — 2026-10-31 (`f1fa1862c`)
 
 Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (ADR-2172), client/three-0187 and docs/splat-adr, each Opus-reviewed (R15/R16/R17). The governed-path changes are those merges: drag holds and release in the GPU actor and socket handler, the held-only global_speed floor, two-hand grab and the edge breathe in the XR client, and the ADR 2168->2172 comment renames. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1768 passed, 0 failed (GPU 1); vitest 142 files / 1468 (installed three 0.183; the 0.187 run is on client/three-0187); XR GUT 522 passing on 4.6.1 and 4.8 at the grab-client head. Re-run: `git diff 2257ee7fa..f1fa1862c -- <governed path>`.
+
+Re-verified 2026-11-01 at `03ddc61e1` (viz/edge-tracking). The only change to `xr-client/scripts/graph_scene.gd` is one comment in `_physics_process` (the far ribbon tier is now re-transformed every frame, not half per frame). Nothing this record decides changed. Evidence: `git diff 531df5ef7..03ddc61e1 -- xr-client/scripts/graph_scene.gd` (2 lines).
+
+## Re-verification — 2026-11-01 (`0df96bc52`)
+
+The only change to `xr-client/scripts/graph_scene.gd` is one comment above `_tick_links` (the link layer no longer throttles itself); no graph-type key is read or written. Nothing this record claims moved. `cargo test` (xr-client/rust): 610 passed, 0 failed.
+
+## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
+
+`15acb9219` changes three doc comments in `settings.ts` to name the components that replaced `BotsNode` (`applySwarmTint`, `AgentOverlay`, `AgentNameplate`). No setting key, default or type changes. The decision holds unchanged.
+
+## Re-verification — 2026-11-01 at ef021a41d438d930559d9724006de56500388260
+
+`ef021a41d` changes `xr-client/scripts/graph_scene.gd` for the agent done run: a `SpatialVolume` preload, two read-only helpers (`_overlay_box`, `_overlay_world_scale`), one `set_scene_edge` call in `_update_agents`, and a comment. No settings key, default or type is read or written; the `knowledge` key decision holds unchanged. (Read from the diff; the GUT suite passes as at the parent apart from the seven baseline `test_memory_search` failures.)
+
+## Re-verification — 2026-11-01 (`abcf36db1`, branch `viz/edge-tracking`)
+
+Re-verified after the R23 fixes. `xr-client/scripts/graph_scene.gd` changes one doc comment (`_overlay_box`: the inscribed sphere, not the box diagonal); no setting or key is touched. Every claim in this record holds. Evidence: `cargo test` in `xr-client/rust` (623 passed), server `cargo test --lib` (1781 passed, `CUDA_VISIBLE_DEVICES=1`), client vitest (1540 passed), GUT on a fresh `.so` (553 passed, 0 failed, `gut_guard` ok). Not run: the headset.
+
+Re-verified again at `69b16867d`: A later commit adds only a `slots` argument to the `_tick_links` call in `graph_scene.gd`; no setting or key is touched. GUT on a fresh `.so`: 554 passed, 0 failed; `xr-client/rust` `cargo test`: 624 passed.

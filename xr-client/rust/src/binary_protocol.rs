@@ -954,6 +954,60 @@ pub struct AgentAction {
     pub timestamp: u32,
     /// Task/intent line extracted from the optional action payload (empty if none).
     pub task: String,
+    /// `state` from the payload when this is a **state frame** (ADR-2142 amendment:
+    /// `working` | `done` | `retired`), `None` for an ordinary action.
+    pub state: Option<String>,
+    /// `name` from a state frame's payload (empty if none).
+    pub name: String,
+}
+
+/// Apply one decoded `0x23` batch to the registry: the single agent ingest path for demo,
+/// real and hub agents alike (ADR-2109 D3, ADR-2142). A state frame (payload `state`) is
+/// presence and state only; an ordinary action is work evidence, and only an applied
+/// (in-order) action moves the drift (ADR-2135).
+pub fn apply_agent_actions(
+    store: &mut crate::render_store::RenderStore,
+    actions: &[AgentAction],
+    now_s: f64,
+) {
+    for a in actions {
+        if let Some(state) = &a.state {
+            store.apply_agent_state_frame(
+                a.source_agent_id,
+                a.target_node_id,
+                state,
+                &a.task,
+                &a.name,
+                a.timestamp,
+            );
+            continue;
+        }
+        let applied = store.record_agent_action(
+            a.source_agent_id,
+            a.target_node_id,
+            a.action_type,
+            a.timestamp,
+            &a.task,
+        );
+        if applied {
+            store.record_agent_drift(a.source_agent_id, a.target_node_id, now_s);
+        }
+    }
+}
+
+/// The `state` and `name` keys of a `0x23` payload, when it is a JSON object carrying a
+/// `state` string (a state frame from the server's real-agent producer). Never fails.
+fn extract_action_state(payload: &[u8]) -> (Option<String>, String) {
+    let Ok(val) = serde_json::from_slice::<serde_json::Value>(payload) else {
+        return (None, String::new());
+    };
+    let state = val.get("state").and_then(|v| v.as_str()).map(str::to_owned);
+    let name = val
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_owned();
+    (state, name)
 }
 
 /// Best-effort extraction of a human task line from a `0x23` action payload. The
@@ -1022,12 +1076,15 @@ pub fn decode_agent_action_frame(bytes: &[u8]) -> Option<Vec<AgentAction>> {
         let timestamp = u32::from_le_bytes([ev[9], ev[10], ev[11], ev[12]]);
         // ev[13..15] = duration_ms (animation hint) — unused by the data plane.
         let task = extract_action_task(&ev[EV_HEADER..]);
+        let (state, name) = extract_action_state(&ev[EV_HEADER..]);
         out.push(AgentAction {
             source_agent_id,
             target_node_id,
             action_type,
             timestamp,
             task,
+            state,
+            name,
         });
     }
     Some(out)
@@ -1738,10 +1795,9 @@ impl BinaryProtocolClient {
     }
 
     /// Publish embodiment anchors (server space) for agents the scene embodies:
-    /// `ids[i]` pairs with `positions[i]`. The work beam then starts at the
-    /// avatar the user sees instead of the agent's streamed node position (or at
-    /// all, for synthetic agents that have no node). Visual-only: node positions
-    /// and physics are never touched. Call once per frame for embodied agents.
+    /// `ids[i]` pairs with `positions[i]`. The work beam starts at the
+    /// avatar the user sees, and only there: an agent with no anchor has no beam, and its id is
+    /// never read as a graph node id. Visual-only: node positions and physics are never touched. Call once per frame for embodied agents.
     #[func]
     fn set_agent_anchors(&mut self, ids: PackedInt32Array, positions: PackedVector3Array) {
         let ids: Vec<u32> = ids.as_slice().iter().map(|&x| x as u32).collect();
@@ -2132,7 +2188,8 @@ impl BinaryProtocolClient {
         self.store.len() as i64
     }
 
-    /// Current render position of a node (ZERO if unknown) — used at grab start.
+    /// Where a node is drawn (ZERO if unknown) — used at grab start. Resolved by the same
+    /// fold-aware answer the edges and the cross-volume links use.
     #[func]
     fn node_position(&self, node_id: u32) -> Vector3 {
         let p = self.store.position_of(node_id);
@@ -2510,6 +2567,11 @@ impl BinaryProtocolClient {
 
 #[cfg(not(test))]
 impl BinaryProtocolClient {
+    /// The hot-path store, for the cross-volume link pack ([`crate::link_packer`]).
+    pub(crate) fn render_store(&self) -> &crate::render_store::RenderStore {
+        &self.store
+    }
+
     fn send_drag(&mut self, msg_type: &str, node_id: u32, position: Option<Vector3>) {
         let Some(tx) = self.outbound.as_ref() else {
             return;
@@ -2547,20 +2609,7 @@ impl BinaryProtocolClient {
                     }
                 }
                 let now_s = self.created.elapsed().as_secs_f64();
-                for a in &actions {
-                    let applied = self.store.record_agent_action(
-                        a.source_agent_id,
-                        a.target_node_id,
-                        a.action_type,
-                        a.timestamp,
-                        &a.task,
-                    );
-                    // ADR-2135: only an applied (in-order) action moves the drift
-                    if applied {
-                        self.store
-                            .record_agent_drift(a.source_agent_id, a.target_node_id, now_s);
-                    }
-                }
+                apply_agent_actions(&mut self.store, &actions, now_s);
                 debug!(
                     count = actions.len(),
                     agents = self.store.agent_count(),
@@ -2707,6 +2756,101 @@ mod tests {
             out.extend_from_slice(&ev);
         }
         out
+    }
+
+    /// The shared real-agent fixture (ADR-2142 amendment 2026-11-01), written by the
+    /// server's `RosterFeed` and the real `encode_agent_actions`: a `task-1` spawn,
+    /// keep-alive, done and retirement. The desktop's vitest decodes the same file.
+    const REAL_AGENT_FRAMES: &str =
+        include_str!("../../../tests/fixtures/agents/real-agent-frames.v1.json");
+
+    fn fixture_frame(name: &str) -> (u32, Vec<AgentAction>) {
+        let doc: serde_json::Value = serde_json::from_str(REAL_AGENT_FRAMES).unwrap();
+        let wire = doc["wireId"].as_u64().unwrap() as u32;
+        let frame = doc["frames"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["name"] == name)
+            .unwrap();
+        let hex = frame["hex"].as_str().unwrap();
+        let mut bytes = vec![MSG_AGENT_ACTION];
+        for i in (0..hex.len()).step_by(2) {
+            bytes.push(u8::from_str_radix(&hex[i..i + 2], 16).unwrap());
+        }
+        (wire, decode_agent_action_frame(&bytes).expect("a 0x23 frame"))
+    }
+
+    #[test]
+    fn a_real_roster_agent_is_embodied_on_the_registry_path_and_retired() {
+        use crate::render_store::{RenderStore, AGENT_DONE, AGENT_WORKING};
+        let mut store = RenderStore::new();
+
+        let (wire, spawn) = fixture_frame("spawn");
+        assert_eq!(spawn.len(), 1);
+        assert_eq!(spawn[0].state.as_deref(), Some("working"));
+        apply_agent_actions(&mut store, &spawn, 0.0);
+        let rec = store.agent_rec(wire).expect("the real agent is a registry agent");
+        assert_eq!(rec.status, AGENT_WORKING);
+        assert_eq!(store.label_of(wire & NODE_ID_MASK), "agent task-1");
+        assert_eq!(store.agent_count(), 1);
+
+        // The keep-alive names the same id: one agent, not two.
+        let (_, keep) = fixture_frame("keepalive");
+        assert_eq!(keep[0].source_agent_id, wire);
+        apply_agent_actions(&mut store, &keep, 5.0);
+        assert_eq!(store.agent_count(), 1);
+
+        let (_, done) = fixture_frame("done");
+        apply_agent_actions(&mut store, &done, 6.0);
+        assert_eq!(store.agent_rec(wire).unwrap().status, AGENT_DONE);
+
+        let (_, retired) = fixture_frame("retired");
+        apply_agent_actions(&mut store, &retired, 7.0);
+        assert!(store.agent_rec(wire).is_none(), "retirement removes the record");
+        assert_eq!(store.agent_count(), 0);
+    }
+
+    /// F2: a done real agent stays in the registry however long the clock runs and however many
+    /// expiry passes see it; only the `retired` frame (the roster departure) removes it.
+    #[test]
+    fn a_done_real_agent_is_held_until_a_retired_frame() {
+        use crate::render_store::{RenderStore, AGENT_DONE, AGENT_EVIDENCE_TTL_MS};
+        let mut store = RenderStore::new();
+        let (wire, spawn) = fixture_frame("spawn");
+        apply_agent_actions(&mut store, &spawn, 0.0);
+        let (_, done) = fixture_frame("done");
+        apply_agent_actions(&mut store, &done, 6.0);
+        assert_eq!(store.agent_rec(wire).unwrap().status, AGENT_DONE);
+        for pass in 1..=720u32 {
+            let now_ms = 7_000 + pass * 5_000; // an hour of 5 s steps
+            store.expire_stale_agents(now_ms, AGENT_EVIDENCE_TTL_MS);
+            assert_eq!(
+                store.agent_rec(wire).map(|r| r.status),
+                Some(AGENT_DONE),
+                "pass {pass}: still held"
+            );
+        }
+        let (_, retired) = fixture_frame("retired");
+        apply_agent_actions(&mut store, &retired, 4000.0);
+        assert!(store.agent_rec(wire).is_none());
+    }
+
+    #[test]
+    fn a_state_frame_is_presence_not_work() {
+        use crate::render_store::RenderStore;
+        let mut store = RenderStore::new();
+        store.set_clock_ms(1_000.0);
+        let state = br#"{"intent":"agent task-9","name":"agent task-9","state":"working"}"#;
+        let frame = build_agent_action_frame(&[(0x8200_0009, 42, 0, 1_000, state)]);
+        let actions = decode_agent_action_frame(&frame).unwrap();
+        apply_agent_actions(&mut store, &actions, 0.0);
+        assert_eq!(store.agent_rec(0x8200_0009).unwrap().target_node_id, 42);
+        assert_eq!(store.heat_of(42), 0.0, "a state frame adds no attention heat");
+        // An ordinary action on the same node does heat it.
+        let work = build_agent_action_frame(&[(0x8200_0009, 42, 1, 1_001, b"")]);
+        apply_agent_actions(&mut store, &decode_agent_action_frame(&work).unwrap(), 0.1);
+        assert!(store.heat_of(42) > 0.0);
     }
 
     #[test]

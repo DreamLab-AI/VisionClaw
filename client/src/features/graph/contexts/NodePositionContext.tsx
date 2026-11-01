@@ -1,10 +1,10 @@
 /**
  * Shared node-position refs — module-level singleton so both GraphManager (the
- * writer) and BotsVisualization (the reader) access the same live SAB buffer
+ * writer) and the overlay components (the readers) access the same drawn-positions array
  * without a React context wrapper.
  */
 
-/** Live SAB position buffer, written by GraphManager's useFrame loop. */
+/** The drawn-positions array (utils/drawnPositions.ts), rebuilt by GraphManager's useFrame loop. */
 export let sharedNodePositions: Float32Array | null = null;
 
 /** node id → instance index, rebuilt when the node set changes. */

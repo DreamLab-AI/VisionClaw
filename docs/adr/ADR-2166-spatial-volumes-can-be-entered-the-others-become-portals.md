@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158]
-verified_commit: f1fa1862c00ad627af8f45249d51b94c3a1c238f
+verified_commit: 69b16867d0910f1475c4e8eb3aa9bc4df26778e5
 verified_paths: [xr-client/scripts/space_portals.gd, xr-client/scripts/spatial_volume.gd, xr-client/scripts/emulated_volume.gd, xr-client/scripts/volume_arrangement.gd, xr-client/scripts/graph_scene.gd, xr-client/scripts/hud.gd, xr-client/scripts/xr_prefs.gd, xr-client/materials/portal_membrane.gdshader]
 owner: jjohare
 review_trigger: the first headset session with Enter used (stereo membranes, 90 Hz with an entered 6 m room, comfort of the dim); or XE merging FrameBudgetPass.set_volume_weights
@@ -68,3 +68,27 @@ Re-verified 2026-11-01 at `232130a64` (xr/grab-client, ADR-2172 review fixes). T
 ## Re-verification — 2026-10-31 (`f1fa1862c`)
 
 Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (ADR-2172), client/three-0187 and docs/splat-adr, each Opus-reviewed (R15/R16/R17). The governed-path changes are those merges: drag holds and release in the GPU actor and socket handler, the held-only global_speed floor, two-hand grab and the edge breathe in the XR client, and the ADR 2168->2172 comment renames. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1768 passed, 0 failed (GPU 1); vitest 142 files / 1468 (installed three 0.183; the 0.187 run is on client/three-0187); XR GUT 522 passing on 4.6.1 and 4.8 at the grab-client head. Re-run: `git diff 2257ee7fa..f1fa1862c -- <governed path>`.
+
+Re-verified 2026-11-01 at `03ddc61e1` (viz/edge-tracking). The only change to `xr-client/scripts/graph_scene.gd` is one comment in `_physics_process` (the far ribbon tier is now re-transformed every frame, not half per frame). Nothing this record decides changed. Evidence: `git diff 531df5ef7..03ddc61e1 -- xr-client/scripts/graph_scene.gd` (2 lines).
+
+## Re-verification — 2026-11-01 (`0df96bc52`)
+
+`xr-client/scripts/graph_scene.gd` changes one comment above `_tick_links`. The enter/portal behaviour this record governs is untouched.
+
+## Re-verification — 2026-11-01 (`e99c16d31`)
+
+`xr-client/scripts/spatial_volume.gd` gained `content_to_world() -> Transform3D`, and `world_from_content(p)` now returns `content_to_world() * p`. A pure refactor: both run `_ensure_built()` and `_content_world()` exactly as before, so entering a volume and the portals are unchanged. The link layer reads the transform once per volume per frame. Evidence: the full GUT suite, 49 scripts, 536 tests, 0 failing; `tests/gut_guard.sh` exit 0.
+
+## Re-verification — 2026-11-01 at ef021a41d438d930559d9724006de56500388260
+
+`ef021a41d` adds the pure static `SpatialVolume.edge_radius(box, world_scale)` to `spatial_volume.gd` (half the box diagonal, used as the scene edge for a finished agent, ADR-2109 / ADR-2135) and, in `graph_scene.gd`, two helpers that read the knowledge volume's `bounds` and global scale and one call that passes them to the choreography. Nothing in entering a volume, the portal ring, `fit_scale`, `fit_into` or the fit ease changes; the helpers only read. The decision holds unchanged. Evidence: the full GUT suite, 50 scripts, 552 tests, 542 passing, 7 failing, the same seven `test_memory_search` failures as the parent commit in the same harness; `tests/gut_guard.sh` exit 0.
+
+## Re-verification — 2026-10-31 (`633423357`)
+
+Re-verified 2026-11-01 after the inscribed-sphere edge change: `git diff df3e2aca5..6334233576941af20879a2b3d3d00b30ecb3c231 -- xr-client/scripts/spatial_volume.gd` replaces half the box diagonal with half its smallest extent (owner decision); this record's claims about volume bounds and agent edge placement hold.
+
+## Re-verification — 2026-11-01 (`abcf36db1`, branch `viz/edge-tracking`)
+
+Re-verified after the R23 fixes. `xr-client/scripts/graph_scene.gd` changes one doc comment (`_overlay_box`). Portals and volume entry are untouched. Every claim in this record holds. Evidence: `cargo test` in `xr-client/rust` (623 passed), server `cargo test --lib` (1781 passed, `CUDA_VISIBLE_DEVICES=1`), client vitest (1540 passed), GUT on a fresh `.so` (553 passed, 0 failed, `gut_guard` ok). Not run: the headset.
+
+Re-verified again at `69b16867d`: A later commit adds only a `slots` argument to the `_tick_links` call in `graph_scene.gd`. Portals and volume entry are untouched. GUT on a fresh `.so`: 554 passed, 0 failed; `xr-client/rust` `cargo test`: 624 passed.

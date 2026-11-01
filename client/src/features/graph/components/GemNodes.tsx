@@ -31,11 +31,6 @@ import { computeNodeScale } from '../utils/nodeScaling';
 import { isWebGPURenderer } from '../../../rendering/rendererFactory';
 import { getTypeColor, getDomainColor } from '../hooks/useGraphNodeColors';
 import { agentStatusActivity } from '../../bots/agentVisualConstants';
-import { getAgentWork, AGENT_DONE_ACTIVITY } from '../../bots/agentWorkTargets';
-import { stepAgentOffset } from '../utils/agentNudge';
-import { agentOffsetsEnabled } from '../../../store/agentOffsetPrefs';
-import { agentDriftFeed } from '../../bots/agentDriftFeed';
-import { separatedFrame, type TriangleFrame } from '../triLayout';
 import { attentionHeat } from '../../visualisation/attentionHeat';
 import { heatBrightenFactor } from '../../visualisation/heatColor';
 
@@ -83,12 +78,6 @@ export interface GemNodesProps {
   /** Right-click a node — used by the additive-expansion context menu. */
   onContextMenu?: (event: ThreeEvent<MouseEvent>) => void;
   selectedNodeId: string | null;
-  /** Live drag state ref — when set, the dragged node uses this position instead of SAB */
-  dragDataRef?: React.MutableRefObject<{
-    isDragging: boolean;
-    nodeId: string | null;
-    currentNodePos3D: { x: number; y: number; z: number };
-  }>;
 }
 
 export interface GemNodesHandle {
@@ -111,14 +100,6 @@ const METADATA_TEX_WIDTH = 2048;
 // ~2Hz. The DataTexture upload is the real cost; heat decays continuously but
 // the eye cannot resolve a faster emissive fade, so we sample it on this cadence.
 const HEAT_UPLOAD_INTERVAL_MS = 500;
-
-// Agent momentum-nudge: see utils/agentNudge.ts (working agents converge on
-// their target; done agents drift outward when merged, or relax back to their
-// server position — the separated layout's centre plus activity drift).
-// Scratch tuples for the per-agent step, reused so the render loop never allocates.
-const _nudgeBase: [number, number, number] = [0, 0, 0];
-const _nudgeTarget: [number, number, number] = [0, 0, 0];
-const _nudgeCentre: [number, number, number] = [0, 0, 0];
 
 // Node scaling delegated to shared computeNodeScale (../utils/nodeScaling.ts)
 
@@ -201,9 +182,6 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
   const lastHeatUploadRef = useRef(0);
   const heatBucketRef = useRef(0);
   const heatWasActiveRef = useRef(false);
-  // Agent momentum-nudge: per-instance visual offset accumulated frame-over-
-  // frame. Working agents converge on their target; done agents drift outward.
-  const agentOffsetsRef = useRef<Float32Array | null>(null);
   // Attention-heat → instanceColor (WebGL-visible per-instance heat). The base
   // (unheated) RGB is cached on each colour repaint so the 2Hz heat pass can
   // rescale it in place — brightening touched gems and letting them fade — without
@@ -237,11 +215,6 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
   const colorScheme = useSettingsStore(s => s.get<string>('visualisation.graphs.knowledge.nodes.colorScheme')) ?? 'type';
   // 'cycles' scheme: directed-cycle members, computed only while it is active.
   const cyclicIds = useCyclicNodeIds(colorScheme === 'cycles', props.nodes.length, props.edges.length);
-  // The layout is always separated (ADR-2135): idle agents relax back to the
-  // centre, and drift from the triangle's centroid towards the graphs they
-  // work on (agentDriftFeed).
-  const separatedRef = useRef(true);
-  const triFrameRef = useRef<TriangleFrame>(separatedFrame());
   // Per-node analytics data from binary protocol V3 (refreshed periodically).
   // Stride 5 (ADR-031 D2): [clusterId, anomalyScore, communityId, centrality, ssspDistance].
   const analyticsRef = useRef<Float32Array | null>(null);
@@ -920,12 +893,11 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
 
     // --- Per-frame matrix write: positions change every frame (physics). -----
     // Scale + posIdx come from the gated caches; the per-node loop touches
-    // positions only. Selected-node wave and live-drag are single-node concerns,
-    // resolved to local indices ONCE here (one Map lookup each) so the loop does
+    // positions only. The selected-node wave is a single-node concern,
+    // resolved to a local index ONCE here (one lookup) so the loop does
     // integer comparisons instead of ~5651 String(node.id) allocations per frame.
     const waveEnabled = animEnabled && ((anims?.selectionWaveEnabled as boolean | undefined) ?? true);
     const wSpeed = (anims?.waveSpeed as number | undefined) ?? 1.0;
-    const drag = props.dragDataRef?.current;
     // Local (visibleNodes) index of the selected node, for the wave modulation.
     const selectedLocalIdx = (selectedNodeId && waveEnabled)
       ? currentNodes.findIndex(n => String(n.id) === selectedNodeId)
@@ -933,41 +905,17 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
     const waveScale = selectedLocalIdx >= 0
       ? 1 + Math.sin(clock.elapsedTime * 3 * wSpeed) * 0.15
       : 1;
-    // Local index of the dragged node (live position overrides the SAB read).
-    const dragLocalIdx = (drag && drag.isDragging && drag.nodeId)
-      ? currentNodes.findIndex(n => String(n.id) === drag.nodeId)
-      : -1;
     // Task #54: when the GPU transform is active (WebGPU), the loop writes the
     // transform texture's typed array (x, y, z, scale) and the positionNode
     // composes the vertex on-GPU. instanceMatrix stays identity (set once at
     // mesh creation). Off WebGPU we keep the CPU mat4 path (setMatrixAt). Both
-    // paths read the SAME position/scale/wave/drag inputs so the visual output
-    // (sizing scheme, selection wave, live-drag) is identical.
+    // paths read the SAME position/scale/wave inputs so the visual output
+    // (sizing scheme, selection wave) is identical.
     const gpuXform = gpuTransformRef.current;
     const xformBuf = gpuXform ? (xformTexRef.current?.image?.data as Float32Array | undefined) : undefined;
     // Keep the picking refs current (raycast reads them when GPU transform on).
     xformBufRef.current = xformBuf ?? null;
     visibleCountRef.current = visCount;
-    // --- Agent momentum-nudge: graph centre + offset buffer setup ---
-    let graphCX = 0, graphCY = 0, graphCZ = 0;
-    if (isAgent && positions) {
-      let sn = 0;
-      for (let s = 0; s < positions.length - 2; s += 150) {
-        graphCX += positions[s]; graphCY += positions[s + 1]; graphCZ += positions[s + 2];
-        sn++;
-      }
-      if (sn > 0) { graphCX /= sn; graphCY /= sn; graphCZ /= sn; }
-      if (!agentOffsetsRef.current || agentOffsetsRef.current.length < visCount * 3) {
-        const old = agentOffsetsRef.current;
-        // eslint-disable-next-line no-restricted-syntax -- grow-only cache
-        agentOffsetsRef.current = new Float32Array(cacheLen * 3);
-        if (old) agentOffsetsRef.current.set(old.subarray(0, Math.min(old.length, visCount * 3)));
-      }
-    }
-    const agentOff = isAgent ? agentOffsetsRef.current : null;
-    const drift = isAgent && separatedRef.current ? agentDriftFeed() : null;
-    drift?.step();
-    const triFrame = triFrameRef.current;
     for (let i = 0; i < visCount; i++) {
       let s = scaleCache[i];
       if (i === selectedLocalIdx) {
@@ -977,52 +925,14 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
       const i3 = posIdxCache[i] * 3;
       let x: number, y: number, z: number;
 
-      // Use live drag position for the dragged node (avoids 1-frame SAB lag)
-      if (i === dragLocalIdx && drag) {
-        x = drag.currentNodePos3D.x;
-        y = drag.currentNodePos3D.y;
-        z = drag.currentNodePos3D.z;
-      } else if (positions && i3 + 2 < positions.length) {
+      // The drawn array already holds the hand position for a dragged node (GraphManager).
+      if (positions && i3 + 2 < positions.length) {
         x = positions[i3]; y = positions[i3 + 1]; z = positions[i3 + 2];
       } else {
         // Cold fallback: SAB not yet populated for this index. Read the node's
         // own position; default to origin component-wise (no object literal).
         const p = currentNodes[i].position;
         x = p?.x ?? 0; y = p?.y ?? 0; z = p?.z ?? 0;
-      }
-
-      // Agent momentum-nudge (utils/agentNudge.ts): toward the work target while
-      // working; when done, outward (merged) or home (separated). Dragged nodes skip.
-      if (agentOff && i !== dragLocalIdx) {
-        const o3 = i * 3;
-        // separated layout: the agent's home is the triangle centroid plus its
-        // activity drift (ADR-2135); the nudge then works from there
-        if (drift) {
-          const d = drift.offset(String(currentNodes[i].id), triFrame);
-          x += d[0]; y += d[1]; z += d[2];
-        }
-        const work = getAgentWork(String(currentNodes[i].id));
-        let hasTarget = false;
-        if (work && work.state === 'working' && positions) {
-          const tIdx = props.nodeIdToIndexMap.get(work.targetNodeId);
-          if (tIdx !== undefined && tIdx * 3 + 2 < positions.length) {
-            const t3 = tIdx * 3;
-            _nudgeTarget[0] = positions[t3]; _nudgeTarget[1] = positions[t3 + 1]; _nudgeTarget[2] = positions[t3 + 2];
-            hasTarget = true;
-          }
-        }
-        _nudgeBase[0] = x; _nudgeBase[1] = y; _nudgeBase[2] = z;
-        _nudgeCentre[0] = graphCX; _nudgeCentre[1] = graphCY; _nudgeCentre[2] = graphCZ;
-        if (agentOffsetsEnabled()) {
-          stepAgentOffset(agentOff, o3, _nudgeBase, hasTarget ? _nudgeTarget : null, work?.state ?? null,
-            _nudgeCentre, separatedRef.current);
-        } else {
-          // Offsets off: draw the agent exactly at the server position.
-          agentOff[o3] = 0; agentOff[o3 + 1] = 0; agentOff[o3 + 2] = 0;
-        }
-        x += agentOff[o3];
-        y += agentOff[o3 + 1];
-        z += agentOff[o3 + 2];
       }
 
       if (xformBuf) {
@@ -1098,10 +1008,7 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
           // mesh renders a single population.
           const recency = computeRecency(node.metadata?.lastModified ?? node.metadata?.updatedAt);
           if (isAgent) {
-            const aw = getAgentWork(nid);
-            texBuf[i4 + 3] = (aw && aw.state === 'done')
-              ? AGENT_DONE_ACTIVITY
-              : agentStatusActivity(node.metadata?.status as string | undefined);
+            texBuf[i4 + 3] = agentStatusActivity(node.metadata?.status as string | undefined);
           } else {
             texBuf[i4 + 3] = heatEnabled
               ? Math.max(recency, attentionHeat.getHeat(nid))

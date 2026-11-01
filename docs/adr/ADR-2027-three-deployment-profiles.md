@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 37d1226b10c36c44ba854a3fccfe8dff3785aec5
+verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -362,3 +362,7 @@ this decision governs moved, so it holds as written.
 **Governing doc:** `docs/SECURITY-profiles.md`, flag-matrix and divergences anchors refreshed (`rbac_gate.rs:135-141`, `main.rs:795-818`, compose `:111-125`, profile assertion `:950/:970/:1259`), the `PUBKEY_VISIBILITY_FILTER` source repointed to `visibility_filter.rs`, and the stale `position_updates.rs` entry removed from its `sources`.
 
 Re-verified 2026-10-30 at c75004696: `src/main.rs` only gains the Jev client wiring (`jev_client`, `configure_jev_routes` inside the existing authenticated `/api` scope) and `docker-compose.unified.yml` gains the System One block; neither alters a profile flag. Anchors at HEAD: the demo-open inversions are `RBAC_PUBLIC_READS` `docker-compose.unified.yml:132`, `RBAC_ALLOW_OWNERLESS` `:133`, `RBAC_OWNER_PUBKEY` `:134`, `RBAC_DEFAULT_ROLE:-editor` `:140`, `PUBKEY_VISIBILITY_FILTER:-1` `:146`; `src/main.rs` reads `RBAC_ALLOW_OWNERLESS_ENV` at `:797` with the FATAL refusals at `:811`, `:821`, and calls `assert_effective_profile_or_exit` at `:952` before `HttpServer::new` (`:972`). The decision holds.
+
+## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
+
+`15acb9219` deletes the `requestSwarmTelemetry` handler from `socket_flow_handler/position_updates.rs`. That handler was a fourth agent position source, and agents now reach clients only as `0x23` frames (ADR-2142 amendment). Profile selection and the demo-open boot are untouched. The decision holds unchanged. One route-exception change sits outside this record's governed paths and is recorded here for the profile inventory: `POST /api/bots/mock-agents` (`bots_visualization_handler.rs`) now takes `AuthenticatedUser`, as its sibling `POST /api/bots/data` already did. It was anonymous before. Dev builds still pass via the compile-gated dev bypass (`auth_extractor.rs:21`). No script or client calls it.

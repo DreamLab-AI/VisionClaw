@@ -386,8 +386,8 @@ const InstancedLabelsWebGPU: React.FC<WebGPUProps> = ({
     _projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     _frustum.setFromProjectionMatrix(_projScreenMatrix);
 
-    // Read directly from SharedArrayBuffer (same source as GemNodes) for zero-lag positions.
-    // Falls back to labelPositionsRef if SAB not available.
+    // Read the drawn-positions array (the same one GemNodes and the edges read) for zero-lag positions.
+    // Falls back to labelPositionsRef if it is not available.
     const rawPositions = nodePositionsRef?.current;
     const halfW = size.width * 0.5;
     const halfH = size.height * 0.5;
@@ -614,7 +614,7 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
     // Debounce: wait 150ms of stillness before rebuilding labels
     if (now - motionStateRef.current.lastFastTime < 150) return;
 
-    // --- EVERY STILL FRAME: patch label world positions from SAB ---
+    // --- EVERY STILL FRAME: patch label world positions from the drawn array ---
     const labelPosAttr = geometry.getAttribute('aLabelPos') as THREE.InstancedBufferAttribute;
     const labelPosArr = labelPosAttr.array as Float32Array;
     const nodeMap = nodeGlyphMapRef.current;
@@ -674,7 +674,7 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
     );
     if (frameCountRef.current % labelLayoutEvery !== 0 && nodeGlyphMapRef.current.length > 0) return;
 
-    // Reuse rawPositions captured above (same SAB snapshot for consistency)
+    // Reuse rawPositions captured above (same drawn-array snapshot for consistency)
     const rawPositionsForLayout = rawPositions;
     const currentLabelPositions = labelPositionsRef.current;
 
@@ -756,7 +756,7 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
       if (glyphIdx >= MAX_GLYPHS - 200) break; // Reserve headroom
 
       const originalIndex = nodeIdToIndexMap.get(String(node.id)) ?? -1;
-      // Prefer raw SAB positions (same frame as GemNodes), fall back to labelPositionsRef
+      // Prefer the drawn-positions array (same frame as GemNodes), fall back to labelPositionsRef
       let px: number, py: number, pz: number;
       if (rawPositionsForLayout && originalIndex !== -1) {
         const pi3 = originalIndex * 3;

@@ -8,6 +8,8 @@ Environment notes: the container is `visionclaw_container` (dev profile, port 40
 
 ## Which write
 
+> **Superseded in part (2026-11-01, ADR-2142 amendment).** Doors A and B now end in the real-agent producer, `AgentBeamActor` and its `RosterFeed` (`src/actors/agent_roster_feed.rs`). It sends `0x23` presence and state frames to every client; agents are not graph nodes and never reach the GPU. The static `BOTS_GRAPH` and `bots_graph_data` are deleted, and `GET /api/bots/data` serves the feed's roster. The healthy log line is now `AgentBeamActor: roster from <source>: N live agents, k frame(s)`. Door C actions that carry `metadata.taskId` join the roster agent. The `file:line` references below are from `93f38c6` and are kept as history.
+
 "An agent write" reaches VisionClaw by three doors. The seven layers are the same; the hops differ.
 
 | Door | Entry | What it carries | Where it ends in VisionClaw |

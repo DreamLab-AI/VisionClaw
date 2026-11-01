@@ -209,7 +209,9 @@ impl BotsClient {
                                 );
 
                                 graph_addr.do_send(UpdateBotsGraph {
+                                    source: crate::actors::agent_roster_feed::RosterSource::Mcp,
                                     agents: converted_agents.clone(),
+                                    targets: Vec::new(),
                                 });
                             }
                         } else {

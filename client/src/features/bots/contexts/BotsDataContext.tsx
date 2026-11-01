@@ -1,8 +1,6 @@
 
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import type { BotsAgent, BotsEdge, BotsFullUpdateMessage } from '../types/BotsTypes';
-import { botsWebSocketIntegration } from '../services/BotsWebSocketIntegration';
-import { parseBinaryNodeData, parseBinaryFrameData, isAgentNode, getActualNodeId } from '../../../types/binaryProtocol';
 import { useAgentPolling } from '../hooks/useAgentPolling';
 import { agentPollingService } from '../services/AgentPollingService';
 import { unifiedApiClient } from '../../../services/api/UnifiedApiClient';
@@ -98,59 +96,6 @@ export const BotsDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
 
-  const updateFromBinaryPositions = (binaryData: ArrayBuffer) => {
-    try {
-
-      const frame = parseBinaryFrameData(binaryData);
-      const agentUpdates = frame.nodes.filter(node => isAgentNode(node.nodeId));
-
-      if (agentUpdates.length === 0) {
-        return;
-      }
-
-      logger.debug(`Processing ${agentUpdates.length} agent position updates from binary data`);
-
-      setBotsData(prev => {
-        if (!prev) return prev;
-
-
-        const updatedAgents = prev.agents.map(agent => {
-
-          const positionUpdate = agentUpdates.find(update => {
-            const actualNodeId = getActualNodeId(update.nodeId);
-
-            return String(actualNodeId) === agent.id || actualNodeId.toString() === agent.id;
-          });
-
-          if (positionUpdate) {
-            // Every frame is a full snapshot: SET absolute positions
-            return {
-              ...agent,
-              position: positionUpdate.position,
-              velocity: positionUpdate.velocity,
-
-              ssspDistance: positionUpdate.ssspDistance,
-              ssspParent: positionUpdate.ssspParent,
-
-              lastPositionUpdate: Date.now()
-            };
-          }
-
-          return agent;
-        });
-
-        return {
-          ...prev,
-          agents: updatedAgents,
-          lastUpdate: new Date().toISOString()
-        };
-      });
-    } catch (error) {
-      logger.error('Error processing binary position updates:', error);
-    }
-  };
-
-  
   useEffect(() => {
     if (pollingData.agents.length > 0 || pollingData.edges.length > 0) {
       setBotsData({
@@ -175,17 +120,6 @@ export const BotsDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return { ...prev, mcpConnected: mcpConnectionStatus };
     });
   }, [mcpConnectionStatus]);
-
-  useEffect(() => {
-
-    const unsubscribe = botsWebSocketIntegration.on('bots-binary-position-update', (binaryData: ArrayBuffer) => {
-      updateFromBinaryPositions(binaryData);
-    });
-
-    return () => {
-      unsubscribe();
-    };
-  }, []);
 
   // Poll actual MCP connection status from API
   useEffect(() => {

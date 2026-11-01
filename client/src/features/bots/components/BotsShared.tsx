@@ -1,62 +1,13 @@
 /**
  * BotsShared.tsx
- * Shared primitives for the Bots visualization:
- *   - CSS keyframe injection (runs once at module load)
- *   - Pure helpers: lerpVector3, generateAgentTypeColor, getVisionClawColors
- *   - Pre-allocated module-scope Three.js objects (zero-alloc pattern)
+ * Colour helpers for the agent overlay and markers: generateAgentTypeColor, getVisionClawColors, swarm
+ * tint. No positions: where an agent is drawn is decided only by the marker pass (ADR-2142 / ADR-2135).
  */
 import * as THREE from 'three';
 
 // ---------------------------------------------------------------------------
-// Pre-allocated Three.js objects — never re-create in render/frame loops
-// ---------------------------------------------------------------------------
-export const _tempVec3A = new THREE.Vector3();
-export const _tempVec3B = new THREE.Vector3();
-export const _tempVec3Mid = new THREE.Vector3();
-export const _tempVec3Perp = new THREE.Vector3();
-export const QUEEN_GOLD = new THREE.Color('#FFD700');
-export const ADDITIVE_BLENDING = THREE.AdditiveBlending;
-export const BACK_SIDE = THREE.BackSide;
-
-// ---------------------------------------------------------------------------
-// CSS injection (runs once at module import time)
-// ---------------------------------------------------------------------------
-const pulseKeyframes = `
-  @keyframes pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.7; transform: scale(0.95); }
-  }
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(-2px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  @keyframes sparkle {
-    0%, 100% { opacity: 1; text-shadow: 0 0 4px rgba(243, 156, 18, 0.8); }
-    50% { opacity: 0.8; text-shadow: 0 0 8px rgba(243, 156, 18, 1); }
-  }
-`;
-
-if (typeof document !== 'undefined' && !document.querySelector('#bots-visualization-styles')) {
-  const style = document.createElement('style');
-  style.id = 'bots-visualization-styles';
-  style.textContent = pulseKeyframes;
-  document.head.appendChild(style);
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Smooth in-place position interpolation — writes directly into `current`, no alloc. */
-export function lerpVector3(
-  current: THREE.Vector3,
-  target: THREE.Vector3,
-  alpha: number,
-): void {
-  current.x += (target.x - current.x) * alpha;
-  current.y += (target.y - current.y) * alpha;
-  current.z += (target.z - current.z) * alpha;
-}
 
 // Pre-allocated scratch for swarm-tint HSL maths (module scope — no per-call alloc).
 const _tintColor = new THREE.Color();
@@ -169,6 +120,3 @@ export const getVisionClawColors = (settings: Record<string, unknown> | undefine
     error: '#E74C3C',
   };
 };
-
-/** Format processing logs for display (passthrough, no mock generation). */
-export const formatProcessingLogs = (logs: string[] | undefined): string[] => logs || [];

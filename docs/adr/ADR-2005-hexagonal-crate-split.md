@@ -373,3 +373,11 @@ Re-verified at `d5c46cdd8`: the change is `StepTiming` kernel sub-phases in `for
 ## Re-stamp — 2026-11-01 (constraint scheduling, `e2afd65d6`)
 
 Re-read against `force_compute_actor.rs` at `e2afd65d6`: the change is a `constraints_dirty` flag, `replace_constraint_cache`, `sync_constraints` and tests. No crate boundary, member or dependency edge changes; the actor extraction remains partial. `cargo test --lib`: 1794 passed. Re-run: `git diff --stat 7fbcd997b e2afd65d6 -- src/actors/gpu/force_compute_actor.rs`.
+
+## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
+
+`15acb9219` adds one root-binary actor module (`src/actors/agent_roster_feed.rs`, re-exported in `src/actors/mod.rs`) and removes the bots store from `graph_state_actor.rs`. It changes message shapes in `messages/agent_messages.rs` and forwarding in `graph_service_supervisor.rs`, `agent_beam_actor.rs` and `agent_monitor_actor.rs`. All of it stays inside the root binary's actor layer. No crate boundary moves and no new path dependency is added. The split this record decides is unchanged.
+
+## Re-verification — 2026-11-01 (`abcf36db1`, branch `viz/edge-tracking`)
+
+Re-verified after the R23 fixes. `agent_roster_feed.rs` `apply` takes the producers' targets and `set_target` is gone; `DONE_RUN_MS` and the timer retirement are deleted (`MAX_HELD_FINISHED` bounds held agents); `agent_beam_actor.rs` passes the targets in; `agent_monitor_actor.rs` changes a comment. Layering is unchanged: `cargo test -p visionclaw-integration-tests --test layer_direction` 2 passed. Every claim in this record holds. Evidence: `cargo test` in `xr-client/rust` (623 passed), server `cargo test --lib` (1781 passed, `CUDA_VISIBLE_DEVICES=1`), client vitest (1540 passed), GUT on a fresh `.so` (553 passed, 0 failed, `gut_guard` ok). Not run: the headset.
