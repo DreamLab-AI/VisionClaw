@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b9aed414334b9d7898e49ff399962b36ff38e084
+verified_commit: 6334233576941af20879a2b3d3d00b30ecb3c231
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs, xr-client/scripts/spatial_volume.gd]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -230,3 +230,7 @@ Before the change both fail to compile (no state path: `ag-xr-fail-before.txt` i
 **Verification.** `tests/unit/test_agent_edge_run.gd` (19 tests) and the amended `test_agent_choreography.gd`: outward then constant at the edge; never past it, including an agent beyond it and a shrinking edge; arrival within one frame of the closed form at 72 and 90 Hz, and the same radius 10 s in; an agent named again leaves the run and restarts the clock; a run begun mid-travel or on first appearance; reduced motion; a moved volume; the head-exclusion stop; the clock held while the edge is unknown; the box-diagonal edge; the source pins (30 s equal to the desktop's, no park left). Fail-first: against the old code with the new names stubbed, 14 of the first 16 failed on behaviour; `ease_out_cubic` and "never passes the edge" for a start inside the edge passed on the stub (the old park target was inside the edge), so the never-past-the-edge evidence is the "beyond the edge" and "shrinking edge" tests, which did fail first. The head-exclusion and late-edge tests were added after review and failed against `ef021a41d` (`xd-fail-before-head-exclusion.txt`). Not run: the headset. The edge radius is the box's circumscribed sphere, so a finished agent can sit outside the drawn box on the faces; the owner may prefer the inscribed sphere (half the smallest extent).
 
 **Re-verified at b9aed414334b9d7898e49ff399962b36ff38e084.** What ran: `cargo test` in `xr-client/rust` (620 passed, 0 failed); the full GUT suite on x86 headless Godot 4.6.1 (50 scripts, 555 tests, 545 passing, 7 failing, all in `test_memory_search.gd` and the same seven as on the parent commit in the same harness; `tests/gut_guard.sh` exit 0), including all of `test_agent_edge_run.gd` (19) and `test_agent_choreography.gd` (9); `adr-index-gen --check` (only the four baseline stale records) and the ratchet. Not repeated: the HP-Desktop VIVE run and the `--all-features` build named in the original Verification paragraph; nothing was measured in the headset.
+
+## Re-verification — 2026-10-31 (`633423357`)
+
+Re-verified 2026-11-01 after the inscribed-sphere edge change: `git diff df3e2aca5..6334233576941af20879a2b3d3d00b30ecb3c231 -- xr-client/scripts/spatial_volume.gd` replaces half the box diagonal with half its smallest extent (owner decision); this record's claims about volume bounds and agent edge placement hold.

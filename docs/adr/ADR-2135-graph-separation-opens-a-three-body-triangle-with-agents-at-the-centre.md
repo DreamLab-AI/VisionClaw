@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: b9aed414334b9d7898e49ff399962b36ff38e084
+verified_commit: 6334233576941af20879a2b3d3d00b30ecb3c231
 verified_paths: [xr-client/rust/src/memory_route.rs, crates/visionclaw-tri-layout/src, crates/visionclaw-tri-layout/fixtures, src/actors/gpu/display_projection.rs, src/handlers/memory_flash_handler.rs, client/src/features/graph/triLayout.ts, client/src/features/graph/agentDrift.ts, client/src/features/bots/agentDriftFeed.ts, client/src/features/graph/utils/agentNudge.ts, client/src/features/graph/utils/drawnPositions.ts, client/src/features/bots/agentMarkerPass.ts, client/src/features/visualisation/memoryCloud/cloudFrame.ts, client/src/features/graph/utils/sceneFitBounds.ts, client/src/features/visualisation/memoryCloud/cloudSprites.ts, xr-client/rust/src/cloud_frame.rs, xr-client/scripts/spatial_volume.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): the operator seeing the triangle live on a backend built from main. Review: a change of the default camera direction; a fourth body joining the separated layout; agent nodes leaving the GPU graph; the XR work-layer pose rules (ADR-2109) changing; the live graph's p99 radius passing LIVE_GRAPH_RADIUS (152)"
@@ -326,3 +326,7 @@ They are in different languages and cannot share code, so the pin is a test: `te
 - Not measured on the headset.
 
 **Re-verified at b9aed414334b9d7898e49ff399962b36ff38e084.** What ran: `cargo test` in `xr-client/rust` (620 passed, 0 failed); the full GUT suite on x86 headless Godot 4.6.1 (50 scripts, 555 tests, 545 passing, 7 failing, all in `test_memory_search.gd` and the same seven as on the parent commit in the same harness; `tests/gut_guard.sh` exit 0), including all of `test_agent_edge_run.gd` (19) and `test_agent_choreography.gd` (9); `adr-index-gen --check` (only the four baseline stale records) and the ratchet. Not repeated: the HP-Desktop VIVE run and the `--all-features` build named in the original Verification paragraph; nothing was measured in the headset.
+
+## Re-verification — 2026-10-31 (`633423357`)
+
+Re-verified 2026-11-01 after the inscribed-sphere edge change: `git diff df3e2aca5..6334233576941af20879a2b3d3d00b30ecb3c231 -- xr-client/scripts/spatial_volume.gd` replaces half the box diagonal with half its smallest extent (owner decision); this record's claims about volume bounds and agent edge placement hold.
