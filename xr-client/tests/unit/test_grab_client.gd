@@ -172,6 +172,7 @@ func test_drag_frames_use_each_volumes_own_content_transform() -> void:
 	var f := _fake(scene)
 	var origin := Vector3(0.0, 1.4, 0.0)
 	var dir := Vector3(0, 0, -1)
+	assert_false(scene._content_xf(&"knowledge").is_equal_approx(scene._content_xf(&"ontology")), "precondition: the two volumes frame differently")
 	scene._begin_grab(0, &"knowledge", 11, origin)
 	scene._begin_grab(1, &"ontology", 22, origin)
 	f.calls.clear()
@@ -207,6 +208,10 @@ func test_entered_room_grabs_in_the_room_and_refuses_a_portal() -> void:
 	assert_eq(scene._portals.entered_id(), &"ontology")
 	var f := _fake(scene)
 	var origin := Vector3(0.0, 1.4, 0.0)
+	# The room's content is fitted up to room size; the empty headless graph fits at 1,
+	# so scale it by hand (no tick runs before the drive below).
+	(scene._volumes[&"ontology"].content as Node3D).scale = Vector3.ONE * 4.0
+	assert_almost_eq(scene._content_xf(&"ontology").basis.get_scale().x, 4.0, 1e-3, "precondition: a scaled room")
 	assert_true(scene._begin_grab(0, &"ontology", 22, origin), "grab inside the entered room")
 	assert_false(scene._begin_grab(1, &"knowledge", 11, origin), "pointing into a portal never grabs")
 	assert_eq(scene._grab_id[1], -1)

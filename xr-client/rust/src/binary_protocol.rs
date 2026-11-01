@@ -1813,6 +1813,21 @@ impl BinaryProtocolClient {
             .hunt(ease, gid, [grab_pos.x, grab_pos.y, grab_pos.z]);
     }
 
+    /// `hunt` for any number of held nodes (one per hand). `ids[i]` is pinned to
+    /// `positions[i]` (server space); the arrays are zipped, extra entries in the
+    /// longer one are ignored. Empty arrays mean no grab.
+    #[func]
+    fn hunt_grabs(&mut self, ease: f32, ids: PackedInt32Array, positions: PackedVector3Array) {
+        let grabs: Vec<(u32, [f32; 3])> = ids
+            .as_slice()
+            .iter()
+            .zip(positions.as_slice().iter())
+            .filter(|(id, _)| **id >= 0)
+            .map(|(id, p)| (*id as u32, [p.x, p.y, p.z]))
+            .collect();
+        self.store.hunt_grabs(ease, &grabs);
+    }
+
     /// Pack the node MultiMesh buffer for the drawn `ids` (20 floats/instance:
     /// transform + colour + custom). `scale_comp` folds GraphRoot scale + the HUD
     /// node-size factor; size eases `size_lo..size_hi` by sqrt(centrality-norm).

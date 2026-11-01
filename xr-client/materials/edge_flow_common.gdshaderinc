@@ -3,15 +3,15 @@
 // the same relation grammar, pulse and palette. Moved verbatim from
 // edge_flow.gdshader (2026-10-07); materials set these uniforms by name.
 uniform vec3 flow_color : source_color = vec3(1.0, 0.80, 0.36);
-// Slow breathe (owner, 2026-11-01): the gold flow edges fade gently in and out
-// together. A whole-network alpha swell with nothing travelling, so it stays on
-// under reduced motion. breathe_depth is the fraction of alpha removed at the
-// trough (0 = off); breathe_period is seconds per full cycle (owner: 32 s).
-// 32 does not divide Godot's 3600 s TIME rollover (112.5 cycles), so once an
-// hour the edges step from the trough back to full brightness in one frame;
-// 30 s or 36 s would wrap seamlessly.
-uniform float breathe_period = 32.0;
-uniform float breathe_depth = 0.45;
+// Slow breathe (owner, 2026-11-01): the gold flow edges swell and fade gently
+// together. A whole-network swell of alpha AND brightness (albedo) with nothing
+// travelling, so it stays on under reduced motion. breathe_depth is the fraction
+// removed at the trough (0 = off); breathe_period is seconds per full cycle.
+// 36 s divides Godot's 3600 s TIME rollover exactly (100 cycles), so there is no
+// jump once an hour. Depth 0.8 (the first 0.45 swing of a 0.16 alpha was too
+// small to see): the edges dim to a fifth of their peak at the trough.
+uniform float breathe_period = 36.0;
+uniform float breathe_depth = 0.8;
 // Baseline alpha so the whole edge network is faintly visible.
 uniform float base_alpha = 0.35;
 // Pulse travel speed (cycles per second along the edge).
@@ -95,6 +95,7 @@ void edge_flow_shade(vec2 uv, float time, float style, float phase, out vec3 alb
 	}
 	if (!is_inferred && !is_subclass) {
 		float swell = 0.5 - 0.5 * cos(6.28318531 * time / max(breathe_period, 0.001));
+		albedo *= 1.0 - clamp(breathe_depth, 0.0, 1.0) * swell;
 		alpha *= 1.0 - clamp(breathe_depth, 0.0, 1.0) * swell;
 	}
 	alpha_out = clamp(alpha * (1.0 + beat_edge_gain * clamp(beat_pulse, 0.0, 1.0)), 0.0, 1.0);
