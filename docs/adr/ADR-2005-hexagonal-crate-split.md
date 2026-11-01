@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 8f796ad8645a6dca5303150273b36de677e1ab70
+verified_commit: e2afd65d656977d082382e724198e86d2b8cabdf
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -369,3 +369,7 @@ Re-verified at `d5c46cdd8`: the change is `StepTiming` kernel sub-phases in `for
 ## Re-stamp — 2026-11-01 (integration of `phys/tick-rate` and `phys/hold-springs`, `8f796ad86`)
 
 `cargo test -p visionclaw-integration-tests --test layer_direction` passed (2 of 2). The governed change to `force_compute_actor.rs` is the hold-spring plumbing (`hold_springs` on `StepOverrides`, one setter call) and the `StepTiming` kernel sub-phases; no crate boundary, member or dependency edge changes. Root-crate `utils::unified_gpu_compute` calling `actors::gpu::force_compute_actor::kernel_stage_*` stays a module-level edge the crate-level test does not model. Re-run: `git diff --stat 531df5ef7 8f796ad86 -- Cargo.toml src/actors crates/visionclaw-actors/src crates/visionclaw-integration-tests/tests/layer_direction.rs .github/workflows/ci.yml` → `1 file changed, 149 insertions(+), 2 deletions(-)`.
+
+## Re-stamp — 2026-11-01 (constraint scheduling, `e2afd65d6`)
+
+Re-read against `force_compute_actor.rs` at `e2afd65d6`: the change is a `constraints_dirty` flag, `replace_constraint_cache`, `sync_constraints` and tests. No crate boundary, member or dependency edge changes; the actor extraction remains partial. `cargo test --lib`: 1794 passed. Re-run: `git diff --stat 7fbcd997b e2afd65d6 -- src/actors/gpu/force_compute_actor.rs`.

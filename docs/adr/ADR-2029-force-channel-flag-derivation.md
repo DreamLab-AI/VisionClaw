@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 1ec762f39dc12ce8e29dce4c19c056a6e871d266
+verified_commit: e2afd65d656977d082382e724198e86d2b8cabdf
 verified_paths: [src/models/force_channels.rs, src/utils/unified_gpu_compute/execution.rs, src/models/simulation_params.rs]
 owner: jjohare
 review_trigger: array-backed force-term refactor (deferred step 2), or any new host→GPU conversion path
@@ -265,3 +265,7 @@ Re-verified at `d5c46cdd8`: `execute_physics_step` is still the single flag auth
 ## Re-stamp — 2026-11-01 (comment-only follow-up, `1ec762f39`)
 
 Comment-only change since `8f796ad86` (the commit the tests and measurements in the previous stamp ran at): `git diff 8f796ad86 1ec762f39 -- crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu src/utils/unified_gpu_compute/execution.rs` is 3 comment lines in the `.cu` file and 1 doc-comment line in `execution.rs`, no code token. The `.cu` still compiles with `nvcc -ptx`, and its PTX still has `force_pass_kernel` at 30 parameters, `force_pass_with_stability_kernel` at 29, `c_params[212]` and no `blend_semantic_physics_forces`. Re-run: `git diff --stat 531df5ef7 1ec762f39 -- src/models/force_channels.rs src/utils/unified_gpu_compute/execution.rs src/models/simulation_params.rs` → `1 file changed, 1446 insertions(+), 48 deletions(-)`.
+
+## Re-stamp — 2026-11-01 (constraint scheduling, `e2afd65d6`)
+
+Re-read against `execution.rs` at `e2afd65d6`: the change is test-only (the live-shape timing test steps through the actor's upload decision). `derive_dispatch_feature_flags` is still the single flag authority and `Constraints` is still read-only; the four `adr_2029_constraint_gpu_tests` and the oracle-index equality test pass. Re-run: `git diff --stat 7fbcd997b e2afd65d6 -- src/utils/unified_gpu_compute/execution.rs`.
