@@ -14,7 +14,7 @@
 import { getAgentWork, type AgentWorkInfo } from '../../bots/agentWorkTargets'
 import { agentDriftFeed } from '../../bots/agentDriftFeed'
 import { agentOffsetsEnabled } from '../../../store/agentOffsetPrefs'
-import { stepAgentOffset } from './agentNudge'
+import { stepAgentOffset, type SceneEdge } from './agentNudge'
 import type { TriangleFrame } from '../triLayout'
 
 /** One drawn agent: its graph node id (wire id string, flag bit included) and its slot in the buffer. */
@@ -43,6 +43,8 @@ export interface AgentPassInput {
   dragIndex: number
   /** Graph node id to buffer index, to find a working agent's target. */
   nodeIdToIndex: Map<string, number>
+  /** The scene's edge (the sphere the camera frames), where finished agents stop; null if unknown. */
+  edge: SceneEdge | null
 }
 
 interface AgentState {
@@ -133,7 +135,7 @@ export class DrawnPositions {
           }
         }
         _base[0] = x; _base[1] = y; _base[2] = z
-        stepAgentOffset(off, 0, _base, target, work?.state ?? null)
+        stepAgentOffset(off, 0, _base, target, work?.state ?? null, input.edge)
       } else {
         off[0] = 0; off[1] = 0; off[2] = 0
       }

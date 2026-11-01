@@ -74,20 +74,19 @@ back lets ~56k knowledge↔ontology cross-links (rest length ~30) pull the popul
   array every desktop consumer reads; 2026-11-01). In XR it moves the slot a work agent rests at
   (centroid plus drift, on an 0.18 m ring), and a new avatar materialises at the centroid.
   The choreography stays the only pose writer (Invariant 8).
-- **Desktop nudge.** In the separated layout a done or idle agent's client-side nudge offset
-  relaxes back to its server position instead of drifting outward (`agentNudge.ts`). Working
-  agents still converge on their target node, so they visit the graph they act on.
-  **A finished agent does not drift (2026-11-01, owner decision).** The merged layout's outward
-  drift for done agents (0.005 a frame, unbounded) is deleted, with its `separated` and graph-centre
-  inputs, not capped: the layout has been always separated, so that branch never ran, and kept as a
-  branch it could keep a finished agent moving and defeat the edge skip gate. What a done agent does
-  is the relax above: a monotone glide home, snapping to zero under `AGENT_RELAX_SNAP` (1e-4 units;
-  without the snap a float32 position keeps changing for about 3 400 frames), so the nudge tail ends
-  in about 420 frames (7 s at 60 fps). The activity drift (`DriftField`, credit halving every 6 s) is
-  the shared rule and keeps its own tail: measured with the real feed, a finished agent's drawn
-  position is bit-identical about 3 470 frames (58 s) after the last action credited it, and the
-  edge gate cannot skip until then. After that it is constant and the gate skips. If "stop" was meant to freeze it where it stands, the change is one line
-  (`state === 'done'` returns before the relax).
+- **Desktop nudge.** Working agents converge on their target node, so they visit the graph they
+  act on. **A finished agent drifts outward to the edge of the scene and stops there (owner
+  decision, 2026-11-01).** The edge is the bounding sphere the camera already frames
+  (`sceneFitBounds`, `sceneFitBounds.ts:57`, taken from the server positions and refreshed twice a
+  second by GraphManager), not a constant of its own. The drift keeps the long-standing 0.005 a frame
+  (`AGENT_DRIFT_SPEED`), eases over the last stretch (a tenth of the remaining distance), snaps onto
+  the edge under `AGENT_EDGE_SNAP` (1e-4 units) and is put straight back if it is ever beyond the
+  edge, so it never passes it. Once on the edge the offset is constant, the agent's drawn position
+  is bit-identical and the edge skip gate skips. (An earlier draft of this change removed the drift
+  instead; the owner corrected it.) Only an agent whose work is recorded as `done` drifts out; one with
+  no work on record relaxes back to its server position (`AGENT_RELAX_SNAP` ends that tail), and with
+  no known scene edge a finished agent holds still. The nudge is applied once a frame by
+  `DrawnPositions.applyAgents` (`agentNudge.ts`), not in `GemNodes`.
 - **Camera.** On the desktop the auto-fit frames the sphere enclosing all three bodies whenever
   separation is above 0: each graph is one graph's folded extent at its vertex, and the cloud is
   where and as large as `cloudPlacement` puts it (only while it is on and loaded). At separation

@@ -47,7 +47,7 @@ const work = (state: 'working' | 'done', target = '12'): AgentWorkInfo => ({ tar
 function pass(over: Partial<AgentPassInput> & { sab: Float32Array; agents: AgentSlot[] }): AgentPassInput {
   return {
     getWork: () => null, drift: null, triFrame: separatedFrame(), offsetsEnabled: true, dragIndex: -1,
-    nodeIdToIndex: new Map([['12', 2]]), ...over,
+    nodeIdToIndex: new Map([['12', 2]]), edge: null, ...over,
   }
 }
 /** One frame as GraphManager runs it: copy the shared buffer, then apply the agents. */
@@ -160,66 +160,68 @@ describe('a drifted agent is at ONE position for every consumer in the same fram
   })
 })
 
-describe('a finished agent stops moving (owner decision)', () => {
-  it('a done agent that never worked is at its server position and constant, and the edge gate skips', () => {
+/** Scene edge for the finished-agent tests: a sphere about the origin that the agent (30.4 out) is inside. */
+const EDGE = { centre: [0, 0, 0] as [number, number, number], radius: 31.2 }
+const distFromCentre = (p: Float32Array, i: number) =>
+  Math.hypot(p[i * 3] - EDGE.centre[0], p[i * 3 + 1] - EDGE.centre[1], p[i * 3 + 2] - EDGE.centre[2])
+
+describe('a finished agent drifts to the scene edge and stops there (owner decision)', () => {
+  it('moves outward, never passes the edge, then is bit-constant, and the edge gate skips once it has arrived', () => {
     const { sab, map, ids, plan } = scene()
     const agents = resolveAgentSlots([{ id: ids[3] }], map)
     const dp = new DrawnPositions()
     const gate = new EdgeFrameGate()
     const handle = {}
+    let prevDist = distFromCentre(sab, 3)
     let last = new Float32Array(0)
-    let skipped = 0
-    for (let f = 0; f < 200; f++) {
-      const drawn = frame(dp, pass({ sab, agents, getWork: () => work('done') }))
-      if (f > 0) expect(Array.from(drawn)).toEqual(Array.from(last))
+    let arrivedAt = -1
+    let skippedAfterArrival = 0
+    let framesAfterArrival = 0
+    for (let f = 0; f < 600; f++) {
+      const drawn = frame(dp, pass({ sab, agents, edge: EDGE, getWork: () => work('done') }))
+      const d = distFromCentre(drawn, 3)
+      expect(d).toBeGreaterThanOrEqual(prevDist - 1e-4) // outward only
+      expect(d).toBeLessThanOrEqual(EDGE.radius + 1e-3) // never past the edge
+      prevDist = d
+      const same = last.length === drawn.length && last.every((x, k) => x === drawn[k])
+      if (same && arrivedAt < 0) arrivedAt = f
+      if (!same) arrivedAt = -1
       last = Float32Array.from(drawn)
       const state = { plan, positions: drawn, edgeHandle: handle, highlightHandle: handle, selectedNodeId: null, dragging: false }
-      if (gate.shouldSkip(state)) skipped++
-      else gate.commit(state)
+      const skip = gate.shouldSkip(state)
+      if (!skip) gate.commit(state)
+      if (arrivedAt >= 0) { framesAfterArrival++; if (skip) skippedAfterArrival++ }
     }
-    expect(skipped).toBe(199)
+    expect(arrivedAt).toBeGreaterThan(20) // it did travel first
+    expect(Math.abs(prevDist - EDGE.radius)).toBeLessThan(1e-3) // and stopped ON the edge
+    expect(framesAfterArrival).toBeGreaterThan(100)
+    expect(skippedAfterArrival).toBeGreaterThanOrEqual(framesAfterArrival - 1)
+    expect(sab[10]).toBe(30) // the shared buffer was never written
   })
 
-  it('a working agent that finishes glides home and then holds still bit-for-bit; the gate then skips', () => {
-    const { sab, map, ids, plan } = scene()
+  it('an agent that is not done is not sent to the edge, and one with no work relaxes home', () => {
+    const { sab, map, ids } = scene()
     const agents = resolveAgentSlots([{ id: ids[3] }], map)
     const dp = new DrawnPositions()
-    for (let f = 0; f < 120; f++) frame(dp, pass({ sab, agents, getWork: () => work('working') }))
-    const away = at(dp.positions, 3).distanceTo(at(sab, 3))
-    expect(away).toBeGreaterThan(10)
-
-    const gate = new EdgeFrameGate()
-    const handle = {}
-    let prevDist = Infinity
-    let last = new Float32Array(0)
-    let settledAt = -1
-    let skippedAfterSettle = 0
-    for (let f = 0; f < 3000; f++) {
-      const drawn = frame(dp, pass({ sab, agents, getWork: () => work('done') }))
-      const dist = at(drawn, 3).distanceTo(at(sab, 3))
-      expect(dist).toBeLessThanOrEqual(prevDist) // monotone: never drifts outward
-      prevDist = dist
-      const same = last.length === drawn.length && last.every((x, k) => x === drawn[k])
-      if (same && settledAt < 0) settledAt = f
-      if (!same) settledAt = -1
-      last = Float32Array.from(drawn)
-      const state = { plan, positions: drawn, edgeHandle: handle, highlightHandle: handle, selectedNodeId: null, dragging: false }
-      if (gate.shouldSkip(state)) { if (settledAt >= 0) skippedAfterSettle++ } else gate.commit(state)
-    }
-    expect(settledAt).toBeGreaterThan(0)
-    expect(settledAt).toBeLessThan(600) // ~7 s at 60 fps once the offset snaps (AGENT_RELAX_SNAP), not a minute
+    for (let f = 0; f < 200; f++) frame(dp, pass({ sab, agents, edge: EDGE, getWork: () => null }))
     expect(at(dp.positions, 3).toArray()).toEqual(at(sab, 3).toArray())
-    expect(skippedAfterSettle).toBeGreaterThan(1000)
+  })
+
+  it('with no known edge a finished agent stays at its server position', () => {
+    const { sab, map, ids } = scene()
+    const agents = resolveAgentSlots([{ id: ids[3] }], map)
+    const dp = new DrawnPositions()
+    for (let f = 0; f < 50; f++) frame(dp, pass({ sab, agents, edge: null, getWork: () => work('done') }))
+    expect(at(dp.positions, 3).toArray()).toEqual(at(sab, 3).toArray())
   })
 })
 
 /**
- * The settle tail in the PRODUCTION configuration: the real drift feed (credit halves every 6 s, the
- * shown offset follows through a 1.5 s lag), time injected at 60 fps, and an agent at the origin,
- * where a float32 coordinate has the finest resolution and a geometric tail lasts longest.
+ * Arrival at the edge in the PRODUCTION configuration: the real drift feed (credit halves every 6 s,
+ * 1.5 s lag), time injected at 60 fps. The agent works, then finishes and drifts to the edge.
  */
-function settleFrames(agentAt: number[], withFeed: boolean, maxFrames: number): number {
-  const sab = new Float32Array([0, 0, 0, ...agentAt, 40, 25, -10])
+function arrivalFrames(withFeed: boolean, maxFrames: number): number {
+  const sab = new Float32Array([0, 0, 0, 5, 30, 0, 40, 25, -10])
   const agents: AgentSlot[] = [{ id: 'A', index: 1 }]
   const nodeIdToIndex = new Map([['T', 2]])
   let now = 100
@@ -231,10 +233,11 @@ function settleFrames(agentAt: number[], withFeed: boolean, maxFrames: number): 
   if (withFeed) feed.ingestBeams([{ id: 1, sourceAgentId: 'A' as unknown as number, targetNodeId: 'T' as unknown as number }])
   const dp = new DrawnPositions()
   let state: 'working' | 'done' = 'working'
+  const edge = { centre: [0, 0, 0] as [number, number, number], radius: 60 }
   const run = (): Float32Array => {
     now += 1 / 60
     dp.copy(sab)
-    dp.applyAgents(pass({ sab, agents, nodeIdToIndex, drift: withFeed ? feed : null, getWork: () => work(state, 'T') }))
+    dp.applyAgents(pass({ sab, agents, nodeIdToIndex, edge, drift: withFeed ? feed : null, getWork: () => work(state, 'T') }))
     return Float32Array.from(dp.positions.subarray(3, 6))
   }
   for (let f = 0; f < 120; f++) run()
@@ -243,6 +246,7 @@ function settleFrames(agentAt: number[], withFeed: boolean, maxFrames: number): 
   let stableSince = 0
   for (let f = 1; f < maxFrames; f++) {
     const cur = run()
+    expect(Math.hypot(cur[0], cur[1], cur[2])).toBeLessThanOrEqual(edge.radius + 1e-3)
     const same = cur[0] === last[0] && cur[1] === last[1] && cur[2] === last[2]
     if (!same) stableSince = 0
     else if (stableSince === 0) stableSince = f
@@ -251,21 +255,15 @@ function settleFrames(agentAt: number[], withFeed: boolean, maxFrames: number): 
   return stableSince
 }
 
-describe('how long a finished agent keeps moving (measured, production configuration)', () => {
-  it('the nudge tail ends in about 7 s even at the origin, where float32 is finest', () => {
-    for (const at of [[5, 30, 0], [0, 0, 0]]) {
-      const n = settleFrames(at, false, 3000)
-      expect(n).toBeGreaterThan(0)
-      expect(n).toBeLessThan(600)
-    }
+describe('arrival at the edge, production configuration (measured)', () => {
+  it('without the drift feed the agent arrives and holds', () => {
+    const n = arrivalFrames(false, 60000)
+    expect(n).toBeGreaterThan(0)
   })
 
-  it('with the real drift feed the agent holds still after the credit has decayed (about 58 s at 60 fps)', () => {
-    for (const at of [[5, 30, 0], [0, 0, 0]]) {
-      const n = settleFrames(at, true, 8000)
-      expect(n).toBeGreaterThan(0) // it does settle
-      expect(n).toBeLessThan(5000) // measured 3468 frames: DriftField credit halves every 6 s
-    }
+  it('with the real drift feed it still never passes the edge and holds once the credit has decayed', () => {
+    const n = arrivalFrames(true, 60000)
+    expect(n).toBeGreaterThan(0)
   })
 })
 

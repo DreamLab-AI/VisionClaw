@@ -20,6 +20,9 @@ import { useAgentTargetStore } from '../../../store/agentTargetStore'
 import { resolveNodeWorldPosition } from '../../visualisation/cameraFocus'
 import { drawnPositions, resolveAgentSlots, liveAgentPassDeps, fillLabelPositions } from '../utils/drawnPositions'
 import { separatedFrame } from '../triLayout'
+import { sceneFitBounds } from '../utils/sceneFitBounds'
+import { cloudFitInput } from '../hooks/useCameraAutoFit'
+import type { SceneEdge } from '../utils/agentNudge'
 import { useGraphVisualState, type GraphVisualMode } from '../hooks/useGraphVisualState'
 import { useGraphFiltering } from '../hooks/useGraphFiltering'
 import { useFpsMonitor } from '../hooks/useFpsMonitor'
@@ -138,6 +141,10 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   // The agents that have a slot in the position buffer, for the once-a-frame agent pass.
   const agentSlots = useMemo(() => resolveAgentSlots(agentNodes, nodeIdToIndexMap), [agentNodes, nodeIdToIndexMap])
   const triFrame = useMemo(() => separatedFrame(), [])
+  // The scene's edge, where finished agents stop: the bounding sphere the camera frames, from the
+  // SERVER positions (so agents moving cannot grow it), refreshed twice a second.
+  const sceneEdgeRef = useRef<SceneEdge | null>(null)
+  const sceneEdgeTickRef = useRef(0)
 
   // === Transient agent-action beams (0x23) — id-space resolution ===
   //
@@ -463,6 +470,13 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
         if (rawProgress >= 1.0) { transitionRef.current.active = false; setLayoutTransitioning(false) }
       }
 
+      if (sceneEdgeRef.current === null || ++sceneEdgeTickRef.current >= 30) {
+        sceneEdgeTickRef.current = 0
+        const count = Math.min(graphData.nodes.length, Math.floor(positions.length / 3))
+        const b = sceneFitBounds(positions, count, cloudFitInput())
+        if (b) sceneEdgeRef.current = { centre: b.centre, radius: b.radius }
+      }
+
       // Agent drift and nudge, once, on the copy: from here on `drawn` is where every node is drawn.
       const dragNodeId = dragDataRef.current.isDragging ? dragDataRef.current.nodeId : null
       drawnPositions.applyAgents({
@@ -472,6 +486,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
         triFrame,
         dragIndex: dragNodeId === null ? -1 : (nodeIdToIndexMap.get(dragNodeId) ?? -1),
         nodeIdToIndex: nodeIdToIndexMap,
+        edge: sceneEdgeRef.current,
       })
 
       requestCameraFit()
