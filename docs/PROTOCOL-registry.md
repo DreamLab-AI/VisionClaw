@@ -207,7 +207,7 @@ Rules:
 - a connection holds at most **2** nodes at once (one per hand); a third `nodeDragStart` is refused with a warning;
 - any number of connections may hold different nodes at once; if two hold the **same** node the last write wins, and a release counts only from the node's current owner;
 - a hold ends on `nodeDragEnd`, after 2 s without an update (drag timeout), or when the connection closes; the node then rejoins the simulation. An explicit pin on it is untouched;
-- while any node is held, by any connection, the GPU steps every tick (no stability skip, no equilibrium pause) and the stored `globalSpeed` is floored at 2.0; the same holds for 2 s after the last release. Every client receives the result in the ordinary position stream (V3/V5, paced per client by the ack protocol, ADR-2141); the drag path broadcasts nothing itself.
+- while any node is held, by any connection, the GPU steps every tick (no stability skip, no equilibrium pause) and the stored `globalSpeed` is floored at 2.0 (owner-accepted 2026-11-01). For 2 s after the last release the GPU keeps stepping at the stored speed. Every client receives the result in the ordinary position stream (V3/V5, paced per client by the ack protocol, ADR-2141); the drag path broadcasts nothing itself.
 
 ### Second producer: Codescape (`:4100`, ADR-2143)
 

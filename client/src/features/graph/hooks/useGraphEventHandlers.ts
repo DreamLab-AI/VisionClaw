@@ -9,6 +9,7 @@ import { createBinaryNodeData, BinaryNodeData } from '../../../types/binaryProto
 import { createLogger } from '../../../utils/loggerConfig';
 import { debugState } from '../../../utils/clientDebugState';
 import { useGraphInteraction } from '../../visualisation/hooks/useGraphInteraction';
+import { startDragHeartbeat } from './dragHeartbeat';
 
 const logger = createLogger('useGraphEventHandlers');
 
@@ -74,6 +75,14 @@ export const useGraphEventHandlers = (
       }
     }, POSITION_UPDATE_THROTTLE_MS)
   ).current;
+
+  // Keeps the server hold alive while the pointer is still (ADR-2169 timeout).
+  const stopHeartbeatRef = useRef<(() => void) | null>(null);
+  const stopHeartbeat = () => {
+    stopHeartbeatRef.current?.();
+    stopHeartbeatRef.current = null;
+  };
+  useEffect(() => stopHeartbeat, []);
 
   const handlePointerDown = useCallback((event: ThreeEvent<PointerEvent>) => {
     event.stopPropagation();
@@ -159,6 +168,20 @@ export const useGraphEventHandlers = (
           } catch (e) {
             logger.warn('nodeDragStart send failed:', e);
           }
+          stopHeartbeat();
+          stopHeartbeatRef.current = startDragHeartbeat(() => {
+            try {
+              if (!graphDataManager.webSocketService?.isReady()) return;
+              const p = dragDataRef.current.currentNodePos3D;
+              graphDataManager.webSocketService.sendMessage('nodeDragUpdate', {
+                nodeId: numericId,
+                position: { x: p.x, y: p.y, z: p.z },
+                timestamp: Date.now()
+              });
+            } catch (e) {
+              logger.warn('nodeDragUpdate heartbeat failed:', e);
+            }
+          });
         }
         if (debugState.isEnabled()) {
           logger.debug(`Drag started on node ${drag.nodeId}`);
@@ -270,6 +293,7 @@ export const useGraphEventHandlers = (
       }
     }
 
+    stopHeartbeat();
     endInteraction(drag.nodeId);
 
     // CRITICAL: Re-enable OrbitControls by signaling drag is complete

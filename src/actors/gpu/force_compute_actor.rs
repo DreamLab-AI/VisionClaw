@@ -4293,7 +4293,10 @@ mod hold_physics_tests {
         );
         assert!(during.bypass_stability);
         assert_eq!(during.damping, RELEASE_SETTLE_DAMPING);
-        assert_eq!(during.global_speed, HOLD_GLOBAL_SPEED);
+        assert_eq!(
+            during.global_speed, 0.4,
+            "the settle window runs at the stored speed (R16 S1)"
+        );
         assert_eq!(
             during.reheat, 0.0,
             "no settings noise while the graph is settling"
@@ -4451,7 +4454,8 @@ const HOLD_EXPIRY: std::time::Duration = std::time::Duration::from_secs(5);
 /// neighbours of a held node faster. `damping`, `max_force` and `max_velocity` change nothing
 /// there. Over 120 steps a neighbour of a node held 300 units out moves 4.5 units at the stored
 /// 0.4, 19 at 2.0 and 55 at 8.0. 2.0 is five times the stored value and the response is about
-/// four times higher; it applies only while something is held or settling.
+/// four times higher; it applies only while something is held. Not in the settle window: R16
+/// measured ~22x residual motion there and a step back to the stored speed when it closed.
 const HOLD_GLOBAL_SPEED: f32 = 2.0;
 
 /// One-shot velocity kick (a random vector of magnitude up to `2 * RELEASE_IMPULSE` per node)
@@ -4492,7 +4496,7 @@ pub(crate) fn step_overrides(
     let settling = !any_held && settle_until.is_some_and(|t| now < t);
     StepOverrides {
         bypass_stability: warmup_remaining > 0 || any_held || settling,
-        global_speed: if any_held || settling {
+        global_speed: if any_held {
             base_global_speed.max(HOLD_GLOBAL_SPEED)
         } else {
             base_global_speed
