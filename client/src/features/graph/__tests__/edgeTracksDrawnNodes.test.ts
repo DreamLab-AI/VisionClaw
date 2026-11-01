@@ -9,6 +9,7 @@
 import { describe, it, expect } from 'vitest'
 import * as THREE from 'three'
 import { tickTween } from '../workers/lib/tween'
+import { DrawnPositions } from '../utils/drawnPositions'
 import {
   buildEdgePlan, fillEdgeFrame, fillHighlightFrame, createEdgeFrameBuffers, EdgeFrameGate,
   type EdgePlanInputs,
@@ -41,8 +42,6 @@ const close = (got: ArrayLike<number>, want: number[]) => {
 }
 const v = (p: Float32Array | number[], i: number) => new THREE.Vector3(p[i * 3], p[i * 3 + 1], p[i * 3 + 2])
 
-const dragPos = new THREE.Vector3()
-
 describe('desktop edges meet the drawn (chased) node positions', () => {
   it('worker tween: mid-ease edges end at the eased positions, not the server targets', () => {
     const { nodes, plan } = chain(3)
@@ -56,7 +55,7 @@ describe('desktop edges meet the drawn (chased) node positions', () => {
     expect(cur[4]).toBeGreaterThan(0.5)
     expect(cur[4]).toBeLessThan(29)
     const out = createEdgeFrameBuffers()
-    expect(fillEdgeFrame(plan, cur, -1, dragPos, out)).toBe(2)
+    expect(fillEdgeFrame(plan, cur, out)).toBe(2)
     close(out.points.slice(0, 6), surface(v(cur, 0), v(cur, 1)))
     close(out.points.slice(6, 12), surface(v(cur, 1), v(cur, 2)))
   })
@@ -66,13 +65,13 @@ describe('desktop edges meet the drawn (chased) node positions', () => {
     const pos = new Float32Array([0, 0, 0, 20, 0, 0, 40, 0, 0])
     const gate = new EdgeFrameGate()
     const h = {}, hh = {}
-    const state = () => ({ plan, positions: pos, edgeHandle: h, highlightHandle: hh, selectedNodeId: null, dragging: false })
+    const state = () => ({ plan, positions: pos, edgeHandle: h, highlightHandle: hh, selectedNodeId: null })
     gate.commit(state())
     expect(gate.shouldSkip(state())).toBe(true)
     pos.set([20, 35, 5], 3) // another client drags node 1
     expect(gate.shouldSkip(state())).toBe(false)
     const out = createEdgeFrameBuffers()
-    fillEdgeFrame(plan, pos, -1, dragPos, out)
+    fillEdgeFrame(plan, pos, out)
     close(out.points.slice(0, 6), surface(v(pos, 0), v(pos, 1)))
   })
 
@@ -81,10 +80,14 @@ describe('desktop edges meet the drawn (chased) node positions', () => {
     const pos = new Float32Array([0, 0, 0, 20, 0, 0, 40, 0, 0])
     const hand = new THREE.Vector3(18, 9, -4)
     const out = createEdgeFrameBuffers()
-    fillEdgeFrame(plan, pos, 1, hand, out)
+    // GraphManager writes the hand into the drawn array; the edge fill just reads it.
+    const dp = new DrawnPositions()
+    const drawn = dp.copy(pos)
+    dp.applyDrag(1, hand)
+    fillEdgeFrame(plan, drawn, out)
     close(out.points.slice(0, 6), surface(v(pos, 0), hand))
     close(out.points.slice(6, 12), surface(hand, v(pos, 2)))
-    expect(fillHighlightFrame(plan, pos, 1, 1, hand, out)).toBe(2)
+    expect(fillHighlightFrame(plan, drawn, 1, out)).toBe(2)
     close(out.highlight.slice(0, 6), surface(v(pos, 0), hand))
   })
 })

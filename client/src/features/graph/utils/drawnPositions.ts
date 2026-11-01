@@ -1,11 +1,12 @@
 /**
  * The ONE drawn-positions array of the desktop client.
  *
- * Each frame GraphManager copies the worker's shared position buffer once into this array
- * and applies the agent drift and momentum nudge to the copy once. Everything that needs to
- * know where a node is drawn reads it through `nodePositionsRef`: the gems, the edge fill,
- * inferred edges, beams, the edge skip gate, labels, picking, fly-to, hulls and rings. No
- * consumer adds an offset of its own, so for any node one frame yields one position.
+ * Each frame GraphManager copies the worker's shared position buffer once into this array and
+ * applies the agent drift, the momentum nudge and the drag hand position to the copy once.
+ * Everything that needs to know where a node is drawn reads it through `nodePositionsRef`: the
+ * gems, the edge fill, inferred edges, beams, the bots overlay (`agentDrawnPosition`), the edge
+ * skip gate, labels, picking, fly-to, hulls and rings. No consumer adds an offset of its own, so
+ * for any node one frame yields one position.
  *
  * The shared buffer is never written here. The worker rewrites it on its own 16 ms timer,
  * so a main-thread `+=` would be applied twice on any frame the worker skipped (and would
@@ -31,15 +32,13 @@ export interface DriftSource {
 
 /** Everything the agent pass reads. Dependencies are injected so tests can drive it. */
 export interface AgentPassInput {
-  /** The shared (worker-owned) buffer: server positions, the base of every agent's motion. */
-  sab: Float32Array
   agents: readonly AgentSlot[]
   getWork: (agentId: string) => AgentWorkInfo | null
   drift: DriftSource | null
   triFrame: TriangleFrame
   /** The "agent offsets" preference; off draws an agent at its server position plus drift only. */
   offsetsEnabled: boolean
-  /** Buffer index of the node being dragged (the gem takes the hand position), or -1. */
+  /** Buffer index of the node being dragged (`applyDrag` places it after this pass), or -1. */
   dragIndex: number
   /** Graph node id to buffer index, to find a working agent's target. */
   nodeIdToIndex: Map<string, number>
@@ -95,12 +94,26 @@ export class DrawnPositions {
   }
 
   /**
-   * Move each agent to server position + activity drift + nudge, in the copy. Call once a frame,
-   * after `copy`. Agents that are gone lose their offset, so the slot is raw again and a new
+   * Draw the dragged node at the hand. The agent pass leaves a dragged agent alone, so this goes
+   * after it. It is the one place the hand position meets the drawn array: the gem, its edges,
+   * the label, inferred edges, picking and the rest all read the result, the same frame.
+   */
+  applyDrag(index: number, hand: { x: number; y: number; z: number }): void {
+    const i3 = index * 3
+    if (index < 0 || i3 + 2 >= this.drawn.length) return
+    this.drawn[i3] = hand.x
+    this.drawn[i3 + 1] = hand.y
+    this.drawn[i3 + 2] = hand.z
+  }
+
+  /**
+   * Move each agent to its position + activity drift + nudge, in the copy. Call once a frame,
+   * after `copy` and after any layout-transition LERP: the base and the work target are read
+   * from the copy, so agents move with everything else during a transition. Agents that are gone lose their offset, so the slot is raw again and a new
    * occupant starts from zero.
    */
   applyAgents(input: AgentPassInput): void {
-    const { sab, agents } = input
+    const { agents } = input
     const drawn = this.drawn
     if (agents.length === 0) {
       this.agentState.clear()
@@ -111,7 +124,7 @@ export class DrawnPositions {
     for (let a = 0; a < agents.length; a++) {
       const { id, index } = agents[a]
       const i3 = index * 3
-      if (i3 + 2 >= drawn.length || i3 + 2 >= sab.length) continue
+      if (i3 + 2 >= drawn.length) continue
       let st = this.agentState.get(id)
       if (st === undefined) {
         st = { off: new Float32Array(3), finish: newAgentFinish(), seen: pass }
@@ -120,7 +133,7 @@ export class DrawnPositions {
       st.seen = pass
       if (index === input.dragIndex) continue
 
-      let x = sab[i3], y = sab[i3 + 1], z = sab[i3 + 2]
+      let x = drawn[i3], y = drawn[i3 + 1], z = drawn[i3 + 2]
       // Separated layout (ADR-2135): the agent's home is the triangle centroid plus its
       // activity drift; the nudge works from there.
       if (input.drift) {
@@ -133,8 +146,8 @@ export class DrawnPositions {
         let target: [number, number, number] | null = null
         if (work && work.state === 'working') {
           const t3 = (input.nodeIdToIndex.get(work.targetNodeId) ?? -1) * 3
-          if (t3 >= 0 && t3 + 2 < sab.length) {
-            _target[0] = sab[t3]; _target[1] = sab[t3 + 1]; _target[2] = sab[t3 + 2]
+          if (t3 >= 0 && t3 + 2 < drawn.length) {
+            _target[0] = drawn[t3]; _target[1] = drawn[t3 + 1]; _target[2] = drawn[t3 + 2]
             target = _target
           }
         }
@@ -142,6 +155,8 @@ export class DrawnPositions {
         stepAgentOffset(off, 0, _base, target, work?.state ?? null, input.edge, st.finish, input.nowMs)
       } else {
         off[0] = 0; off[1] = 0; off[2] = 0
+        // Offsets off: the 30 s run is paused, not elapsed, so it restarts when they come back.
+        st.finish.since = -1
       }
       drawn[i3] = x + off[0]
       drawn[i3 + 1] = y + off[1]

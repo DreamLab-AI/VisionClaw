@@ -2,9 +2,9 @@
  * AgentTrail.tsx
  * A fading motion-trail ribbon behind a single agent body — "watch the swarm move".
  *
- * The trail source is the agent's *lerped* world position (BotsNode's
- * currentPositionRef, updated each frame by useFrame lerp 0.15 toward the server
- * position). This layer is mounted as a SIBLING of the moving agent group, so its
+ * The trail source is the agent's drawn world position, the one the gem is drawn at
+ * (`agentDrawnPosition`, resolved in this layer's own frame so it never lags the body).
+ * This layer is mounted as a SIBLING of the moving agent group, so its
  * vertices live in the same parent (world) space and stay put while the agent flies
  * on — a genuine trail, not a rigid attachment.
  *
@@ -21,6 +21,7 @@
  */
 import React, { useMemo, useRef, useEffect, useLayoutEffect } from 'react';
 import * as THREE from 'three';
+import { agentDrawnPosition } from '../agentDrawnPosition';
 import { useFrame } from '@react-three/fiber';
 
 /* R3F maps three.js props onto JSX host elements (args, position, rotation, intensity...);
@@ -147,9 +148,12 @@ function writeTrailColors(
 // Component
 // ---------------------------------------------------------------------------
 
+/** Scratch for the per-frame sample; the trail copies out of it, so one is shared. */
+const _sample = new THREE.Vector3();
+
 export interface AgentTrailProps {
-  /** The agent's live lerped position (BotsNode.currentPositionRef). Sampled, never mutated. */
-  positionRef: React.MutableRefObject<THREE.Vector3>;
+  /** The agent's wire id; its drawn position is sampled each frame (see `agentDrawnPosition`). */
+  agentId: string;
   /** Trail colour — the agent's status colour (with swarm tint already applied when enabled). */
   color: string;
   /** Ring capacity (samples retained); clamped to [TRAIL_MIN_LENGTH, TRAIL_MAX_LENGTH]. */
@@ -163,7 +167,7 @@ export interface AgentTrailProps {
 }
 
 export const AgentTrail: React.FC<AgentTrailProps> = ({
-  positionRef,
+  agentId,
   color,
   length = TRAIL_DEFAULT_LENGTH,
   sampleIntervalMs = TRAIL_SAMPLE_MS,
@@ -231,7 +235,8 @@ export const AgentTrail: React.FC<AgentTrailProps> = ({
     const now = state.clock.elapsedTime;
     if (now - lastSampleRef.current < sampleIntervalMs / 1000) return;
 
-    const p = positionRef.current;
+    const p = _sample;
+    if (!agentDrawnPosition(agentId, p)) return;
     const prev = hasSampleRef.current ? prevSampleRef.current : null;
     // Idle agents grow no trail; only a genuine move seeds/extends the buffer.
     if (!shouldSample(prev, p, epsilon)) return;

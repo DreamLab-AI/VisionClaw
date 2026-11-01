@@ -5,6 +5,7 @@ import React, { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
+import { agentDrawnPosition } from '../agentDrawnPosition';
 import type { BotsEdge } from '../types/BotsTypes';
 import { CHAIN_PAYMENT_COLOR, CHAIN_PAYMENT_EDGE_TYPE, chainEdgeLabel } from './chainPayments';
 
@@ -36,18 +37,18 @@ export function groupChainLabels(edges: Iterable<BotsEdge>): ChainLabelGroup[] {
   return Array.from(groups.values());
 }
 
-const PairLabel: React.FC<{
-  group: ChainLabelGroup;
-  positionsRef: React.MutableRefObject<Map<string, THREE.Vector3>>;
-}> = ({ group, positionsRef }) => {
+const _src = new THREE.Vector3();
+const _tgt = new THREE.Vector3();
+
+const PairLabel: React.FC<{ group: ChainLabelGroup }> = ({ group }) => {
   const ref = useRef<THREE.Group>(null);
+  // Both ends come from the drawn array, the same one the agents' gems are drawn from.
   useFrame(() => {
-    const s = positionsRef.current.get(group.srcId);
-    const t = positionsRef.current.get(group.tgtId);
     const node = ref.current;
     if (!node) return;
-    node.visible = !!(s && t);
-    if (s && t) node.position.set((s.x + t.x) / 2, (s.y + t.y) / 2, (s.z + t.z) / 2);
+    const ok = agentDrawnPosition(group.srcId, _src) && agentDrawnPosition(group.tgtId, _tgt);
+    node.visible = ok;
+    if (ok) node.position.set((_src.x + _tgt.x) / 2, (_src.y + _tgt.y) / 2, (_src.z + _tgt.z) / 2);
   });
   return (
     <group ref={ref}>
@@ -68,15 +69,14 @@ const PairLabel: React.FC<{
 
 export interface ChainPaymentLabelsProps {
   edges: Map<string, BotsEdge>;
-  positionsRef: React.MutableRefObject<Map<string, THREE.Vector3>>;
 }
 
-export const ChainPaymentLabels: React.FC<ChainPaymentLabelsProps> = ({ edges, positionsRef }) => {
+export const ChainPaymentLabels: React.FC<ChainPaymentLabelsProps> = ({ edges }) => {
   const groups = useMemo(() => groupChainLabels(edges.values()), [edges]);
   return (
     <>
       {groups.map((g) => (
-        <PairLabel key={g.key} group={g} positionsRef={positionsRef} />
+        <PairLabel key={g.key} group={g} />
       ))}
     </>
   );

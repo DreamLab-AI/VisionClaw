@@ -135,12 +135,11 @@ const tmpSrcOff = new THREE.Vector3()
 const tmpTgtOff = new THREE.Vector3()
 
 /**
- * Load both endpoints (substituting the drag position for the dragged node)
- * and offset them to the node surfaces. Returns false for a collapsed edge.
+ * Load both endpoints from the drawn array and offset them to the node surfaces. Returns false for a collapsed edge.
  * The vector operations match the original loop one for one.
  */
 function offsetEndpoints(
-  plan: EdgePlan, i: number, positions: Float32Array, dragIdx: number, dragPos: THREE.Vector3,
+  plan: EdgePlan, i: number, positions: Float32Array,
 ): boolean {
   const s = plan.srcIdx[i]
   const t = plan.tgtIdx[i]
@@ -148,10 +147,8 @@ function offsetEndpoints(
   const i3t = t * 3
   if (i3s + 2 >= positions.length || i3t + 2 >= positions.length) return false
 
-  if (dragIdx === s) tmpSrc.set(dragPos.x, dragPos.y, dragPos.z)
-  else tmpSrc.set(positions[i3s], positions[i3s + 1], positions[i3s + 2])
-  if (dragIdx === t) tmpTgt.set(dragPos.x, dragPos.y, dragPos.z)
-  else tmpTgt.set(positions[i3t], positions[i3t + 1], positions[i3t + 2])
+  tmpSrc.set(positions[i3s], positions[i3s + 1], positions[i3s + 2])
+  tmpTgt.set(positions[i3t], positions[i3t + 1], positions[i3t + 2])
 
   tmpDir.subVectors(tmpTgt, tmpSrc)
   if (tmpDir.length() <= 0.001) return false
@@ -165,11 +162,10 @@ function offsetEndpoints(
 /**
  * Fill the edge point, colour and weight buffers for this frame.
  *
- * @param dragIdx Node index of the dragged node, or -1.
  * @returns The number of edges emitted (points hold 6 numbers per edge).
  */
 export function fillEdgeFrame(
-  plan: EdgePlan, positions: Float32Array, dragIdx: number, dragPos: THREE.Vector3, out: EdgeFrameBuffers,
+  plan: EdgePlan, positions: Float32Array, out: EdgeFrameBuffers,
 ): number {
   const n = plan.count
   if (out.points.length < n * 6) out.points = new Array<number>(n * 6)
@@ -183,7 +179,7 @@ export function fillEdgeFrame(
 
   let emitted = 0
   for (let i = 0; i < n; i++) {
-    if (!offsetEndpoints(plan, i, positions, dragIdx, dragPos)) continue
+    if (!offsetEndpoints(plan, i, positions)) continue
     if (tmpSrcOff.distanceTo(tmpTgtOff) > 0.1) {
       const p = emitted * 6
       pts[p] = tmpSrcOff.x
@@ -210,7 +206,7 @@ export function fillEdgeFrame(
  * @returns The number of highlight edges emitted.
  */
 export function fillHighlightFrame(
-  plan: EdgePlan, positions: Float32Array, selIdx: number, dragIdx: number, dragPos: THREE.Vector3, out: EdgeFrameBuffers,
+  plan: EdgePlan, positions: Float32Array, selIdx: number, out: EdgeFrameBuffers,
 ): number {
   if (selIdx < 0) return 0
   const n = plan.count
@@ -219,7 +215,7 @@ export function fillHighlightFrame(
   let emitted = 0
   for (let i = 0; i < n; i++) {
     if (plan.srcIdx[i] !== selIdx && plan.tgtIdx[i] !== selIdx) continue
-    if (!offsetEndpoints(plan, i, positions, dragIdx, dragPos)) continue
+    if (!offsetEndpoints(plan, i, positions)) continue
     if (tmpSrcOff.distanceTo(tmpTgtOff) > 0.2) {
       const p = emitted * 6
       hl[p] = tmpSrcOff.x
@@ -275,13 +271,12 @@ export interface EdgeFrameState {
   edgeHandle: object | null
   highlightHandle: object | null
   selectedNodeId: string | null
-  dragging: boolean
 }
 
 /**
  * Skips the edge fill when nothing that feeds it has changed since the last
  * committed frame: same plan, same position bits, same selection, same mounted
- * handles, and no drag this frame or last. Once physics settles this turns
+ * handles. A drag needs no flag of its own: the hand position is in the positions. Once physics settles this turns
  * the per-frame edge work into one snapshot compare.
  *
  * It never skips while a handle is unmounted, because that path hands the
@@ -293,10 +288,8 @@ export class EdgeFrameGate {
   private edgeHandle: object | null = null
   private highlightHandle: object | null = null
   private selectedNodeId: string | null = null
-  private wasDragging = false
 
   shouldSkip(f: EdgeFrameState): boolean {
-    if (f.dragging || this.wasDragging) return false
     if (f.edgeHandle === null || f.highlightHandle === null) return false
     return (
       f.plan === this.plan &&
@@ -312,7 +305,6 @@ export class EdgeFrameGate {
     this.edgeHandle = f.edgeHandle
     this.highlightHandle = f.highlightHandle
     this.selectedNodeId = f.selectedNodeId
-    this.wasDragging = f.dragging
     this.snapshot.record(f.positions)
   }
 }

@@ -18,10 +18,10 @@ import { resolveNodeWorldPosition } from '../../visualisation/cameraFocus'
 import { separatedFrame } from '../triLayout'
 import { AgentDriftFeed } from '../../bots/agentDriftFeed'
 import { AGENT_NUDGE_SPEED } from '../utils/agentNudge'
+import { agentDrawnPosition } from '../../bots/agentDrawnPosition'
 import type { AgentWorkInfo } from '../../bots/agentWorkTargets'
 
 const R = 1
-const dragPos = new THREE.Vector3()
 
 /** Nodes 0..2 are knowledge nodes, node 3 an agent; edges 0-1, 1-2, 3-2. */
 function scene() {
@@ -44,14 +44,16 @@ function scene() {
 }
 
 const work = (state: 'working' | 'done', target = '12'): AgentWorkInfo => ({ targetNodeId: target, state })
-function pass(over: Partial<AgentPassInput> & { sab: Float32Array; agents: AgentSlot[] }): AgentPassInput {
+/** An agent pass plus the shared buffer it is copied from (the pass itself never sees the shared buffer). */
+type Frame = AgentPassInput & { sab: Float32Array }
+function pass(over: Partial<AgentPassInput> & { sab: Float32Array; agents: AgentSlot[] }): Frame {
   return {
     getWork: () => null, drift: null, triFrame: separatedFrame(), offsetsEnabled: true, dragIndex: -1,
     nodeIdToIndex: new Map([['12', 2]]), edge: null, nowMs: 0, ...over,
   }
 }
 /** One frame as GraphManager runs it: copy the shared buffer, then apply the agents. */
-function frame(dp: DrawnPositions, input: AgentPassInput): Float32Array {
+function frame(dp: DrawnPositions, input: Frame): Float32Array {
   dp.copy(input.sab)
   dp.applyAgents(input)
   return dp.positions
@@ -96,7 +98,7 @@ describe('a drifted agent is at ONE position for every consumer in the same fram
 
     // edge fill: the edge 3-2 ends on the agent's surface, along the line to its drawn centre
     const bufs = createEdgeFrameBuffers()
-    const n = fillEdgeFrame(plan, drawn, -1, dragPos, bufs)
+    const n = fillEdgeFrame(plan, drawn, bufs)
     expect(n).toBe(3)
     const dir = new THREE.Vector3().subVectors(at(drawn, 2), gem).normalize()
     const expected = gem.clone().addScaledVector(dir, R)
@@ -350,5 +352,139 @@ describe('agent offsets are keyed by agent and do not outlive it', () => {
     const { map } = scene()
     const slots = resolveAgentSlots([{ id: '4194307' }, { id: '4199999' }], map)
     expect(slots).toEqual([{ id: '4194307', index: 3 }])
+  })
+})
+
+describe('a layout transition moves the agents with everything else (D3)', () => {
+  it('a working agent starts from the drawn base and heads for the drawn target, not the raw shared buffer', () => {
+    const { sab, map, ids } = scene()
+    const agents = resolveAgentSlots([{ id: ids[3] }], map)
+    const dp = new DrawnPositions()
+    const drawn = dp.copy(sab)
+    // The layout LERP has moved the target node (slot 2) and the agent's own slot in the copy only.
+    drawn[6] = 100
+    drawn[9] = 50
+    dp.applyAgents(pass({ sab, agents, getWork: () => work('working') }))
+    expect(dp.positions[9]).toBeCloseTo(50 + (100 - 50) * AGENT_NUDGE_SPEED, 4)
+    expect(sab[9]).toBe(5) // the shared buffer stays untouched
+  })
+})
+
+describe('the drag override is written into the drawn array once (D2)', () => {
+  it('during a drag, the gem, label, inferred-edge input and gem edges of the dragged node all equal the hand in the same frame', () => {
+    const { sab, plan, map, ids } = scene()
+    const dp = new DrawnPositions()
+    const hand = new THREE.Vector3(12.5, -3.25, 40)
+    const drawn = dp.copy(sab)
+    dp.applyAgents(pass({ sab, agents: [], dragIndex: 1 }))
+    dp.applyDrag(1, hand)
+
+    // gem: GemNodes reads the drawn array and nothing else
+    expect(at(drawn, 1).toArray()).toEqual(hand.toArray())
+    // label
+    const labels = ids.map(() => ({ x: 0, y: 0, z: 0 }))
+    fillLabelPositions(drawn, ids.length, labels)
+    expect(labels[1]).toEqual({ x: hand.x, y: hand.y, z: hand.z })
+    // inferred edges, picking, fly-to, beams: all read the array by wire id
+    const wire = resolveNodeWorldPosition(Number(ids[1]), map, drawn)!
+    expect([wire.x, wire.y, wire.z]).toEqual(hand.toArray())
+    // gem edges: edge 0 runs 10 -> 11, so it starts on node 10's surface and ends on the hand's surface
+    const bufs = createEdgeFrameBuffers()
+    expect(fillEdgeFrame(plan, drawn, bufs)).toBe(3)
+    const dir = hand.clone().sub(at(drawn, 0)).normalize()
+    const end = hand.clone().addScaledVector(dir, -R)
+    expect(bufs.points[3]).toBeCloseTo(end.x, 3)
+    expect(bufs.points[4]).toBeCloseTo(end.y, 3)
+    expect(bufs.points[5]).toBeCloseTo(end.z, 3)
+    expect(sab[3]).toBe(10) // the shared buffer is never written
+  })
+
+  it('the dragged agent is placed at the hand after the agent pass, which leaves it alone', () => {
+    const { sab, map, ids } = scene()
+    const agents = resolveAgentSlots([{ id: ids[3] }], map)
+    const dp = new DrawnPositions()
+    const hand = new THREE.Vector3(-4, 8, 2)
+    dp.copy(sab)
+    dp.applyAgents(pass({ sab, agents, dragIndex: 3, getWork: () => work('working') }))
+    dp.applyDrag(3, hand)
+    expect(at(dp.positions, 3).toArray()).toEqual(hand.toArray())
+  })
+
+  it('an index outside the array is ignored', () => {
+    const { sab } = scene()
+    const dp = new DrawnPositions()
+    dp.copy(sab)
+    dp.applyDrag(-1, new THREE.Vector3(1, 2, 3))
+    dp.applyDrag(99, new THREE.Vector3(1, 2, 3))
+    expect(Array.from(dp.positions)).toEqual(Array.from(sab))
+  })
+
+  it('the edge gate needs no drag flag: a held hand skips, a moving hand does not', () => {
+    const { sab, plan } = scene()
+    const dp = new DrawnPositions()
+    const gate = new EdgeFrameGate()
+    const eh = {}
+    const hh = {}
+    const run = (x: number) => {
+      const drawn = dp.copy(sab)
+      dp.applyDrag(1, new THREE.Vector3(x, 0, 0))
+      const f = { plan, positions: drawn, edgeHandle: eh, highlightHandle: hh, selectedNodeId: null }
+      const skip = gate.shouldSkip(f)
+      if (!skip) gate.commit(f)
+      return skip
+    }
+    expect(run(10)).toBe(false)
+    expect(run(10)).toBe(true)
+    expect(run(11)).toBe(false)
+    expect(run(11)).toBe(true)
+  })
+})
+
+describe('a finished agent does not teleport when offsets come back on (D5)', () => {
+  it('turning offsets off for longer than the run, then on again, restarts the 30 s run instead of jumping to the edge', () => {
+    const { sab, map, ids } = scene()
+    const agents = resolveAgentSlots([{ id: ids[3] }], map)
+    const dp = new DrawnPositions()
+    const getWork = () => work('done')
+    frame(dp, pass({ sab, agents, edge: EDGE, nowMs: 1000, getWork }))
+    for (let t = 2; t < 40; t++) frame(dp, pass({ sab, agents, edge: EDGE, nowMs: t * 1000, offsetsEnabled: false, getWork }))
+    expect(at(dp.positions, 3).toArray()).toEqual(at(sab, 3).toArray())
+    const before = distFromCentre(sab, 3)
+    const drawn = frame(dp, pass({ sab, agents, edge: EDGE, nowMs: 40_000, getWork }))
+    expect(distFromCentre(drawn, 3)).toBeCloseTo(before, 3)
+  })
+})
+
+describe('the agent overlay is drawn where the gem is (D1)', () => {
+  const out = new THREE.Vector3()
+
+  it('a finished agent\'s membrane, nameplate, trail, collaboration edges and payment labels sit at its gem, 30 s into the run to the edge', () => {
+    const { sab, map, ids } = scene()
+    const agents = resolveAgentSlots([{ id: ids[3] }], map)
+    const dp = new DrawnPositions()
+    let drawn = sab
+    for (let t = 0; t <= 35; t++) {
+      drawn = frame(dp, pass({ sab, agents, edge: EDGE, nowMs: 1000 + t * 1000, getWork: () => work('done') }))
+    }
+    const gem = at(drawn, 3)
+    expect(gem.distanceTo(at(sab, 3))).toBeGreaterThan(50) // the gem is on the scene edge, not at the server position
+    // every overlay consumer asks the one resolver, by the agent's string id
+    expect(agentDrawnPosition(ids[3], out, map, drawn)).toBe(true)
+    expect(out.toArray()).toEqual(gem.toArray())
+    // the server position is never what the overlay gets
+    expect(out.distanceTo(at(sab, 3))).toBeGreaterThan(50)
+  })
+
+  it('resolves a wire id, and hides an agent with no slot or a non-numeric id', () => {
+    const { sab, map } = scene()
+    const dp = new DrawnPositions()
+    const drawn = dp.copy(sab)
+    expect(agentDrawnPosition('4194307', out, map, drawn)).toBe(true)
+    expect(out.toArray()).toEqual([5, 30, 0])
+    out.set(9, 9, 9)
+    expect(agentDrawnPosition('777', out, map, drawn)).toBe(false)
+    expect(agentDrawnPosition('not-a-number', out, map, drawn)).toBe(false)
+    expect(agentDrawnPosition('4194307', out, map, null)).toBe(false)
+    expect(out.toArray()).toEqual([9, 9, 9]) // an unresolved agent leaves the output alone
   })
 })

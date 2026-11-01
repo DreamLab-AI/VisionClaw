@@ -10,7 +10,7 @@
  *   - AgentStatusBadges HTML overlay on hover / active
  *
  * Zero-alloc contract: all THREE objects used inside useFrame are refs
- * (currentPositionRef, targetPositionRef, lastPositionRef) — never allocated
+ * (currentPositionRef) — never allocated
  * per frame.
  */
 import React, { useRef, useEffect, useState, useMemo } from 'react';
@@ -18,10 +18,9 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Html, Text, Billboard } from '@react-three/drei';
 import { BotsAgent } from '../types/BotsTypes';
-import { useTelemetry, useThreeJSTelemetry } from '../../../telemetry/useTelemetry';
+import { useTelemetry } from '../../../telemetry/useTelemetry';
 import { useSettingsStore } from '../../../store/settingsStore';
 import {
-  lerpVector3,
   formatProcessingLogs,
   applySwarmTint,
   ADDITIVE_BLENDING,
@@ -30,6 +29,7 @@ import {
 import { healthGlowColor, agentStatusColor } from '../agentVisualConstants';
 import { shortDid } from '../agentIdentity';
 import { isWebGPURenderer } from '../../../rendering/rendererFactory';
+import { agentDrawnPosition } from '../agentDrawnPosition';
 import { AgentStatusBadges } from './AgentStatusBadges';
 import { AgentTrail, TRAIL_DEFAULT_LENGTH } from './AgentTrail';
 import { ChainBadge } from '../chain/ChainBadge';
@@ -131,7 +131,6 @@ function tickNameplateDensity(frameTime: number, withinFull: boolean): number {
 
 export interface BotsNodeProps {
   agent: BotsAgent;
-  position: THREE.Vector3;
   index: number;
   color: string;
   /**
@@ -140,16 +139,9 @@ export interface BotsNodeProps {
    * swarm on the flat type colour.
    */
   swarmTint?: boolean;
-  /**
-   * Shared ref map: agent wire id → target KG node world position. When a
-   * target is present the node drifts toward it at medium speed, giving the
-   * visual impression that agents cluster around the area of the graph they
-   * are actively working on.
-   */
-  nudgeTargetsRef?: React.RefObject<Map<string, THREE.Vector3>>;
 }
 
-export const BotsNode: React.FC<BotsNodeProps> = ({ agent, position, index, color, swarmTint = true, nudgeTargetsRef }) => {
+export const BotsNode: React.FC<BotsNodeProps> = ({ agent, index, color, swarmTint = true }) => {
   const groupRef   = useRef<THREE.Group>(null);
   const meshRef    = useRef<THREE.Mesh>(null);
   const glowRef    = useRef<THREE.Mesh>(null);
@@ -168,10 +160,8 @@ export const BotsNode: React.FC<BotsNodeProps> = ({ agent, position, index, colo
   const [nameplateTier, setNameplateTier] = useState<NameplateTier>('full');
   const nameplateTierRef = useRef<NameplateTier>('full');
   const telemetry      = useTelemetry(`BotsNode-${agent.id}`);
-  const threeJSTelemetry = useThreeJSTelemetry(agent.id);
-  const lastPositionRef    = useRef<THREE.Vector3 | undefined>(undefined);
-  const currentPositionRef = useRef<THREE.Vector3>(position.clone());
-  const targetPositionRef  = useRef<THREE.Vector3>(position.clone());
+  // Where the agent is drawn this frame: always the drawn-positions array (see agentDrawnPosition).
+  const currentPositionRef = useRef<THREE.Vector3>(new THREE.Vector3());
   const elapsedTimeRef     = useRef(0);
   const settings = useSettingsStore(state => state.settings);
 
@@ -246,32 +236,14 @@ export const BotsNode: React.FC<BotsNodeProps> = ({ agent, position, index, colo
 
     telemetry.startRender();
 
-    if (!lastPositionRef.current || !lastPositionRef.current.equals(position)) {
-      threeJSTelemetry.logPositionUpdate(
-        { x: position.x, y: position.y, z: position.z },
-        { agentType: agent.type, agentStatus: agent.status },
-      );
-      if (!lastPositionRef.current) {
-        lastPositionRef.current = position.clone();
-      } else {
-        lastPositionRef.current.copy(position);
-      }
+    // The body sits exactly where the gem is drawn: no smoothing (the worker already tweens) and no
+    // nudge of its own. An agent with no slot in the drawn array is hidden, never drawn elsewhere.
+    const drawn = agentDrawnPosition(agent.id, currentPositionRef.current);
+    groupRef.current.visible = drawn;
+    if (!drawn) {
+      telemetry.endRender();
+      return;
     }
-
-    targetPositionRef.current.copy(position);
-
-    // Momentum nudge: if this agent has a target KG node, bias the target
-    // position toward it so the sprite drifts into the working area of the
-    // graph. The blend factor (0.35) gives a medium-speed drift — fast enough
-    // to trend quickly to the mass centre, gentle enough to remain smooth.
-    if (nudgeTargetsRef?.current) {
-      const kgTarget = nudgeTargetsRef.current.get(agent.id);
-      if (kgTarget) {
-        targetPositionRef.current.lerp(kgTarget, 0.35);
-      }
-    }
-
-    lerpVector3(currentPositionRef.current, targetPositionRef.current, 0.15);
     groupRef.current.position.copy(currentPositionRef.current);
 
     const elapsedTime = state.clock.elapsedTime;
@@ -438,7 +410,7 @@ export const BotsNode: React.FC<BotsNodeProps> = ({ agent, position, index, colo
       {/* Motion-trail ribbon — a SIBLING of the moving group so its sampled world
           positions stay put while the agent flies on (see AgentTrail). */}
       {showTrails && (
-        <AgentTrail positionRef={currentPositionRef} color={trailColor} length={trailLength} />
+        <AgentTrail agentId={agent.id} color={trailColor} length={trailLength} />
       )}
       <group ref={groupRef}>
       {/* Outer membrane */}
@@ -505,7 +477,9 @@ export const BotsNode: React.FC<BotsNodeProps> = ({ agent, position, index, colo
           setDisplayMode(nextMode);
           telemetry.logInteraction('click', {
             agentId: agent.id, agentType: agent.type, displayMode: nextMode,
-            position: { x: position.x, y: position.y, z: position.z },
+            position: {
+              x: currentPositionRef.current.x, y: currentPositionRef.current.y, z: currentPositionRef.current.z,
+            },
             health: agent.health, status: agent.status, currentTask: agent.currentTask,
             capabilities: agent.capabilities?.slice(0, 3),
           });

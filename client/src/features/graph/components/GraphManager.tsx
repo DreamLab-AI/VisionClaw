@@ -479,16 +479,18 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
 
       // Agent drift and nudge, once, on the copy: from here on `drawn` is where every node is drawn.
       const dragNodeId = dragDataRef.current.isDragging ? dragDataRef.current.nodeId : null
+      const dragIndex = dragNodeId === null ? -1 : (nodeIdToIndexMap.get(dragNodeId) ?? -1)
       drawnPositions.applyAgents({
-        sab: positions,
         agents: agentSlots,
         ...liveAgentPassDeps(),
         triFrame,
-        dragIndex: dragNodeId === null ? -1 : (nodeIdToIndexMap.get(dragNodeId) ?? -1),
+        dragIndex,
         nodeIdToIndex: nodeIdToIndexMap,
         edge: sceneEdgeRef.current,
         nowMs: performance.now(),
       })
+      // The hand position goes into the same array, once, after the agent pass.
+      if (dragIndex >= 0) drawnPositions.applyDrag(dragIndex, dragDataRef.current.currentNodePos3D)
 
       requestCameraFit()
 
@@ -509,7 +511,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
     }
   }, -2)
 
-  // === Edge buffer computation (extracted hot loop) — runs in its own useFrame(-2) ===
+  // === Edge buffer computation (extracted hot loop) — its own useFrame(-0.5), after this pass and GemNodes ===
   useEdgeBufferComputation({
     graphData,
     nodePositionsRef,
@@ -522,7 +524,6 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
     graphTypeVisuals,
     nodeSize: nodeSettings?.nodeSize ?? 0.5,
     selectedNodeId,
-    dragDataRef,
     edgeFlowRef,
     highlightEdgeFlowRef,
     highlightEdgePoints,
@@ -670,7 +671,6 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
             nodeIdToIndexMap={nodeIdToIndexMap}
             settings={settings}
             ssspResult={normalizedSSSPResult}
-            dragDataRef={dragDataRef}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={(event: any) => handlePointerUp(event)}

@@ -79,12 +79,6 @@ export interface GemNodesProps {
   /** Right-click a node — used by the additive-expansion context menu. */
   onContextMenu?: (event: ThreeEvent<MouseEvent>) => void;
   selectedNodeId: string | null;
-  /** Live drag state ref — when set, the dragged node uses this position instead of SAB */
-  dragDataRef?: React.MutableRefObject<{
-    isDragging: boolean;
-    nodeId: string | null;
-    currentNodePos3D: { x: number; y: number; z: number };
-  }>;
 }
 
 export interface GemNodesHandle {
@@ -900,12 +894,11 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
 
     // --- Per-frame matrix write: positions change every frame (physics). -----
     // Scale + posIdx come from the gated caches; the per-node loop touches
-    // positions only. Selected-node wave and live-drag are single-node concerns,
-    // resolved to local indices ONCE here (one Map lookup each) so the loop does
+    // positions only. The selected-node wave is a single-node concern,
+    // resolved to a local index ONCE here (one lookup) so the loop does
     // integer comparisons instead of ~5651 String(node.id) allocations per frame.
     const waveEnabled = animEnabled && ((anims?.selectionWaveEnabled as boolean | undefined) ?? true);
     const wSpeed = (anims?.waveSpeed as number | undefined) ?? 1.0;
-    const drag = props.dragDataRef?.current;
     // Local (visibleNodes) index of the selected node, for the wave modulation.
     const selectedLocalIdx = (selectedNodeId && waveEnabled)
       ? currentNodes.findIndex(n => String(n.id) === selectedNodeId)
@@ -913,16 +906,12 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
     const waveScale = selectedLocalIdx >= 0
       ? 1 + Math.sin(clock.elapsedTime * 3 * wSpeed) * 0.15
       : 1;
-    // Local index of the dragged node (live position overrides the SAB read).
-    const dragLocalIdx = (drag && drag.isDragging && drag.nodeId)
-      ? currentNodes.findIndex(n => String(n.id) === drag.nodeId)
-      : -1;
     // Task #54: when the GPU transform is active (WebGPU), the loop writes the
     // transform texture's typed array (x, y, z, scale) and the positionNode
     // composes the vertex on-GPU. instanceMatrix stays identity (set once at
     // mesh creation). Off WebGPU we keep the CPU mat4 path (setMatrixAt). Both
-    // paths read the SAME position/scale/wave/drag inputs so the visual output
-    // (sizing scheme, selection wave, live-drag) is identical.
+    // paths read the SAME position/scale/wave inputs so the visual output
+    // (sizing scheme, selection wave) is identical.
     const gpuXform = gpuTransformRef.current;
     const xformBuf = gpuXform ? (xformTexRef.current?.image?.data as Float32Array | undefined) : undefined;
     // Keep the picking refs current (raycast reads them when GPU transform on).
@@ -937,12 +926,8 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
       const i3 = posIdxCache[i] * 3;
       let x: number, y: number, z: number;
 
-      // Use live drag position for the dragged node (avoids 1-frame SAB lag)
-      if (i === dragLocalIdx && drag) {
-        x = drag.currentNodePos3D.x;
-        y = drag.currentNodePos3D.y;
-        z = drag.currentNodePos3D.z;
-      } else if (positions && i3 + 2 < positions.length) {
+      // The drawn array already holds the hand position for a dragged node (GraphManager).
+      if (positions && i3 + 2 < positions.length) {
         x = positions[i3]; y = positions[i3 + 1]; z = positions[i3 + 2];
       } else {
         // Cold fallback: SAB not yet populated for this index. Read the node's

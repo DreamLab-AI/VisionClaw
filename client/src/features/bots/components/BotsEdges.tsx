@@ -19,8 +19,8 @@
  *     as faint/transparent, high as a bright thread).
  *   - Opacity pulsing: high-traffic edges (avgTokenRate > 40 || messageCount >
  *     200) pulse via sin(t*5)*0.3+1, folded into the same intensity.
- *   - Live endpoints: both vertices track their agents' server positions every
- *     frame.
+ *   - Live endpoints: both vertices track their agents' drawn positions (the array
+ *     the gems are drawn from) every frame.
  *
  * SIMPLIFIED (documented — the brief accepts uniform additive glow):
  *   - Organic curved sway tendril → a straight segment. A curve needs N segments
@@ -37,6 +37,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { BotsEdge, BotsAgent } from '../types/BotsTypes';
 import { CHAIN_PAYMENT_COLOR, CHAIN_PAYMENT_EDGE_TYPE } from '../chain/chainPayments';
+import { agentDrawnPosition } from '../agentDrawnPosition';
 
 /* R3F maps three.js props onto JSX host elements (args, position, rotation, intensity...);
    these are not DOM properties. react/no-unknown-property is not enforced in this config. */
@@ -146,6 +147,8 @@ interface EdgeMeta {
 
 /** Module-scope scratch — colour hex → linear rgb, no per-edge allocation. */
 const _edgeColorScratch = new THREE.Color();
+const _endA = new THREE.Vector3();
+const _endB = new THREE.Vector3();
 
 /** Allocate a LineSegments + its position/colour buffers at `capacity` edges. */
 function createEdgeBuffers(capacity: number): EdgeLayerBuffers {
@@ -177,13 +180,11 @@ export interface BotsEdgesProps {
   edges: Map<string, BotsEdge>;
   /** Agents keyed by id — supplies token rates for activity colouring. */
   agents: Map<string, BotsAgent>;
-  /** Live agent positions (server physics). Read every frame, never mutated. */
-  positionsRef: React.MutableRefObject<Map<string, THREE.Vector3>>;
   /** Base (idle) edge colour, e.g. colours.edge. */
   color: string;
 }
 
-export const BotsEdges: React.FC<BotsEdgesProps> = ({ edges, agents, positionsRef, color }) => {
+export const BotsEdges: React.FC<BotsEdgesProps> = ({ edges, agents, color }) => {
   // One set of buffers for the lifetime of the layer — the line object identity
   // never changes (growth replaces the geometry's attributes in place), so the
   // <primitive> below is stable.
@@ -277,7 +278,6 @@ export const BotsEdges: React.FC<BotsEdgesProps> = ({ edges, agents, positionsRe
 
     const positions = b.positions;
     const colors = b.colors;
-    const posMap = positionsRef.current;
     const nowMs = Date.now();
     const pulseWave = Math.sin(state.clock.elapsedTime * 5) * 0.3 + 1;
 
@@ -286,9 +286,10 @@ export const BotsEdges: React.FC<BotsEdgesProps> = ({ edges, agents, positionsRe
     let w = 0;
     for (let i = 0; i < edgeCount; i++) {
       const m = metaArr[i];
-      const s = posMap.get(m.srcId);
-      const t = posMap.get(m.tgtId);
-      if (!s || !t) continue;
+      // Both ends are read from the drawn array, where the agents' gems are drawn.
+      if (!agentDrawnPosition(m.srcId, _endA) || !agentDrawnPosition(m.tgtId, _endB)) continue;
+      const s = _endA;
+      const t = _endB;
 
       const active = isEdgeActive(m.lastMessageTime, nowMs);
       const opacity = active ? m.activeOpacity : m.inactiveOpacity;

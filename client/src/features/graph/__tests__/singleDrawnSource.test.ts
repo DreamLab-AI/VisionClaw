@@ -56,4 +56,63 @@ describe('one drawn-positions source', () => {
     const gem = readFileSync(join(SRC, 'features/graph/components/GemNodes.tsx'), 'utf8')
     expect(gem).not.toMatch(/stepAgentOffset|agentDriftFeed|agentOffsetsEnabled/)
   })
+
+  it('GemNodes and the edge fill take no drag override of their own', () => {
+    const gem = readFileSync(join(SRC, 'features/graph/components/GemNodes.tsx'), 'utf8')
+    expect(gem).not.toMatch(/currentNodePos3D|dragDataRef|dragLocalIdx/)
+    const plan = readFileSync(join(SRC, 'features/graph/hooks/edgeBufferPlan.ts'), 'utf8')
+    expect(plan).not.toMatch(/dragIdx|dragPos|dragging|wasDragging/)
+    const hook = readFileSync(join(SRC, 'features/graph/hooks/useEdgeBufferComputation.ts'), 'utf8')
+    expect(hook).not.toMatch(/currentNodePos3D|dragDataRef|dragIdx|dragPos/)
+  })
+
+  it('only GraphManager writes the hand position, and only into the drawn array', () => {
+    const hits = files
+      .filter(f => readFileSync(f, 'utf8').includes('applyDrag('))
+      .map(f => f.replace(SRC, ''))
+      .sort()
+    expect(hits).toEqual(['/features/graph/components/GraphManager.tsx', '/features/graph/utils/drawnPositions.ts'])
+  })
+})
+
+// The agent overlay (membrane, nameplate, trail, collaboration edges, payment labels) is drawn from the
+// same array as the gem. It holds no position source and no nudge of its own.
+describe('the bots overlay has no second agent path', () => {
+  const files = sources(SRC)
+  const OVERLAY = [
+    'features/bots/components/BotsVisualization.tsx',
+    'features/bots/components/BotsNode.tsx',
+    'features/bots/components/BotsEdges.tsx',
+    'features/bots/components/AgentTrail.tsx',
+    'features/bots/chain/ChainPaymentLabels.tsx',
+    'features/bots/components/BotsShared.tsx',
+  ]
+  const read = (rel: string) => readFileSync(join(SRC, rel), 'utf8')
+
+  it.each(OVERLAY)('%s reads no agent.position, no server position map and no nudge', (rel) => {
+    const src = read(rel)
+    expect(src).not.toMatch(/agent\.position/)
+    expect(src).not.toMatch(/nudgeTargets|targetPositionRef|lerpVector3|positionsRef|useAgentTargetStore|initial_calculation/)
+  })
+
+  it.each(['features/bots/components/BotsNode.tsx', 'features/bots/components/BotsEdges.tsx', 'features/bots/chain/ChainPaymentLabels.tsx'])(
+    '%s takes agent positions from the drawn array through agentDrawnPosition',
+    (rel) => {
+      expect(read(rel)).toContain('agentDrawnPosition')
+    },
+  )
+
+  it('agentDrawnPosition is the one resolver, and it resolves through resolveNodeWorldPosition', () => {
+    const src = read('features/bots/agentDrawnPosition.ts')
+    expect(src).toContain('resolveNodeWorldPosition')
+    expect(src).toContain('sharedNodePositions')
+  })
+
+  it('nothing else in the client reads agent.position for drawing', () => {
+    const hits = files
+      .filter(f => f.includes('/features/') && /agent\.position\b/.test(readFileSync(f, 'utf8')))
+      .map(f => f.replace(SRC, ''))
+      .sort()
+    expect(hits).toEqual([])
+  })
 })

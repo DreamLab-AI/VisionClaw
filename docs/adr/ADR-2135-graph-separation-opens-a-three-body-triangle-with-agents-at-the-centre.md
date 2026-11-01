@@ -8,7 +8,7 @@ activation_status: staged
 supersedes: []
 superseded_by: []
 verified_commit: e99c16d31f2b4dac8757348963404228aa42c612
-verified_paths: [xr-client/rust/src/memory_route.rs, crates/visionclaw-tri-layout/src, crates/visionclaw-tri-layout/fixtures, src/actors/gpu/display_projection.rs, src/handlers/memory_flash_handler.rs, client/src/features/graph/triLayout.ts, client/src/features/graph/agentDrift.ts, client/src/features/bots/agentDriftFeed.ts, client/src/features/graph/utils/agentNudge.ts, client/src/features/visualisation/memoryCloud/cloudFrame.ts, client/src/features/graph/utils/sceneFitBounds.ts, client/src/features/visualisation/memoryCloud/cloudSprites.ts, xr-client/rust/src/cloud_frame.rs]
+verified_paths: [xr-client/rust/src/memory_route.rs, crates/visionclaw-tri-layout/src, crates/visionclaw-tri-layout/fixtures, src/actors/gpu/display_projection.rs, src/handlers/memory_flash_handler.rs, client/src/features/graph/triLayout.ts, client/src/features/graph/agentDrift.ts, client/src/features/bots/agentDriftFeed.ts, client/src/features/graph/utils/agentNudge.ts, client/src/features/graph/utils/drawnPositions.ts, client/src/features/bots/agentDrawnPosition.ts, client/src/features/visualisation/memoryCloud/cloudFrame.ts, client/src/features/graph/utils/sceneFitBounds.ts, client/src/features/visualisation/memoryCloud/cloudSprites.ts, xr-client/rust/src/cloud_frame.rs]
 owner: jjohare
 review_trigger: "Activation (staged → live): the operator seeing the triangle live on a backend built from main. Review: a change of the default camera direction; a fourth body joining the separated layout; agent nodes leaving the GPU graph; the XR work-layer pose rules (ADR-2109) changing; the live graph's p99 radius passing LIVE_GRAPH_RADIUS (152)"
 repo: visionclaw
@@ -71,7 +71,9 @@ back lets ~56k knowledge↔ontology cross-links (rest length ~30) pull the popul
   and a calm glide home when idle. Drift is stored as vertex coefficients, so slider moves
   carry agents with the triangle. Agents spawn at the centroid. On the desktop the offset is
   added to the agent's position once a frame by `DrawnPositions.applyAgents` (the one drawn-positions
-  array every desktop consumer reads; 2026-11-01). In XR it moves the slot a work agent rests at
+  array every desktop consumer reads; 2026-11-01). That includes the bots overlay: each agent's
+  membrane, nameplate, trail, collaboration edges and payment labels ask `agentDrawnPosition` for the
+  position in their own frame, and the overlay keeps no position, smoothing or nudge of its own. In XR it moves the slot a work agent rests at
   (centroid plus drift, on an 0.18 m ring), and a new avatar materialises at the centroid.
   The choreography stays the only pose writer (Invariant 8).
 - **Desktop nudge.** Working agents converge on their target node, so they visit the graph they
@@ -88,7 +90,8 @@ back lets ~56k knowledge↔ontology cross-links (rest length ~30) pull the popul
   agent with no work on record relaxes back to its server position (`AGENT_RELAX_SNAP` ends that
   tail), and with no known scene edge a finished agent holds still. The nudge is applied once a
   frame by `DrawnPositions.applyAgents` (`agentNudge.ts`) from the frame's `performance.now()`,
-  not in `GemNodes`.
+  not in `GemNodes`. It reads the agent's base and its work target from the drawn copy, after any
+  layout-transition LERP, so agents move with the rest of the graph during a transition.
 - **Camera.** On the desktop the auto-fit frames the sphere enclosing all three bodies whenever
   separation is above 0: each graph is one graph's folded extent at its vertex, and the cloud is
   where and as large as `cloudPlacement` puts it (only while it is on and loaded). At separation
@@ -276,3 +279,7 @@ Re-verified 2026-11-01 at `46c77c465` (three.js 0.183 → 0.187.0, owner-approve
 ## Re-verification — 2026-11-01 (finished-agent drift)
 
 `client/src/features/graph/utils/agentNudge.ts` runs a finished agent's drift on time: it reaches the scene edge (`sceneFitBounds`) in `AGENT_EDGE_SECONDS` (30 s), easing out, and holds there. An agent with no work relaxes home and snaps to zero. The nudge runs in `DrawnPositions.applyAgents` (once a frame, on the single drawn-positions array). The Desktop nudge bullet records the rule. Tests: `agentNudge.test.ts` and `drawnPositions.test.ts` (arrival at 60 and 120 fps, never past the edge, the edge gate skipping once every finished agent has arrived).
+
+## Re-verification — 2026-11-01 (one drawn position for the bots overlay)
+
+R20 found the bots overlay (`BotsVisualization`, `BotsNode`, `BotsEdges`, `ChainPaymentLabels`, `AgentTrail`) drawing agents from the server position with its own 0.35 nudge and 0.15 smoothing, so a finished agent's body and its gem could end a scene radius apart. The overlay now resolves every agent through `agentDrawnPosition` (`client/src/features/bots/agentDrawnPosition.ts`, which calls `resolveNodeWorldPosition` on the drawn array); the nudge plumbing and the smoothing are deleted. An agent with no slot in the drawn array is hidden, not drawn elsewhere. The same change moved the drag override into the drawn array (`DrawnPositions.applyDrag`, called by GraphManager after the agent pass), so the gem, its edges, labels and inferred edges agree during a drag, and made the agent pass read its base and target from the drawn copy. Tests: `singleDrawnSource.test.ts` (no `agent.position`, `nudgeTargets` or `lerpVector3` in the overlay) and `drawnPositions.test.ts` (D1 to D3, D5).

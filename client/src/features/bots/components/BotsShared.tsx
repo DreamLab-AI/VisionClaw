@@ -2,7 +2,7 @@
  * BotsShared.tsx
  * Shared primitives for the Bots visualization:
  *   - CSS keyframe injection (runs once at module load)
- *   - Pure helpers: lerpVector3, generateAgentTypeColor, getVisionClawColors
+ *   - Pure helpers: generateAgentTypeColor, getVisionClawColors
  *   - Pre-allocated module-scope Three.js objects (zero-alloc pattern)
  */
 import * as THREE from 'three';
@@ -46,17 +46,6 @@ if (typeof document !== 'undefined' && !document.querySelector('#bots-visualizat
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Smooth in-place position interpolation — writes directly into `current`, no alloc. */
-export function lerpVector3(
-  current: THREE.Vector3,
-  target: THREE.Vector3,
-  alpha: number,
-): void {
-  current.x += (target.x - current.x) * alpha;
-  current.y += (target.y - current.y) * alpha;
-  current.z += (target.z - current.z) * alpha;
-}
 
 // Pre-allocated scratch for swarm-tint HSL maths (module scope — no per-call alloc).
 const _tintColor = new THREE.Color();

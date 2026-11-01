@@ -102,8 +102,6 @@ function makeFixture(seed: number, nodeCount = 300, edgeCount = 2000) {
 function referenceFrame(
   inp: EdgePlanInputs,
   positions: Float32Array,
-  dragNodeId: string | null,
-  dragPos: THREE.Vector3,
   selectedNodeId: string | null,
 ) {
   const tempVec3 = new THREE.Vector3()
@@ -125,10 +123,8 @@ function referenceFrame(
     const i3s = sourceNodeIndex * 3
     const i3t = targetNodeIndex * 3
     if (i3s + 2 >= positions.length || i3t + 2 >= positions.length) return
-    if (dragNodeId === sourceStr) tempVec3.set(dragPos.x, dragPos.y, dragPos.z)
-    else tempVec3.set(positions[i3s], positions[i3s + 1], positions[i3s + 2])
-    if (dragNodeId === targetStr) tempPosition.set(dragPos.x, dragPos.y, dragPos.z)
-    else tempPosition.set(positions[i3t], positions[i3t + 1], positions[i3t + 2])
+    tempVec3.set(positions[i3s], positions[i3s + 1], positions[i3s + 2])
+    tempPosition.set(positions[i3t], positions[i3t + 1], positions[i3t + 2])
     tempDirection.subVectors(tempPosition, tempVec3)
     const edgeLength = tempDirection.length()
     if (edgeLength <= 0.001) return
@@ -161,10 +157,8 @@ function referenceFrame(
       const si3 = sourceIdx * 3
       const ti3 = targetIdx * 3
       if (si3 + 2 >= positions.length || ti3 + 2 >= positions.length) return
-      if (dragNodeId === sourceStr) tempVec3.set(dragPos.x, dragPos.y, dragPos.z)
-      else tempVec3.set(positions[si3], positions[si3 + 1], positions[si3 + 2])
-      if (dragNodeId === targetStr) tempPosition.set(dragPos.x, dragPos.y, dragPos.z)
-      else tempPosition.set(positions[ti3], positions[ti3 + 1], positions[ti3 + 2])
+      tempVec3.set(positions[si3], positions[si3 + 1], positions[si3 + 2])
+      tempPosition.set(positions[ti3], positions[ti3 + 1], positions[ti3 + 2])
       tempDirection.subVectors(tempPosition, tempVec3)
       const len = tempDirection.length()
       if (len <= 0.001) return
@@ -188,16 +182,13 @@ function referenceFrame(
 function runPlan(
   inp: EdgePlanInputs,
   positions: Float32Array,
-  dragNodeId: string | null,
-  dragPos: THREE.Vector3,
   selectedNodeId: string | null,
 ) {
   const plan = buildEdgePlan(inp)
   const buffers = createEdgeFrameBuffers()
-  const dragIdx = dragNodeId === null ? -1 : (inp.nodeIdToIndexMap.get(dragNodeId) ?? -1)
-  const n = fillEdgeFrame(plan, positions, dragIdx, dragPos, buffers)
+  const n = fillEdgeFrame(plan, positions, buffers)
   const selIdx = selectedNodeId === null ? -1 : (inp.nodeIdToIndexMap.get(selectedNodeId) ?? -1)
-  const hl = selectedNodeId ? fillHighlightFrame(plan, positions, selIdx, dragIdx, dragPos, buffers) : 0
+  const hl = selectedNodeId ? fillHighlightFrame(plan, positions, selIdx, buffers) : 0
   return {
     points: buffers.points.slice(0, n * 6),
     colors: Array.from(buffers.colors.subarray(0, n * 3)),
@@ -209,13 +200,11 @@ function runPlan(
 // --- tests ---------------------------------------------------------------------
 
 describe('edgeBufferPlan equivalence with the original per-frame loop', () => {
-  const dragPos = new THREE.Vector3(12.5, -3.25, 40)
-
   for (const seed of [1, 7, 42]) {
-    it(`matches the reference exactly (seed ${seed}, no drag, no selection)`, () => {
+    it(`matches the reference exactly (seed ${seed}, no selection)`, () => {
       const { inputs, positions } = makeFixture(seed)
-      const ref = referenceFrame(inputs, positions, null, dragPos, null)
-      const got = runPlan(inputs, positions, null, dragPos, null)
+      const ref = referenceFrame(inputs, positions, null)
+      const got = runPlan(inputs, positions, null)
       expect(ref.points.length).toBeGreaterThan(1000)
       expect(got.points).toEqual(ref.points)
       expect(got.colors).toEqual(ref.colors)
@@ -223,10 +212,10 @@ describe('edgeBufferPlan equivalence with the original per-frame loop', () => {
       expect(got.highlight).toEqual([])
     })
 
-    it(`matches the reference exactly while dragging and with a selection (seed ${seed})`, () => {
+    it(`matches the reference exactly with a selection (seed ${seed})`, () => {
       const { inputs, positions } = makeFixture(seed)
-      const ref = referenceFrame(inputs, positions, '17', dragPos, '17')
-      const got = runPlan(inputs, positions, '17', dragPos, '17')
+      const ref = referenceFrame(inputs, positions, '17')
+      const got = runPlan(inputs, positions, '17')
       expect(ref.highlight.length).toBeGreaterThan(0)
       expect(got.points).toEqual(ref.points)
       expect(got.colors).toEqual(ref.colors)
@@ -243,16 +232,16 @@ describe('edgeBufferPlan equivalence with the original per-frame loop', () => {
       nodeSize: 1.75,
       graphTypeVisuals: { ontology: { connectionInfluence: 0.4, sizeInfluence: 0.3 }, knowledgeGraph: { globalScaleMultiplier: 1.5 } } as any,
     }
-    const ref = referenceFrame(varied, positions, null, dragPos, '3')
-    const got = runPlan(varied, positions, null, dragPos, '3')
+    const ref = referenceFrame(varied, positions, '3')
+    const got = runPlan(varied, positions, '3')
     expect(got.points).toEqual(ref.points)
     expect(got.highlight).toEqual(ref.highlight)
   })
 
-  it('emits nothing when the selected or dragged id is not in the index map', () => {
+  it('emits no highlight when the selected id is not in the index map', () => {
     const { inputs, positions } = makeFixture(5)
-    const ref = referenceFrame(inputs, positions, 'ghost', dragPos, 'ghost')
-    const got = runPlan(inputs, positions, 'ghost', dragPos, 'ghost')
+    const ref = referenceFrame(inputs, positions, 'ghost')
+    const got = runPlan(inputs, positions, 'ghost')
     expect(got.highlight).toEqual(ref.highlight)
     expect(got.highlight).toEqual([])
     expect(got.points).toEqual(ref.points)
@@ -269,8 +258,8 @@ describe('edgeBufferPlan cost contract', () => {
     expect(planCalls).toBeLessThanOrEqual(inputs.nodes.length)
     expect(planCalls).toBeGreaterThan(0)
     const buffers = createEdgeFrameBuffers()
-    fillEdgeFrame(plan, positions, -1, new THREE.Vector3(), buffers)
-    fillHighlightFrame(plan, positions, 4, -1, new THREE.Vector3(), buffers)
+    fillEdgeFrame(plan, positions, buffers)
+    fillHighlightFrame(plan, positions, 4, buffers)
     expect(spy.mock.calls.length).toBe(planCalls)
   })
 
@@ -278,9 +267,9 @@ describe('edgeBufferPlan cost contract', () => {
     const { inputs, positions } = makeFixture(8)
     const plan = buildEdgePlan(inputs)
     const buffers = createEdgeFrameBuffers()
-    fillEdgeFrame(plan, positions, -1, new THREE.Vector3(), buffers)
+    fillEdgeFrame(plan, positions, buffers)
     const { points, colors, weights } = buffers
-    fillEdgeFrame(plan, positions, -1, new THREE.Vector3(), buffers)
+    fillEdgeFrame(plan, positions, buffers)
     expect(buffers.points).toBe(points)
     expect(buffers.colors).toBe(colors)
     expect(buffers.weights).toBe(weights)
@@ -317,7 +306,7 @@ describe('EdgeFrameGate', () => {
   const hlHandle = {}
   const base = () => ({
     plan, positions: new Float32Array([1, 2, 3]), edgeHandle: handle, highlightHandle: hlHandle,
-    selectedNodeId: null as string | null, dragging: false,
+    selectedNodeId: null as string | null,
   })
 
   it('skips only after an identical frame has been committed', () => {
@@ -354,16 +343,5 @@ describe('EdgeFrameGate', () => {
     const g = { ...base(), highlightHandle: null }
     gate.commit(g)
     expect(gate.shouldSkip(g)).toBe(false)
-  })
-
-  it('recomputes every frame while dragging and once after the drag ends', () => {
-    const gate = new EdgeFrameGate()
-    const f = { ...base(), dragging: true }
-    gate.commit(f)
-    expect(gate.shouldSkip(f)).toBe(false)
-    const after = { ...f, dragging: false }
-    expect(gate.shouldSkip(after)).toBe(false)
-    gate.commit(after)
-    expect(gate.shouldSkip(after)).toBe(true)
   })
 })
