@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 484d9392f00967420a418cb10dc3eea331e627db
+verified_commit: f1fa1862c00ad627af8f45249d51b94c3a1c238f
 verified_paths: [xr-client/scenes/GraphScene.tscn, xr-client/scenes/HUD.tscn, xr-client/scripts/spatial_environment.gd, xr-client/scripts/xr_theme.gd, xr-client/scripts/hud.gd, xr-client/scripts/radial_menu.gd, xr-client/scripts/dwell_reticle.gd, xr-client/scripts/agent_avatar.gd, xr-client/materials/spatial_floor.gdshader, xr-client/materials/edge_flow.gdshader, xr-client/tests/spatial_visual_fixture.gd, xr-client/tests/unit/test_xr_visual_accessibility.gd]
 owner: jjohare
 review_trigger: Headset acceptance, a renderer change, or a change to graph instance channels and world-radius compensation.
@@ -164,3 +164,7 @@ Re-stamped to `8e92c5d5c` (2026-10-31, ADR-2167, the visual extras). Re-run: `gi
 Re-verified 2026-11-01 at `ecd78b6cb`: the only change to the governed path is `xr-client/scripts/hud.gd`, where `KEY_EDGE_FLOW` (the Key page swatch mirroring the graph's flow-edge colour) moves from cyan to gold and its label gains "breathes slowly". It changes no HUD panel palette, no tab, and nothing this record decides. Evidence: `git diff 8e92c5d5c..ecd78b6cb -- xr-client/scripts/hud.gd` (2 lines).
 
 Re-verified 2026-11-01 at `484d9392f` (xr/grab-client, ADR-2172). Two changes since `8e92c5d5c`. `hud.gd`: the edge key is now gold with the text "breathes slowly" (lead, 2026-11-01). `spatial_environment.gd`: the focus marker follows the first held node in that node's volume (ADR-2172). One recorded exception to the reduced-motion paragraph: the gold-edge breathe (`breathe_period` 36 s, `breathe_depth` 0.8) is a whole-edge luminance swell with nothing travelling and stays on under reduced motion by the owner's choice (2026-11-01); the travelling edge pulse, the beat swell and the query pulse still stop. The rest of the decision holds.
+
+## Re-verification — 2026-10-31 (`f1fa1862c`)
+
+Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (ADR-2172), client/three-0187 and docs/splat-adr, each Opus-reviewed (R15/R16/R17). The governed-path changes are those merges: drag holds and release in the GPU actor and socket handler, the held-only global_speed floor, two-hand grab and the edge breathe in the XR client, and the ADR 2168->2172 comment renames. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1768 passed, 0 failed (GPU 1); vitest 142 files / 1468 (installed three 0.183; the 0.187 run is on client/three-0187); XR GUT 522 passing on 4.6.1 and 4.8 at the grab-client head. Re-run: `git diff 2257ee7fa..f1fa1862c -- <governed path>`.

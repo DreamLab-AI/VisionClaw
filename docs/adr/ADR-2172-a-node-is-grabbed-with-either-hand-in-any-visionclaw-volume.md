@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158, ADR-2166]
-verified_commit: 232130a645d2580c846f8b0abce16aa5c037e0e8
+verified_commit: f1fa1862c00ad627af8f45249d51b94c3a1c238f
 verified_paths: [xr-client/scripts/graph_scene.gd, xr-client/scripts/spatial_environment.gd, xr-client/scripts/backend_connection.gd, xr-client/scripts/connection_volume_source.gd, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs, xr-client/materials/edge_flow_common.gdshaderinc, xr-client/materials/edge_flow.tres]
 owner: jjohare
 review_trigger: the first headset session grabbing in the Ontology volume and inside an entered room (reach, depth feel, two-hand comfort); or the server's drag-release unpin (stream GS) merging
@@ -56,3 +56,7 @@ acceptance_boundary: the gate, the per-hand state, the routing and transform ari
 - Evidence class `source+test`, headless only: `tests/unit/test_grab_client.gd` (28 tests) covers the gate, the per-hand state, release of one hand keeping the other, refusal of a node held by the other hand, drag frames per volume with each Content transform (including a scaled room), the Codescape refusal sending nothing, the portal refusal, release on entering a room, the two-hand gesture staying off, no pin recorded on release, the hunt echo for two nodes, no jump on grab with the real client and real packed slots (both volumes, both hands, and a scaled entered room), the labels and focus marker following the node's own volume, and the breathe parameters; and for the R15 fixes a probe-shaped test (a hand held 0.4 m beyond the +X face for 90 frames: the drag target stays bounded and the content scale stable), the exclusion set per volume, the merge's volume resolution and held-id filter, a 13k-candidate timing bench (loose bound 2.5 ms per hand; 8.1 ms before, 0.17 ms after on the HP), the ease lock, the link press with a node held, per-hand double-click, the off-axis catch and the true trough. `render_store::tests::hunt_grabs_*` and `binary_protocol::tests::render_aabb_ids_*` cover the Rust side. Updated existing tests: `test_volume_ux.gd`, `test_backend_switch.gd`, `test_node_lod.gd`, `test_backend_connection.gd` (a drag end records no pin), `test_connection_volume_source.gd`.
 - Not verified: the headset (reach, depth, comfort), a live server with two simultaneous pins, the shader on a real renderer, 90 Hz inside an entered room with grabs.
 - `implementation_status` stays `partial` and `activation_status` `inactive` until a headset session.
+
+## Re-verification — 2026-10-31 (`f1fa1862c`)
+
+Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (ADR-2172), client/three-0187 and docs/splat-adr, each Opus-reviewed (R15/R16/R17). The governed-path changes are those merges: drag holds and release in the GPU actor and socket handler, the held-only global_speed floor, two-hand grab and the edge breathe in the XR client, and the ADR 2168->2172 comment renames. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1768 passed, 0 failed (GPU 1); vitest 142 files / 1468 (installed three 0.183; the 0.187 run is on client/three-0187); XR GUT 522 passing on 4.6.1 and 4.8 at the grab-client head. Re-run: `git diff 2257ee7fa..f1fa1862c -- <governed path>`.

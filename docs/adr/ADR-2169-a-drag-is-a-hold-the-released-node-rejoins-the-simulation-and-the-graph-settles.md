@@ -9,7 +9,7 @@ supersedes: []
 superseded_by: []
 amends: [ADR-2140]
 relates: [ADR-2141, ADR-2172]
-verified_commit: aba13edc5eeaa1f325d6560113375a1a5e8300c8
+verified_commit: f1fa1862c00ad627af8f45249d51b94c3a1c238f
 verified_paths: [src/actors/gpu/hold_registry.rs, src/actors/gpu/force_compute_actor.rs, src/actors/physics_orchestrator_actor.rs, src/handlers/socket_flow_handler/position_updates.rs, src/handlers/socket_flow_handler/types.rs, src/handlers/layout_handler.rs, scripts/drag-physics-acceptance.mjs]
 owner: jjohare
 review_trigger: the first headset session after the server carrying this change is deployed (does the graph answer the hand, does it rest about two seconds after release), or any change to the FA2 integrator or the stored `globalSpeed`.
@@ -46,3 +46,7 @@ acceptance_boundary: registry, actor, orchestrator and handler rules are covered
 
 ## Verification
 `cargo test --lib` and `cargo test -p visionclaw-domain` at the verified commit (see the stream report); the GPU tests in `execution.rs` (`grid_gpu_tests`) on an RTX A6000; `scripts/drag-physics-acceptance.mjs` against a local mock only. Each rule above was also broken in turn and its test shown to fail.
+
+## Re-verification — 2026-10-31 (`f1fa1862c`)
+
+Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (ADR-2172), client/three-0187 and docs/splat-adr, each Opus-reviewed (R15/R16/R17). The governed-path changes are those merges: drag holds and release in the GPU actor and socket handler, the held-only global_speed floor, two-hand grab and the edge breathe in the XR client, and the ADR 2168->2172 comment renames. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1768 passed, 0 failed (GPU 1); vitest 142 files / 1468 (installed three 0.183; the 0.187 run is on client/three-0187); XR GUT 522 passing on 4.6.1 and 4.8 at the grab-client head. Re-run: `git diff 2257ee7fa..f1fa1862c -- <governed path>`.

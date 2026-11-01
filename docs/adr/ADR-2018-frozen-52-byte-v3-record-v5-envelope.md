@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 232130a645d2580c846f8b0abce16aa5c037e0e8
+verified_commit: f1fa1862c00ad627af8f45249d51b94c3a1c238f
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a new GPU analytics field that cannot fit an existing slot, or any need to change the 52-byte node-record layout
@@ -282,3 +282,7 @@ Re-verified 2026-10-30 at 2a763c423 (spatial-volume UX: merge of `xr/ux-pick` 3b
 Re-verified 2026-11-01 at `484d9392f` (xr/grab-client, ADR-2172). The only change to `binary_protocol.rs` since `2a763c423` is one additive `#[func]`, `hunt_grabs` (ADR-2172), a per-frame render-position pin that touches no codec, record size or envelope. The decision holds.
 
 Re-verified 2026-11-01 at `232130a64` (xr/grab-client, ADR-2172 review fixes). The only change to `binary_protocol.rs` since `484d9392f` is the held-node exclusion of the volume refit: `full_aabb_of` / `render_aabb_ids` take a set of ids instead of one. It reads no byte of the 52-byte V3 record or the V5 envelope, and touches no codec. The decision holds.
+
+## Re-verification — 2026-10-31 (`f1fa1862c`)
+
+Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (ADR-2172), client/three-0187 and docs/splat-adr, each Opus-reviewed (R15/R16/R17). The governed-path changes are those merges: drag holds and release in the GPU actor and socket handler, the held-only global_speed floor, two-hand grab and the edge breathe in the XR client, and the ADR 2168->2172 comment renames. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1768 passed, 0 failed (GPU 1); vitest 142 files / 1468 (installed three 0.183; the 0.187 run is on client/three-0187); XR GUT 522 passing on 4.6.1 and 4.8 at the grab-client head. Re-run: `git diff 2257ee7fa..f1fa1862c -- <governed path>`.

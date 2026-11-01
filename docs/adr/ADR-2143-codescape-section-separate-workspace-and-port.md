@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: dd7f3653d13c00415f0fbdcfb61c38cb2c79f14d
+verified_commit: f1fa1862c00ad627af8f45249d51b94c3a1c238f
 verified_paths: [codescape, docs/PROTOCOL-registry.md]
 owner: jjohare
 review_trigger: a graphicle rev bump; any change to the V3 record, the V5 envelope or 0x23; Codescape gaining a compose service, a published port or a new egress target; a proposal to merge the workspace into the root
@@ -399,3 +399,7 @@ The park trigger "P2 gate output committed" is met in the Codescape repository (
 - P3 (partly), P5 and P6 (TLS/NIP-98 on every route, published `:4100`) are not shown done.
 
 Activation is not promoted: this is a desk run in the container, not a receipt of the published deployment. The Codescape repository's own ADR-0001 records its activation separately. The submodule gitlink is deliberately not moved here; it should go to the Codescape commit above at merge time.
+
+## Re-verification — 2026-10-31 (`f1fa1862c`)
+
+Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (ADR-2172), client/three-0187 and docs/splat-adr, each Opus-reviewed (R15/R16/R17). The governed-path changes are those merges: drag holds and release in the GPU actor and socket handler, the held-only global_speed floor, two-hand grab and the edge breathe in the XR client, and the ADR 2168->2172 comment renames. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1768 passed, 0 failed (GPU 1); vitest 142 files / 1468 (installed three 0.183; the 0.187 run is on client/three-0187); XR GUT 522 passing on 4.6.1 and 4.8 at the grab-client head. Re-run: `git diff 2257ee7fa..f1fa1862c -- <governed path>`.

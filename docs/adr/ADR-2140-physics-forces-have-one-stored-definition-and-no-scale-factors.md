@@ -9,7 +9,7 @@ evidence_class: source+test
 acceptance_boundary: local runs only, not deployed to any running server or headset. The GPU receipt (adr_2140_layout_mode_gpu_tests) drives merge_physics_patch, not the HTTP handler, because apply_physics_patch needs a live AppState; no test builds an AppState, so the quality-gate handler's decision is tested as a pure function (layout_mode_to_forward) and reset_layout's as reset_document_for, not through the HTTP handlers. The boot path is tested at the repository load (load_all_settings against a store holding only the physics row, and one with frozen leaves) which is what the settings actor calls at startup; OptimizedSettingsActor and AppState::new are not booted. The client round trip is pinned by unit tests, not a browser against a live backend; the removed sssp/params routes are shown absent by a routing test, not by a deployed 404.
 supersedes: []
 superseded_by: []
-verified_commit: aba13edc5eeaa1f325d6560113375a1a5e8300c8
+verified_commit: f1fa1862c00ad627af8f45249d51b94c3a1c238f
 verified_paths: [src/handlers/layout_handler.rs, src/actors/gpu/force_compute_actor.rs, src/actors/gpu/physics_restore.rs, crates/visionclaw-domain/src/types/layout.rs, src/utils/unified_gpu_compute/execution.rs, src/adapters/sqlite_settings_repository.rs, src/handlers/api_handler/analytics/sssp_handlers.rs, src/settings/api/settings_routes.rs, crates/visionclaw-domain/src/types/physics_config.rs, src/models/simulation_params.rs, crates/visionclaw-domain/src/models/simulation_params.rs, docs/reference/physics-parameters.md]
 owner: jjohare
 review_trigger: any new force, any new place that holds a physics value, any multiplier or clamp between the settings store and the GPU
@@ -176,3 +176,7 @@ Not reachable on the live store (one full `physics` row, written whole by `AppSt
 ## Amended by ADR-2169 (2026-11-01)
 
 Item 2 ("applied exactly as stored") does not apply while a node is held: ADR-2169 floors `global_speed` at 2.0 for that span (owner-accepted 2026-11-01), and lowers Verlet-mode `damping` to at most 0.6 while held or settling. The 2 s settle window after a release runs at the stored speed. `get_layout_status` now reports the GPU actor's iterations, settled flag and kinetic energy. Re-verified at `aba13edc5` for the paths ADR-2169 changed (`force_compute_actor.rs`, `layout_handler.rs`, `execution.rs`) only.
+
+## Re-verification — 2026-10-31 (`f1fa1862c`)
+
+Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (ADR-2172), client/three-0187 and docs/splat-adr, each Opus-reviewed (R15/R16/R17). The governed-path changes are those merges: drag holds and release in the GPU actor and socket handler, the held-only global_speed floor, two-hand grab and the edge breathe in the XR client, and the ADR 2168->2172 comment renames. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1768 passed, 0 failed (GPU 1); vitest 142 files / 1468 (installed three 0.183; the 0.187 run is on client/three-0187); XR GUT 522 passing on 4.6.1 and 4.8 at the grab-client head. Re-run: `git diff 2257ee7fa..f1fa1862c -- <governed path>`.

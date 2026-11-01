@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 232130a645d2580c846f8b0abce16aa5c037e0e8
+verified_commit: f1fa1862c00ad627af8f45249d51b94c3a1c238f
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -178,3 +178,7 @@ Re-stamped to `a4c07caed` (2026-10-31, ADR-2167 review fixes R11; first stamped 
 Re-verified 2026-11-01 at `484d9392f` (xr/grab-client, ADR-2172). Changes since `a4c07caed`: `binary_protocol.rs` and `render_store.rs` gain `hunt_grabs`, with `hunt` kept as a one-node wrapper; `graph_scene.gd` holds per-hand node grabs (ADR-2172). Agent poses, the single pose owner and the demo-through-ingest rule are untouched: the hunt still hovers active agents and only pins the nodes a hand holds. The decision holds.
 
 Re-verified 2026-11-01 at `232130a64` (xr/grab-client, ADR-2172 review fixes). The changes to `graph_scene.gd` since `484d9392f` are grab-path only (candidate merge, per-hand double-click and catch offset, ease and box locks), and the `binary_protocol.rs` change is the held-node refit exclusion. Neither touches agent poses, the one pose writer (`agent_choreography.gd`) or the demo ingest door. The decision holds.
+
+## Re-verification — 2026-10-31 (`f1fa1862c`)
+
+Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (ADR-2172), client/three-0187 and docs/splat-adr, each Opus-reviewed (R15/R16/R17). The governed-path changes are those merges: drag holds and release in the GPU actor and socket handler, the held-only global_speed floor, two-hand grab and the edge breathe in the XR client, and the ADR 2168->2172 comment renames. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1768 passed, 0 failed (GPU 1); vitest 142 files / 1468 (installed three 0.183; the 0.187 run is on client/three-0187); XR GUT 522 passing on 4.6.1 and 4.8 at the grab-client head. Re-run: `git diff 2257ee7fa..f1fa1862c -- <governed path>`.

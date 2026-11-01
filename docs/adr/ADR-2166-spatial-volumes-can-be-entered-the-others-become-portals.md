@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158]
-verified_commit: 232130a645d2580c846f8b0abce16aa5c037e0e8
+verified_commit: f1fa1862c00ad627af8f45249d51b94c3a1c238f
 verified_paths: [xr-client/scripts/space_portals.gd, xr-client/scripts/spatial_volume.gd, xr-client/scripts/emulated_volume.gd, xr-client/scripts/volume_arrangement.gd, xr-client/scripts/graph_scene.gd, xr-client/scripts/hud.gd, xr-client/scripts/xr_prefs.gd, xr-client/materials/portal_membrane.gdshader]
 owner: jjohare
 review_trigger: the first headset session with Enter used (stereo membranes, 90 Hz with an entered 6 m room, comfort of the dim); or XE merging FrameBudgetPass.set_volume_weights
@@ -64,3 +64,7 @@ Re-verified 2026-11-01 at `ecd78b6cb`: the only change to the governed path is `
 Re-verified 2026-11-01 at `484d9392f` (xr/grab-client, ADR-2172). Changes since `a4c07caed`: `graph_scene.gd` now lets a node be grabbed in the entered volume and in the ring, never in a portal, releases held nodes when a space is entered, swapped or left, and refuses a grab during a transition (ADR-2172, which amends this record); `hud.gd` has a two-line edge-key edit. Enter, Leave, the ring, the membranes and the transitions are unchanged. The decision holds; its line 8 (E9) still holds for Codescape.
 
 Re-verified 2026-11-01 at `232130a64` (xr/grab-client, ADR-2172 review fixes). The changes to `graph_scene.gd` since `484d9392f` extend the portal rules without changing them: `_grab_locked` also holds while an arrangement ease runs (the first entry from the ring eases with no dim, R15 F4), and while a node is held the HUD Front action, a link press and a box grip on the holding volume move no volume (F8). `space_portals.gd` and the room rules are untouched. The decision holds.
+
+## Re-verification — 2026-10-31 (`f1fa1862c`)
+
+Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (ADR-2172), client/three-0187 and docs/splat-adr, each Opus-reviewed (R15/R16/R17). The governed-path changes are those merges: drag holds and release in the GPU actor and socket handler, the held-only global_speed floor, two-hand grab and the edge breathe in the XR client, and the ADR 2168->2172 comment renames. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1768 passed, 0 failed (GPU 1); vitest 142 files / 1468 (installed three 0.183; the 0.187 run is on client/three-0187); XR GUT 522 passing on 4.6.1 and 4.8 at the grab-client head. Re-run: `git diff 2257ee7fa..f1fa1862c -- <governed path>`.

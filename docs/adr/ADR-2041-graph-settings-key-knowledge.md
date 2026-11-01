@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: 232130a645d2580c846f8b0abce16aa5c037e0e8
+verified_commit: f1fa1862c00ad627af8f45249d51b94c3a1c238f
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -197,3 +197,7 @@ Re-stamped to `a4c07caed` (2026-10-31, ADR-2167 review fixes R11; first stamped 
 Re-verified 2026-11-01 at `484d9392f` (xr/grab-client, ADR-2172). The change to `graph_scene.gd` since `93302275e` is the per-hand node-grab state (ADR-2172). No settings key, graph-type value or alias is read or written differently. The decision holds.
 
 Re-verified 2026-11-01 at `232130a64` (xr/grab-client, ADR-2172 review fixes). The changes to `graph_scene.gd` since `484d9392f` are grab-path only: the candidate merge, per-hand double-click and catch offset, the ease and box locks, and the held-node refit exclusion. No settings key, graph-type value or alias is read or written differently. The decision holds.
+
+## Re-verification — 2026-10-31 (`f1fa1862c`)
+
+Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (ADR-2172), client/three-0187 and docs/splat-adr, each Opus-reviewed (R15/R16/R17). The governed-path changes are those merges: drag holds and release in the GPU actor and socket handler, the held-only global_speed floor, two-hand grab and the edge breathe in the XR client, and the ADR 2168->2172 comment renames. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1768 passed, 0 failed (GPU 1); vitest 142 files / 1468 (installed three 0.183; the 0.187 run is on client/three-0187); XR GUT 522 passing on 4.6.1 and 4.8 at the grab-client head. Re-run: `git diff 2257ee7fa..f1fa1862c -- <governed path>`.
