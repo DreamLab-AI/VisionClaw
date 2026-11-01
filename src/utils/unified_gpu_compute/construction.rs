@@ -89,6 +89,8 @@ pub struct UnifiedGPUCompute {
     pub(crate) edge_rest_snapshot: DeviceBuffer<f32>,
     /// Elastic-overlay state: active flag, snapshot validity, snapshot count.
     pub(crate) hold_overlay: super::hold_overlay::HoldOverlay,
+    /// Multiplier on `spring_k` and `max_force` while the spring term runs (a hold only).
+    pub(crate) hold_spring_gain: f32,
 
     pub(crate) force_x: DeviceBuffer<f32>,
     pub(crate) force_y: DeviceBuffer<f32>,
@@ -469,6 +471,7 @@ impl UnifiedGPUCompute {
             edge_weights,
             edge_rest_snapshot,
             hold_overlay: Default::default(),
+            hold_spring_gain: super::HOLD_SPRING_GAIN,
             force_x,
             force_y,
             force_z,

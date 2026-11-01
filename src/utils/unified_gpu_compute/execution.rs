@@ -706,7 +706,7 @@ impl UnifiedGPUCompute {
         // every edge's current length on the GPU (one thread per node, no host round-trip), so
         // the overlay term is exactly zero at the moment of grab. A null pointer switches the
         // overlay off in the force kernels.
-        let edge_rest_ptr = if self.hold_overlay.is_active() {
+        let edge_rest_ptr = if self.hold_overlay.springs_active() {
             if self.hold_overlay.snapshot_due() {
                 let snapshot_kernel = self._module.get_function("snapshot_edge_rest_kernel")?;
                 // SAFETY: positions and the CSR are valid buffers of >= num_nodes / num_edges
@@ -1085,6 +1085,18 @@ impl UnifiedGPUCompute {
         self.hold_overlay.set_active(on);
     }
 
+    /// Switch the overlay's spring term on or off for the next step: on while a node is held,
+    /// off through the settle window. A release therefore places the node: the snapshot is not
+    /// consulted again, and the next hold takes a fresh one. Needs `set_hold_overlay(true)`.
+    pub fn set_hold_springs(&mut self, on: bool) {
+        self.hold_overlay.set_springs(on);
+    }
+
+    /// Override the held-only spring gain (calibration and tests).
+    pub fn set_hold_spring_gain(&mut self, gain: f32) {
+        self.hold_spring_gain = gain;
+    }
+
     /// Edge-length snapshots taken so far (diagnostics and tests).
     pub fn hold_overlay_snapshot_count(&self) -> u64 {
         self.hold_overlay.snapshot_count()
@@ -1130,6 +1142,12 @@ impl UnifiedGPUCompute {
         // again as soon as the overlay ends.
         if self.hold_overlay.is_active() {
             sim_params.adaptive_speed = 0;
+        }
+        // Held-only gain: the spring is `gain` times stronger and its force cap scales with it,
+        // or the cap would still saturate the pull at the stored `max_force / spring_k` stretch.
+        if self.hold_overlay.springs_active() {
+            sim_params.spring_k *= self.hold_spring_gain;
+            sim_params.max_force *= self.hold_spring_gain;
         }
 
         // When stability_bypass is true, disable the GPU stability check so physics
@@ -2754,11 +2772,21 @@ mod hold_spring_overlay_gpu_tests {
     struct Shape {
         nb: usize,
         leaves: usize,
+        /// Edge weight on every link (live median 1.1).
+        weight: f32,
+        /// Node mass (live: `0.5 + 2w`, about 2.7).
+        mass: f32,
+        /// Hop-3 nodes, one hung off each of the first `far` leaves: the "far graph" that a
+        /// placed node must leave undisturbed.
+        far: usize,
     }
 
     impl Shape {
         fn n(self) -> usize {
-            1 + self.nb + self.nb * self.leaves
+            1 + self.nb + self.nb * self.leaves + self.far
+        }
+        fn far_node(self, k: usize) -> usize {
+            1 + self.nb + self.nb * self.leaves + k
         }
         fn leaf(self, nb: usize, k: usize) -> usize {
             1 + self.nb + (nb - 1) * self.leaves + k
@@ -2766,9 +2794,30 @@ mod hold_spring_overlay_gpu_tests {
     }
 
     /// The spec's small graph: neighbours with a few other springs.
-    const SMALL: Shape = Shape { nb: 12, leaves: 3 };
+    const SMALL: Shape = Shape {
+        nb: 12,
+        leaves: 3,
+        weight: 1.0,
+        mass: 1.0,
+        far: 0,
+    };
     /// Live-like: neighbours carry about 30 other springs (the live graph's typical degree).
-    const DENSE: Shape = Shape { nb: 60, leaves: 30 };
+    const DENSE: Shape = Shape {
+        nb: 60,
+        leaves: 30,
+        weight: 1.0,
+        mass: 1.0,
+        far: 0,
+    };
+    /// The live hub probe's shape: a hub of about 1,200 neighbours, each with a ring link and 17
+    /// leaves (live median degree 19), the live median weight 1.1 and mass about 2.7.
+    const PROBE: Shape = Shape {
+        nb: 1200,
+        leaves: 17,
+        weight: 1.1,
+        mass: 2.7,
+        far: 4000,
+    };
 
     const DRAG: f32 = 60.0;
     const DRAG_STEPS: usize = 180;
@@ -2834,11 +2883,14 @@ mod hold_spring_overlay_gpu_tests {
                 link(nb, sh.leaf(nb, k));
             }
         }
+        for k in 0..sh.far {
+            link(sh.leaf(1 + k / leaves, k % leaves), sh.far_node(k));
+        }
         let mut offsets = vec![0i32];
         let (mut cols, mut w) = (Vec::new(), Vec::new());
         for row in &adj {
             cols.extend_from_slice(row);
-            w.extend(std::iter::repeat_n(1.0f32, row.len()));
+            w.extend(std::iter::repeat_n(sh.weight, row.len()));
             offsets.push(cols.len() as i32);
         }
 
@@ -2869,6 +2921,10 @@ mod hold_spring_overlay_gpu_tests {
         g.upload_positions(&x, &y, &z).expect("upload positions");
         g.upload_edges_csr(&offsets, &cols, &w)
             .expect("upload edges");
+        if sh.mass != 1.0 {
+            g.upload_class_metadata(&vec![0i32; n], &vec![1.0f32; n], &vec![sh.mass; n])
+                .expect("upload masses");
+        }
         Some((ctx, g))
     }
 
@@ -2929,6 +2985,8 @@ mod hold_spring_overlay_gpu_tests {
         // The actor's held step: speed floor 2.0 (already in `p.global_speed`), overlay per flag.
         p.global_speed = 2.0;
         g.set_hold_overlay(overlay);
+        g.set_hold_springs(overlay);
+        g.set_hold_spring_gain(1.0);
 
         for _ in 0..GRAB_STEPS {
             step(&mut g, &p);
@@ -3050,5 +3108,316 @@ mod hold_spring_overlay_gpu_tests {
         // Each neighbour has about 32 springs, as the live graph's do. A linear spring network
         // gives roughly 1/(1+k) of the drag at equilibrium, so the bar here is lower.
         assert_overlay_follows(DENSE, 0.03);
+    }
+
+    /// What one probe-shaped hold and release produced.
+    #[derive(Debug, Default)]
+    struct Probe {
+        /// Median first-hop displacement magnitude over the drag and the hold, as a fraction of
+        /// the drag distance (what `hub-probe.mjs` reports).
+        hop1: f32,
+        hop2: f32,
+        /// Largest speed any node reached, in units per step of 1 (position delta per step).
+        max_speed: f32,
+        finite: bool,
+        /// Hub distance from where it was dropped, at the end of the settle span (2 s).
+        window_from_drop: f32,
+        /// Hub distance from where it was before the grab, at the end of the settle span.
+        window_from_start: f32,
+        /// Hub distance from where it was dropped, after release and settle.
+        hub_from_drop: f32,
+        /// Hub distance from where it was before the grab, after release and settle.
+        hub_from_start: f32,
+        /// Median first-hop displacement from the pre-grab layout, after release and settle,
+        /// as a fraction of the drag.
+        hop1_rest: f32,
+        /// Median hop-3 displacement from the pre-grab layout, after settle, in units.
+        far_rest: f32,
+        /// Largest node speed in the last 5 steps of the Verlet settle span, over the peak speed
+        /// of the hold: below 1 and near 0 means the response decays inside the window.
+        decay: f32,
+    }
+
+    /// One probe run. `Cfg::live(shape, drag)` is the live step rate: 30 drag steps, 20 held and
+    /// a 20-step settle window (2 s at about 10 Hz).
+    #[derive(Clone, Copy)]
+    struct Cfg {
+        shape: Shape,
+        drag: f32,
+        /// `None` keeps the shipped `HOLD_SPRING_GAIN`.
+        gain: Option<f32>,
+        spring_k: f32,
+        /// Keep the springs on through the settle window, as `1a16d43b3` did.
+        keep_springs: bool,
+        drag_steps: usize,
+        held_steps: usize,
+        settle_steps: usize,
+        rest_steps: usize,
+    }
+
+    impl Cfg {
+        fn live(shape: Shape, drag: f32) -> Self {
+            Cfg {
+                shape,
+                drag,
+                gain: None,
+                spring_k: LIVE_SPRING_K,
+                keep_springs: false,
+                drag_steps: 30,
+                held_steps: 20,
+                settle_steps: 20,
+                rest_steps: 400,
+            }
+        }
+    }
+
+    /// The `springK` recommended for the stored document alongside `HOLD_SPRING_GAIN`.
+    const LIVE_SPRING_K: f32 = 30.0;
+
+    fn dist3(a: [f32; 3], b: [f32; 3]) -> f32 {
+        (0..3).map(|k| (a[k] - b[k]).powi(2)).sum::<f32>().sqrt()
+    }
+
+    fn median(mut v: Vec<f32>) -> f32 {
+        if v.is_empty() {
+            return 0.0;
+        }
+        v.sort_by(|a, b| a.total_cmp(b));
+        v[v.len() / 2]
+    }
+
+    fn max_speed_now(g: &mut UnifiedGPUCompute) -> f32 {
+        let (vx, vy, vz) = g.get_node_velocities().expect("velocities");
+        (0..vx.len())
+            .map(|i| (vx[i] * vx[i] + vy[i] * vy[i] + vz[i] * vz[i]).sqrt())
+            .fold(0.0, |a, b| {
+                if b.is_nan() {
+                    f32::INFINITY
+                } else {
+                    f32::max(a, b)
+                }
+            })
+    }
+
+    /// Hold the hub of `sh`, drag it `drag` units along X over `c.drag_steps`, hold it still
+    /// for `c.held_steps`, release it, run `c.settle_steps` of the settle span and then
+    /// `c.rest_steps` of the stored behaviour. `gain` and `spring_k` are the values under test.
+    fn probe(c: Cfg) -> Option<Probe> {
+        let Cfg {
+            shape: sh,
+            drag,
+            gain,
+            spring_k,
+            keep_springs,
+            ..
+        } = c;
+        let (_ctx, mut g) = engine(sh)?;
+        let (n, nbn) = (sh.n(), sh.nb);
+        let mut p = stored_params();
+        p.spring_k = spring_k;
+        settle(&mut g, &p);
+        let before = pos(&mut g);
+        pin_hub(&mut g, n);
+        p.global_speed = 2.0;
+        g.set_hold_overlay(true);
+        g.set_hold_springs(true);
+        if let Some(gain) = gain {
+            g.set_hold_spring_gain(gain);
+        }
+
+        let origin = before[0];
+        let mut peak = 0.0f32;
+        let mut finite = true;
+        let mut watch = |g: &mut UnifiedGPUCompute, peak: &mut f32| {
+            let v = max_speed_now(g);
+            finite &= v.is_finite();
+            *peak = peak.max(v);
+        };
+        for s in 1..=c.drag_steps {
+            set_hub(
+                &mut g,
+                [
+                    origin[0] + drag * s as f32 / c.drag_steps as f32,
+                    origin[1],
+                    origin[2],
+                ],
+            );
+            step(&mut g, &p);
+            watch(&mut g, &mut peak);
+        }
+        for _ in 0..c.held_steps {
+            set_hub(&mut g, [origin[0] + drag, origin[1], origin[2]]);
+            step(&mut g, &p);
+            watch(&mut g, &mut peak);
+        }
+        let held = pos(&mut g);
+        let disp = |a: &[[f32; 3]], b: &[[f32; 3]], i: usize| {
+            (0..3)
+                .map(|k| (a[i][k] - b[i][k]).powi(2))
+                .sum::<f32>()
+                .sqrt()
+        };
+        let hop1 = median((1..=nbn).map(|i| disp(&held, &before, i)).collect()) / drag;
+        let hop2 = median(
+            (1 + nbn..1 + nbn + nbn * sh.leaves)
+                .map(|i| disp(&held, &before, i))
+                .collect(),
+        ) / drag;
+        let drop = held[0];
+
+        // Release: unpin, springs off, Verlet through the settle span, then the stored behaviour.
+        g.upload_pinned_mask(&vec![0i32; n]).expect("unpin");
+        // `keep_springs` reproduces the release of `1a16d43b3`, where the springs ran through the
+        // settle window and pulled the node back to the shape it had when grabbed.
+        g.set_hold_springs(keep_springs);
+        let (mut tail, mut hold_peak) = (0.0f32, peak.max(1e-9));
+        for s in 0..c.settle_steps {
+            step(&mut g, &p);
+            let v = max_speed_now(&mut g);
+            finite &= v.is_finite();
+            hold_peak = hold_peak.max(v);
+            if s + 5 >= c.settle_steps {
+                tail = tail.max(v);
+            }
+        }
+        let at_window = pos(&mut g);
+        g.set_hold_overlay(false);
+        for _ in 0..c.rest_steps {
+            step(&mut g, &p);
+        }
+        let rest = pos(&mut g);
+        finite &= rest.iter().all(|r| r.iter().all(|c| c.is_finite()));
+        let out = Probe {
+            hop1,
+            hop2,
+            max_speed: peak,
+            finite,
+            window_from_drop: dist3(at_window[0], drop),
+            window_from_start: dist3(at_window[0], before[0]),
+            hub_from_drop: dist3(rest[0], drop),
+            hub_from_start: disp(&rest, &before, 0),
+            hop1_rest: median((1..=nbn).map(|i| disp(&rest, &before, i)).collect()) / drag,
+            far_rest: median(
+                (0..sh.far)
+                    .map(|k| disp(&rest, &before, sh.far_node(k)))
+                    .collect(),
+            ),
+            decay: tail / hold_peak,
+        };
+        Some(out)
+    }
+
+    /// The calibration sweep (not a gate): `cargo test --lib hold_spring_overlay_gpu_tests::sweep
+    /// -- --ignored --nocapture` on GPU 1. Prints one row per gain and `springK`.
+    #[test]
+    #[ignore = "calibration sweep, prints a table"]
+    fn sweep_gain_against_spring_k() {
+        for gain in [1.0f32, 20.0] {
+            let r = probe(Cfg {
+                gain: Some(gain),
+                keep_springs: true,
+                ..Cfg::live(PROBE, 183.0)
+            })
+            .expect("gpu");
+            eprintln!(
+                "SWEEP old-release(springs kept) gain={gain} win_from_drop={:.2} win_from_start={:.2} hub_from_start={:.2} hop1={:.4}",
+                r.window_from_drop, r.window_from_start, r.hub_from_start, r.hop1
+            );
+        }
+        let runs: &[(f32, f32, f32)] = &[(183.0, 30.0, 20.0)];
+        for &(drag, k, gain) in runs {
+            {
+                {
+                    let Some(r) = probe(Cfg {
+                        gain: Some(gain),
+                        spring_k: k,
+                        ..Cfg::live(PROBE, drag)
+                    }) else {
+                        return;
+                    };
+                    eprintln!(
+                        "SWEEP drag={drag} k={k} gain={gain} hop1={:.4} hop2={:.4} maxv={:.2} finite={} \
+                         win_from_drop={:.2} win_from_start={:.2} hub_from_drop={:.2} hub_from_start={:.2} hop1_rest={:.4} far_rest={:.4} decay={:.3}",
+                        r.hop1, r.hop2, r.max_speed, r.finite, r.window_from_drop, r.window_from_start, r.hub_from_drop, r.hub_from_start,
+                        r.hop1_rest, r.far_rest, r.decay
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_probe_hub_drag_moves_neighbours_a_lot_and_stays_stable() {
+        // The live hub probe's shape, at the live step rate, with the recommended stored
+        // springK. At gain 1 this measures 0.026; the bar is the owner's "big effect".
+        let Some(r) = probe(Cfg::live(PROBE, 183.0)) else {
+            return;
+        };
+        assert!(r.finite, "no NaN or infinity anywhere: {r:?}");
+        assert!(
+            r.hop1 >= 0.30,
+            "one-hop median follow >= 0.3 of the drag, got {:.4} ({r:?})",
+            r.hop1
+        );
+        assert!(
+            r.hop2 > 0.05 && r.hop2 < r.hop1,
+            "two hops follow less than one, and visibly: {:.4} vs {:.4}",
+            r.hop2,
+            r.hop1
+        );
+        assert!(
+            r.max_speed <= 100.5,
+            "no node outruns max_velocity (100): {:.2}",
+            r.max_speed
+        );
+        assert!(
+            r.decay < 0.5,
+            "the response decays inside the 2 s settle window, tail/peak speed {:.3}",
+            r.decay
+        );
+        assert!(
+            r.far_rest < 0.15 * 183.0,
+            "hop-3 nodes end within 15 % of the drag of where they were (the layout's own \
+             drift is about 11 units), got {:.2}",
+            r.far_rest
+        );
+    }
+
+    #[test]
+    fn a_released_node_is_placed_where_it_was_dropped() {
+        // Probe shape at the live step rate: through the 2 s settle window the hub stays where
+        // it was dropped. With the springs kept on through the window (the release before this
+        // change) the same gain pulls it back towards the pre-grab shape, which is the control
+        // that shows the assertion measures the release and not the layout.
+        let live = Cfg {
+            rest_steps: 0,
+            ..Cfg::live(PROBE, 183.0)
+        };
+        let Some(placed) = probe(live) else { return };
+        assert!(placed.finite);
+        assert!(
+            placed.window_from_drop < 5.0,
+            "the hub stays within 5 units of where it was dropped through the settle window, \
+             moved {:.2}",
+            placed.window_from_drop
+        );
+        assert!(
+            placed.window_from_start > 0.9 * 183.0,
+            "and has not returned towards its pre-grab position: {:.2} of 183 from it",
+            placed.window_from_start
+        );
+        let Some(pulled) = probe(Cfg {
+            keep_springs: true,
+            ..live
+        }) else {
+            return;
+        };
+        assert!(
+            pulled.window_from_drop > 10.0
+                && pulled.window_from_drop > 3.0 * placed.window_from_drop,
+            "control: springs kept through the window pull the hub back {:.2} (placed: {:.2})",
+            pulled.window_from_drop,
+            placed.window_from_drop
+        );
     }
 }

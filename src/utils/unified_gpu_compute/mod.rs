@@ -135,6 +135,13 @@ mod community;
 mod construction;
 mod execution;
 mod hold_overlay;
+
+/// Held-only gain on the elastic overlay (ADR-2169 amendment, owner 2026-11-01: "we need a big
+/// effect"). While a node is held, `spring_k` and `max_force` are both multiplied by this, so the
+/// overlay's pull is `GAIN` times stronger and its saturation point (`max_force / spring_k`
+/// units of stretch) does not move. Nothing stored changes; the multiplier is not applied
+/// outside a hold.
+pub const HOLD_SPRING_GAIN: f32 = 20.0;
 mod leiden;
 mod memory;
 mod metrics;
