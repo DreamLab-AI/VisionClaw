@@ -208,6 +208,15 @@ Each profile is an **exact** flag set. Anything not listed takes its code defaul
    (`src/utils/auth.rs:265-289`). Re-verifying the same header answers 401
    "Token replayed" and locks NIP-98 callers out of every stacked scope
    (`tests/rbac_gate_require_auth_stacking_test.rs`).
+   Payment handlers use this same verifier and `nip98_request_url`. Authenticated
+   payment POSTs require a payload tag matching the transmitted JSON bytes;
+   GET handlers use `BodyBinding::NoBody`. A token is spent after successful
+   authentication even if the payment operation subsequently fails. Clients must
+   sign the body and mint a fresh token for each attempt; a fresh-token retry is
+   not an idempotency guarantee (`tests/pay_nip98_test.rs`). The cache remains
+   process-local, and `/pay` currently maps capacity failures to 401 rather than
+   the 503 availability signal specified above. Wallet migration and deployment
+   qualification remain separate work.
 5. `RBAC_PUBLIC_READS=1` and `PUBKEY_VISIBILITY_FILTER=0` must never coexist in a
    deployed profile (full-disclosure combination). Enforced at boot by ADR-2043
    as an unconditional rule, independent of whether a profile is declared.

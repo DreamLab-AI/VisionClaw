@@ -178,3 +178,29 @@ and the fail-closed ceiling. The horizontal-scaling review trigger is unchanged.
 ## Re-verification — 2026-10-07 at e48099f28 (401 for missing credentials; dev bypass on the memory cloud)
 
 **Governed change:** in `verify_access` (`src/utils/auth.rs`, legacy-header branch) a request with no credentials at all (no `X-Nostr-Pubkey` or no `X-Nostr-Token`) now gets **401** "Authentication required" instead of 403; 403 stays for an identified caller below the required level. The memory-cloud handler admits every caller under `dev_full_bypass_active()` (ADR-2133 amendment); that predicate is unchanged, compile-gated to debug/`dev-auth` builds and refused at boot in release. Every caller in the tree accepts 401 or 403 alike (`UnifiedApiClient` retry rule, the memory-cloud client, `adr142_rbac_gate`, `rec1_route_guard`, the stacking test). Verified with `cargo test --lib -- auth rbac memory_cloud` (69 pass) and those integration tests plus `memory_cloud_auth_test` (all pass). The decision holds.
+
+## Payment route adoption — 2026-11-01
+
+VCS-10 / XR-01 exposed an exception to the earlier all-call-sites claim:
+`src/handlers/pay_handler.rs` called the stateless Solid verifier with no body
+and an origin-form URL. Authenticated `/pay` routes now use
+`nip98_request_url` and `validate_nip98_token_bound`. Their five JSON POST
+handlers retain the transmitted bytes and require `BodyBinding::Required`;
+GET handlers use `NoBody`. JSON content-type checks and the 2 MiB limit remain.
+A successful authentication spends the token even when the subsequent operation
+fails; a rejected URL or body does not spend it.
+
+`cargo test --locked --offline --test pay_nip98_test`: six passing route tests.
+`cargo test --locked --offline --lib nip98`: 46 passing shared-verifier tests.
+The route suite covers forwarded authority, query/body binding, single-use
+charges, order creation, failed-operation retries and JSON extraction limits.
+It also exposed and verifies a separate response-header repair: mixed-case
+upstream payment headers must use the fallible name parser, because
+`HeaderName::from_static` panicked after the ledger debit.
+
+This is source verification, not deployment activation. The process-local
+cache, compatibility URL matching and fresh-token business retries remain
+bounded as before. Solid-proxy URL reconstruction still handles forwarded URI
+separately; shared historical token fixtures remain to be exercised with an
+explicit clock. `/pay` still maps cache-capacity errors to 401 rather than the
+security profile's intended 503. ADR-2111's wallet migration remains proposed.

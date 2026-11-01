@@ -43,9 +43,12 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use actix_web::{web, HttpRequest, HttpResponse};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use log::{debug, info, warn};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
+use crate::utils::auth::nip98_request_url;
+use crate::utils::nip98::{parse_auth_header, validate_nip98_token_bound, BodyBinding};
 
 use solid_pod_rs::payments::{
     balance_response, pay_info, payment_required_body, payment_response_headers, pubkey_to_did,
@@ -394,30 +397,60 @@ impl FsExchangeStore {
 }
 
 // ---------------------------------------------------------------------------
-// NIP-98 auth extraction (thin wrapper matching solid_pod_handler pattern)
+// NIP-98 auth extraction through the shared single-use verifier
 // ---------------------------------------------------------------------------
 
-/// Extract the caller's hex pubkey from a NIP-98 `Authorization` header.
-/// Returns `None` if the header is missing or verification fails.
-///
-/// The actual HTTP method is derived from the request so that POST endpoints
-/// (e.g. `/pay/.deposit`, `/pay/.estimate`) verify correctly against the
-/// method tag in the NIP-98 token.
-async fn extract_caller_pubkey(req: &HttpRequest) -> Option<String> {
+/// Authenticate once at the payment boundary, binding POSTs to the raw body.
+async fn extract_caller_pubkey(req: &HttpRequest, body: Option<&str>) -> Option<String> {
     let header = req
         .headers()
-        .get(actix_web::http::header::AUTHORIZATION)
-        .and_then(|h| h.to_str().ok())?;
-
-    let url = req.uri().to_string();
+        .get(actix_web::http::header::AUTHORIZATION)?
+        .to_str()
+        .ok()?;
+    let token = parse_auth_header(header)?;
+    let url = nip98_request_url(req);
     let method = req.method().as_str();
-    match solid_pod_rs::auth::nip98::verify(header, &url, method, None).await {
-        Ok(pubkey) => Some(pubkey),
+    let binding = if body.is_some() {
+        BodyBinding::Required
+    } else {
+        BodyBinding::NoBody
+    };
+    match validate_nip98_token_bound(token, &url, method, body, binding) {
+        Ok(identity) => Some(identity.pubkey),
         Err(e) => {
             debug!("[pay] NIP-98 verify failed for {method} {url}: {e}");
             None
         }
     }
+}
+
+/// Preserve transmitted JSON bytes for authentication; reserialisation changes
+/// whitespace and field order. Invalid JSON does not consume the signed token.
+async fn authenticated_json<T: DeserializeOwned>(
+    req: &HttpRequest,
+    bytes: &[u8],
+) -> Result<(String, T), HttpResponse> {
+    let is_json = req.mime_type().ok().flatten().is_some_and(|mime| {
+        mime.type_() == "application"
+            && (mime.subtype() == "json" || mime.suffix().is_some_and(|suffix| suffix == "json"))
+    });
+    if !is_json {
+        return Err(HttpResponse::BadRequest()
+            .json(serde_json::json!({"error": "Expected JSON content type"})));
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| {
+        HttpResponse::BadRequest().json(serde_json::json!({"error": "Expected UTF-8 JSON"}))
+    })?;
+    let body = serde_json::from_str(text).map_err(|e| {
+        HttpResponse::BadRequest().json(serde_json::json!({"error": format!("Invalid JSON: {e}")}))
+    })?;
+    let pubkey = extract_caller_pubkey(req, Some(text))
+        .await
+        .ok_or_else(|| {
+            HttpResponse::Unauthorized()
+                .json(serde_json::json!({"error": "Authentication required"}))
+        })?;
+    Ok((pubkey, body))
 }
 
 // ---------------------------------------------------------------------------
@@ -452,7 +485,7 @@ async fn pay_balance_handler(
         }));
     }
 
-    let pubkey = match extract_caller_pubkey(&req).await {
+    let pubkey = match extract_caller_pubkey(&req, None).await {
         Some(pk) => pk,
         None => {
             return HttpResponse::Unauthorized().json(serde_json::json!({
@@ -506,7 +539,7 @@ async fn pay_resource_handler(
         }));
     }
 
-    let pubkey = match extract_caller_pubkey(&req).await {
+    let pubkey = match extract_caller_pubkey(&req, None).await {
         Some(pk) => pk,
         None => {
             return HttpResponse::Unauthorized().json(serde_json::json!({
@@ -532,9 +565,13 @@ async fn pay_resource_handler(
             });
             let mut resp = HttpResponse::Ok().json(body);
             for (name, value) in headers {
-                if let Ok(hv) = actix_web::http::header::HeaderValue::from_str(&value) {
-                    resp.headers_mut()
-                        .insert(actix_web::http::header::HeaderName::from_static(name), hv);
+                // Upstream uses conventional mixed-case names (e.g. X-Balance).
+                // from_static requires lowercase and panics after the debit.
+                if let (Ok(name), Ok(value)) = (
+                    actix_web::http::header::HeaderName::from_bytes(name.as_bytes()),
+                    actix_web::http::header::HeaderValue::from_str(&value),
+                ) {
+                    resp.headers_mut().insert(name, value);
                 }
             }
             resp
@@ -564,7 +601,7 @@ struct SellRequest {
 /// `POST /pay/.sell` — create a sell order on the order book.
 async fn pay_sell_handler(
     req: HttpRequest,
-    body: web::Json<SellRequest>,
+    body: web::Bytes,
     config: web::Data<VcPayConfig>,
     ledger_store: web::Data<Arc<FsPaymentStore>>,
     exchange_store: web::Data<Arc<FsExchangeStore>>,
@@ -573,15 +610,11 @@ async fn pay_sell_handler(
         return HttpResponse::Forbidden()
             .json(serde_json::json!({"error": "Payment system is disabled"}));
     }
-    let pubkey = match extract_caller_pubkey(&req).await {
-        Some(pk) => pk,
-        None => {
-            return HttpResponse::Unauthorized()
-                .json(serde_json::json!({"error": "Authentication required"}))
-        }
+    let (pubkey, b) = match authenticated_json::<SellRequest>(&req, &body).await {
+        Ok(value) => value,
+        Err(response) => return response,
     };
     let did = pubkey_to_did(&pubkey);
-    let b = body.into_inner();
 
     match exchange_store
         .with_exchange_and_ledger(&ledger_store, |exchange, _ledger| {
@@ -616,7 +649,7 @@ async fn pay_offers_handler(
     }
     // Order-book state is non-public exchange data; require an authenticated
     // caller, matching the write-side .sell/.swap handlers in this file.
-    if extract_caller_pubkey(&req).await.is_none() {
+    if extract_caller_pubkey(&req, None).await.is_none() {
         return HttpResponse::Unauthorized()
             .json(serde_json::json!({"error": "Authentication required"}));
     }
@@ -641,7 +674,7 @@ struct SwapRequest {
 /// `POST /pay/.swap` — execute a trade against an existing sell order.
 async fn pay_swap_handler(
     req: HttpRequest,
-    body: web::Json<SwapRequest>,
+    body: web::Bytes,
     config: web::Data<VcPayConfig>,
     ledger_store: web::Data<Arc<FsPaymentStore>>,
     exchange_store: web::Data<Arc<FsExchangeStore>>,
@@ -650,15 +683,12 @@ async fn pay_swap_handler(
         return HttpResponse::Forbidden()
             .json(serde_json::json!({"error": "Payment system is disabled"}));
     }
-    let pubkey = match extract_caller_pubkey(&req).await {
-        Some(pk) => pk,
-        None => {
-            return HttpResponse::Unauthorized()
-                .json(serde_json::json!({"error": "Authentication required"}))
-        }
+    let (pubkey, b) = match authenticated_json::<SwapRequest>(&req, &body).await {
+        Ok(value) => value,
+        Err(response) => return response,
     };
     let did = pubkey_to_did(&pubkey);
-    let order_id = body.into_inner().order_id;
+    let order_id = b.order_id;
 
     match exchange_store
         .with_exchange_and_ledger(&ledger_store, |exchange, ledger| {
@@ -713,7 +743,7 @@ async fn pay_pool_get_handler(
     }
     // AMM pool balances are non-public liquidity state; require an
     // authenticated caller, matching the .pool/swap write handler.
-    if extract_caller_pubkey(&req).await.is_none() {
+    if extract_caller_pubkey(&req, None).await.is_none() {
         return HttpResponse::Unauthorized()
             .json(serde_json::json!({"error": "Authentication required"}));
     }
@@ -733,7 +763,7 @@ async fn pay_pool_get_handler(
 /// `POST /pay/.pool/swap` — execute an AMM swap.
 async fn pay_pool_swap_handler(
     req: HttpRequest,
-    body: web::Json<PoolSwapRequest>,
+    body: web::Bytes,
     config: web::Data<VcPayConfig>,
     ledger_store: web::Data<Arc<FsPaymentStore>>,
     exchange_store: web::Data<Arc<FsExchangeStore>>,
@@ -743,15 +773,11 @@ async fn pay_pool_swap_handler(
         return HttpResponse::Forbidden()
             .json(serde_json::json!({"error": "Payment system is disabled"}));
     }
-    let pubkey = match extract_caller_pubkey(&req).await {
-        Some(pk) => pk,
-        None => {
-            return HttpResponse::Unauthorized()
-                .json(serde_json::json!({"error": "Authentication required"}))
-        }
+    let (pubkey, b) = match authenticated_json::<PoolSwapRequest>(&req, &body).await {
+        Ok(value) => value,
+        Err(response) => return response,
     };
     let did = pubkey_to_did(&pubkey);
-    let b = body.into_inner();
     let currency_a = query.get("a").cloned().unwrap_or_default();
     let currency_b = query.get("b").cloned().unwrap_or_default();
 
@@ -778,7 +804,7 @@ async fn pay_pool_swap_handler(
 /// `POST /pay/.pool/liquidity` — add liquidity to an AMM pool.
 async fn pay_pool_liquidity_handler(
     req: HttpRequest,
-    body: web::Json<AddLiquidityRequest>,
+    body: web::Bytes,
     config: web::Data<VcPayConfig>,
     ledger_store: web::Data<Arc<FsPaymentStore>>,
     exchange_store: web::Data<Arc<FsExchangeStore>>,
@@ -787,15 +813,11 @@ async fn pay_pool_liquidity_handler(
         return HttpResponse::Forbidden()
             .json(serde_json::json!({"error": "Payment system is disabled"}));
     }
-    let pubkey = match extract_caller_pubkey(&req).await {
-        Some(pk) => pk,
-        None => {
-            return HttpResponse::Unauthorized()
-                .json(serde_json::json!({"error": "Authentication required"}))
-        }
+    let (pubkey, b) = match authenticated_json::<AddLiquidityRequest>(&req, &body).await {
+        Ok(value) => value,
+        Err(response) => return response,
     };
     let did = pubkey_to_did(&pubkey);
-    let b = body.into_inner();
 
     match exchange_store
         .with_exchange_and_ledger(&ledger_store, |exchange, ledger| {
@@ -828,7 +850,7 @@ struct EstimateRequest {
 
 async fn pay_estimate_handler(
     req: HttpRequest,
-    body: web::Json<EstimateRequest>,
+    body: web::Bytes,
     config: web::Data<VcPayConfig>,
 ) -> HttpResponse {
     if !config.enabled {
@@ -837,21 +859,16 @@ async fn pay_estimate_handler(
         }));
     }
 
-    let pubkey = match extract_caller_pubkey(&req).await {
-        Some(pk) => pk,
-        None => {
-            return HttpResponse::Unauthorized().json(serde_json::json!({
-                "error": "Authentication required"
-            }));
-        }
+    let (pubkey, b) = match authenticated_json::<EstimateRequest>(&req, &body).await {
+        Ok(value) => value,
+        Err(response) => return response,
     };
-
     let did = pubkey_to_did(&pubkey);
-    let estimated_sats = config.cost_for_endpoint(&body.endpoint);
+    let estimated_sats = config.cost_for_endpoint(&b.endpoint);
 
     HttpResponse::Ok().json(serde_json::json!({
         "did": did,
-        "endpoint": body.endpoint,
+        "endpoint": b.endpoint,
         "estimated_sats": estimated_sats,
         "unit": "sat",
         "note": "Pre-execution estimate. GPU-metered endpoints may settle at actual cost."
@@ -884,6 +901,7 @@ pub fn configure_pay_routes(cfg: &mut web::ServiceConfig) {
     info!("=== REGISTERING PAYMENT ROUTES (/pay/*) ===");
     cfg.service(
         web::scope("/pay")
+            .app_data(web::PayloadConfig::new(2 * 1024 * 1024))
             .route("/.info", web::get().to(pay_info_handler))
             .route("/.balance", web::get().to(pay_balance_handler))
             .route("/.deposit", web::post().to(pay_deposit_handler))
