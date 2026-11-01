@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
+verified_commit: abcf36db1460f68015133ba5196d14cdf4112e19
 verified_paths: [src/layout/scc.rs, src/handlers/api_handler/analytics/cycles_handlers.rs, src/settings/api/settings_routes.rs, client/src/api/layoutApi.ts, client/src/features/graph/hooks/useCyclicNodeIds.ts, xr-client/rust/src/render_store.rs, xr-client/scripts/hud.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): the XR Shapes tab first run on a headset against a live graph. Review: before any cycle datum is added to the 52-byte position frame"
@@ -107,3 +107,7 @@ Re-verified 2026-11-01 at `03ddc61e1` (viz/edge-tracking). `xr-client/rust/src/r
 ## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
 
 `15acb9219` adds agent state handling to `xr-client/rust/src/render_store.rs`. The record keeps a `done` flag, and `retired` removes the agent through the existing retire path. Both are fed by ADR-2142 state frames. Nothing this record decides is touched. The decision holds unchanged.
+
+## Re-verification — 2026-11-01 (`abcf36db1`, branch `viz/edge-tracking`)
+
+Re-verified after the R23 fixes. `render_store.rs` adds `is_drawn` (the edge pack's drawn test, now also asked by the plan, beam and link packs) and removes the beam's node-id fallback. No cycle-overlay code is touched. Every claim in this record holds. Evidence: `cargo test` in `xr-client/rust` (623 passed), server `cargo test --lib` (1781 passed, `CUDA_VISIBLE_DEVICES=1`), client vitest (1540 passed), GUT on a fresh `.so` (553 passed, 0 failed, `gut_guard` ok). Not run: the headset.

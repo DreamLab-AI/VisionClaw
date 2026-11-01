@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
+verified_commit: abcf36db1460f68015133ba5196d14cdf4112e19
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -362,3 +362,7 @@ layer assessment does not accept or re-test the new physical behaviour.
 ## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
 
 `15acb9219` adds one root-binary actor module (`src/actors/agent_roster_feed.rs`, re-exported in `src/actors/mod.rs`) and removes the bots store from `graph_state_actor.rs`. It changes message shapes in `messages/agent_messages.rs` and forwarding in `graph_service_supervisor.rs`, `agent_beam_actor.rs` and `agent_monitor_actor.rs`. All of it stays inside the root binary's actor layer. No crate boundary moves and no new path dependency is added. The split this record decides is unchanged.
+
+## Re-verification — 2026-11-01 (`abcf36db1`, branch `viz/edge-tracking`)
+
+Re-verified after the R23 fixes. `agent_roster_feed.rs` `apply` takes the producers' targets and `set_target` is gone; `DONE_RUN_MS` and the timer retirement are deleted (`MAX_HELD_FINISHED` bounds held agents); `agent_beam_actor.rs` passes the targets in; `agent_monitor_actor.rs` changes a comment. Layering is unchanged: `cargo test -p visionclaw-integration-tests --test layer_direction` 2 passed. Every claim in this record holds. Evidence: `cargo test` in `xr-client/rust` (623 passed), server `cargo test --lib` (1781 passed, `CUDA_VISIBLE_DEVICES=1`), client vitest (1540 passed), GUT on a fresh `.so` (553 passed, 0 failed, `gut_guard` ok). Not run: the headset.

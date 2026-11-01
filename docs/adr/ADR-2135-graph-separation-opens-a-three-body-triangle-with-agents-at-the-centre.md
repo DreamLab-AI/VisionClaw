@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 6334233576941af20879a2b3d3d00b30ecb3c231
+verified_commit: abcf36db1460f68015133ba5196d14cdf4112e19
 verified_paths: [xr-client/rust/src/memory_route.rs, crates/visionclaw-tri-layout/src, crates/visionclaw-tri-layout/fixtures, src/actors/gpu/display_projection.rs, src/handlers/memory_flash_handler.rs, client/src/features/graph/triLayout.ts, client/src/features/graph/agentDrift.ts, client/src/features/bots/agentDriftFeed.ts, client/src/features/graph/utils/agentNudge.ts, client/src/features/graph/utils/drawnPositions.ts, client/src/features/bots/agentMarkerPass.ts, client/src/features/visualisation/memoryCloud/cloudFrame.ts, client/src/features/graph/utils/sceneFitBounds.ts, client/src/features/visualisation/memoryCloud/cloudSprites.ts, xr-client/rust/src/cloud_frame.rs, xr-client/scripts/spatial_volume.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): the operator seeing the triangle live on a backend built from main. Review: a change of the default camera direction; a fourth body joining the separated layout; agent nodes leaving the GPU graph; the XR work-layer pose rules (ADR-2109) changing; the live graph's p99 radius passing LIVE_GRAPH_RADIUS (152)"
@@ -335,3 +335,6 @@ Re-verified 2026-11-01 after the inscribed-sphere edge change: `git diff df3e2ac
 
 (Owner decision.) The done rule above ends at the scene edge and does not end there in time: a finished agent holds on the edge, bit-constant, until it leaves the roster. Nothing retires it on arrival. The server's separate 30 s retirement timer (`DONE_RUN_MS`) is deleted; `retired` is sent only when the agent leaves the roster (ADR-2142 amendment of the same date), and both clients remove it on that frame. The 30 s remains defined here once, in `AGENT_EDGE_SECONDS` and `EDGE_SECONDS`, pinned equal by `test_agent_edge_run.gd`. The desktop's dead working nudge (`AGENT_NUDGE_SPEED`, the `target` parameter) and the parallel `agentWorkTargets` tracker are deleted.
 
+## Re-verification — 2026-11-01 (`abcf36db1`, branch `viz/edge-tracking`)
+
+Re-verified after the R23 fixes. The hold-at-the-edge amendment is recorded above. `agentNudge.ts` drops the working branch, `target` and `AGENT_NUDGE_SPEED`; `agentMarkerPass.ts` drops the `null` target argument. The done rule is unchanged. Every claim in this record holds. Evidence: `cargo test` in `xr-client/rust` (623 passed), server `cargo test --lib` (1781 passed, `CUDA_VISIBLE_DEVICES=1`), client vitest (1540 passed), GUT on a fresh `.so` (553 passed, 0 failed, `gut_guard` ok). Not run: the headset.

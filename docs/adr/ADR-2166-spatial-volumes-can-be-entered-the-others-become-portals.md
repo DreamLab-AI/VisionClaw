@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158]
-verified_commit: 6334233576941af20879a2b3d3d00b30ecb3c231
+verified_commit: abcf36db1460f68015133ba5196d14cdf4112e19
 verified_paths: [xr-client/scripts/space_portals.gd, xr-client/scripts/spatial_volume.gd, xr-client/scripts/emulated_volume.gd, xr-client/scripts/volume_arrangement.gd, xr-client/scripts/graph_scene.gd, xr-client/scripts/hud.gd, xr-client/scripts/xr_prefs.gd, xr-client/materials/portal_membrane.gdshader]
 owner: jjohare
 review_trigger: the first headset session with Enter used (stereo membranes, 90 Hz with an entered 6 m room, comfort of the dim); or XE merging FrameBudgetPass.set_volume_weights
@@ -86,3 +86,7 @@ Re-verified 2026-11-01 at `03ddc61e1` (viz/edge-tracking). The only change to `x
 ## Re-verification — 2026-10-31 (`633423357`)
 
 Re-verified 2026-11-01 after the inscribed-sphere edge change: `git diff df3e2aca5..6334233576941af20879a2b3d3d00b30ecb3c231 -- xr-client/scripts/spatial_volume.gd` replaces half the box diagonal with half its smallest extent (owner decision); this record's claims about volume bounds and agent edge placement hold.
+
+## Re-verification — 2026-11-01 (`abcf36db1`, branch `viz/edge-tracking`)
+
+Re-verified after the R23 fixes. `xr-client/scripts/graph_scene.gd` changes one doc comment (`_overlay_box`). Portals and volume entry are untouched. Every claim in this record holds. Evidence: `cargo test` in `xr-client/rust` (623 passed), server `cargo test --lib` (1781 passed, `CUDA_VISIBLE_DEVICES=1`), client vitest (1540 passed), GUT on a fresh `.so` (553 passed, 0 failed, `gut_guard` ok). Not run: the headset.

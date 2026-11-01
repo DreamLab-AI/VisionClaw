@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
+verified_commit: abcf36db1460f68015133ba5196d14cdf4112e19
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a new GPU analytics field that cannot fit an existing slot, or any need to change the 52-byte node-record layout
@@ -294,3 +294,7 @@ Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (
 ## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
 
 `15acb9219` changes `xr-client/rust/src/binary_protocol.rs` additively. The `0x23` ingest loop is factored into a pure `ingest_agent_actions`, and that loop now honours ADR-2142 state frames (`done` / `retired`). It adds tests that decode the shared `tests/fixtures/agents/real-agent-frames.v1.json`. The position record size and layout are untouched. The decision holds unchanged.
+
+## Re-verification — 2026-11-01 (`abcf36db1`, branch `viz/edge-tracking`)
+
+Re-verified after the R23 fixes. `xr-client/rust/src/binary_protocol.rs` changes one doc comment (`set_agent_anchors`) and adds one test; no wire constant, decoder, tag or envelope changes. Every claim in this record holds. Evidence: `cargo test` in `xr-client/rust` (623 passed), server `cargo test --lib` (1781 passed, `CUDA_VISIBLE_DEVICES=1`), client vitest (1540 passed), GUT on a fresh `.so` (553 passed, 0 failed, `gut_guard` ok). Not run: the headset.

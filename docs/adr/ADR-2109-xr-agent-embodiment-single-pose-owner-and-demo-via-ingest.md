@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 6334233576941af20879a2b3d3d00b30ecb3c231
+verified_commit: abcf36db1460f68015133ba5196d14cdf4112e19
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs, xr-client/scripts/spatial_volume.gd]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -23,7 +23,7 @@ The XR client had an agent avatar (orb + gaze cone + DID badge, ADR-130 D4) that
 1. **Unit-scale roots.** Embodiments live under `AgentsRoot`, work-cue effects under `AgentEffectsRoot`; neither is a child of `GraphRoot`. Positions are converted with `graph_root.to_global(node_position(id))`; avatar geometry is never scaled by the graph fit.
 2. **One pose writer.** `agent_choreography.gd` is the sole owner of a work-layer embodiment's position and alpha (materialise → travel → arrive → work → done run to the scene edge; a lapsed work record relaxes onto the rest slot). The proxemics arc places conversation-layer avatars only. Server owns *which* node, status and task; the client owns *where in the room* (ADR-140 motion-authority split).
 3. **Registry is the source of embodiment.** Every id in the Rust agent registry is embodied at ~4 Hz (`_reconcile_embodiment`), keyed `agent_<wireid>`; ids that leave the registry despawn. Explicit completion (`status == done`) fires the completion burst and starts the **done run** (amendment 2026-11-01 below): the agent eases out to the edge of the scene in 30 s, holds there at 0.3 alpha and stays selectable; the 30 s evidence TTL is the only other exit from "working" and relaxes the agent onto its rest slot.
-4. **Beam origin follows the body.** The scene publishes server-space anchors per embodied agent each frame (`set_agent_anchors`); `build_beam_buffer` prefers an anchor over the streamed node position. Anchors are visual-only; node positions and physics are never touched.
+4. **Beam origin follows the body.** The scene publishes server-space anchors per embodied agent each frame (`set_agent_anchors`); the anchor is the beam's only source: `build_beam_buffer` never looks an agent's id up as a graph node (amended 2026-11-01), so an agent with no anchor has no beam. Anchors are visual-only; node positions and physics are never touched.
 5. **Demo mode is a producer, not a branch.** `agent_demo_director.gd` is the only demo code. It encodes real `0x23 AGENT_ACTION` frames (wire ids `0x80000000|0xD001..0xD006`, reserved range `0xD001–0xD0FF`, payload `{"intent":…}`) into `ingest()`, reports completion through `apply_agent_state(id,"done",…)`, stamps timestamps from `server_clock_ms()`, and on Stop calls `retire_agents(ids)`. No fake position frames. The synthetic agents play as real agents — names, frames, roster rows and captions carry no demo marker; the Start/Stop Agent Demo button is the only visible sign of the demo, and provenance is the reserved id range in code. The scene contains no demo-specific rendering path.
 6. **Layer toggle is visual.** "Agents" hides `AgentsRoot` + `AgentEffectsRoot` and the render-store class; choreography, registry, handles and physics keep running.
 
@@ -234,3 +234,7 @@ Before the change both fail to compile (no state path: `ag-xr-fail-before.txt` i
 ## Re-verification — 2026-10-31 (`633423357`)
 
 Re-verified 2026-11-01 after the inscribed-sphere edge change: `git diff df3e2aca5..6334233576941af20879a2b3d3d00b30ecb3c231 -- xr-client/scripts/spatial_volume.gd` replaces half the box diagonal with half its smallest extent (owner decision); this record's claims about volume bounds and agent edge placement hold.
+
+## Re-verification — 2026-11-01 (`abcf36db1`, branch `viz/edge-tracking`)
+
+Re-verified after the R23 fixes. Decision 4 is amended above: `build_beam_buffer` no longer falls back to a graph node with the agent's id (R23 F4); `render_store.rs` gains the one `is_drawn` predicate and the registry now holds a done agent until a `retired` frame, with tests `a_beam_never_starts_on_a_graph_node_that_shares_the_agents_id` and `a_done_real_agent_is_held_until_a_retired_frame` and the GUT hold test. Every claim in this record holds. Evidence: `cargo test` in `xr-client/rust` (623 passed), server `cargo test --lib` (1781 passed, `CUDA_VISIBLE_DEVICES=1`), client vitest (1540 passed), GUT on a fresh `.so` (553 passed, 0 failed, `gut_guard` ok). Not run: the headset.

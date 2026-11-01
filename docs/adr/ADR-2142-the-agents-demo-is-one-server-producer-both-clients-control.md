@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
+verified_commit: abcf36db1460f68015133ba5196d14cdf4112e19
 verified_paths: [src/actors/agent_demo_director.rs, src/actors/agent_roster_feed.rs, src/actors/agent_beam_actor.rs, client/src/features/bots/agentMarkerPass.ts, client/src/store/agentTargetStore.ts, client/src/features/bots/virtualAgents.ts, tests/fixtures/agents/real-agent-frames.v1.json]
 owner: jjohare
 review_trigger: "Activation (staged → live): the demo started from one client and observed running on the other (desktop and headset) against a backend built from main. Review: any change to the demo's events or ids, to who can start it, or to what reads the agent-action rail"
@@ -96,3 +96,7 @@ The owner asked for real agents to be aligned with this pathway. Before this, a 
 ## Amendment — 2026-11-01: hold at the edge until the agent leaves the roster
 
 Supersedes the done-run timer in decision 74 above and in the roster-feed description. The server's `DONE_RUN_MS` retired a departed agent 30 s after its `done`, which is the moment both clients arrive at the edge, so a real agent vanished on arrival. The feed no longer times anything: `retired` follows a roster departure (or the `MAX_HELD_FINISHED` memory bound) only. Tests: `agent_roster_feed.rs` (`a_finished_agent_is_held_with_no_timer_and_never_retired_by_time`, `a_done_agent_that_leaves_the_roster_is_retired_once_and_frees_its_id`, `held_finished_agents_are_bounded_and_the_oldest_goes_first`, `the_spawn_frame_carries_the_producers_target`); desktop `realAgentMarkers.test.ts` (ten minutes of frames, retired only by the frame); headset `test_agent_edge_run.gd` and `a_done_real_agent_is_held_until_a_retired_frame`. The shared fixture's `retired` frame is now produced by a roster departure.
+
+## Re-verification — 2026-11-01 (`abcf36db1`, branch `viz/edge-tracking`)
+
+Re-verified after the R23 fixes. The amendment above replaces the done-run timer: the feed has no timer, `apply` carries the targets, the fixture's `retired` frame is a roster departure. `agentMarkerPass.ts` changes only the `stepAgentOffset` call. Every claim in this record holds. Evidence: `cargo test` in `xr-client/rust` (623 passed), server `cargo test --lib` (1781 passed, `CUDA_VISIBLE_DEVICES=1`), client vitest (1540 passed), GUT on a fresh `.so` (553 passed, 0 failed, `gut_guard` ok). Not run: the headset.
