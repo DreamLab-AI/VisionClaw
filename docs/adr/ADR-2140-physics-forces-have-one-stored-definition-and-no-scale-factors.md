@@ -180,3 +180,7 @@ Item 2 ("applied exactly as stored") does not apply while a node is held or for 
 ## Re-verification — 2026-10-31 (`f1fa1862c`)
 
 Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (ADR-2172), client/three-0187 and docs/splat-adr, each Opus-reviewed (R15/R16/R17). The governed-path changes are those merges: drag holds and release in the GPU actor and socket handler, the held-only global_speed floor, two-hand grab and the edge breathe in the XR client, and the ADR 2168->2172 comment renames. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1768 passed, 0 failed (GPU 1); vitest 142 files / 1468 (installed three 0.183; the 0.187 run is on client/three-0187); XR GUT 522 passing on 4.6.1 and 4.8 at the grab-client head. Re-run: `git diff 2257ee7fa..f1fa1862c -- <governed path>`.
+
+## Re-stamp — 2026-11-01 (`e2afd65d6`)
+
+Re-verified after the phys/integrate branch: the governed-path changes since `f1fa1862c` are the branch's hold-spring and constraint-index work plus the change-only constraint upload. This record's claims are unchanged apart from the wording in "Amended by ADR-2169": the held gain also scales the overlap push, the boundary force and, in Hooke mode, the stored springs, and constraints are not part of the hold. Re-run: `git diff --stat f1fa1862c e2afd65d6 -- src/actors/gpu/force_compute_actor.rs src/utils/unified_gpu_compute/execution.rs`.
