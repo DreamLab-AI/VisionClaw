@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 1385320196d744c474ff8266f664cc95ca6c7c7e
+verified_commit: fcb924be916af656b618e439cf31543d353b4542
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -352,3 +352,9 @@ Merged-tree verification: the governed paths at `1385320196d744c474ff8266f664cc9
 `f1fa1862c00ad627af8f45249d51b94c3a1c238f` only in the compiler minimum version.
 The incoming actor changes retain their preceding review and evidence above;
 this patch does not claim a fresh full review of the grab implementation.
+
+The subsequent incoming `d6c091f0f` changes settle-speed/damping choices inside
+`src/actors/gpu/force_compute_actor.rs`. Review of its 32-line actor diff confirms
+no crate boundary, member or dependency edge changes; the actor extraction remains
+partial. The combined `fcb924be9` server library compile check passes. This scoped
+layer assessment does not accept or re-test the new physical behaviour.

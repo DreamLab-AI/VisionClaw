@@ -56,3 +56,11 @@ The shared-layout source and dependencies were unchanged by incoming work.
 A fresh default server library compile check and both dependency-direction tests
 passed on the combined tree. Incoming grab/client behaviour retains its own
 acceptance evidence; this receipt does not re-audit that feature.
+
+A second incoming main commit, `d6c091f0f`, changes settle-speed/damping behaviour
+in the GPU actor. Merge `fcb924be9` retains it; the default server library compile
+check passes again. Shared-layout paths are unchanged. The ADR index then reports
+incoming stale physics/protocol records (2035, 2140, 2143 and 2169), which this
+compiler patch does not silently re-stamp. ADR-2005 is separately checked only
+for crate-layer impact. The previously passing 145-record index receipt applies
+to `138532019`, before that incoming change.
