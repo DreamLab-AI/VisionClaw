@@ -21,10 +21,13 @@ class FakeConn extends RefCounted:
 	var generation := 1
 	var connected := true
 	var client: RefCounted = null
+	var all_ids := PackedInt32Array()
 
 	func _init(id: StringName) -> void:
 		conn_id = id
 		client = BinaryProtocolClient.create()
+		for i: int in range(0, 5600):
+			all_ids.append(i)
 		# Every id the tests name sits at (id, 0, 0) unless a test moves it.
 		var ids := PackedInt32Array()
 		var at := PackedVector3Array()
@@ -47,6 +50,10 @@ class FakeConn extends RefCounted:
 			b.append_array(rec)
 		client.ingest(b)
 		client.hunt(1.0, -1, Vector3.ZERO)
+		# A link end is drawn only when its node is in the store's drawn set (the edge pack's own
+		# test, `RenderStore::is_drawn`). The frame's node pack builds that set before the link tick;
+		# the fixture packs every node it holds the same way.
+		client.build_node_buffer(all_ids, 1.0, 0.7, 1.9)
 
 	func move_node(id: int, to: Vector3) -> void:
 		seed_nodes(PackedInt32Array([id]), PackedVector3Array([to]))
