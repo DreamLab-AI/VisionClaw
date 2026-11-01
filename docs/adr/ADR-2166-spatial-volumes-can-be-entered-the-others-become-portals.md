@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158]
-verified_commit: abcf36db1460f68015133ba5196d14cdf4112e19
+verified_commit: 69b16867d0910f1475c4e8eb3aa9bc4df26778e5
 verified_paths: [xr-client/scripts/space_portals.gd, xr-client/scripts/spatial_volume.gd, xr-client/scripts/emulated_volume.gd, xr-client/scripts/volume_arrangement.gd, xr-client/scripts/graph_scene.gd, xr-client/scripts/hud.gd, xr-client/scripts/xr_prefs.gd, xr-client/materials/portal_membrane.gdshader]
 owner: jjohare
 review_trigger: the first headset session with Enter used (stereo membranes, 90 Hz with an entered 6 m room, comfort of the dim); or XE merging FrameBudgetPass.set_volume_weights
@@ -90,3 +90,5 @@ Re-verified 2026-11-01 after the inscribed-sphere edge change: `git diff df3e2ac
 ## Re-verification — 2026-11-01 (`abcf36db1`, branch `viz/edge-tracking`)
 
 Re-verified after the R23 fixes. `xr-client/scripts/graph_scene.gd` changes one doc comment (`_overlay_box`). Portals and volume entry are untouched. Every claim in this record holds. Evidence: `cargo test` in `xr-client/rust` (623 passed), server `cargo test --lib` (1781 passed, `CUDA_VISIBLE_DEVICES=1`), client vitest (1540 passed), GUT on a fresh `.so` (553 passed, 0 failed, `gut_guard` ok). Not run: the headset.
+
+Re-verified again at `69b16867d`: A later commit adds only a `slots` argument to the `_tick_links` call in `graph_scene.gd`. Portals and volume entry are untouched. GUT on a fresh `.so`: 554 passed, 0 failed; `xr-client/rust` `cargo test`: 624 passed.

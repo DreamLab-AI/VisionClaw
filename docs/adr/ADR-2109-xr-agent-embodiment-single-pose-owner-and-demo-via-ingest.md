@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: abcf36db1460f68015133ba5196d14cdf4112e19
+verified_commit: 69b16867d0910f1475c4e8eb3aa9bc4df26778e5
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs, xr-client/scripts/spatial_volume.gd]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -238,3 +238,5 @@ Re-verified 2026-11-01 after the inscribed-sphere edge change: `git diff df3e2ac
 ## Re-verification — 2026-11-01 (`abcf36db1`, branch `viz/edge-tracking`)
 
 Re-verified after the R23 fixes. Decision 4 is amended above: `build_beam_buffer` no longer falls back to a graph node with the agent's id (R23 F4); `render_store.rs` gains the one `is_drawn` predicate and the registry now holds a done agent until a `retired` frame, with tests `a_beam_never_starts_on_a_graph_node_that_shares_the_agents_id` and `a_done_real_agent_is_held_until_a_retired_frame` and the GUT hold test. Every claim in this record holds. Evidence: `cargo test` in `xr-client/rust` (623 passed), server `cargo test --lib` (1781 passed, `CUDA_VISIBLE_DEVICES=1`), client vitest (1540 passed), GUT on a fresh `.so` (553 passed, 0 failed, `gut_guard` ok). Not run: the headset.
+
+Re-verified again at `69b16867d`: A later commit makes the one drawn predicate slot-aware (`is_drawn_in_slot`; the link pack asks each end's own volume slot, `LinkVolume.slot`, `LinkPacker.pack` `vol_slot`) after a review found `is_drawn` alone dropped bridge links across pack slots; GUT `test_each_end_is_drawn_when_its_own_volumes_pack_slot_drew_it` and the Rust test `a_link_between_volumes_that_share_one_store_asks_each_volumes_own_pack_slot` pin it. Decisions unchanged. GUT on a fresh `.so`: 554 passed, 0 failed; `xr-client/rust` `cargo test`: 624 passed.
