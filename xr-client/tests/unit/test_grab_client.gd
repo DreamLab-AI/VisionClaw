@@ -275,7 +275,7 @@ func _seed_real_nodes(scene: Node3D) -> Dictionary:
 func _assert_no_jump(scene: Node3D, vid: StringName, hand: int, seeded: Dictionary) -> void:
 	var node_id: int = seeded[vid][0]
 	assert_ne(node_id, -1, "%s: the class mask routed a node here" % vid)
-	var cand: Array = scene._grab_candidates(vid)
+	var cand: Array = scene._merge_grab_candidates([vid] as Array[StringName], -1, -1)
 	assert_eq((cand[0] as PackedInt32Array).size(), 1, "%s: one drawn candidate" % vid)
 	if (cand[0] as PackedInt32Array).size() != 1:
 		return
@@ -328,10 +328,15 @@ func test_label_pool_and_focus_marker_follow_the_volume_of_the_node() -> void:
 	# A hover target is placed in the volume the ray targeted it in.
 	scene._grab_eval_hand = 1
 	scene._grab_eval_vol = &"knowledge"
-	scene._grab_eval_map = {33: &"ontology"}
+	scene._grab_eval_ids = PackedInt32Array([33])
+	var run_vols: Array[StringName] = [&"ontology"]
+	scene._grab_eval_vols = run_vols
+	scene._grab_eval_ends = PackedInt32Array([1])
 	scene._on_node_targeted(33, 2.0)
 	scene._grab_eval_hand = -1
-	scene._grab_eval_map = {}
+	scene._grab_eval_ids = PackedInt32Array()
+	scene._grab_eval_vols = ([] as Array[StringName])
+	scene._grab_eval_ends = PackedInt32Array()
 	assert_eq(scene._last_targeted_vol, &"ontology")
 	assert_true(scene.focus_frame_for(33).is_equal_approx(scene._content_xf(&"ontology")), "hover ring lands in the ontology box")
 	await _free(scene)
@@ -520,9 +525,7 @@ func test_candidate_merge_resolves_each_nodes_volume_and_skips_held_ids() -> voi
 		var want_vol: StringName = &"knowledge" if ids[i] <= 3 else &"ontology"
 		assert_eq(scene._grab_volume_of(ids[i]), want_vol, "node %d resolves to %s" % [ids[i], want_vol])
 		var local: Vector3 = scene._vc_conn.client.node_position(ids[i])
-		var xf: Transform3D = scene._volumes[want_vol].world_from_content(Vector3.ZERO) * Vector3.ZERO
 		assert_true(world[i].is_equal_approx(scene._volumes[want_vol].world_from_content(local)), "node %d: world position through its own Content transform" % ids[i])
-		assert_not_null(xf)
 	assert_eq(scene._grab_volume_of(kid), &"knowledge")
 	assert_eq(scene._grab_volume_of(oid), &"ontology")
 	# M2b: a node the other hand holds never reaches the Rust tube, so it cannot shadow a free neighbour.
@@ -613,6 +616,7 @@ func test_no_grab_starts_during_the_first_room_entry_ease() -> void:
 	assert_eq(scene._grab_id[0], -1)
 	_tick(scene, 0.6)
 	assert_false(scene._arrangement.is_easing(), "the ease is done")
+	scene._release_grab()  # (before the fix the refused grab above had begun)
 	assert_true(scene._begin_grab(0, &"ontology", 22, Vector3(0, 1.4, 0)), "positive control: the same grab begins once it settles")
 	scene._release_grab()
 	await _free(scene)
@@ -691,7 +695,7 @@ func test_an_off_axis_catch_does_not_snap_the_node() -> void:
 	for case_basis: Basis in [Basis(), Basis(Vector3.UP, deg_to_rad(35.0)) * Basis(Vector3.RIGHT, deg_to_rad(-20.0))]:
 		var vid: StringName = &"knowledge"
 		var node_id: int = seeded[vid][0]
-		var cand: Array = scene._grab_candidates(vid)
+		var cand: Array = scene._merge_grab_candidates([vid] as Array[StringName], -1, -1)
 		var node_world: Vector3 = (cand[1] as PackedVector3Array)[0]
 		# The tube catches within 5 cm; the hand sits 3 cm off the node's axis in its own frame.
 		var aim: Vector3 = -case_basis.z

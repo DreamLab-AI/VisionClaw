@@ -842,7 +842,13 @@ var _grab_target: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO]
 # each evaluate_ray (which emits synchronously) and _on_node_grabbed reads them.
 var _grab_eval_hand: int = -1
 var _grab_eval_vol: StringName = &""
-var _grab_eval_map: Dictionary = {}    # node id → volume id, for the candidates being evaluated
+# The merged candidate array being evaluated is one run per volume: run k covers
+# [end of run k-1, _grab_eval_ends[k]) and belongs to _grab_eval_vols[k]. A node's
+# volume is resolved from its index afterwards (_grab_volume_of), so the merge itself
+# writes no per-node map (ADR-2168 F2).
+var _grab_eval_ids: PackedInt32Array = PackedInt32Array()
+var _grab_eval_vols: Array[StringName] = []
+var _grab_eval_ends: PackedInt32Array = PackedInt32Array()
 
 # --- Proximity node-label overlay -------------------------------------------
 # A small pool of world-space Label3D anchors shown only for the nodes closest to
@@ -3243,19 +3249,9 @@ func _update_interaction() -> void:
 		# (graph units); its drawn Content transform takes them to world, so the
 		# world-space wand ray and the interaction's metre-space thresholds
 		# intersect the nodes whatever the volume's scale (ring box or room).
-		var ids := PackedInt32Array()
-		var world_positions := PackedVector3Array()
-		_grab_eval_map.clear()
-		for vid: StringName in cand_vols:
-			var cand: Array = _grab_candidates(vid)
-			var cids: PackedInt32Array = cand[0]
-			var cpos: PackedVector3Array = cand[1]
-			for i: int in mini(cids.size(), cpos.size()):
-				if _is_held(cids[i]):
-					continue  # the other hand holds it
-				ids.append(cids[i])
-				world_positions.append(cpos[i])
-				_grab_eval_map[cids[i]] = vid
+		var merged: Array = _merge_grab_candidates(cand_vols, _grab_id[0], _grab_id[1])
+		var ids: PackedInt32Array = merged[0]
+		var world_positions: PackedVector3Array = merged[1]
 		_grab_eval_hand = hand
 		_grab_eval_vol = cand_vols[0]
 		_interaction.evaluate_ray(
@@ -3267,7 +3263,9 @@ func _update_interaction() -> void:
 		)
 		_grab_eval_hand = -1
 		_grab_eval_vol = &""
-		_grab_eval_map.clear()
+		_grab_eval_ids = PackedInt32Array()
+		_grab_eval_vols = []
+		_grab_eval_ends = PackedInt32Array()
 
 
 # The entered volume's id, or &"" in ring view.
@@ -3301,21 +3299,61 @@ func _grab_candidate_volumes(hand: int) -> Array[StringName]:
 	return out
 
 
-# [ids, graph-unit positions → world] drawn by volume `vid`, empty when the volume
-# is hidden, closed or offline (its slot would be stale).
-func _grab_candidates(vid: StringName) -> Array:
-	var v: Node3D = _volumes.get(vid, null)
-	var src = _sources.get(vid, null)
-	if v == null or src == null or not VolumePicker.pickable(v, src):
-		return [PackedInt32Array(), PackedVector3Array()]
-	var cand: Array = VolumePicker.candidates(src)
-	var ids: PackedInt32Array = cand[0]
-	var pos: PackedVector3Array = cand[1]
+# Every candidate the hand's press may catch, merged across `vols`: [ids, world
+# positions]. Each volume's drawn ids and graph-unit positions come from its own pack
+# slot (empty when it is hidden, closed or offline: its slot would be stale), and its
+# Content transform, hoisted once per volume, takes them to world so the world-space
+# wand ray and the interaction's metre-space thresholds intersect the nodes whatever
+# the volume's scale (ring box or room). `held_a` / `held_b` (the ids the hands hold,
+# -1 for none) are dropped by id: the other hand's node must never shadow a free
+# neighbour in the Rust tube. Runs every physics frame per pressed hand at up to ~13k
+# candidates, so nothing here loops over nodes in script: the transform is one native
+# `Transform3D * PackedVector3Array`, a held id is found and removed natively, and the
+# runs are appended whole. The volume of each run is kept as an end offset for
+# _grab_volume_of (no per-node map). ADR-2168 F2: 8 ms -> ~0.2 ms per hand at 13k.
+func _merge_grab_candidates(vols: Array[StringName], held_a: int, held_b: int) -> Array:
+	var ids := PackedInt32Array()
 	var world := PackedVector3Array()
-	world.resize(pos.size())
-	for i: int in pos.size():
-		world[i] = v.world_from_content(pos[i])
+	_grab_eval_vols = []
+	_grab_eval_ends = PackedInt32Array()
+	for vid: StringName in vols:
+		var v: Node3D = _volumes.get(vid, null)
+		var src = _sources.get(vid, null)
+		if v == null or src == null or not VolumePicker.pickable(v, src):
+			continue
+		var cand: Array = VolumePicker.candidates(src)
+		var rids: PackedInt32Array = cand[0]
+		var rpos: PackedVector3Array = cand[1]
+		if rids.size() != rpos.size():
+			var n: int = mini(rids.size(), rpos.size())
+			rids = rids.slice(0, n)
+			rpos = rpos.slice(0, n)
+		if rids.is_empty():
+			continue
+		v.world_from_content(Vector3.ZERO)  # builds the volume (and its Content) if it has not yet
+		rpos = _content_xf(vid) * rpos
+		for held: int in [held_a, held_b]:
+			var at: int = rids.find(held) if held >= 0 else -1
+			if at >= 0:
+				rids.remove_at(at)  # the other hand holds it
+				rpos.remove_at(at)
+		ids.append_array(rids)
+		world.append_array(rpos)
+		_grab_eval_vols.append(vid)
+		_grab_eval_ends.append(ids.size())
+	_grab_eval_ids = ids
 	return [ids, world]
+
+
+# The volume the merged candidate `node_id` was drawn in, or the evaluating volume
+# when it is not in the merged array (a direct call, or an id the tube caught alone).
+func _grab_volume_of(node_id: int) -> StringName:
+	var idx: int = _grab_eval_ids.find(node_id)
+	if idx >= 0:
+		for k: int in _grab_eval_ends.size():
+			if idx < _grab_eval_ends[k]:
+				return _grab_eval_vols[k]
+	return _grab_eval_vol if _grab_eval_vol != &"" else OVERLAY_VOLUME
 
 
 # The drawn Content transform of a volume (graph units → world); the hand-to-server
@@ -4398,7 +4436,7 @@ func _on_node_targeted(node_id: int, _distance: float) -> void:
 	if _radial_picking:
 		_radial_pick_capture = node_id
 		return
-	_last_targeted_vol = _grab_eval_map.get(node_id, _grab_eval_vol if _grab_eval_vol != &"" else OVERLAY_VOLUME)
+	_last_targeted_vol = _grab_volume_of(node_id)
 	emit_signal("node_targeted_in_scene", node_id)
 	if node_id != _last_targeted_id:
 		print("GraphScene DEBUG: node_targeted id=%d dist=%.2f" % [node_id, _distance])
@@ -4422,7 +4460,7 @@ func _on_node_grabbed(node_id: int, _position: Vector3) -> void:
 		return
 	_dc_last_id = node_id
 	_dc_last_time = now
-	var vid: StringName = _grab_eval_map.get(node_id, _grab_eval_vol)
+	var vid: StringName = _grab_volume_of(node_id)
 	var ctrl: XRController3D = _ctrl_at(hand)
 	_begin_grab(hand, vid, node_id, ctrl.global_position if ctrl != null else Vector3.ZERO)
 
