@@ -2944,18 +2944,26 @@ mod hold_spring_overlay_gpu_tests {
         }
     }
 
-    fn pin_hub(g: &mut UnifiedGPUCompute, n: usize) {
+    fn pin_node(g: &mut UnifiedGPUCompute, n: usize, i: usize) {
         let mut mask = vec![0i32; n];
-        mask[0] = 1;
-        g.upload_pinned_mask(&mask).expect("pin hub");
+        mask[i] = 1;
+        g.upload_pinned_mask(&mask).expect("pin node");
+    }
+
+    fn pin_hub(g: &mut UnifiedGPUCompute, n: usize) {
+        pin_node(g, n, 0);
+    }
+
+    fn set_node(g: &mut UnifiedGPUCompute, i: usize, to: [f32; 3]) {
+        let (mut x, mut y, mut z) = g.get_node_positions().expect("positions");
+        x[i] = to[0];
+        y[i] = to[1];
+        z[i] = to[2];
+        g.upload_positions(&x, &y, &z).expect("move node");
     }
 
     fn set_hub(g: &mut UnifiedGPUCompute, to: [f32; 3]) {
-        let (mut x, mut y, mut z) = g.get_node_positions().expect("positions");
-        x[0] = to[0];
-        y[0] = to[1];
-        z[0] = to[2];
-        g.upload_positions(&x, &y, &z).expect("move hub");
+        set_node(g, 0, to);
     }
 
     /// Numbers from one run of the drag.
@@ -3149,6 +3157,8 @@ mod hold_spring_overlay_gpu_tests {
         spring_k: f32,
         /// Keep the springs on through the settle window, as `1a16d43b3` did.
         keep_springs: bool,
+        /// The node that is held (0 is the hub).
+        held_node: usize,
         drag_steps: usize,
         held_steps: usize,
         settle_steps: usize,
@@ -3163,6 +3173,7 @@ mod hold_spring_overlay_gpu_tests {
                 gain: None,
                 spring_k: LIVE_SPRING_K,
                 keep_springs: false,
+                held_node: 0,
                 drag_steps: 30,
                 held_steps: 20,
                 settle_steps: 20,
@@ -3209,6 +3220,7 @@ mod hold_spring_overlay_gpu_tests {
             gain,
             spring_k,
             keep_springs,
+            held_node,
             ..
         } = c;
         let (_ctx, mut g) = engine(sh)?;
@@ -3217,7 +3229,7 @@ mod hold_spring_overlay_gpu_tests {
         p.spring_k = spring_k;
         settle(&mut g, &p);
         let before = pos(&mut g);
-        pin_hub(&mut g, n);
+        pin_node(&mut g, n, held_node);
         p.global_speed = 2.0;
         g.set_hold_overlay(true);
         g.set_hold_springs(true);
@@ -3225,7 +3237,7 @@ mod hold_spring_overlay_gpu_tests {
             g.set_hold_spring_gain(gain);
         }
 
-        let origin = before[0];
+        let origin = before[held_node];
         let mut peak = 0.0f32;
         let mut finite = true;
         let mut watch = |g: &mut UnifiedGPUCompute, peak: &mut f32| {
@@ -3234,8 +3246,9 @@ mod hold_spring_overlay_gpu_tests {
             *peak = peak.max(v);
         };
         for s in 1..=c.drag_steps {
-            set_hub(
+            set_node(
                 &mut g,
+                held_node,
                 [
                     origin[0] + drag * s as f32 / c.drag_steps as f32,
                     origin[1],
@@ -3246,7 +3259,7 @@ mod hold_spring_overlay_gpu_tests {
             watch(&mut g, &mut peak);
         }
         for _ in 0..c.held_steps {
-            set_hub(&mut g, [origin[0] + drag, origin[1], origin[2]]);
+            set_node(&mut g, held_node, [origin[0] + drag, origin[1], origin[2]]);
             step(&mut g, &p);
             watch(&mut g, &mut peak);
         }
@@ -3263,7 +3276,7 @@ mod hold_spring_overlay_gpu_tests {
                 .map(|i| disp(&held, &before, i))
                 .collect(),
         ) / drag;
-        let drop = held[0];
+        let drop = held[held_node];
 
         // Release: unpin, springs off, Verlet through the settle span, then the stored behaviour.
         g.upload_pinned_mask(&vec![0i32; n]).expect("unpin");
@@ -3292,9 +3305,9 @@ mod hold_spring_overlay_gpu_tests {
             hop2,
             max_speed: peak,
             finite,
-            window_from_drop: dist3(at_window[0], drop),
-            window_from_start: dist3(at_window[0], before[0]),
-            hub_from_drop: dist3(rest[0], drop),
+            window_from_drop: dist3(at_window[held_node], drop),
+            window_from_start: dist3(at_window[held_node], before[held_node]),
+            hub_from_drop: dist3(rest[held_node], drop),
             hub_from_start: disp(&rest, &before, 0),
             hop1_rest: median((1..=nbn).map(|i| disp(&rest, &before, i)).collect()) / drag,
             far_rest: median(
@@ -3384,12 +3397,16 @@ mod hold_spring_overlay_gpu_tests {
     }
 
     #[test]
-    fn a_released_node_is_placed_where_it_was_dropped() {
-        // Probe shape at the live step rate: through the 2 s settle window the hub stays where
-        // it was dropped. With the springs kept on through the window (the release before this
-        // change) the same gain pulls it back towards the pre-grab shape, which is the control
-        // that shows the assertion measures the release and not the layout.
+    fn a_released_leaf_is_placed_where_it_was_dropped() {
+        // A low-degree node, so the only strong force on it in the settle window is the
+        // snapshot spring: LinLog on one edge is `log1p(183) * 1.1`, about 5.8, far below both
+        // `max_force` 150 and the spring. The cap therefore cannot confound the two arms.
+        // (A 1,200-neighbour hub is the opposite case: LinLog saturates the cap, and the
+        // snapshot makes no measurable difference in the 2 s window, see ADR-2169 item 9.)
+        let leaf = PROBE.leaf(1, 0);
         let live = Cfg {
+            held_node: leaf,
+            settle_steps: 100,
             rest_steps: 0,
             ..Cfg::live(PROBE, 183.0)
         };
@@ -3397,7 +3414,7 @@ mod hold_spring_overlay_gpu_tests {
         assert!(placed.finite);
         assert!(
             placed.window_from_drop < 5.0,
-            "the hub stays within 5 units of where it was dropped through the settle window, \
+            "the leaf stays within 5 units of where it was dropped through the settle window, \
              moved {:.2}",
             placed.window_from_drop
         );
@@ -3406,16 +3423,22 @@ mod hold_spring_overlay_gpu_tests {
             "and has not returned towards its pre-grab position: {:.2} of 183 from it",
             placed.window_from_start
         );
-        let Some(pulled) = probe(Cfg {
+        // The release of `1a16d43b3`: springs kept through the window, no gain, stored springK 12.
+        let before = Cfg {
             keep_springs: true,
+            gain: Some(1.0),
+            spring_k: 12.0,
             ..live
-        }) else {
-            return;
         };
+        let Some(pulled) = probe(before) else { return };
+        eprintln!(
+            "[release] placed {:.3} vs springs kept {:.3}",
+            placed.window_from_drop, pulled.window_from_drop
+        );
         assert!(
-            pulled.window_from_drop > 10.0
-                && pulled.window_from_drop > 3.0 * placed.window_from_drop,
-            "control: springs kept through the window pull the hub back {:.2} (placed: {:.2})",
+            pulled.window_from_drop > 5.0 * placed.window_from_drop.max(0.5),
+            "control, the release of 1a16d43b3: the kept springs pull the leaf back {:.2} \
+             (placed: {:.2})",
             pulled.window_from_drop,
             placed.window_from_drop
         );
