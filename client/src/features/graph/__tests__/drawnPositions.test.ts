@@ -487,4 +487,15 @@ describe('the agent overlay is drawn where the gem is (D1)', () => {
     expect(agentDrawnPosition('4194307', out, map, null)).toBe(false)
     expect(out.toArray()).toEqual([9, 9, 9]) // an unresolved agent leaves the output alone
   })
+
+  it('finds the slot whichever id form the overlay holds: bare (botsData, graph node ids) or with the AGENT flag bit (wire)', () => {
+    const { sab, map } = scene()
+    const drawn = new DrawnPositions().copy(sab)
+    const AGENT_FLAG = 0x80000000
+    for (const form of ['4194307', String((AGENT_FLAG | 4194307) >>> 0)]) {
+      out.set(0, 0, 0)
+      expect(agentDrawnPosition(form, out, map, drawn)).toBe(true)
+      expect(out.toArray()).toEqual([5, 30, 0])
+    }
+  })
 })

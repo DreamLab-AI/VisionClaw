@@ -176,7 +176,7 @@ Telemetry automatically uploads to `/api/telemetry/upload` every 30 seconds:
 
 The telemetry system is integrated into:
 
-- `client/src/features/bots/components/BotsVisualization.tsx` - Three.js position and rendering telemetry
+- `client/src/features/bots/components/BotsVisualization.tsx` - agent state and data-update telemetry (positions are not logged: they come from the drawn array)
 - `client/src/features/bots/services/BotsWebSocketIntegration.ts` - WebSocket message flow logging
 - `client/src/features/bots/hooks/useBotsWebSocketIntegration.ts` - Connection status and data flow
 
