@@ -20,7 +20,7 @@ const NEAR_EDGE_RADIUS_M: float = 1.0
 const EDGE_FLOW_PARAMS: Array[String] = ["flow_color", "base_alpha", "pulse_speed", "pulse_width",
 	"pulse_energy", "pulse_gain", "subclass_dash_gap", "subclass_dash_freq", "subclass_dim",
 	"untyped_dim", "subclass_color", "inferred_color", "inferred_dash_gap", "inferred_dash_freq",
-	"inferred_dim"]
+	"inferred_dim", "breathe_period", "breathe_depth"]
 ## Gem-tier cap: 80 × (288 sphere + 2 halo quad) = 23 200 triangles
 ## (rust lod::DEFAULT_NEAR_CAP; sized with edges + hulls for ≥ 3 % headroom).
 const NEAR_CAP: int = 80

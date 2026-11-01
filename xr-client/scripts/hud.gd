@@ -268,7 +268,7 @@ const SWARM_STATUS_COLORS: Dictionary = {
 # in lockstep with its cited source; agent status rows reuse SWARM_STATUS_COLORS.
 const GOLDEN_RATIO_CONJ: float = 0.61803398875               # render_store::community_color / query_var_color hue walk
 const KEY_ANOMALY: Color = Color(1.0, 0.15, 0.1)             # render_store::community_color warn blend
-const KEY_EDGE_FLOW: Color = Color(0.30, 0.72, 1.0)          # materials/edge_flow.gdshader flow_color
+const KEY_EDGE_FLOW: Color = Color(1.0, 0.80, 0.36)          # materials/edge_flow.gdshader flow_color
 const KEY_EDGE_SUBCLASS: Color = Color(0.62, 0.50, 1.0)      # materials/edge_flow.gdshader subclass_color
 const KEY_EDGE_INFERRED: Color = Color(1.0, 0.66, 0.12)      # materials/edge_flow.gdshader inferred_color
 const KEY_RAY_IDLE: Color = Color(0.35, 0.7, 1.0)            # graph_scene.gd RAY_IDLE_COLOR
@@ -1187,7 +1187,7 @@ func _key_sections() -> Array:
 			[[KEY_BURST_ACCESS], "Other access", "Any other memory access; the namespace nudges the hue"],
 		]},
 		{"title": "Edges", "rows": [
-			[[KEY_EDGE_FLOW], "Link", "Ordinary graph edge (flow pulses along it)"],
+			[[KEY_EDGE_FLOW], "Link", "Ordinary graph edge (breathes slowly; flow pulses along it)"],
 			[[KEY_EDGE_SUBCLASS], "Subclass-of", "Ontology subclass / hierarchy edge"],
 			[[KEY_EDGE_INFERRED], "Inferred", "Edge inferred by the reasoner, not asserted"],
 		]},

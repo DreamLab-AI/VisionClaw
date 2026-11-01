@@ -111,6 +111,25 @@ func test_edge_lod_build_caps_cylinders_and_ribbons_take_the_rest() -> void:
 	assert_eq(NodeLod.assign_stride(ribbons, client.ribbon_edge_buffer(), 16), 45)
 
 
+func test_ribbons_breathe_with_the_cylinders_and_the_key_matches_the_gold_edges() -> void:
+	var cyl := (load("res://materials/edge_flow.tres") as ShaderMaterial).duplicate() as ShaderMaterial
+	cyl.set_shader_parameter("breathe_period", 40.0)
+	cyl.set_shader_parameter("breathe_depth", 0.3)
+	var ribbons: MultiMeshInstance3D = NodeLod.make_ribbon_instance()
+	autofree(ribbons)
+	NodeLod.sync_edge_params(cyl, ribbons.material_override)
+	var r := ribbons.material_override as ShaderMaterial
+	assert_almost_eq(float(r.get_shader_parameter("breathe_period")), 40.0, 1e-6)
+	assert_almost_eq(float(r.get_shader_parameter("breathe_depth")), 0.3, 1e-6)
+	# The shipped edge colour is gold and the HUD key mirrors it exactly.
+	var live: Color = (load("res://materials/edge_flow.tres") as ShaderMaterial).get_shader_parameter("flow_color")
+	var key: Color = (load("res://scripts/hud.gd") as GDScript).get_script_constant_map()["KEY_EDGE_FLOW"]
+	assert_almost_eq(live.r, 1.0, 1e-3)
+	assert_almost_eq(live.g, 0.80, 1e-3)
+	assert_almost_eq(live.b, 0.36, 1e-3)
+	assert_true(live.is_equal_approx(Color(key.r, key.g, key.b, 1.0)), "HUD key %s must match edge colour %s" % [key, live])
+
+
 func test_ribbon_material_follows_the_cylinder_comfort_settings() -> void:
 	var cyl := (load("res://materials/edge_flow.tres") as ShaderMaterial).duplicate() as ShaderMaterial
 	cyl.set_shader_parameter("pulse_energy", 0.0)   # reduced motion
