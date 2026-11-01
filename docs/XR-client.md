@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.26
+version: 0.1.28
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.28 (2026-11-01): a finished agent eases out to the edge of the scene in 30 s and holds there, the desktop's rule (ADR-2135 one done rule; ADR-2109 amended). The park beat is deleted: no `PH_PARK`, `PH_COMPLETE` or park event. A lapsed work record relaxes onto the rest slot. The edge is the knowledge volume's `bounds` diagonal (`SpatialVolume.edge_radius`). No invariant changed."
   - "0.1.27 (2026-11-01): cross-volume link ends are resolved and packed in Rust (`pack_links`), through the same fold-aware `drawn_position_of` the edge pack uses; `link_layer.gd` no longer reads positions or builds instances (ADR-2164 D8 amended). `RenderStore::position_of` and the gdext `node_position` answer with the drawn (fold-aware) position. No invariant changed."
   - "0.1.26 (2026-11-01): ADR-2170 (proposed, none, inactive; source evidence only): Gaussian splat scenes as their own volume; a Compatibility-safe CPU-sorted quad layer with a separate splat account (owner decision pending). New proposed section only; Current State, Invariants and verified_commit untouched. Version skips 0.1.25, which xr/grab-client (ADR-2168) uses."
   - "0.1.25 (2026-11-01): ADR-2172 (partial, inactive, headless-GUT evidence only): a node can be grabbed with either hand, up to two at once, in any VisionClaw volume (knowledge or ontology), in the ring and inside an entered room; Codescape still refuses (E9); a portal never grabs; a drag release is no longer recorded for Unpin All (so the Unpin All count and the fold's `?pinned=` stay empty until a client-side Pin exists); a held node never refits its own volume (R15 F1); the gold-edge breathe is 36 s at depth 0.8 and swells brightness as well as alpha (its true trough is about 0.04 of peak). Volumes section only; Current State, Invariants and verified_commit untouched."
@@ -164,8 +165,12 @@ in the Rust agent registry (fed by `0x23 AGENT_ACTION` frames): embodied at
 unit-scale `AgentsRoot` (never under `GraphRoot`, so avatars keep physical size
 while the graph is fitted). Exactly one writer owns a work-layer avatar's
 position and alpha: `scripts/agent_choreography.gd` (materialise at a rim slot →
-travel at ~0.32 m/s → work 0.32 m off the node → explicit complete → park to the
-rim at 0.3 alpha → rest → re-task). The body is a faceted 0.14 m core inside a
+travel at ~0.32 m/s → work 0.32 m off the node → explicit done → ease out to the
+scene edge in 30 s at 0.3 alpha and hold → re-task; a lapsed work record relaxes onto
+the rest slot instead). The done run is the desktop's rule, one definition in ADR-2135:
+radius r0 + (edge − r0)·easeOutCubic(elapsed / 30 s) from the volume origin, with
+`SpatialVolume.edge_radius` (half the knowledge volume's `bounds` diagonal, world
+metres) as the edge; `tests/unit/test_agent_edge_run.gd` pins its 30 s to the desktop's. The body is a faceted 0.14 m core inside a
 procedural role frame (`scripts/agent_role.gd`: Architect cage, Analyst ring,
 Coder chevrons, Reviewer diamond, Tester fins, Optimizer hoops, generic hoop;
 role inferred from name then task) with a 0.09 m pointer cone aimed at the
@@ -457,8 +462,8 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   places the knowledge (−60°) and ontology (+60°) graphs on the other vertices
   and keeps agent nodes at the centroid. Work-layer avatars still have one pose
   writer (Invariant 8) and travel to target nodes on the separated graphs.
-  `GraphScene._apply_drift_rest_slots` (4 Hz) moves the slot each avatar parks
-  at to the centroid plus its activity drift. That is
+  `GraphScene._apply_drift_rest_slots` (4 Hz) moves the slot each avatar rests
+  at (where a lapsed work record relaxes it) to the centroid plus its activity drift. That is
   `BinaryProtocolClient.agent_drift_offset`, from the shared `DriftField` in the
   render store: applied `0x23` actions credit their target's class vertex, and
   `memory_flash` frames credit memory through `record_memory_flash`

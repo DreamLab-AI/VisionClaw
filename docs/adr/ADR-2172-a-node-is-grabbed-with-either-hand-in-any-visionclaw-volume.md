@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158, ADR-2166]
-verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
+verified_commit: ef021a41d438d930559d9724006de56500388260
 verified_paths: [xr-client/scripts/graph_scene.gd, xr-client/scripts/spatial_environment.gd, xr-client/scripts/backend_connection.gd, xr-client/scripts/connection_volume_source.gd, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs, xr-client/materials/edge_flow_common.gdshaderinc, xr-client/materials/edge_flow.tres]
 owner: jjohare
 review_trigger: the first headset session grabbing in the Ontology volume and inside an entered room (reach, depth feel, two-hand comfort); or the server's drag-release unpin (stream GS) merging
@@ -74,3 +74,7 @@ Re-verified 2026-11-01 at `03ddc61e1` (viz/edge-tracking). `xr-client/rust/src/r
 ## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
 
 `15acb9219` changes `xr-client/rust/src/binary_protocol.rs` and `render_store.rs` only on the `0x23` agent-action ingest and agent records (state frames, pure `ingest_agent_actions`, fixture tests). Nothing this record decides is touched. The decision holds unchanged.
+
+## Re-verification — 2026-11-01 at ef021a41d438d930559d9724006de56500388260
+
+`ef021a41d` changes `xr-client/scripts/graph_scene.gd` for the agent done run (a `SpatialVolume` preload, two read-only volume helpers, one `set_scene_edge` call in `_update_agents`, comment text). No grab, hold or pick code is touched; the decision holds unchanged. A claim read from the diff, not exercised separately: the grab GUT tests are in the full suite, which passes as at the parent apart from the seven baseline `test_memory_search` failures.

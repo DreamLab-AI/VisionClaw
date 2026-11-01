@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
+verified_commit: ef021a41d438d930559d9724006de56500388260
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -211,3 +211,7 @@ The only change to `xr-client/scripts/graph_scene.gd` is one comment above `_tic
 ## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
 
 `15acb9219` changes three doc comments in `settings.ts` to name the components that replaced `BotsNode` (`applySwarmTint`, `AgentOverlay`, `AgentNameplate`). No setting key, default or type changes. The decision holds unchanged.
+
+## Re-verification — 2026-11-01 at ef021a41d438d930559d9724006de56500388260
+
+`ef021a41d` changes `xr-client/scripts/graph_scene.gd` for the agent done run: a `SpatialVolume` preload, two read-only helpers (`_overlay_box`, `_overlay_world_scale`), one `set_scene_edge` call in `_update_agents`, and a comment. No settings key, default or type is read or written; the `knowledge` key decision holds unchanged. (Read from the diff; the GUT suite passes as at the parent apart from the seven baseline `test_memory_search` failures.)

@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158]
-verified_commit: e99c16d31f2b4dac8757348963404228aa42c612
+verified_commit: ef021a41d438d930559d9724006de56500388260
 verified_paths: [xr-client/scripts/space_portals.gd, xr-client/scripts/spatial_volume.gd, xr-client/scripts/emulated_volume.gd, xr-client/scripts/volume_arrangement.gd, xr-client/scripts/graph_scene.gd, xr-client/scripts/hud.gd, xr-client/scripts/xr_prefs.gd, xr-client/materials/portal_membrane.gdshader]
 owner: jjohare
 review_trigger: the first headset session with Enter used (stereo membranes, 90 Hz with an entered 6 m room, comfort of the dim); or XE merging FrameBudgetPass.set_volume_weights
@@ -78,3 +78,7 @@ Re-verified 2026-11-01 at `03ddc61e1` (viz/edge-tracking). The only change to `x
 ## Re-verification — 2026-11-01 (`e99c16d31`)
 
 `xr-client/scripts/spatial_volume.gd` gained `content_to_world() -> Transform3D`, and `world_from_content(p)` now returns `content_to_world() * p`. A pure refactor: both run `_ensure_built()` and `_content_world()` exactly as before, so entering a volume and the portals are unchanged. The link layer reads the transform once per volume per frame. Evidence: the full GUT suite, 49 scripts, 536 tests, 0 failing; `tests/gut_guard.sh` exit 0.
+
+## Re-verification — 2026-11-01 at ef021a41d438d930559d9724006de56500388260
+
+`ef021a41d` adds the pure static `SpatialVolume.edge_radius(box, world_scale)` to `spatial_volume.gd` (half the box diagonal, used as the scene edge for a finished agent, ADR-2109 / ADR-2135) and, in `graph_scene.gd`, two helpers that read the knowledge volume's `bounds` and global scale and one call that passes them to the choreography. Nothing in entering a volume, the portal ring, `fit_scale`, `fit_into` or the fit ease changes; the helpers only read. The decision holds unchanged. Evidence: the full GUT suite, 50 scripts, 552 tests, 542 passing, 7 failing, the same seven `test_memory_search` failures as the parent commit in the same harness; `tests/gut_guard.sh` exit 0.

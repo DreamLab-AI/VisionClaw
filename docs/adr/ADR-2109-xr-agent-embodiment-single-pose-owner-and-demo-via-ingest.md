@@ -7,8 +7,8 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
-verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
+verified_commit: ef021a41d438d930559d9724006de56500388260
+verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs, xr-client/scripts/spatial_volume.gd]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
 repo: visionclaw
@@ -21,8 +21,8 @@ The XR client had an agent avatar (orb + gaze cone + DID badge, ADR-130 D4) that
 
 ## Decision
 1. **Unit-scale roots.** Embodiments live under `AgentsRoot`, work-cue effects under `AgentEffectsRoot`; neither is a child of `GraphRoot`. Positions are converted with `graph_root.to_global(node_position(id))`; avatar geometry is never scaled by the graph fit.
-2. **One pose writer.** `agent_choreography.gd` is the sole owner of a work-layer embodiment's position and alpha (materialise → travel → arrive → work → complete → park → rest). The proxemics arc places conversation-layer avatars only. Server owns *which* node, status and task; the client owns *where in the room* (ADR-140 motion-authority split).
-3. **Registry is the source of embodiment.** Every id in the Rust agent registry is embodied at ~4 Hz (`_reconcile_embodiment`), keyed `agent_<wireid>`; ids that leave the registry despawn. Explicit completion (`status == done`) drives the completion beat and the 0.3-alpha park; the 30 s evidence TTL is the only other exit from "working". Parked agents stay selectable.
+2. **One pose writer.** `agent_choreography.gd` is the sole owner of a work-layer embodiment's position and alpha (materialise → travel → arrive → work → done run to the scene edge; a lapsed work record relaxes onto the rest slot). The proxemics arc places conversation-layer avatars only. Server owns *which* node, status and task; the client owns *where in the room* (ADR-140 motion-authority split).
+3. **Registry is the source of embodiment.** Every id in the Rust agent registry is embodied at ~4 Hz (`_reconcile_embodiment`), keyed `agent_<wireid>`; ids that leave the registry despawn. Explicit completion (`status == done`) fires the completion burst and starts the **done run** (amendment 2026-11-01 below): the agent eases out to the edge of the scene in 30 s, holds there at 0.3 alpha and stays selectable; the 30 s evidence TTL is the only other exit from "working" and relaxes the agent onto its rest slot.
 4. **Beam origin follows the body.** The scene publishes server-space anchors per embodied agent each frame (`set_agent_anchors`); `build_beam_buffer` prefers an anchor over the streamed node position. Anchors are visual-only; node positions and physics are never touched.
 5. **Demo mode is a producer, not a branch.** `agent_demo_director.gd` is the only demo code. It encodes real `0x23 AGENT_ACTION` frames (wire ids `0x80000000|0xD001..0xD006`, reserved range `0xD001–0xD0FF`, payload `{"intent":…}`) into `ingest()`, reports completion through `apply_agent_state(id,"done",…)`, stamps timestamps from `server_clock_ms()`, and on Stop calls `retire_agents(ids)`. No fake position frames. The synthetic agents play as real agents — names, frames, roster rows and captions carry no demo marker; the Start/Stop Agent Demo button is the only visible sign of the demo, and provenance is the reserved id range in code. The scene contains no demo-specific rendering path.
 6. **Layer toggle is visual.** "Agents" hides `AgentsRoot` + `AgentEffectsRoot` and the render-store class; choreography, registry, handles and physics keep running.
@@ -36,7 +36,7 @@ The XR client had an agent avatar (orb + gaze cone + DID badge, ADR-130 D4) that
 
 ## Verification
 - `cargo test -p visionclaw-xr-gdext --all-features` — `beam_starts_at_the_embodiment_anchor_when_one_is_published`, `retire_agents_removes_records_and_anchors_outright` (66 render_store tests green).
-- GUT (Godot 4.3 in CI): `tests/unit/test_agent_choreography.gd` (in-place materialise, head turns never move a working agent, explicit done → park at 0.3 alpha, re-task without snap, head exclusion, reduced motion), `tests/unit/test_agent_demo_director.gd` (byte-exact `0x23` layout, real-node targets, keep-alive under TTL, 150 s loop completes/rests/re-tasks along real edges, Stop retires exactly the demo ids).
+- GUT (Godot 4.3 in CI): `tests/unit/test_agent_choreography.gd` (in-place materialise, head turns never move a working agent, explicit done → the 30 s edge run, re-task without snap, head exclusion, reduced motion), `tests/unit/test_agent_demo_director.gd` (byte-exact `0x23` layout, real-node targets, keep-alive under TTL, 150 s loop completes/rests/re-tasks along real edges, Stop retires exactly the demo ids).
 - HP-Desktop VIVE, Godot 4.6.1: headless `--check-only` on all six scripts exit 0; `/tmp/godot-xr-fresh.log` shows `XR_SESSION_STATE_FOCUSED`, 0 script errors, 0 HUD overflow, 89–90 FPS with the demo loop running.
 
 ## Re-verification — 2026-09-21 at 997440cd0717d4c5f9341369571fc69fcf5a38d6
@@ -211,3 +211,21 @@ Re-verified 2026-11-01 at `03ddc61e1` (viz/edge-tracking). `xr-client/rust/src/r
 - `a_state_frame_is_presence_not_work` covers the no-heat rule.
 
 Before the change both fail to compile (no state path: `ag-xr-fail-before.txt` in the change record).
+
+## Amendment — 2026-11-01: the headset's done beat is the desktop's (one done rule, ADR-2135)
+
+**Governed change.** `agent_choreography.gd`, `spatial_volume.gd`, `graph_scene.gd` (and `agentNudge.ts`, comment only).
+
+**Decision 2 and 3, replaced where they named a park.** The owner decided that a finished agent behaves the same on both clients: it eases out to the edge of the visual scene in about 30 s, then stops. The park beat (completion hold of 1.2 s, then a head-avoiding move to the rest slot at 0.10 m/s, a rest at 0.3 alpha) is deleted, with no flag left behind: `PH_PARK`, `PH_COMPLETE`, `PARK_SPEED`, `PARK_MIN_SEC`, `PARK_MAX_SEC`, `COMPLETE_SEC`, `_begin_park`, the `park` event and the `parking` move flag no longer exist.
+
+- **The rule** is ADR-2135's, stated once there: radius `r0 + (edge - r0) * easeOutCubic(elapsed / 30 s)` from the scene centre, `r0` its distance when it was recorded done, along the direction it was in then, never past the edge, constant once on it. `EDGE_SECONDS = 30` in `agent_choreography.gd` is the same number as `AGENT_EDGE_SECONDS` in `agentNudge.ts`; `test_agent_edge_run.gd` reads the TypeScript and fails if they differ.
+- **It starts at the done transition from any phase.** `update_registry` begins the run when `status` becomes `done` in travel, arrive, work or rest; an agent that is already done when it first appears runs from the end of its materialise. The `complete` event (the burst) fires at the start of the run. There is no hold before it, because the desktop has none.
+- **The edge is the existing extent of the overlay volume.** `SpatialVolume.edge_radius(bounds, world_scale)` is half the diagonal of the volume's `bounds` box in world metres, the sphere about the volume origin that encloses it; the fit puts the content's centre on that origin and inside the box (`spatial_volume.gd` header). `GraphScene` passes the knowledge volume's `bounds` and global scale each frame (the same volume whose origin is the choreography's graph centre, `_graph_centre_world`), so a resized or rescaled volume moves the edge. No constant is added. An unknown edge (volume not in the tree) holds a done agent where it is, as the desktop does.
+- **The run is stored as a direction and `r0` from the live centre**, so moving the volume carries a held agent with it, as the desktop offset follows its base. An agent already beyond the edge, or one whose edge shrinks, is put straight onto it and never further out.
+- **Reduced motion does not change it.** `reduced_motion` is the headset default, and a gated run would show the owner nothing. The run is a straight radial line (no lift, no head bulge) at about 3 cm/s at its fastest, so the comfort rule against darting travel still holds.
+- **A lapsed work record is not a done agent.** An idle agent, or one whose evidence expired (30 s TTL), relaxes onto its rest slot (ADR-2135: the centroid plus its activity drift) by a frame-rate-independent 3 %-per-90 Hz relaxation, the headset counterpart of the desktop's relax to base. It does not run for the edge. An agent named again during the run leaves it and travels as before; its next finish restarts the clock.
+- **Unchanged:** one pose writer (D2), the registry as the source of embodiment (D3), the head-exclusion sphere for travel and work slots, the 0.3 alpha for a finished or resting agent (now `ALPHA_FADED`).
+
+**Verification.** `tests/unit/test_agent_edge_run.gd` (16 tests) and the amended `test_agent_choreography.gd`: outward then constant at the edge; never past it, including an agent beyond it and a shrinking edge; arrival within one frame of the closed form at 72 and 90 Hz, and the same radius 10 s in; an agent named again leaves the run and restarts the clock; a run begun mid-travel or on first appearance; reduced motion; a moved volume; the box-diagonal edge; the source pins (30 s equal to the desktop's, no park left). The new tests failed before the change (14 of 16 on behaviour, against stubbed names). Not run: the headset. The edge radius is the box's circumscribed sphere, so a finished agent can sit outside the drawn box on the faces; the owner may prefer the inscribed sphere (half the smallest extent).
+
+**Re-verified at ef021a41d438d930559d9724006de56500388260** (the code commit for this amendment): the claims above were read against the final code, and the tests named in the Verification paragraph pass there.
