@@ -158,6 +158,32 @@ describe('done runs to the scene edge over 30 s, then holds', () => {
     expect(arrived).toBeLessThan(AGENT_EDGE_SECONDS + 0.3);
   });
 
+  it('done, drifts, then holds at the edge for ten minutes of frames and leaves only on a retired frame', () => {
+    // F2 (owner, 2026-11-01): no client timer ends the hold. The edge position is bit-constant across
+    // 12 000 frames and many keep-alives, and the agent is removed only by the roster departure.
+    push(decodeFrame('spawn'));
+    frame();
+    const id = idOf();
+    advance(1_000);
+    push(decodeFrame('done'));
+    frame();
+    for (let s = 0; s < 40; s += 0.1) { advance(100); frame(); push(decodeFrame('done')); }
+    const held = posOf(id)!;
+    expect(Math.abs(dist(held) - EDGE.radius)).toBeLessThan(2e-4);
+    for (let i = 0; i < 12_000; i++) {
+      advance(50);
+      if (i % 100 === 0) push(decodeFrame('done')); // the server's 5 s keep-alive
+      frame();
+      if (i % 1_000 === 0) expect(posOf(id)).toEqual(held);
+    }
+    expect(posOf(id)).toEqual(held);
+    expect(store().agents.has(id)).toBe(true);
+    push(decodeFrame('retired'));
+    frame();
+    expect(posOf(id)).toBeNull();
+    expect(store().agents.has(id)).toBe(false);
+  });
+
   it('a working agent stays beside its target however long it works (R3: no nudge into the node)', () => {
     push(decodeFrame('spawn'));
     push(decodeFrame('keepalive'));

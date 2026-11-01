@@ -67,6 +67,26 @@ func test_a_done_agent_moves_outward_then_holds_still_at_the_edge() -> void:
 	assert_almost_eq(_radius(c), EDGE, 1.0e-4, "holds exactly on the edge")
 
 
+func test_a_done_agent_holds_at_the_edge_for_ten_minutes_until_the_roster_removes_it() -> void:
+	# F2 (owner, 2026-11-01): done, drifts to the edge, then holds until it leaves the roster.
+	# Nothing in the choreography times the hold out: only remove_agent (the roster retiring it) ends it.
+	var c: RefCounted = _working()
+	c.update_registry("a", Choreo.ST_DONE, true, 42, TARGET)
+	_run(c, Choreo.EDGE_SECONDS + 1.0, 72.0)
+	var held: Vector3 = c.pose("a")["pos"]
+	assert_almost_eq(_radius(c), EDGE, 1.0e-4, "fixture: on the edge")
+	for i: int in 43200:   # ten minutes at 72 Hz
+		c.tick(1.0 / 72.0)
+		if i % 5000 == 0:
+			c.update_registry("a", Choreo.ST_DONE, true, 42, TARGET)   # the 5 s keep-alive
+		if c.pose("a")["pos"] != held or not c.has_agent("a"):
+			fail_test("left the edge or the roster after %d ticks" % i)
+			return
+	assert_true(c.has_agent("a"), "still embodied after ten minutes")
+	c.remove_agent("a")
+	assert_false(c.has_agent("a"), "gone once the roster retires it")
+
+
 func test_the_run_follows_the_closed_form_in_time() -> void:
 	var c: RefCounted = _working()
 	var r0: float = _radius(c)

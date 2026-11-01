@@ -2811,6 +2811,31 @@ mod tests {
         assert_eq!(store.agent_count(), 0);
     }
 
+    /// F2: a done real agent stays in the registry however long the clock runs and however many
+    /// expiry passes see it; only the `retired` frame (the roster departure) removes it.
+    #[test]
+    fn a_done_real_agent_is_held_until_a_retired_frame() {
+        use crate::render_store::{RenderStore, AGENT_DONE, AGENT_EVIDENCE_TTL_MS};
+        let mut store = RenderStore::new();
+        let (wire, spawn) = fixture_frame("spawn");
+        apply_agent_actions(&mut store, &spawn, 0.0);
+        let (_, done) = fixture_frame("done");
+        apply_agent_actions(&mut store, &done, 6.0);
+        assert_eq!(store.agent_rec(wire).unwrap().status, AGENT_DONE);
+        for pass in 1..=720u32 {
+            let now_ms = 7_000 + pass * 5_000; // an hour of 5 s steps
+            store.expire_stale_agents(now_ms, AGENT_EVIDENCE_TTL_MS);
+            assert_eq!(
+                store.agent_rec(wire).map(|r| r.status),
+                Some(AGENT_DONE),
+                "pass {pass}: still held"
+            );
+        }
+        let (_, retired) = fixture_frame("retired");
+        apply_agent_actions(&mut store, &retired, 4000.0);
+        assert!(store.agent_rec(wire).is_none());
+    }
+
     #[test]
     fn a_state_frame_is_presence_not_work() {
         use crate::render_store::RenderStore;

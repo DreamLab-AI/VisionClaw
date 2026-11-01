@@ -330,3 +330,8 @@ They are in different languages and cannot share code, so the pin is a test: `te
 ## Re-verification — 2026-10-31 (`633423357`)
 
 Re-verified 2026-11-01 after the inscribed-sphere edge change: `git diff df3e2aca5..6334233576941af20879a2b3d3d00b30ecb3c231 -- xr-client/scripts/spatial_volume.gd` replaces half the box diagonal with half its smallest extent (owner decision); this record's claims about volume bounds and agent edge placement hold.
+
+## Amendment — 2026-11-01: the finished agent holds at the edge until it leaves the roster
+
+(Owner decision.) The done rule above ends at the scene edge and does not end there in time: a finished agent holds on the edge, bit-constant, until it leaves the roster. Nothing retires it on arrival. The server's separate 30 s retirement timer (`DONE_RUN_MS`) is deleted; `retired` is sent only when the agent leaves the roster (ADR-2142 amendment of the same date), and both clients remove it on that frame. The 30 s remains defined here once, in `AGENT_EDGE_SECONDS` and `EDGE_SECONDS`, pinned equal by `test_agent_edge_run.gd`. The desktop's dead working nudge (`AGENT_NUDGE_SPEED`, the `target` parameter) and the parallel `agentWorkTargets` tracker are deleted.
+
