@@ -529,6 +529,10 @@ pub struct LinkVolume {
     pub state: u8,
     /// Content-to-world transform, row-major 3×4.
     pub xf: [f32; 12],
+    /// The pack slot of the connection's store that this volume's nodes are packed into
+    /// (`ConnectionVolumeSource.slot`). A link end is drawn when its node is in this slot's
+    /// drawn set.
+    pub slot: i64,
 }
 
 /// One link, as the record table holds it: which store and volume each end sits in, the node ids,
@@ -655,7 +659,7 @@ fn push_link_instance(buf: &mut Vec<f32>, a: [f32; 3], b: [f32; 3], colour: [f32
 /// drawn this frame.
 ///
 /// A link whose source or target volume is `LINK_VOL_HIDDEN`, or whose end is not drawn
-/// ([`RenderStore::is_drawn`]: folded away, type-filtered or LOD-culled, the edge pack's own
+/// ([`RenderStore::is_drawn_in_slot`] for the end's own volume slot: folded away, type-filtered or LOD-culled, the edge pack's own
 /// test) is skipped without being counted; one
 /// with an `UNMAPPED` volume, a `None` store or an id the store does not hold counts as
 /// unresolved; one shorter than [`LINK_MIN_LENGTH_M`] is skipped. A highlighted link is lifted
@@ -698,7 +702,7 @@ pub fn pack_links(
             out.unresolved += 1;
             continue;
         };
-        if !ss.is_drawn(s.src_id) || !ts.is_drawn(s.dst_id) {
+        if !ss.is_drawn_in_slot(sv.slot, s.src_id) || !ts.is_drawn_in_slot(tv.slot, s.dst_id) {
             continue;
         }
         let a = xf_point(&sv.xf, pa);

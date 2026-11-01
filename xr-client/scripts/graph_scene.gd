@@ -737,7 +737,10 @@ func _tick_links(delta: float) -> void:
 	if _link_join_accum >= LINK_JOIN_SEC:
 		_link_join_accum = 0.0
 		_rebuild_links()
-	_link_layer.tick(delta, _volumes, _conns)
+	var slots: Dictionary = {}
+	for vid: Variant in _sources:
+		slots[vid] = int(_sources[vid].slot)
+	_link_layer.tick(delta, _volumes, _conns, slots)
 
 
 func _rebuild_links() -> void:

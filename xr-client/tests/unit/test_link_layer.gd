@@ -68,6 +68,22 @@ func _mm() -> MultiMesh:
 	return layer.multimesh_instance.multimesh
 
 
+func test_each_end_is_drawn_when_its_own_volumes_pack_slot_drew_it() -> void:
+	# Knowledge and ontology volumes of one connection pack into different slots of one store, and the
+	# slot that packed last stays active. A bridge link joins them, so each end asks its volume's slot.
+	var client: RefCounted = (conns[&"visionclaw"] as RefCounted).get("client")
+	client.set_pack_slot(5)
+	client.build_node_buffer(PackedInt32Array([10]), 1.0, 0.7, 1.9)
+	client.set_pack_slot(7)
+	client.build_node_buffer(PackedInt32Array([20]), 1.0, 0.7, 1.9)
+	layer.set_enabled(true)
+	layer.set_records("bridge", [_rec(10, 20, "bridge", "ontology")])
+	layer.tick(0.0, volumes, conns, {&"knowledge": 7, &"ontology": 5})
+	assert_eq(layer.drawn_count(), 0, "node 10 was not drawn in slot 7, nor node 20 in slot 5")
+	layer.tick(0.0, volumes, conns, {&"knowledge": 5, &"ontology": 7})
+	assert_eq(layer.drawn_count(), 1, "node 10 is drawn in slot 5 and node 20 in slot 7")
+
+
 func test_off_by_default_costs_nothing() -> void:
 	layer.set_records("annotates", [_rec(1, 2)])
 	layer.tick(1.0, volumes, conns)

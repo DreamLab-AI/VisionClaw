@@ -81,6 +81,7 @@ var _drawn := 0
 var _unresolved := 0
 var _last_volumes := {}
 var _last_conns := {}
+var _last_slots := {}
 var _emitted := Vector3i(-1, -1, -1)
 var _highlight := {}        # "conn|node_id" → true
 var _markers := 0
@@ -165,9 +166,10 @@ func drop_connection(conn_id: StringName) -> void:
 
 ## Per frame. Packs every segment in Rust: each end is the volume's content-to-world transform
 ## applied to the connection store's drawn position of the node, read this frame.
-func tick(_delta: float, volumes: Dictionary, conns: Dictionary) -> void:
+func tick(_delta: float, volumes: Dictionary, conns: Dictionary, slots: Dictionary = {}) -> void:
 	_last_volumes = volumes
 	_last_conns = conns
+	_last_slots = slots
 	if not _enabled:
 		return
 	_refresh(volumes, conns)
@@ -487,11 +489,13 @@ func _refresh(volumes: Dictionary, conns: Dictionary) -> void:
 		clients.append(_usable_client(conns, cid))
 	var states := PackedByteArray()
 	var xfs: Array = []
+	var vol_slots := PackedInt32Array()
 	for vid: String in _vol_ids:
 		var vs := _volume_state(volumes, vid)
 		states.append(vs[0])
 		xfs.append(vs[1])
-	var buf: PackedFloat32Array = _packer.pack(clients, states, xfs, inv)
+		vol_slots.append(int(_last_slots.get(vid, _last_slots.get(StringName(vid), 0))))
+	var buf: PackedFloat32Array = _packer.pack(clients, states, xfs, vol_slots, inv)
 	_segments_cache = []
 	_segments_cache_valid = false
 	var links: int = _packer.link_count()

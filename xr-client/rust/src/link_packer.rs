@@ -90,7 +90,7 @@ impl LinkPacker {
 
     /// Pack this frame. `clients[i]` is the `BinaryProtocolClient` of connection `i`, or null when
     /// that connection is unusable; `vol_state[j]` is volume `j`'s state (0 unmapped, 1 hidden,
-    /// 2 drawable) and `vol_xf[j]` its content-to-world `Transform3D`; `inv` takes world space
+    /// 2 drawable) and `vol_xf[j]` its content-to-world `Transform3D`; `vol_slot[j]` the pack slot its nodes are packed into; `inv` takes world space
     /// into the layer's local space. Returns the MultiMesh buffer: links in table order, then the
     /// highlight ring markers, 16 floats each.
     #[func]
@@ -99,6 +99,7 @@ impl LinkPacker {
         clients: VariantArray,
         vol_state: PackedByteArray,
         vol_xf: VariantArray,
+        vol_slot: PackedInt32Array,
         inv: Transform3D,
     ) -> PackedFloat32Array {
         let owners: Vec<Option<Gd<BinaryProtocolClient>>> = clients
@@ -124,6 +125,7 @@ impl LinkPacker {
                     .and_then(|v| v.try_to::<Transform3D>().ok())
                     .map(|t| rows12(&t))
                     .unwrap_or([1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]),
+                slot: vol_slot.as_slice().get(j).map_or(0, |&s| i64::from(s)),
             })
             .collect();
         pack_links(

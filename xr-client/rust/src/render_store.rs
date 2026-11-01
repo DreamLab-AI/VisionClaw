@@ -2279,7 +2279,20 @@ impl RenderStore {
     /// LOD budget. The one drawn/visibility test: the edge pack, the edge plan, the beam pack
     /// and the link pack all ask it, so a hidden or culled end hides everything that ends on it.
     pub fn is_drawn(&self, node_id: u32) -> bool {
-        self.drawn.contains(&self.edge_endpoint(node_id))
+        self.is_drawn_in_slot(self.active_slot, node_id)
+    }
+
+    /// [`is_drawn`](Self::is_drawn) against the drawn set of pack slot `slot`: the active slot's
+    /// set when it is the active one, else the parked one (an unknown slot has drawn nothing).
+    /// The volumes of one connection pack into different slots of one store, so a link end asks
+    /// its own volume's slot and not whichever slot packed last.
+    pub fn is_drawn_in_slot(&self, slot: i64, node_id: u32) -> bool {
+        let drawn = if slot == self.active_slot {
+            Some(&self.drawn)
+        } else {
+            self.parked_slots.get(&slot).map(|p| &p.drawn)
+        };
+        drawn.is_some_and(|d| d.contains(&self.edge_endpoint(node_id)))
     }
 
     /// Where a node is DRAWN: the position of the slot its edges attach to
@@ -4721,7 +4734,12 @@ mod tests {
         LinkVolume {
             state: LINK_VOL_DRAWABLE,
             xf,
+            slot: 0,
         }
+    }
+
+    fn vol_in_slot(slot: i64) -> LinkVolume {
+        LinkVolume { slot, ..vol(IDENT) }
     }
 
     fn spec(src: (usize, u32, usize), dst: (usize, u32, usize)) -> LinkSpec {
@@ -4851,6 +4869,31 @@ mod tests {
     }
 
     #[test]
+    fn a_link_between_volumes_that_share_one_store_asks_each_volumes_own_pack_slot() {
+        // Production: the knowledge and ontology volumes of one connection pack into different
+        // slots of one store, and the active slot is whichever packed last. A bridge link joins
+        // the two, so each end must be tested against its own volume's drawn set.
+        let (mut a, _, _) = chain_store();
+        a.select_pack_slot(1);
+        let _ = a.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9);
+        a.select_pack_slot(2);
+        let _ = a.build_node_buffer(&[4, 5, 6], 1.0, 0.7, 1.9);
+        assert_eq!(a.active_pack_slot(), 2, "the volume that packs last stays active");
+        let mut out = LinkFrame::default();
+        // Without the volumes' slots both ends are asked of the active slot 2, which never drew node 3.
+        pack_links(&[Some(&a)], &[vol(IDENT)], &[spec((0, 3, 0), (0, 4, 0))], &IDENT, &mut out);
+        assert_eq!(out.links, 0, "a volume at the default slot 0 drew nothing");
+        let vols = [vol_in_slot(1), vol_in_slot(2)];
+        pack_links(&[Some(&a)], &vols, &[spec((0, 3, 0), (0, 4, 1))], &IDENT, &mut out);
+        assert_eq!((out.links, out.unresolved), (1, 0), "node 3 is drawn in slot 1, node 4 in slot 2");
+        // The reverse pair, and a hidden class in one slot, still hide the link.
+        pack_links(&[Some(&a)], &vols, &[spec((0, 4, 1), (0, 3, 0))], &IDENT, &mut out);
+        assert_eq!(out.links, 1);
+        pack_links(&[Some(&a)], &vols, &[spec((0, 3, 1), (0, 4, 0))], &IDENT, &mut out);
+        assert_eq!(out.links, 0, "node 3 is not in slot 2's drawn set");
+    }
+
+    #[test]
     fn a_moved_nodes_link_end_matches_it_in_the_same_frame() {
         let (mut a, ids, pairs) = chain_store();
         let (mut b, _, _) = chain_store();
@@ -4956,11 +4999,11 @@ mod tests {
         draw_all(&mut a);
         let hidden = LinkVolume {
             state: LINK_VOL_HIDDEN,
-            xf: IDENT,
+            ..vol(IDENT)
         };
         let unmapped = LinkVolume {
             state: LINK_VOL_UNMAPPED,
-            xf: IDENT,
+            ..vol(IDENT)
         };
         let mut out = LinkFrame::default();
         let specs = [
