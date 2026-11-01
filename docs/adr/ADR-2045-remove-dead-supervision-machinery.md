@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
 verified_paths: [src/actors/mod.rs, src/actors/graph_service_supervisor.rs, crates/visionclaw-actors/src/supervisor.rs, tests/orchestration_improvements_test.rs]
 owner: jjohare
 review_trigger: a new supervision requirement that GraphServiceSupervisor cannot express
@@ -218,3 +218,7 @@ This stamp covers the merge of `chore/clippy-sweep` (299aa35bc) with `feat/xr-cl
 ## Re-checked at b4a175412 (2026-10-19)
 
 Governed diff `d38d430e6..b4a175412` adds only unrelated lines (`src/actors/mod.rs`: `agent_demo_director`/`position_stream` modules and a narrowed `physics_orchestrator_actor` re-export; `graph_service_supervisor.rs`: non-supervision edits; `tests/orchestration_improvements_test.rs`: one struct field). **Holds.** Source-read at HEAD: `src/actors/supervisor.rs` and `src/actors/lifecycle.rs` are absent; `ActorLifecycleManager`, `initialize_actor_system`, `shutdown_actor_system`, `ACTOR_SYSTEM`, `parent_supervisor` and `SetParentSupervisor` appear in `src/` and `crates/` only in removal comments (`src/actors/mod.rs:86-116`, `graph_service_supervisor.rs:846`); `SupervisorActor` has one definition, `crates/visionclaw-actors/src/supervisor.rs:122`; the `Escalate` variant is `graph_service_supervisor.rs:294` and its log-and-stop arm `:843-859`; the repointed test imports `visionclaw_actors::supervisor::{..}` at `tests/orchestration_improvements_test.rs:282-284`. Residual (not an ADR breach, outside its `src/`/`crates/` scope): `tests/actors/integration_tests.rs:9,346` still imports the deleted `visionclaw_server::actors::lifecycle`; `tests/actors/` has no root test target, so Cargo never compiles it, but it is a dead reference and should be deleted with its sibling `tests/actors/` copies.
+
+## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
+
+`15acb9219` re-targets the `UpdateBotsGraph` and `GetBotsGraphData` forwarding in `graph_service_supervisor.rs`. It used to go to `GraphStateActor` and now goes to `AgentBeamActor` (the real-agent feed, ADR-2142 amendment). It also adds `SetAgentBeamAddr` and a mod export. It does not touch `parent_supervisor`, `SetParentSupervisor` or the `Escalate` branch, so the coupling this record leaves for follow-up is unchanged. The decision holds unchanged.

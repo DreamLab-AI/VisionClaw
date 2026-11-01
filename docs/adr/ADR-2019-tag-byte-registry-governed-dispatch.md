@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: e99c16d31f2b4dac8757348963404228aa42c612
+verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs, src/protocols/binary_settings_protocol.rs, crates/visionclaw-xr-presence/src/wire.rs, crates/visionclaw-xr-presence/src/agent_presence.rs]
 owner: jjohare
 review_trigger: allocation of a new opcode/version tag on any binary socket, or a proposal to share one demultiplexer across sockets
@@ -296,3 +296,7 @@ Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (
 ## Re-verification — 2026-11-01 (`e99c16d31`)
 
 `xr-client/rust/src/binary_protocol.rs` gained two doc-comment lines on `node_position` and a `pub(crate) fn render_store()` accessor; nothing in decoding, framing or dispatch changed (`git diff e333e179c^ e333e179c -- xr-client/rust/src/binary_protocol.rs`, 8 lines). Nothing this record decides is affected. Evidence: `cargo test` (618 passed, 0 failed).
+
+## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
+
+`15acb9219` changes `xr-client/rust/src/binary_protocol.rs` only on the `0x23` agent-action ingest (state frames, pure `ingest_agent_actions`, fixture tests). The position frame decode this record governs is untouched. The decision holds unchanged.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 37d1226b10c36c44ba854a3fccfe8dff3785aec5
+verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
 verified_paths: [src/handlers/socket_flow_handler/session_relay.rs, src/handlers/socket_flow_handler/message_routing.rs, src/actors/client_coordinator_actor.rs, crates/visionclaw-protocol/src/socket_flow_messages.rs, client/src/features/visualisation/memoryCloud/xrRelay.ts, xr-client/rust/src/beat.rs, xr-client/rust/src/pulse.rs, xr-client/scripts/beat_pulse.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): a desktop and headset filmed side by side with phase error below 30 ms. Review: a second consumer of beatClock or memoryRoute; any request to relay across users or rooms; a headset receipt showing desktop/headset phase error above 30 ms; a change to RECORD_AUDIO policy"
@@ -124,3 +124,7 @@ Activation stays `staged`. The side-by-side phase-error filming named in Verific
 owner, and the close-out does not take owner decisions on the owner's behalf. The implementation and verification
 evidence above stands; ratification is a one-line owner action, listed in VisionFlow
 `docs/registers/park-2026-10-30.md`.
+
+## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
+
+`15acb9219` removes the `requestSwarmTelemetry` arm from `socket_flow_handler/message_routing.rs`. The memory explorer's beat-clock and route relay is untouched. The decision holds unchanged.

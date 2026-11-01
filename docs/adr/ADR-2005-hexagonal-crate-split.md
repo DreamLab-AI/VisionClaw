@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: fcb924be916af656b618e439cf31543d353b4542
+verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -358,3 +358,7 @@ The subsequent incoming `d6c091f0f` changes settle-speed/damping choices inside
 no crate boundary, member or dependency edge changes; the actor extraction remains
 partial. The combined `fcb924be9` server library compile check passes. This scoped
 layer assessment does not accept or re-test the new physical behaviour.
+
+## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
+
+`15acb9219` adds one root-binary actor module (`src/actors/agent_roster_feed.rs`, re-exported in `src/actors/mod.rs`) and removes the bots store from `graph_state_actor.rs`. It changes message shapes in `messages/agent_messages.rs` and forwarding in `graph_service_supervisor.rs`, `agent_beam_actor.rs` and `agent_monitor_actor.rs`. All of it stays inside the root binary's actor layer. No crate boundary moves and no new path dependency is added. The split this record decides is unchanged.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: efbd7f6f080df06ecb580254bddabcee59d4fbf8
+verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -273,3 +273,7 @@ in this record's governed paths through `efbd7f6f080df06ecb580254bddabcee59d4fbf
 The manifest feature graph and consumer implementation are unchanged. Registry
 vault/core tests, strict Clippy, the actual local-module tests and the server
 library compile check pass; prior runtime and activation limits remain.
+
+## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
+
+`15acb9219` changes `src/app_state.rs` only in wiring: the CQRS `get_bots_graph_data` handler is removed (its store is deleted), and the `AgentBeamActor` address is now kept and handed to the graph supervisor (`SetAgentBeamAddr`) so swarm rosters reach the real-agent feed (ADR-2142 amendment). Nothing this record decides is touched. The decision holds unchanged.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: e99c16d31f2b4dac8757348963404228aa42c612
+verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a new GPU analytics field that cannot fit an existing slot, or any need to change the 52-byte node-record layout
@@ -290,3 +290,7 @@ Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (
 ## Re-verification — 2026-11-01 (`e99c16d31`)
 
 `xr-client/rust/src/binary_protocol.rs` gained two doc-comment lines on `node_position` and a `pub(crate) fn render_store()` accessor; nothing in decoding, framing or dispatch changed (`git diff e333e179c^ e333e179c -- xr-client/rust/src/binary_protocol.rs`, 8 lines). Nothing this record decides is affected. Evidence: `cargo test` (618 passed, 0 failed).
+
+## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
+
+`15acb9219` changes `xr-client/rust/src/binary_protocol.rs` additively. The `0x23` ingest loop is factored into a pure `ingest_agent_actions`, and that loop now honours ADR-2142 state frames (`done` / `retired`). It adds tests that decode the shared `tests/fixtures/agents/real-agent-frames.v1.json`. The position record size and layout are untouched. The decision holds unchanged.

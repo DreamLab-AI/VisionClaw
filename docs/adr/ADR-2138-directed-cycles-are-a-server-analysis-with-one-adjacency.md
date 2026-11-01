@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: e99c16d31f2b4dac8757348963404228aa42c612
+verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
 verified_paths: [src/layout/scc.rs, src/handlers/api_handler/analytics/cycles_handlers.rs, src/settings/api/settings_routes.rs, client/src/api/layoutApi.ts, client/src/features/graph/hooks/useCyclicNodeIds.ts, xr-client/rust/src/render_store.rs, xr-client/scripts/hud.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): the XR Shapes tab first run on a headset against a live graph. Review: before any cycle datum is added to the 52-byte position frame"
@@ -103,3 +103,7 @@ Re-verified 2026-11-01 at `03ddc61e1` (viz/edge-tracking). `xr-client/rust/src/r
 ## Re-verification — 2026-11-01 (`e99c16d31`)
 
 `render_store.rs` changed in two ways that touch no cycle code: `position_of` goes through the fold-aware resolver (`drawn_position_of`), and the cross-volume link pack (`pack_links`) is re-exported. Cycle overlays read `position_of` only for nodes they draw, which are visible; for them the answer is unchanged. Evidence: `cargo test` 618 passed, 0 failed.
+
+## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
+
+`15acb9219` adds agent state handling to `xr-client/rust/src/render_store.rs`. The record keeps a `done` flag, and `retired` removes the agent through the existing retire path. Both are fed by ADR-2142 state frames. Nothing this record decides is touched. The decision holds unchanged.

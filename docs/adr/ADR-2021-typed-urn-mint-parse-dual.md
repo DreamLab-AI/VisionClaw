@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: db37a331370b967dba0b8ce3ed6bedeb92e576c2
+verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
 verified_paths: [src/uri/mod.rs, crates/visionclaw-domain/src/uri.rs, src/services/github_sync_service.rs, src/adapters/oxigraph_graph_repository.rs]
 owner: jjohare
 review_trigger: any new persisted identifier namespace, or a decision to rewrite/retire the legacy urn:ngm:* scheme
@@ -121,3 +121,7 @@ Re-verified 2026-10-31 at db37a3313: governed change since 8775359e3 is the grap
 **Commands run:** `cargo test -p visionclaw-domain` → 302 passed, 0 failed, 1 ignored; `cargo test --lib -- domain_root_and_edge_iris github_sync_service:: uri::` → 64 passed, 0 failed; `cargo check --lib --no-default-features --features solid-pod-embed` clean. The lib tests were built with default features, since the `--no-default-features` test build does not compile (an ungated test in `physics_handler.rs` imports the gpu-gated `actix_physics_adapter`; unrelated to this change).
 
 **Remains (status stays `partial`):** the graph adapter now routes through `uri::ngm`; `decision_service` and `nostr_identity_verifier` still mint directly; challenge freshness/audience policy, old/new lookup joins and rollback before any legacy retirement are untouched; no live or persistence proof ran. The `urn:ngm:*` scheme is not retired.
+
+## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
+
+`15acb9219` removes the `get_bots_graph` method from `oxigraph_graph_repository.rs`, together with its port method. That method read the deleted in-memory bots store and had no handler caller (ADR-2142 amendment 2026-11-01). The graph storage this record decides is untouched. The decision holds unchanged.
