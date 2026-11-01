@@ -1156,8 +1156,8 @@ impl RenderStore {
         }
     }
 
-    /// Drop the embodiment anchor for one agent (its beam falls back to the
-    /// streamed node position, or disappears if the agent has none).
+    /// Drop the embodiment anchor for one agent; its beam disappears (the anchor is the only
+    /// beam source).
     pub fn clear_agent_anchor(&mut self, agent_id: u32) {
         self.agent_anchors.remove(&(agent_id & NODE_ID_MASK));
     }
@@ -2084,7 +2084,7 @@ impl RenderStore {
                     continue;
                 }
             }
-            if !self.drawn.contains(&s) || !self.drawn.contains(&t) {
+            if !self.is_drawn(s) || !self.is_drawn(t) {
                 continue;
             }
             let (Some(&ss), Some(&ts)) = (self.id_index.get(&s), self.id_index.get(&t)) else {
@@ -2122,15 +2122,14 @@ impl RenderStore {
     /// colour and shape — and **a = agent status code** so the beam shader
     /// slows and dims a blocked agent's stream).
     ///
-    /// The beam's source is the agent's embodiment anchor when the scene has
-    /// published one ([`set_agent_anchors`](Self::set_agent_anchors)), else the
-    /// agent's own streamed node position (agent nodes ride the binary wire with
-    /// `AGENT_NODE_FLAG`, upserted like any node). `target_node_id` is a plain
-    /// graph node, so `id_index` resolves it — no DID mapping needed. The
-    /// cylinder's local Y runs agent→target, so the shader's pulse flows from the
-    /// agent toward the node it is working on. Agents whose source or target is
-    /// not yet known, or whose endpoints coincide, are skipped. Pure/per-frame —
-    /// GDScript does one buffer assignment.
+    /// The beam's source is the agent's embodiment anchor, published by the scene
+    /// ([`set_agent_anchors`](Self::set_agent_anchors)), and nothing else. An agent is not a
+    /// graph node, so its id is never looked up in `id_index`: a registry id that happens to
+    /// equal a node id must not start a beam on that node. An agent with no anchor yet has no
+    /// beam. `target_node_id` is a plain graph node, so `id_index` resolves it. The
+    /// cylinder's local Y runs agent→target, so the shader's pulse flows from the agent toward
+    /// the node it is working on. Agents whose source or target is not yet known, or whose
+    /// endpoints coincide, are skipped. Pure/per-frame — GDScript does one buffer assignment.
     pub fn build_beam_buffer(&self, radius_comp: f32) -> Vec<f32> {
         let mut buf = Vec::new();
         for (&agent_id, rec) in &self.agent_registry {
@@ -2144,18 +2143,14 @@ impl RenderStore {
             // build_edge_buffer's gate. This stops a hidden/folded/culled target
             // from receiving a beam into empty space.
             let target = self.edge_endpoint(rec.target_node_id);
-            if !self.drawn.contains(&target) {
+            if !self.is_drawn(target) {
                 continue;
             }
             let Some(&ts) = self.id_index.get(&target) else {
                 continue;
             };
-            let source = match self.agent_anchors.get(&agent_id) {
-                Some(&anchor) => anchor,
-                None => match self.id_index.get(&agent_id) {
-                    Some(&as_) => self.positions[as_],
-                    None => continue,
-                },
+            let Some(&source) = self.agent_anchors.get(&agent_id) else {
+                continue;
             };
             if let Some(tf) = edge_transform12(source, self.positions[ts], radius_comp) {
                 buf.extend_from_slice(&tf);
@@ -2277,6 +2272,14 @@ impl RenderStore {
     /// All node ids currently in the store (slot order), for the LOD selection.
     pub fn all_ids(&self) -> &[u32] {
         &self.ids
+    }
+
+    /// Whether a node is DRAWN: the slot its edges attach to ([`edge_endpoint`](Self::edge_endpoint))
+    /// is in the `drawn` set, which encodes the fold plan, the type-visibility filter and the
+    /// LOD budget. The one drawn/visibility test: the edge pack, the edge plan, the beam pack
+    /// and the link pack all ask it, so a hidden or culled end hides everything that ends on it.
+    pub fn is_drawn(&self, node_id: u32) -> bool {
+        self.drawn.contains(&self.edge_endpoint(node_id))
     }
 
     /// Where a node is DRAWN: the position of the slot its edges attach to
@@ -2652,6 +2655,8 @@ mod tests {
         // A 0x23 action makes agent 5 WORKING on node 20, agent 6 on the unknown 30.
         s.record_agent_action(5, 20, 0, 100, "reading");
         s.record_agent_action(6, 30, 0, 100, "");
+        // The scene publishes an embodiment anchor for each agent: the only beam source.
+        s.set_agent_anchors(&[5, 6], &[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]);
         // Beams gate on the target being DRAWN; draw agent+target (30 is unknown so
         // it never enters the drawn set even if listed).
         s.build_node_buffer(&[5, 6, 20, 30], 1.0, 0.7, 1.9);
@@ -2865,20 +2870,39 @@ mod tests {
         // midpoint: anchor (2,4,0) → target (0,4,0) ⇒ (1,4,0).
         assert!(approx(buf[3], 1.0) && approx(buf[7], 4.0) && approx(buf[11], 0.0));
 
-        // An anchor wins over a streamed node position for an embodied live agent.
-        s.upsert(5, [0.0, 0.0, 0.0], 0, 0.0, 0.0);
+        // A second embodied agent beams too, from its own anchor.
         s.record_agent_action(5, 20, 0, 100, "");
-        s.build_node_buffer(&[5, 20], 1.0, 0.7, 1.9);
+        s.build_node_buffer(&[20], 1.0, 0.7, 1.9);
         s.set_agent_anchors(&[5], &[[0.0, 2.0, 0.0]]);
         let buf = s.build_beam_buffer(1.0);
         let n = buf.len() / EDGE_STRIDE_TYPED;
         assert_eq!(n, 2, "both agents beam");
-        // Non-finite anchors are ignored; clearing falls back to the node position.
+        // Non-finite anchors are ignored; clearing the anchor removes that agent's beam.
         s.set_agent_anchors(&[5], &[[f32::NAN, 0.0, 0.0]]);
         assert_eq!(s.agent_anchor(5), Some([0.0, 2.0, 0.0]));
         s.clear_agent_anchor(5);
         assert_eq!(s.agent_anchor(5), None);
-        assert_eq!(s.build_beam_buffer(1.0).len() / EDGE_STRIDE_TYPED, 2);
+        assert_eq!(s.build_beam_buffer(1.0).len() / EDGE_STRIDE_TYPED, 1);
+    }
+
+    #[test]
+    fn a_beam_never_starts_on_a_graph_node_that_shares_the_agents_id() {
+        // Hub-counter agent ids are small numbers that collide with compact graph ids. The beam
+        // source is the agent registry's anchor only; an anchorless agent has no beam.
+        let mut s = RenderStore::new();
+        s.upsert(5, [0.0, 0.0, 0.0], 0, 0.0, 0.0); // a knowledge node that happens to be id 5
+        s.upsert(20, [0.0, 4.0, 0.0], 0, 0.0, 0.0);
+        s.record_agent_action(5, 20, 0, 100, "reading"); // an agent whose id is also 5
+        s.build_node_buffer(&[5, 20], 1.0, 0.7, 1.9);
+        assert!(
+            s.build_beam_buffer(1.0).is_empty(),
+            "no anchor ⇒ no beam, whatever node shares the id"
+        );
+        s.set_agent_anchors(&[5], &[[2.0, 4.0, 0.0]]);
+        let buf = s.build_beam_buffer(1.0);
+        assert_eq!(buf.len(), EDGE_STRIDE_TYPED);
+        // Midpoint of anchor (2,4,0) and target (0,4,0): the beam starts at the anchor, not node 5.
+        assert!(approx(buf[3], 1.0) && approx(buf[7], 4.0));
     }
 
     #[test]
@@ -2993,6 +3017,7 @@ mod tests {
         s.upsert(20, [0.0, 4.0, 0.0], 0, 0.0, 0.0); // target member
         s.upsert(21, [3.0, 4.0, 0.0], 0, 0.0, 0.0); // fold representative
         s.record_agent_action(5, 20, 0, 100, "working");
+        s.set_agent_anchors(&[5], &[[0.0, 0.0, 0.0]]);
 
         // (a) Target known but NOT drawn yet ⇒ no beam (no beam into an unrendered node).
         assert!(
@@ -4338,6 +4363,7 @@ mod tests {
         s.upsert(5, [0.0, 0.0, 0.0], 0, 0.0, 0.0);
         s.upsert(20, [0.0, 4.0, 0.0], 0, 0.0, 0.0);
         s.record_agent_action(5, 20, 0, 1_000, "reading");
+        s.set_agent_anchors(&[5], &[[0.0, 0.0, 0.0]]);
         s.build_node_buffer(&[5, 20], 1.0, 0.7, 1.9);
         assert_eq!(
             s.build_beam_buffer(1.0).len(),
@@ -4685,6 +4711,12 @@ mod tests {
 
     const IDENT: [f32; 12] = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0];
 
+    /// Draw every node the store holds, as the frame's node pack does before the link tick.
+    fn draw_all(s: &mut RenderStore) {
+        let ids: Vec<i32> = s.all_ids().iter().map(|&i| i as i32).collect();
+        let _ = s.build_node_buffer(&ids, 1.0, 0.7, 1.9);
+    }
+
     fn vol(xf: [f32; 12]) -> LinkVolume {
         LinkVolume {
             state: LINK_VOL_DRAWABLE,
@@ -4715,7 +4747,7 @@ mod tests {
     #[test]
     fn a_link_end_on_a_folded_node_lands_where_its_edges_land() {
         let (mut a, _, pairs) = chain_store();
-        let (b, _, _) = chain_store();
+        let (mut b, _, _) = chain_store();
         fold_3_into_1(&mut a);
         let rep = a.position_of(1);
         assert!(
@@ -4726,6 +4758,8 @@ mod tests {
         let xf = [1.0, 0.0, 0.0, 100.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0];
         let specs = [spec((0, 3, 0), (1, 2, 1))];
         let mut out = LinkFrame::default();
+        draw_all(&mut a);
+        draw_all(&mut b);
         pack_links(
             &[Some(&a), Some(&b)],
             &[vol(xf), vol(IDENT)],
@@ -4763,6 +4797,7 @@ mod tests {
         let m = a.raw_position_of(3);
         assert!(m[0] > 10.0 && m[0] < 30.0, "member is in transit: {m:?}");
         let mut out = LinkFrame::default();
+        draw_all(&mut a);
         pack_links(
             &[Some(&a)],
             &[vol(IDENT)],
@@ -4781,15 +4816,52 @@ mod tests {
     }
 
     #[test]
+    fn a_link_with_a_filtered_end_is_not_drawn_and_is_not_unresolved() {
+        // Owner rule 5: a link follows the same drawn test as the edge pack. A hidden class
+        // removes the node, its edges and every link ending on it.
+        let (mut a, _, pairs) = chain_store();
+        a.set_node_kind(3, KIND_ONTOLOGY);
+        let ids = (1..=6).collect::<Vec<i32>>();
+        let specs = [spec((0, 3, 0), (0, 5, 0))];
+        let mut out = LinkFrame::default();
+        let _ = a.build_node_buffer(&ids, 1.0, 0.7, 1.9);
+        pack_links(&[Some(&a)], &[vol(IDENT)], &specs, &IDENT, &mut out);
+        assert_eq!(out.links, 1, "both ends drawn: the link is drawn");
+
+        a.set_type_visible(KIND_ONTOLOGY, false);
+        let _ = a.build_node_buffer(&ids, 1.0, 0.7, 1.9);
+        let edges = a.build_edge_buffer(&pairs, 0.1);
+        assert!(
+            !edges.as_chunks::<16>().0.iter().any(|e| joins(e, a.position_of(3), a.position_of(4))),
+            "the edge to the hidden node is gone"
+        );
+        pack_links(&[Some(&a)], &[vol(IDENT)], &specs, &IDENT, &mut out);
+        assert_eq!(out.links, 0, "a link to a hidden end is not drawn");
+        assert_eq!(out.unresolved, 0, "hidden is skipped, not unresolved");
+
+        // The source end filtered gives the same answer.
+        let rev = [spec((0, 5, 0), (0, 3, 0))];
+        pack_links(&[Some(&a)], &[vol(IDENT)], &rev, &IDENT, &mut out);
+        assert_eq!((out.links, out.unresolved), (0, 0));
+
+        a.set_type_visible(KIND_ONTOLOGY, true);
+        let _ = a.build_node_buffer(&ids, 1.0, 0.7, 1.9);
+        pack_links(&[Some(&a)], &[vol(IDENT)], &specs, &IDENT, &mut out);
+        assert_eq!(out.links, 1, "re-showing the class restores the link");
+    }
+
+    #[test]
     fn a_moved_nodes_link_end_matches_it_in_the_same_frame() {
         let (mut a, ids, pairs) = chain_store();
-        let (b, _, _) = chain_store();
+        let (mut b, _, _) = chain_store();
+        draw_all(&mut b);
         let specs = [spec((0, 3, 0), (1, 5, 0))];
         let mut out = LinkFrame::default();
         for step in 0..4 {
             a.upsert(3, [30.0, 20.0 * (step + 1) as f32, 0.0], 0, 0.0, 0.0);
             a.hunt(0.3, None, [0.0; 3]);
             let drawn = a.position_of(3);
+            draw_all(&mut a);
             pack_links(
                 &[Some(&a), Some(&b)],
                 &[vol(IDENT)],
@@ -4861,6 +4933,7 @@ mod tests {
             let mut spec1 = spec((0, 1, 0), (0, 2, 0));
             spec1.colour = *col;
             let mut out = LinkFrame::default();
+            draw_all(&mut s);
             pack_links(&[Some(&s)], &[vol(IDENT)], &[spec1], &IDENT, &mut out);
             assert_eq!(out.buf.len(), LINK_STRIDE, "case {i}");
             // The golden radius is RADIUS_M except case 2 (a 0.01 test radius): rescale x and z.
@@ -4879,7 +4952,8 @@ mod tests {
 
     #[test]
     fn hidden_unresolved_and_short_links_are_counted_as_before() {
-        let (a, _, _) = chain_store();
+        let (mut a, _, _) = chain_store();
+        draw_all(&mut a);
         let hidden = LinkVolume {
             state: LINK_VOL_HIDDEN,
             xf: IDENT,
@@ -4910,7 +4984,8 @@ mod tests {
 
     #[test]
     fn highlighted_links_are_lifted_thickened_and_ringed_once_per_end() {
-        let (a, _, _) = chain_store();
+        let (mut a, _, _) = chain_store();
+        draw_all(&mut a);
         let mut s1 = spec((0, 1, 0), (0, 2, 0));
         let mut s2 = spec((0, 2, 0), (0, 3, 0));
         s1.lit = true;
@@ -4965,6 +5040,8 @@ mod tests {
             .collect();
         let vols = [vol(IDENT), vol(IDENT)];
         let mut out = LinkFrame::default();
+        draw_all(&mut a);
+        draw_all(&mut b);
         let mut samples = Vec::new();
         for k in 0..600 {
             let t0 = std::time::Instant::now();

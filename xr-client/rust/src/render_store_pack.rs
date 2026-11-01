@@ -654,7 +654,9 @@ fn push_link_instance(buf: &mut Vec<f32>, a: [f32; 3], b: [f32; 3], colour: [f32
 /// edges land (the fold remap in `edge_endpoint`), and one on a moving node lands where the node is
 /// drawn this frame.
 ///
-/// A link whose source or target volume is `LINK_VOL_HIDDEN` is skipped without being counted; one
+/// A link whose source or target volume is `LINK_VOL_HIDDEN`, or whose end is not drawn
+/// ([`RenderStore::is_drawn`]: folded away, type-filtered or LOD-culled, the edge pack's own
+/// test) is skipped without being counted; one
 /// with an `UNMAPPED` volume, a `None` store or an id the store does not hold counts as
 /// unresolved; one shorter than [`LINK_MIN_LENGTH_M`] is skipped. A highlighted link is lifted
 /// toward white, thickened, and adds one ring marker per distinct end `(store, id)`.
@@ -696,6 +698,9 @@ pub fn pack_links(
             out.unresolved += 1;
             continue;
         };
+        if !ss.is_drawn(s.src_id) || !ts.is_drawn(s.dst_id) {
+            continue;
+        }
         let a = xf_point(&sv.xf, pa);
         let b = xf_point(&tv.xf, pb);
         let (la, lb) = (xf_point(inv, a), xf_point(inv, b));

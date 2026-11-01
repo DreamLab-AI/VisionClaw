@@ -1795,10 +1795,9 @@ impl BinaryProtocolClient {
     }
 
     /// Publish embodiment anchors (server space) for agents the scene embodies:
-    /// `ids[i]` pairs with `positions[i]`. The work beam then starts at the
-    /// avatar the user sees instead of the agent's streamed node position (or at
-    /// all, for synthetic agents that have no node). Visual-only: node positions
-    /// and physics are never touched. Call once per frame for embodied agents.
+    /// `ids[i]` pairs with `positions[i]`. The work beam starts at the
+    /// avatar the user sees, and only there: an agent with no anchor has no beam, and its id is
+    /// never read as a graph node id. Visual-only: node positions and physics are never touched. Call once per frame for embodied agents.
     #[func]
     fn set_agent_anchors(&mut self, ids: PackedInt32Array, positions: PackedVector3Array) {
         let ids: Vec<u32> = ids.as_slice().iter().map(|&x| x as u32).collect();
