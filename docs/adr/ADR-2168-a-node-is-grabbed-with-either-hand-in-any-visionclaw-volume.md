@@ -47,7 +47,7 @@ acceptance_boundary: the gate, the per-hand state, the routing and transform ari
 
 ## Consequences
 - Both hands can rearrange nodes in the Ontology volume and in a room. Two simultaneous server pins stress the GPU force kernel in a way a single drag did not; this has not been run live.
-- The server pins a node at drag-end today. Until stream GS's release-unpin lands, a released node stays pinned server-side and the client no longer lists it for Unpin All. The two changes must merge together.
+- The server pins a node at drag-end today. Until stream GS's release-unpin lands, a released node stays pinned server-side and the client no longer lists it for Unpin All. Since R15 F3 the connection's `close()` no longer sends a `nodeUnpin` for dragged nodes either, so before GS lands the client has no way at all to release a dragged node. The two changes must merge together.
 - A press that claimed nothing and points into a portal's node from inside a room grabs nothing.
 - `spatial_environment.gd`'s focus marker follows the first held node, in that node's volume frame; with two nodes held only one carries the marker.
 - The gdext gains `hunt_grabs`; a stale `.so` degrades to a single-node echo.
