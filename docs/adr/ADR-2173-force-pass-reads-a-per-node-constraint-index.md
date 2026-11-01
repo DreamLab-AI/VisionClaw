@@ -14,7 +14,7 @@ owner: jjohare
 review_trigger: the constraint count or node count grows 10x, or a kernel signature changes
 repo: visionclaw
 evidence_class: test
-acceptance_boundary: Measured on a synthetic graph of the live shape on an RTX 6000 Ada (GPU 1); establishes bit-identical positions and a 3.0x faster step there. It does not establish the live RTX A6000 rate, which is measured only after redeploy.
+acceptance_boundary: Measured on a synthetic graph of the live shape on an RTX 6000 Ada (GPU 1); establishes bit-identical positions and a 3.0x faster step there. It does not establish the live RTX A6000 rate, which is measured only after redeploy, and the hub slope (flat to about 14k entries, then steeper) was measured on the Ada's 96 MB L2: the A6000 has 6 MB, so its knee is expected to be lower.
 ---
 
 # ADR-2173 — The force pass reads a per-node constraint index, not every constraint
@@ -28,20 +28,21 @@ acceptance_boundary: Measured on a synthetic graph of the live shape on an RTX 6
 ## Decision
 - The host builds a CSR from node to constraint ids (`constraint_index.rs`) on every `set_constraints`, `clear_constraints` and node-capacity `resize_buffers`. A node lists a constraint exactly when the old test matched (`node_idx[k] == n`, `k < min(count, 4)`), once per constraint, ascending, which is the old accumulation order.
 - Both force kernels loop over the node's own list. The loop body is untouched.
-- The two index pointers reach the kernels as `__device__` globals (`g_constraint_node_offsets`, `g_constraint_node_ids`), written with `get_global`, as `c_params` is. No kernel signature and no `c_params` field changes, so the I7 arity guard still holds.
-- Either global null means unbound: the kernel scans every constraint, as before. Every failure path (upload error, PTX without the symbol) unbinds and logs; physics stays correct and only slower.
+- The index reaches the kernels as one `__device__` global, `g_constraint_index`, a `{offsets, ids}` pair written with `get_global` in a single 16-byte copy, as `c_params` is. The two pointers are bound together or not at all. No kernel signature and no `c_params` field changes, so the I7 arity guard still holds.
+- A null `offsets` means no constraints: the loop runs zero times. The kernels contain no unindexed walk, and the unlaunched `blend_semantic_physics_forces` kernel, a second flat walk, is deleted. A failed index upload, or a PTX without the symbol, is an error returned to the caller (fail loud), and `set_constraints` stages the new constraint buffer and index, writes the global, and only then swaps them in, so a failure leaves the previous constraints, index and binding consistent. A failed rebuild after a node-capacity resize drops the constraints (none counted, index unbound) and returns the error.
 
 ## Consequences
-- Output is bit-identical: positions after 60 steps match the pre-change run in 29,064 of 29,064 floats, and a GPU test compares indexed against unbound full forces under both kernels.
+- Output is bit-identical: positions after 60 steps match the pre-change run in 29,064 of 29,064 floats, and a GPU test compares the production index against an all-constraints index (every node lists every constraint, which reproduces the old flat scan exactly and exists only in the test) under both kernels, with every node in motion and annealing jitter on so the stability kernel reaches its constraint loop, and reads the per-node constraint force back to prove it did. A second test shows an unbound index with constraints resident acts as no constraints.
 - Held step 29.0 to 9.77 ms and idle 27.9 to 9.16 ms on the synthetic live shape (about 3.0x; repeats within 1%).
+- **The hub knee is an upper bound for the live card.** The ~14k flat-to-knee figure and the slope table below were measured on an RTX 6000 Ada with a 96 MB L2. The live RTX A6000 has a 6 MB L2, so each list entry costs more there and its knee is expected to be lower.
 - A host copy of the constraints (6 MB at 96,742) is kept to rebuild the index on a node-capacity change, and the index is rebuilt on every constraint upload (host cost only).
 - **Cost now follows the longest per-node list.** A node's thread walks its own list serially and the step ends when the slowest warp does. On the synthetic set (longest list 3,539, p99 327) the step is flat at about 9.8 ms up to a longest list of about 14k; then 12.1 ms at 18.5k, 15.4 ms at 23.5k, 40.3 ms at 33.5k and 66.9 ms at 63.5k (GPU 1, `TICK_HUB`). The live maximum is not known; every upload logs `constraint index: ... longest node list N (p99 M)`. A top-level class with tens of thousands of children would need a hub-splitting follow-up.
 - The remaining 9.5 ms is repulsion (7 to 9 ms) and springs (about 2.4 ms). Reducing it bit-exactly means a cell-ordered position gather in `force_pass_kernel`; that is a separate decision.
 
 ## Verification
-- Built `visionclaw_unified.ptx`: `force_pass_kernel` has 30 `.param` entries (the I7 arity), and `.global .align 8 .u64 g_constraint_node_offsets` / `g_constraint_node_ids` are present.
+- Built `visionclaw_unified.ptx`: `force_pass_kernel` has 30 `.param` entries (the I7 arity), `force_pass_with_stability_kernel` 29, `c_params[212]`, and `g_constraint_index` is present (`codescape_abi_tests`, which reads the PTX).
 - `cargo test --lib` at the stamped commit: 1774 passed, 0 failed, exit 0.
-- `cargo test --lib constraint_index` (host equivalence to the old scan) and `adr_2029_constraint_gpu_tests::the_constraint_index_changes_no_bit_of_the_result` (device globals read back as bound/unbound, results equal).
+- `cargo test --lib constraint_index` (host equivalence to the old scan) and `adr_2029_constraint_gpu_tests::the_constraint_index_changes_no_bit_of_the_result`, `an_unbound_index_means_no_constraints` and `the_index_view_is_bound_whole_and_follows_the_buffers`.
 - `execution.rs` `step_stage_timings_at_the_live_graph_size` (`--ignored --nocapture`, spare GPU): the live-shape graph (9,688 nodes, 147,048 edges, 96,742 constraints), held and idle ms per step, readback, and the per-stage breakdown. `TICK_HUB=n` adds n constraints on node 0, `TICK_CONSTRAINTS=0` removes them, `TICK_MIN_HZ` asserts a floor. The stage breakdown is `StepTiming`'s kernel sub-phases (`VISIONCLAW_STEP_STAGES=1` adds it to the live "step timing" log line); there is no second profiler.
 - Re-run after folding the profiler into `StepTiming`: held 9.76 ms, idle 9.18 to 9.35 ms with constraints, identical to the standalone bench it replaced (9.20 idle) on the same GPU.
 

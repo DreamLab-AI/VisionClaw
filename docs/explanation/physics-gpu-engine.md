@@ -290,12 +290,11 @@ spatial layout reflects the knowledge structure, not just edge connectivity:
 - **Attribute springs and collision** — edge weights become semantic spring
   strengths; size-aware collision keeps large nodes from overlapping.
 
-Semantic forces and base physics forces are computed independently (both read
-positions, neither writes during the pass) and then combined by the
-`blend_semantic_physics_forces` kernel under a priority weight. NaN / Inf guards
-fall the blend back to pure physics if semantic forces diverge, and constraints
-ramp in over a configurable number of frames to avoid destabilising the layout
-when the ontology loads. See the [Ontology Pipeline](ontology-pipeline.md) for
+Constraints act inside the force pass itself: each node walks its own per-node
+constraint list (ADR-2173) and they ramp in over a configurable number of frames to
+avoid destabilising the layout when the ontology loads. (A separate
+`blend_semantic_physics_forces` kernel that once blended semantic forces under a priority
+weight was never launched and has been deleted.) See the [Ontology Pipeline](ontology-pipeline.md) for
 how axioms reach the GPU.
 
 ---

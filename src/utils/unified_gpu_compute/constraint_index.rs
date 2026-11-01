@@ -10,11 +10,31 @@
 //! `k < min(count, 4)`) would have matched, once per constraint even if the node fills two slots,
 //! and each node's list is in ascending constraint order, which is the order the old loop
 //! accumulated forces in, so the floating-point sums are unchanged.
+//!
+//! This index is the only way the kernels find a node's constraints. There is no unindexed walk:
+//! an unbound index means no constraints.
 
 use crate::models::constraints::ConstraintData;
 
 /// Most node slots a constraint can use (the kernel's `n < 4` bound).
 const MAX_SLOTS: usize = 4;
+
+/// The two device pointers of the index, as the kernel's `ConstraintIndexView` global holds them.
+///
+/// One `#[repr(C)]` value written in a single 16-byte copy, so the force kernels see both pointers
+/// or neither: a torn write cannot leave new offsets beside a freed `ids` buffer. The all-zero view
+/// is "no constraints" (the kernel loop runs zero times).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[repr(C)]
+pub(crate) struct ConstraintIndexView {
+    /// Device address of `offsets` (`allocated_nodes + 1` entries), or 0.
+    pub offsets: u64,
+    /// Device address of `ids`, or 0 when no node lists a constraint (never read in that case).
+    pub ids: u64,
+}
+
+// SAFETY: two plain `u64` fields in `repr(C)`, no padding, every bit pattern valid.
+unsafe impl cust::memory::DeviceCopy for ConstraintIndexView {}
 
 /// CSR from node index to the constraints that involve it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,7 +59,10 @@ impl ConstraintIndex {
             .collect();
         lens.sort_unstable();
         let max = lens.last().copied().unwrap_or(0);
-        let p99 = lens.get(lens.len().saturating_sub(1) * 99 / 100).copied().unwrap_or(0);
+        let p99 = lens
+            .get(lens.len().saturating_sub(1) * 99 / 100)
+            .copied()
+            .unwrap_or(0);
         (self.ids.len(), max, p99)
     }
 }
@@ -144,7 +167,11 @@ mod tests {
         let ix = build_constraint_index(&constraints, nodes);
         assert_eq!(ix.offsets.len(), nodes + 1);
         for node in 0..nodes {
-            assert_eq!(list(&ix, node), old_scan(&constraints, node as i32), "node {node}");
+            assert_eq!(
+                list(&ix, node),
+                old_scan(&constraints, node as i32),
+                "node {node}"
+            );
         }
     }
 
@@ -182,7 +209,10 @@ mod tests {
         let (entries, max, p99) = ix.list_stats();
         assert_eq!(entries, 400);
         assert_eq!(max, 200);
-        assert_eq!(p99, 2, "one hub in 101 listed nodes sits above the 99th percentile");
+        assert_eq!(
+            p99, 2,
+            "one hub in 101 listed nodes sits above the 99th percentile"
+        );
         assert_eq!(build_constraint_index(&[], 4).list_stats(), (0, 0, 0));
     }
 

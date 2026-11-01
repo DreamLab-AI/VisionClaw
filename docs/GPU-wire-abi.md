@@ -5,8 +5,8 @@ version: 0.1.8
 status: draft-for-ratification
 verified_commit: 
 changelog:
-  - "0.1.8 (2026-11-01): ADR-2169 amendment (spring mode while held) — new trailing `const float* edge_rest_snapshot` parameter on `force_pass_kernel` and `force_pass_with_stability_kernel` (null = overlay off), new `edge_rest_snapshot` device buffer (one float per CSR edge slot, sized to `allocated_edges`, re-sized with it), new `snapshot_edge_rest_kernel`. `SimParams` (212 B), the feature word and its 7 bits are unchanged"
-  - "0.1.7 (2026-11-01): ADR-2173 per-node constraint index — two __device__ pointer globals bound from the host; kernel arities and c_params unchanged"
+  - "0.1.8 (2026-11-01): ADR-2169 amendment (spring mode while held) and the integration of the two physics branches — the hold overlay's rest-length buffer reaches the force kernels through the `__device__` global `g_edge_rest_snapshot` (null = overlay off), not a kernel parameter; the constraint index is ONE global struct `g_constraint_index` {offsets, ids} written in a single 16-byte copy (null offsets = no constraints, there is no unindexed walk); both force kernels share one `edge_spring_scale` device function; the unlaunched `blend_semantic_physics_forces` kernel is deleted. New `edge_rest_snapshot` device buffer (one float per CSR edge slot, sized to `allocated_edges`) and `snapshot_edge_rest_kernel`. Kernel arities (`force_pass_kernel` 30, `force_pass_with_stability_kernel` 29), `SimParams` (212 B), the feature word and its 7 bits are unchanged"
+  - "0.1.7 (2026-11-01): ADR-2173 per-node constraint index — a `__device__` index global bound from the host; kernel arities and c_params unchanged"
   - "0.1.6 (2026-10-31): ADR-2030 runtime PTX identity (build-baked content tag verified at load, fail loud); ADR-2029 GPU-tick evidence that bit 4 alone gates the constraint loop and the physics-step authority sets it"
   - "0.1.5 (2026-09-06): Remediation — 2026-09-05 section: Wave 3 ADRs (2094–2101, 2061, 2071, 2085; proposed 2102–2105) and the ledger/diagram re-verification landed in 2cf222406 — re-verified at "
   - "0.1.4: 2026-09-05 ADR-2061 landed — the analytics kernel trust status is now a measured test result (crates/visionclaw-gpu/tests/analytics_oracle_conformance.rs) rather than an assertion: PageRank, DBSCAN and Louvain TRUSTED; LOF recorded BROKEN at max |delta| 0.702 against a 1e-3 bar"
@@ -118,10 +118,12 @@ ClusterCohesion, Constraints, DagRadialBias, Annealing, Boundary.
 
 Both force kernels iterate a node's own constraints instead of scanning all of them. The host
 builds the CSR (`src/utils/unified_gpu_compute/constraint_index.rs`) on every constraint upload
-and node-capacity change and writes its two device pointers into the `__device__` globals
-`g_constraint_node_offsets` and `g_constraint_node_ids` (`memory.rs`, `rebind_constraint_index`).
-They are globals, not kernel parameters, so the kernel arities and `c_params` do not move.
-Null in either means unbound and the kernels scan every constraint (identical results).
+and node-capacity change and binds it through the `__device__` global `g_constraint_index`, a
+`{offsets, ids}` pair of device pointers written in one 16-byte copy (`memory.rs`,
+`bind_constraint_index`), so the two are bound together or not at all. It is a global, not a kernel
+parameter, so the kernel arities and `c_params` do not move. A null `offsets` means no
+constraints and the loop runs zero times: the kernels have no other way to walk the constraints. A
+failed upload or a PTX without the symbol is an error, and the constraint state is left as it was.
 
 ### Layout params — DAG-rank / radial
 
@@ -283,10 +285,12 @@ race-free single launch. A three-pass implementation remains a performance optio
    recorded tag must not load (ADR-2030).
 6. Field order and `repr(C)` prefix are the wire contract for existing clients — do not
    reorder.
-7. The force kernels' arities (`force_pass_kernel` 30, ADR-2143 I7) and `c_params` do not
-   change for the constraint index: it travels in the `g_constraint_node_*` globals. A node's
-   constraint list is ascending and holds each constraint once, so accumulation order, and the
-   result, equals the full scan's (ADR-2173).
+7. The force kernels' arities (`force_pass_kernel` 30, ADR-2143 I7; `force_pass_with_stability_kernel`
+   29) and `c_params` (212 bytes) do not change for optional per-launch inputs: they travel in
+   `__device__` globals bound with `get_global`, `g_constraint_index` (ADR-2173) and
+   `g_edge_rest_snapshot` (ADR-2169 item 8). A node's constraint list is ascending and holds each
+   constraint once, so accumulation order, and the result, equals a walk over every constraint.
+   `codescape_abi_tests` reads the built PTX and asserts the arities and `c_params[212]`.
 
 ## Change process
 
@@ -301,11 +305,11 @@ ADR-098, ADR-141) as evidence only; live code is ground truth.
 
 While a node is held, and through the settle window, the force pass adds `spring_k * (dist - edge_rest_snapshot[i]) * edge_weight * spring_scale` per CSR edge entry on top of the stored attraction. This changes kernel parameters and a buffer, not `SimParams`:
 
-- `force_pass_kernel` and `force_pass_with_stability_kernel` take a trailing `const float* edge_rest_snapshot`. A null pointer is the overlay-off state, which is what every non-held step passes; it is not a feature bit, so the 7-bit word and the ABI digest are untouched.
+- The rest lengths reach `force_pass_kernel` and `force_pass_with_stability_kernel` through the `__device__` global `g_edge_rest_snapshot` (`const float*`), not a parameter, so `force_pass_kernel` keeps its 30 parameters (ADR-2143 I7). Null is the overlay-off state, which is what every non-held step has; it is not a feature bit, so the 7-bit word and the ABI digest are untouched. The host writes the global only when the address changes (`bind_edge_rest`), and a resize unbinds it before the buffer is freed. Both kernels call the one `edge_spring_scale` device function for the stored attraction and the overlay term.
 - `edge_rest_snapshot` is a `DeviceBuffer<f32>` of `allocated_edges` entries (`construction.rs`, re-allocated by `resize_buffers` in `memory.rs`; a CSR upload or resize invalidates it).
 - `snapshot_edge_rest_kernel(pos_x, pos_y, pos_z, edge_row_offsets, edge_col_indices, edge_rest_snapshot, num_nodes)` writes each edge's current length, one thread per node, once per overlay activation (`hold_overlay.rs`).
 - The integrator switch rides the existing `adaptive_speed` field: `execute_physics_step_with_bypass` sends 0 while the overlay is on, and the Verlet branch of `integrate_pass_kernel` clears `prev_force`.
-- ADR-2169 item 9 changes no kernel signature and no byte of `SimParams`: the held-only gain multiplies `spring_k` and `max_force` on the host before upload, and the spring term (the non-null `edge_rest_snapshot`) is passed only while a node is held. The settle window runs the Verlet switch without springs, and every spring off-to-on transition re-takes the snapshot.
+- ADR-2169 item 9 changes no kernel signature and no byte of `SimParams`: the held-only gain multiplies `spring_k` and `max_force` on the host before upload, and the spring term (the non-null `g_edge_rest_snapshot`) is bound only while a node is held. The settle window runs the Verlet switch without springs, and every spring off-to-on transition re-takes the snapshot.
 
 ## Layout and force closeout — 2026-09-04
 

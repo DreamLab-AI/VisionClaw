@@ -85,10 +85,13 @@ pub struct UnifiedGPUCompute {
     pub edge_col_indices: DeviceBuffer<i32>,
     pub edge_weights: DeviceBuffer<f32>,
     /// ADR-2169 amendment (spring mode while held): per-CSR-edge length captured when the
-    /// first hold begins. Only read while `hold_overlay_active`; sized to `allocated_edges`.
+    /// hold begins. Only read while the springs run (bound through `g_edge_rest_snapshot`);
+    /// sized to `allocated_edges`.
     pub(crate) edge_rest_snapshot: DeviceBuffer<f32>,
     /// Elastic-overlay state: active flag, snapshot validity, snapshot count.
     pub(crate) hold_overlay: super::hold_overlay::HoldOverlay,
+    /// Device address last written to the kernels' `g_edge_rest_snapshot` (0 = overlay off).
+    pub(crate) edge_rest_bound: std::sync::atomic::AtomicU64,
     /// Multiplier on `spring_k` and `max_force` while the spring term runs (a hold only).
     pub(crate) hold_spring_gain: f32,
 
@@ -133,7 +136,7 @@ pub struct UnifiedGPUCompute {
     /// node capacity changes (`resize_buffers`).
     pub(crate) constraints_host: Vec<ConstraintData>,
     /// Per-node constraint index (CSR) the force kernels read through the
-    /// `g_constraint_node_*` device globals; see `constraint_index.rs`.
+    /// `g_constraint_index` device global; see `constraint_index.rs`.
     pub(crate) constraint_node_offsets: DeviceBuffer<i32>,
     pub(crate) constraint_node_ids: DeviceBuffer<i32>,
 
@@ -478,6 +481,7 @@ impl UnifiedGPUCompute {
             edge_weights,
             edge_rest_snapshot,
             hold_overlay: Default::default(),
+            edge_rest_bound: std::sync::atomic::AtomicU64::new(0),
             hold_spring_gain: super::HOLD_SPRING_GAIN,
             force_x,
             force_y,

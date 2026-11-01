@@ -713,9 +713,9 @@ impl UnifiedGPUCompute {
 
         // ADR-2169 amendment (spring mode while held): when the overlay switches on, capture
         // every edge's current length on the GPU (one thread per node, no host round-trip), so
-        // the overlay term is exactly zero at the moment of grab. A null pointer switches the
-        // overlay off in the force kernels.
-        let edge_rest_ptr = if self.hold_overlay.springs_active() {
+        // the overlay term is exactly zero at the moment of grab. The kernels read the buffer
+        // through the `g_edge_rest_snapshot` global; address 0 switches the overlay off.
+        let edge_rest_raw = if self.hold_overlay.springs_active() {
             if self.hold_overlay.snapshot_due() {
                 let snapshot_kernel = self._module.get_function("snapshot_edge_rest_kernel")?;
                 // SAFETY: positions and the CSR are valid buffers of >= num_nodes / num_edges
@@ -734,10 +734,11 @@ impl UnifiedGPUCompute {
                     ))?;
                 }
             }
-            self.edge_rest_snapshot.as_device_ptr()
+            self.edge_rest_snapshot.as_device_ptr().as_raw()
         } else {
-            DevicePointer::<f32>::null()
+            0
         };
+        self.bind_edge_rest(edge_rest_raw)?;
 
         unsafe {
             if params.stability_threshold > 0.0 {
@@ -776,9 +777,7 @@ impl UnifiedGPUCompute {
                     // PHASE 2: per-node DAG rank for the radial hierarchy bias
                     self.node_rank.as_device_ptr(),
                     // ADR-141 P2: per-node centered plane offset for the stratified-plane bias
-                    self.node_plane.as_device_ptr(),
-                    // ADR-2169 amendment: elastic-overlay rest lengths (null = overlay off)
-                    edge_rest_ptr
+                    self.node_plane.as_device_ptr()
                 ))?;
             } else {
                 launch!(
@@ -819,9 +818,7 @@ impl UnifiedGPUCompute {
                     // PHASE 2: per-node DAG rank for the radial hierarchy bias
                     self.node_rank.as_device_ptr(),
                     // ADR-141 P2: per-node centered plane offset for the stratified-plane bias
-                    self.node_plane.as_device_ptr(),
-                    // ADR-2169 amendment: elastic-overlay rest lengths (null = overlay off)
-                    edge_rest_ptr
+                    self.node_plane.as_device_ptr()
                 ))?;
             }
         }
@@ -2003,29 +2000,6 @@ mod grid_gpu_tests {
         v
     }
 
-    /// `(longest per-node list, its node, p99 list length)` over nodes with at least one entry.
-    fn list_stats(v: &[crate::models::constraints::ConstraintData]) -> (usize, usize, usize) {
-        let mut per = vec![0usize; LIVE_NODES];
-        for c in v {
-            let mut seen = [-1i32; 4];
-            for (k, &n) in c
-                .node_idx
-                .iter()
-                .take(c.count.clamp(0, 4) as usize)
-                .enumerate()
-            {
-                if n >= 0 && (n as usize) < LIVE_NODES && !seen[..k].contains(&n) {
-                    seen[k] = n;
-                    per[n as usize] += 1;
-                }
-            }
-        }
-        let (node, &max) = per.iter().enumerate().max_by_key(|(_, &l)| l).unwrap();
-        let mut lens: Vec<usize> = per.into_iter().filter(|&l| l > 0).collect();
-        lens.sort_unstable();
-        (max, node, lens[(lens.len() - 1) * 99 / 100])
-    }
-
     fn live_shape_graph() -> UnifiedGPUCompute {
         let ptx = crate::utils::ptx::load_ptx_sync().expect("unified PTX");
         let mut rng = BenchRng(0x9E37_79B9_7F4A_7C15);
@@ -2169,10 +2143,12 @@ mod grid_gpu_tests {
         );
         if n_constraints > 0 {
             let cs = with_hub(synthetic_constraints(&mut BenchRng(7), n_constraints));
-            let (longest, node, p99) = list_stats(&cs);
+            let (_, longest, p99) =
+                super::super::constraint_index::build_constraint_index(&cs, LIVE_NODES)
+                    .list_stats();
             gpu.set_constraints(cs).unwrap();
             timed_steps(&mut gpu, &p, true, 100);
-            println!("-- WITH {n_constraints} constraints (+TICK_HUB): longest node list {longest} (node {node}), p99 {p99}");
+            println!("-- WITH {n_constraints} constraints (+TICK_HUB): longest node list {longest}, p99 {p99}");
             held = repeated(&mut gpu, &p, true, "HELD (stability bypass)");
             idle = repeated(&mut gpu, &p, false, "IDLE (stability gate)");
         }
@@ -2903,72 +2879,307 @@ mod adr_2029_constraint_gpu_tests {
         out
     }
 
-    /// The per-node constraint index is an optimisation: the full forces, with the index bound and
-    /// with it unbound (the kernel scans every constraint), must agree bit for bit, under both the
-    /// stability-gated kernel and the plain one.
+    /// An index in which every node lists every constraint, ascending. The kernel's loop body still
+    /// tests `node_idx[k] == idx`, so walking this index is the old flat scan, bit for bit. It
+    /// exists only here: the production code has no unindexed walk.
+    fn every_node_lists_every_constraint(
+        g: &UnifiedGPUCompute,
+        constraints: usize,
+    ) -> crate::utils::unified_gpu_compute::constraint_index::ConstraintIndex {
+        let nodes = g.allocated_nodes;
+        crate::utils::unified_gpu_compute::constraint_index::ConstraintIndex {
+            offsets: (0..=nodes).map(|n| (n * constraints) as i32).collect(),
+            ids: (0..nodes).flat_map(|_| 0..constraints as i32).collect(),
+        }
+    }
+
+    /// Non-zero velocity on every node, so the stability kernel's per-node check passes and it
+    /// reaches the constraint loop (a node at rest returns before it).
+    fn set_in_motion(g: &mut UnifiedGPUCompute) {
+        let n = g.vel_in_x.len();
+        let vx: Vec<f32> = (0..n).map(|i| 1.0 + (i % 5) as f32 * 0.25).collect();
+        let vy: Vec<f32> = (0..n).map(|i| -1.0 + (i % 3) as f32 * 0.5).collect();
+        let vz: Vec<f32> = (0..n).map(|i| 0.5 - (i % 7) as f32 * 0.1).collect();
+        g.vel_in_x.copy_from(&vx).expect("vx");
+        g.vel_in_y.copy_from(&vy).expect("vy");
+        g.vel_in_z.copy_from(&vz).expect("vz");
+    }
+
+    /// Settings that keep the system moving under the stability gate: annealing jitter is seeded
+    /// (`c_params.seed`), so it is reproducible, and a cooling rate of 0 never lets it fade.
+    fn moving_settings() -> SimulationParams {
+        SimulationParams {
+            constraint_ramp_frames: 0,
+            temperature: 2.0,
+            cooling_rate: 0.0,
+            ..Default::default()
+        }
+    }
+
+    /// The last step's per-node constraint-force magnitudes, as the kernel wrote them.
+    fn constraint_force(g: &UnifiedGPUCompute) -> Vec<f32> {
+        g.stream.synchronize().expect("sync");
+        let mut out = vec![0f32; g.node_constraint_force.len()];
+        g.node_constraint_force
+            .copy_to(&mut out)
+            .expect("read force");
+        out
+    }
+
+    /// Steps `g` the same way for both the plain (`bypass`) and the stability-gated kernel.
+    fn run_moving(g: &mut UnifiedGPUCompute, bypass: bool) {
+        set_in_motion(g);
+        let settings = moving_settings();
+        for _ in 0..60 {
+            g.execute_physics_step_with_bypass(&settings, bypass)
+                .expect("step");
+        }
+    }
+
+    /// The per-node constraint index is an optimisation: the forces with the production index bound
+    /// and with the all-constraints oracle bound (the old flat scan, reproduced exactly) must agree
+    /// bit for bit, under both the stability-gated kernel and the plain one, and the constraints
+    /// must have moved something in both. The nodes are in motion, so the stability kernel reaches
+    /// its constraint loop: the per-node constraint-force readback proves it did.
     #[test]
     fn the_constraint_index_changes_no_bit_of_the_result() {
         for stability in [true, false] {
+            let bypass = !stability;
             let Some((_c1, mut indexed)) = engine() else {
                 return;
             };
-            let Some((_c2, mut scanned)) = engine() else {
+            let Some((_c2, mut oracle)) = engine() else {
                 return;
             };
             let Some((_c3, mut none)) = engine() else {
                 return;
             };
+            let constraints = mixed_constraints();
             indexed
-                .upload_constraints(&mixed_constraints())
+                .upload_constraints(&constraints)
                 .expect("constraints");
-            scanned
-                .upload_constraints(&mixed_constraints())
+            oracle
+                .upload_constraints(&constraints)
                 .expect("constraints");
-            scanned.bind_constraint_index_pointers(0, 0); // force the legacy full scan
-
-            // Not vacuous: read the two device globals back. Bound on one engine, null on the other.
-            let bound = |g: &UnifiedGPUCompute| -> [u64; 2] {
-                let mut out = [0u64; 2];
-                for (slot, name) in [c"g_constraint_node_offsets", c"g_constraint_node_ids"]
-                    .into_iter()
-                    .enumerate()
-                {
-                    let sym = g
-                        ._module
-                        .get_global::<u64>(name)
-                        .expect("index symbol in PTX");
-                    sym.copy_to(&mut out[slot]).expect("read global");
-                }
-                out
-            };
-            let b = bound(&indexed);
+            let all = every_node_lists_every_constraint(&oracle, constraints.len());
+            oracle
+                .bind_constraint_index(Some(&all))
+                .expect("oracle index");
             assert!(
-                b[0] != 0 && b[1] != 0,
-                "the index is bound on the indexed engine"
+                all.ids.len() > indexed.constraint_node_ids.len(),
+                "the oracle lists far more entries than the real index"
             );
-            assert_eq!(bound(&scanned), [0, 0], "and unbound on the scanning one");
 
-            let settings = SimulationParams {
-                constraint_ramp_frames: 0,
-                ..Default::default()
-            };
-            for _ in 0..FRAMES {
-                for g in [&mut indexed, &mut scanned, &mut none] {
-                    g.execute_physics_step_with_bypass(&settings, !stability)
-                        .expect("step");
-                }
+            for g in [&mut indexed, &mut oracle, &mut none] {
+                run_moving(g, bypass);
             }
             let (a, b, c) = (
                 positions(&mut indexed),
-                positions(&mut scanned),
+                positions(&mut oracle),
                 positions(&mut none),
             );
-            assert_eq!(a, b, "index vs scan (stability gate {stability})");
-            if !stability {
-                // With the gate on, rest at the start may legitimately skip the step.
-                assert_ne!(a, c, "the constraints must have moved something");
-            }
+            assert_eq!(a, b, "index vs the old scan (stability gate {stability})");
+            assert_ne!(
+                a, c,
+                "the constraints moved something (stability gate {stability})"
+            );
+
+            let (fa, fb) = (constraint_force(&indexed), constraint_force(&oracle));
+            assert!(
+                fa.iter().any(|&f| f > 0.0),
+                "the force kernel reached the constraint loop (stability gate {stability})"
+            );
+            assert_eq!(
+                fa, fb,
+                "per-node constraint force (stability gate {stability})"
+            );
+            assert!(
+                constraint_force(&none).iter().all(|&f| f == 0.0),
+                "no constraints, no constraint force"
+            );
         }
+    }
+
+    /// An unbound index means no constraints, never "scan them all": constraints are resident and
+    /// counted, the index is unbound, and the forces are those of an engine without constraints.
+    #[test]
+    fn an_unbound_index_means_no_constraints() {
+        for bypass in [true, false] {
+            let Some((_c1, mut unbound)) = engine() else {
+                return;
+            };
+            let Some((_c2, mut none)) = engine() else {
+                return;
+            };
+            let Some((_c3, mut bound)) = engine() else {
+                return;
+            };
+            unbound
+                .upload_constraints(&mixed_constraints())
+                .expect("constraints");
+            bound
+                .upload_constraints(&mixed_constraints())
+                .expect("constraints");
+            unbound.bind_constraint_index(None).expect("unbind");
+            assert_eq!(unbound.num_constraints, mixed_constraints().len());
+
+            for g in [&mut unbound, &mut none, &mut bound] {
+                run_moving(g, bypass);
+            }
+            assert_eq!(
+                positions(&mut unbound),
+                positions(&mut none),
+                "unbound index, constraints resident (bypass {bypass})"
+            );
+            assert_ne!(
+                positions(&mut bound),
+                positions(&mut none),
+                "the same constraints with the index bound do act (bypass {bypass})"
+            );
+        }
+    }
+
+    /// The kernel-visible index is one 16-byte object, written once, so its two pointers are bound
+    /// together or not at all, and it always matches the resident buffers, through upload, clear
+    /// and a node-capacity resize.
+    #[test]
+    fn the_index_view_is_bound_whole_and_follows_the_buffers() {
+        use crate::utils::unified_gpu_compute::constraint_index::ConstraintIndexView;
+        let Some((_c, mut g)) = engine() else {
+            return;
+        };
+        let view = |g: &UnifiedGPUCompute| -> ConstraintIndexView {
+            let mut out = ConstraintIndexView::default();
+            g._module
+                .get_global::<ConstraintIndexView>(c"g_constraint_index")
+                .expect("g_constraint_index is one 16-byte symbol")
+                .copy_to(&mut out)
+                .expect("read view");
+            out
+        };
+        assert_eq!(view(&g), ConstraintIndexView::default(), "unbound at start");
+
+        g.upload_constraints(&mixed_constraints())
+            .expect("constraints");
+        let v = view(&g);
+        assert_eq!(
+            v.offsets,
+            g.constraint_node_offsets.as_device_ptr().as_raw()
+        );
+        assert_eq!(v.ids, g.constraint_node_ids.as_device_ptr().as_raw());
+        assert!(v.offsets != 0 && v.ids != 0);
+        assert_eq!(g.constraint_node_offsets.len(), g.allocated_nodes + 1);
+
+        let before = g.allocated_nodes;
+        g.resize_buffers(before * 2, before * 4).expect("resize");
+        assert!(g.allocated_nodes > before);
+        let v = view(&g);
+        assert_eq!(
+            v.offsets,
+            g.constraint_node_offsets.as_device_ptr().as_raw()
+        );
+        assert_eq!(v.ids, g.constraint_node_ids.as_device_ptr().as_raw());
+        assert_eq!(
+            g.constraint_node_offsets.len(),
+            g.allocated_nodes + 1,
+            "the index covers the new node capacity"
+        );
+
+        g.clear_constraints().expect("clear");
+        assert_eq!(
+            view(&g),
+            ConstraintIndexView::default(),
+            "unbound after clear"
+        );
+        assert_eq!(g.num_constraints, 0);
+    }
+
+    /// The hold overlay reaches the kernels through `g_edge_rest_snapshot`: bound to the snapshot
+    /// buffer while the springs run, null otherwise, and re-pointed (never left dangling) when a
+    /// resize re-allocates the buffer mid-hold.
+    #[test]
+    fn the_overlay_pointer_follows_the_hold_and_the_buffer() {
+        let Some((_c, mut g)) = engine() else {
+            return;
+        };
+        let bound = |g: &UnifiedGPUCompute| -> u64 {
+            let mut out = 0u64;
+            g._module
+                .get_global::<u64>(c"g_edge_rest_snapshot")
+                .expect("g_edge_rest_snapshot in PTX")
+                .copy_to(&mut out)
+                .expect("read global");
+            out
+        };
+        let settings = moving_settings();
+        assert_eq!(bound(&g), 0);
+        g.set_hold_overlay(true);
+        g.set_hold_springs(true);
+        g.execute_physics_step_with_bypass(&settings, true)
+            .expect("step");
+        assert_eq!(bound(&g), g.edge_rest_snapshot.as_device_ptr().as_raw());
+        assert!(bound(&g) != 0);
+
+        let before = g.allocated_nodes;
+        g.resize_buffers(before * 2, before * 4).expect("resize");
+        assert_eq!(bound(&g), 0, "a resize unbinds the buffer it frees");
+        g.execute_physics_step_with_bypass(&settings, true)
+            .expect("step");
+        assert_eq!(bound(&g), g.edge_rest_snapshot.as_device_ptr().as_raw());
+
+        g.set_hold_springs(false);
+        g.execute_physics_step_with_bypass(&settings, true)
+            .expect("step");
+        assert_eq!(bound(&g), 0, "springs off, overlay off");
+    }
+}
+
+/// The unified PTX is consumed by a second repository (Codescape), which refuses it unless the
+/// force kernels keep the arities it was built against (ADR-2143 I7) and `c_params` stays 212
+/// bytes (ADR-2028). Optional per-launch inputs therefore travel in `__device__` globals
+/// (ADR-2173), not as new kernel parameters. This reads the built PTX itself, so it needs no
+/// device.
+#[cfg(test)]
+mod codescape_abi_tests {
+    /// `.param` count of `.entry <name>(...)` in the PTX text.
+    fn arity(ptx: &str, name: &str) -> usize {
+        let head = format!(".entry {name}(");
+        let start = ptx
+            .find(&head)
+            .unwrap_or_else(|| panic!("no kernel {name} in the PTX"))
+            + head.len();
+        let end = start + ptx[start..].find(')').expect("entry parameter list closes");
+        ptx[start..end].matches(".param").count()
+    }
+
+    #[test]
+    fn the_force_kernels_keep_the_arities_codescape_checks() {
+        let ptx = crate::utils::ptx::load_ptx_sync().expect("unified PTX");
+        assert_eq!(arity(&ptx, "force_pass_kernel"), 30, "ADR-2143 I7");
+        assert_eq!(arity(&ptx, "force_pass_with_stability_kernel"), 29);
+        assert_eq!(arity(&ptx, "integrate_pass_kernel"), 24);
+        assert_eq!(arity(&ptx, "cluster_cohesion_kernel"), 13);
+        assert!(
+            ptx.contains("c_params[212]"),
+            "c_params is the 212-byte SimParams (ADR-2028)"
+        );
+    }
+
+    /// The two optional inputs are globals, and nothing else walks the constraints.
+    #[test]
+    fn the_optional_inputs_are_globals_and_the_dead_kernel_is_gone() {
+        let ptx = crate::utils::ptx::load_ptx_sync().expect("unified PTX");
+        for symbol in ["g_constraint_index", "g_edge_rest_snapshot"] {
+            assert!(
+                ptx.lines()
+                    .any(|l| l.contains(".global") && l.contains(symbol)),
+                "{symbol} is a device global in the PTX"
+            );
+        }
+        assert!(
+            !ptx.contains("blend_semantic_physics_forces"),
+            "the unlaunched flat constraint walk is deleted"
+        );
     }
 }
 

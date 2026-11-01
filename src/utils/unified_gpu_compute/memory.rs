@@ -494,6 +494,9 @@ impl UnifiedGPUCompute {
         self.edge_weights = DeviceBuffer::zeroed(actual_new_edges)?;
         // The overlay's rest lengths are per CSR slot; a resize invalidates them (and the
         // buffer must track allocated_edges or the force pass would read out of bounds).
+        // The force kernels hold the old buffer's address in `g_edge_rest_snapshot`; unbind it
+        // before that buffer is freed. The next step binds the new one.
+        self.bind_edge_rest(0)?;
         self.edge_rest_snapshot = DeviceBuffer::zeroed(actual_new_edges)?;
         self.hold_overlay.invalidate();
         self.force_x = DeviceBuffer::zeroed(actual_new_nodes)?;
@@ -583,9 +586,23 @@ impl UnifiedGPUCompute {
             "Successfully resized GPU buffers to {}/{} allocated nodes/edges",
             actual_new_nodes, actual_new_edges
         );
-        // The index is sized by node capacity, which just changed.
+        // The index is sized by node capacity, which just changed, so the old one must not be read
+        // again. If it cannot be rebuilt, leave the engine with no constraints at all (index
+        // unbound, none counted) rather than an index that no longer matches the buffers.
         if !self.constraints_host.is_empty() {
-            self.rebind_constraint_index();
+            let rebuilt = self.rebuild_constraint_index();
+            if let Err(e) = rebuilt {
+                self.num_constraints = 0;
+                self.constraints_host.clear();
+                if let Err(unbind) = self.bind_constraint_index(None) {
+                    error!(
+                        "could not unbind the constraint index after a failed rebuild: {unbind}"
+                    );
+                }
+                return Err(
+                    e.context("constraint index rebuild after resize failed; constraints dropped")
+                );
+            }
         }
         Ok(())
     }
@@ -616,28 +633,19 @@ impl UnifiedGPUCompute {
             }
         }
 
-        if constraints.len() > self.constraint_data.len() {
-            info!(
-                "Resizing constraint buffer from {} to {} with progressive activation",
-                self.constraint_data.len(),
-                constraints.len()
-            );
+        // Stage everything that can fail, then commit. The kernel-visible write is the last
+        // fallible step; the assignments after it cannot fail. If anything returns `Err`, the
+        // previous constraints, their index and the bound view are all still in place and agree
+        // with each other.
+        let staged_data = DeviceBuffer::from_slice(&constraints)?;
+        let index =
+            super::constraint_index::build_constraint_index(&constraints, self.allocated_nodes);
+        self.log_constraint_index(constraints.len(), &index);
+        self.bind_constraint_index(Some(&index))?;
 
-            let new_constraint_buffer = DeviceBuffer::from_slice(&constraints)?;
-            self.constraint_data = new_constraint_buffer;
-        } else if !constraints.is_empty() {
-            let constraint_len = self.constraint_data.len();
-            let copy_len = constraints.len().min(constraint_len);
-            checked_copy_from(
-                &mut self.constraint_data,
-                &constraints[..copy_len],
-                "constraint_data",
-            )?;
-        }
-
+        self.constraint_data = staged_data;
         self.num_constraints = constraints.len();
         self.constraints_host = constraints;
-        self.rebind_constraint_index();
         debug!(
             "Updated GPU constraints: {} active constraints with progressive activation support",
             self.num_constraints
@@ -645,79 +653,100 @@ impl UnifiedGPUCompute {
         Ok(())
     }
 
-    /// Rebuild the per-node constraint index from `constraints_host` and bind it to the force
-    /// kernels through the `g_constraint_node_offsets` / `g_constraint_node_ids` device globals.
-    ///
-    /// The kernels fall back to scanning every constraint when either global is null, so every
-    /// failure path here unbinds and logs instead of returning an error: the physics stays correct,
-    /// only slower. Globals rather than kernel parameters keep both kernel signatures (and the
-    /// arity guard downstream consumers of the PTX enforce) unchanged.
-    pub(crate) fn rebind_constraint_index(&mut self) {
-        if self.constraints_host.is_empty() {
-            self.bind_constraint_index_pointers(0, 0);
-            return;
-        }
+    /// Rebuild the per-node constraint index from `constraints_host` and bind it. Used when the
+    /// node capacity changes; `set_constraints` builds its own from the incoming set.
+    fn rebuild_constraint_index(&mut self) -> Result<()> {
         let index = super::constraint_index::build_constraint_index(
             &self.constraints_host,
             self.allocated_nodes,
         );
+        self.log_constraint_index(self.constraints_host.len(), &index);
+        self.bind_constraint_index(Some(&index))
+    }
+
+    fn log_constraint_index(
+        &self,
+        constraints: usize,
+        index: &super::constraint_index::ConstraintIndex,
+    ) {
         let (entries, longest, p99) = index.list_stats();
         info!(
             "constraint index: {} constraints -> {} entries over {} node slots; longest node list {} (p99 {})",
-            self.constraints_host.len(),
-            entries,
-            self.allocated_nodes,
-            longest,
-            p99
+            constraints, entries, self.allocated_nodes, longest, p99
         );
-        let uploaded = DeviceBuffer::from_slice(&index.offsets)
-            .and_then(|offsets| DeviceBuffer::from_slice(&index.ids).map(|ids| (offsets, ids)));
-        match uploaded {
-            Ok((offsets, ids)) => {
-                self.constraint_node_offsets = offsets;
-                self.constraint_node_ids = ids;
-                // An empty `ids` buffer (constraints that touch no valid node) is never read, but
-                // its pointer may be null, which the kernel would take as "unbound".
-                let ids_ptr = if index.ids.is_empty() {
-                    self.constraint_node_offsets.as_device_ptr().as_raw()
-                } else {
-                    self.constraint_node_ids.as_device_ptr().as_raw()
-                };
-                let offsets_ptr = self.constraint_node_offsets.as_device_ptr().as_raw();
-                self.bind_constraint_index_pointers(offsets_ptr, ids_ptr);
-            }
-            Err(e) => {
-                warn!("constraint index upload failed ({}); force pass falls back to the full scan", e);
-                self.bind_constraint_index_pointers(0, 0);
-            }
-        }
     }
 
-    /// Write the two device-pointer globals; `0, 0` unbinds (kernel scans every constraint).
-    pub(crate) fn bind_constraint_index_pointers(&mut self, offsets: u64, ids: u64) {
-        for (name, value) in [
-            (c"g_constraint_node_offsets", offsets),
-            (c"g_constraint_node_ids", ids),
-        ] {
-            match self._module.get_global::<u64>(name) {
-                Ok(mut global) => {
-                    if let Err(e) = global.copy_from(&value) {
-                        warn!("could not write {:?}: {}", name, e);
-                    }
-                }
-                Err(e) => {
-                    // A PTX without the symbol predates the index: it scans, which is correct but
-                    // slow, so say so where an operator will see it.
-                    warn!("PTX has no {:?} ({}); constraint index not in use, force pass scans every constraint", name, e);
-                }
-            }
+    /// Upload `index` and make it the one the force kernels read; `None` unbinds it (no
+    /// constraints). The kernel-visible view is written in one 16-byte copy, after the new buffers
+    /// exist and before the old ones are dropped, so there is no moment at which a bound pointer
+    /// refers to freed memory, and no moment at which only one of the two is bound. On `Err`
+    /// nothing has changed.
+    pub(crate) fn bind_constraint_index(
+        &mut self,
+        index: Option<&super::constraint_index::ConstraintIndex>,
+    ) -> Result<()> {
+        use super::constraint_index::ConstraintIndexView;
+        let Some(index) = index else {
+            let empty_offsets = DeviceBuffer::from_slice(&[] as &[i32])?;
+            let empty_ids = DeviceBuffer::from_slice(&[] as &[i32])?;
+            self.write_module_global(c"g_constraint_index", &ConstraintIndexView::default())?;
+            self.constraint_node_offsets = empty_offsets;
+            self.constraint_node_ids = empty_ids;
+            return Ok(());
+        };
+        let offsets = DeviceBuffer::from_slice(&index.offsets)?;
+        let ids = DeviceBuffer::from_slice(&index.ids)?;
+        let view = ConstraintIndexView {
+            offsets: offsets.as_device_ptr().as_raw(),
+            ids: ids.as_device_ptr().as_raw(),
+        };
+        self.write_module_global(c"g_constraint_index", &view)?;
+        self.constraint_node_offsets = offsets;
+        self.constraint_node_ids = ids;
+        Ok(())
+    }
+
+    /// Point the force kernels' `g_edge_rest_snapshot` at `raw` (a device address; 0 = overlay
+    /// off). Writes only when the address differs from the one already bound, so a steady hold
+    /// costs nothing and a re-allocated buffer is picked up on the next step.
+    pub(crate) fn bind_edge_rest(&self, raw: u64) -> Result<()> {
+        use std::sync::atomic::Ordering::Relaxed;
+        if self.edge_rest_bound.load(Relaxed) == raw {
+            return Ok(());
         }
+        self.write_module_global(c"g_edge_rest_snapshot", &raw)?;
+        self.edge_rest_bound.store(raw, Relaxed);
+        Ok(())
+    }
+
+    /// Write one `__device__` global of the force module and wait for the write to land.
+    ///
+    /// The step stream is NON_BLOCKING, so the synchronous host-to-device copy is not ordered
+    /// against it by the legacy default stream; a context synchronise makes the write visible
+    /// before the next launch. These writes happen when a constraint set or a hold changes, not
+    /// per step. A PTX without the symbol is an error: there is no degraded mode.
+    fn write_module_global<T: cust::memory::DeviceCopy>(
+        &self,
+        name: &std::ffi::CStr,
+        value: &T,
+    ) -> Result<()> {
+        let mut global = self
+            ._module
+            .get_global::<T>(name)
+            .map_err(|e| anyhow!("PTX has no {:?}: {}", name, e))?;
+        global
+            .copy_from(value)
+            .map_err(|e| anyhow!("could not write {:?}: {}", name, e))?;
+        cust::context::CurrentContext::synchronize()
+            .map_err(|e| anyhow!("synchronise after writing {:?}: {}", name, e))
     }
 
     pub fn clear_constraints(&mut self) -> Result<()> {
+        // Unbind first: if that fails nothing has changed. After it, "no constraints" is a
+        // consistent state whatever happens to the stale device copy below.
+        self.bind_constraint_index(None)?;
         self.num_constraints = 0;
         self.constraints_host.clear();
-        self.rebind_constraint_index();
 
         let empty_constraints = vec![ConstraintData::default(); self.constraint_data.len()];
         checked_copy_from(

@@ -145,12 +145,23 @@ struct ConstraintData {
 };
 
 // Per-node constraint index (CSR), bound from the host (constraint_index.rs). A node's constraints
-// are g_constraint_node_ids[g_constraint_node_offsets[n] .. g_constraint_node_offsets[n + 1]],
-// ascending, so accumulation order matches the full scan. Device globals rather than kernel
-// parameters keep the kernel arities unchanged. Either pointer null = unbound: scan every
-// constraint (the pre-index behaviour).
-__device__ const int* g_constraint_node_offsets = nullptr;
-__device__ const int* g_constraint_node_ids = nullptr;
+// are ids[offsets[n] .. offsets[n + 1]], ascending, so accumulation order matches a walk over every
+// constraint. The two pointers live in ONE struct that the host writes in a single 16-byte copy, so
+// they are bound together or not at all. `offsets == nullptr` means "no constraints": the loop runs
+// zero times. There is no other way to walk the constraints (ADR-2173). Device globals rather than
+// kernel parameters keep the kernel arities unchanged (Codescape ADR-2143 I7).
+struct ConstraintIndexView {
+    const int* offsets;   // [allocated_nodes + 1]
+    const int* ids;       // [offsets[allocated_nodes]]
+};
+__device__ ConstraintIndexView g_constraint_index = {nullptr, nullptr};
+
+// ADR-2169 amendment (spring mode while held): per-CSR-edge rest length captured when a hold began.
+// nullptr = overlay OFF (the stored LinLog / Hooke behaviour, unchanged). Non-null = ADD a linear
+// spring_k * (dist - rest) * edge_weight * spring_scale on top of the attraction, so the term is
+// exactly zero at the moment of grab. A device global, bound by the host exactly like the constraint
+// index, so `force_pass_kernel` keeps its 30 parameters.
+__device__ const float* g_edge_rest_snapshot = nullptr;
 
 // Constraint kinds enum — LIVE-KERNEL numbering. The OWL→constraint mapper
 // (ADR-098 D1) emits these integers DIRECTLY; it does NOT route through the
@@ -390,6 +401,48 @@ __global__ void compute_cell_bounds_kernel(
 // Force Pass Kernel
 // =============================================================================
 
+// One edge's attraction, shared by force_pass_kernel and force_pass_with_stability_kernel so the
+// stored behaviour (LinLog or Hooke with the optional SSSP rest length) and the ADR-2169 hold overlay
+// are written once. Returns the factor to multiply (neighbour - self) by.
+// `rest_snapshot` is g_edge_rest_snapshot, read once by the caller (nullptr = overlay off).
+__device__ __forceinline__ float edge_spring_scale(
+    const float dist,
+    const float edge_weight,
+    const float s,                               // per-population spring multiplier
+    const bool use_sssp,
+    const float du,
+    const float* __restrict__ d_sssp_dist,
+    const int neighbor_idx,
+    const float* __restrict__ rest_snapshot,
+    const int edge_slot)
+{
+    float spring_force_mag;
+    if (c_params.lin_log_mode) {
+        // LinLog attraction: force = log(1 + dist) * edge_weight. No rest length, so energy
+        // minimisation is equivalent to modularity maximisation.
+        spring_force_mag = log1pf(dist) * edge_weight * s;
+    } else {
+        // Classic Hooke's law spring with optional SSSP-adjusted rest length.
+        float ideal = c_params.rest_length;
+        if (use_sssp) {
+            const float dv = d_sssp_dist[neighbor_idx];
+            // Handle disconnected components gracefully.
+            if (isfinite(du) && isfinite(dv)) {
+                const float delta = fabsf(du - dv);
+                const float norm_delta = fminf(delta, c_params.norm_delta_cap);
+                ideal = fmaf(c_params.sssp_alpha, norm_delta, c_params.rest_length);
+            }
+        }
+        const float displacement = dist - ideal;
+        spring_force_mag = c_params.spring_k * displacement * edge_weight * s;
+    }
+    // Elastic overlay (ADR-2169 amendment): nullptr outside a hold.
+    if (rest_snapshot != nullptr) {
+        spring_force_mag += c_params.spring_k * (dist - rest_snapshot[edge_slot]) * edge_weight * s;
+    }
+    return spring_force_mag / dist;
+}
+
 __global__ void force_pass_kernel(
     const float* __restrict__ pos_in_x,
     const float* __restrict__ pos_in_y,
@@ -408,7 +461,7 @@ __global__ void force_pass_kernel(
     const int num_nodes,
     const float* __restrict__ d_sssp_dist,
     const ConstraintData* __restrict__ constraints,
-    const int num_constraints,
+    const int num_constraints,   // kept for the frozen 30-parameter ABI; the loop is bounded by g_constraint_index
     // Constraint telemetry buffers (optional, can be nullptr)
     float* __restrict__ constraint_violations,   // [num_constraints] violation magnitudes
     float* __restrict__ constraint_energy,       // [num_constraints] energy values
@@ -436,13 +489,7 @@ __global__ void force_pass_kernel(
     const float* __restrict__ node_rank,
     // ADR-141 P2 stratified planes: per-node centered plane offset (nullptr =
     // no bias). NaN = node not assigned to any plane (no force).
-    const float* __restrict__ node_plane,
-    // ADR-2169 amendment (spring mode while held): per-CSR-edge rest length
-    // captured at the moment a hold began. nullptr = overlay OFF (the stored
-    // LinLog behaviour, unchanged). Non-null = ADD a linear spring
-    // spring_k * (dist - rest) * edge_weight * spring_scale on top of the
-    // existing attraction, so the term is exactly zero at the moment of grab.
-    const float* __restrict__ edge_rest_snapshot)  // [num_edges] or nullptr
+    const float* __restrict__ node_plane)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (compute_mask != nullptr) {
@@ -565,6 +612,8 @@ __global__ void force_pass_kernel(
             du = d_sssp_dist[idx];
         }
         
+        const float* __restrict__ rest_snapshot = g_edge_rest_snapshot;
+
         // Unroll edge iteration for better instruction-level parallelism
         #pragma unroll 4
         for (int i = start_edge; i < end_edge; ++i) {
@@ -575,41 +624,12 @@ __global__ void force_pass_kernel(
             const float dist = vec3_length(diff);
 
             if (dist > 1e-6f) {
-                float spring_force_mag;
-                // Per-population spring multiplier (1.0 when buffer absent). Applied to
-                // both paths so the Knowledge/Ontology/Agent spring sliders are live
-                // even in the default LinLog mode (which otherwise ignores spring_k).
+                // Per-population spring multiplier (1.0 when buffer absent). Applied to every
+                // path so the Knowledge/Ontology/Agent spring sliders are live even in the
+                // default LinLog mode (which otherwise ignores spring_k).
                 const float s = (spring_scale != nullptr) ? spring_scale[idx] : 1.0f;
-
-                if (c_params.lin_log_mode) {
-                    // LinLog attraction: force = log(1 + dist) * edge_weight
-                    // No rest length — pure logarithmic attraction.
-                    // This makes energy minimization equivalent to modularity maximization.
-                    spring_force_mag = log1pf(dist) * edge_weights[i] * s;
-                } else {
-                    // Classic Hooke's law spring with optional SSSP-adjusted rest length
-                    float ideal = c_params.rest_length;
-                    if (use_sssp) {
-                        const float dv = d_sssp_dist[neighbor_idx];
-                        // Handle disconnected components gracefully
-                        if (isfinite(du) && isfinite(dv)) {
-                            const float delta = fabsf(du - dv);
-                            const float norm_delta = fminf(delta, c_params.norm_delta_cap);
-                            // Use FMA for ideal distance calculation
-                            ideal = fmaf(c_params.sssp_alpha, norm_delta, c_params.rest_length);
-                        }
-                    }
-                    const float displacement = dist - ideal;
-                    // Use FMA for spring force calculation
-                    spring_force_mag = c_params.spring_k * displacement * edge_weights[i] * s;
-                }
-
-                // Elastic overlay (ADR-2169 amendment): nullptr outside a hold + its settle window.
-                if (edge_rest_snapshot != nullptr) {
-                    spring_force_mag += c_params.spring_k * (dist - edge_rest_snapshot[i]) * edge_weights[i] * s;
-                }
-
-                const float force_scale = spring_force_mag / dist;
+                const float force_scale = edge_spring_scale(dist, edge_weights[i], s, use_sssp, du,
+                                                            d_sssp_dist, neighbor_idx, rest_snapshot, i);
                 total_force.x = fmaf(diff.x, force_scale, total_force.x);
                 total_force.y = fmaf(diff.y, force_scale, total_force.y);
                 total_force.z = fmaf(diff.z, force_scale, total_force.z);
@@ -631,13 +651,12 @@ __global__ void force_pass_kernel(
     // Constraint force accumulation
     float total_constraint_force_magnitude = 0.0f;
     if (c_params.feature_flags & FeatureFlags::ENABLE_CONSTRAINTS) {
-        const int* cn_off = g_constraint_node_offsets;
-        const int* cn_ids = g_constraint_node_ids;
-        const bool cn_indexed = (cn_off != nullptr) && (cn_ids != nullptr);
-        const int cn_begin = cn_indexed ? cn_off[idx] : 0;
-        const int cn_end = cn_indexed ? cn_off[idx + 1] : num_constraints;
+        const ConstraintIndexView cn = g_constraint_index;
+        // Unbound (offsets == nullptr) = no constraints: zero iterations.
+        const int cn_begin = (cn.offsets != nullptr) ? cn.offsets[idx] : 0;
+        const int cn_end = (cn.offsets != nullptr) ? cn.offsets[idx + 1] : 0;
         for (int cn_k = cn_begin; cn_k < cn_end; cn_k++) {
-            const int c = cn_indexed ? cn_ids[cn_k] : cn_k;
+            const int c = cn.ids[cn_k];
             const ConstraintData& constraint = constraints[c];
             
             // Check if this node is involved in this constraint
@@ -2000,73 +2019,6 @@ __global__ void relabel_communities_kernel(
 }
 
 // =============================================================================
-// Semantic Force Kernels - Ontology-Based Physics
-// =============================================================================
-
-/**
- * Blend semantic forces with physics forces using priority weighting
- * Grid: (ceil(num_nodes/256), 1, 1), Block: (256, 1, 1)
- */
-__global__ void blend_semantic_physics_forces(
-    float* __restrict__ force_x,
-    float* __restrict__ force_y,
-    float* __restrict__ force_z,
-    const float3* __restrict__ semantic_forces,
-    const ConstraintData* __restrict__ constraints,
-    const int num_constraints,
-    const int num_nodes)
-{
-    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= num_nodes) return;
-
-    float3 base_force = make_vec3(force_x[idx], force_y[idx], force_z[idx]);
-    float3 semantic_force = semantic_forces[idx];
-
-    // Calculate average priority weight from all constraints involving this node
-    float total_priority = 0.0f;
-    int constraint_count = 0;
-
-    for (int c = 0; c < num_constraints; c++) {
-        const ConstraintData& constraint = constraints[c];
-
-        // Check if this node is involved
-        for (int n = 0; n < constraint.count && n < 4; n++) {
-            if (constraint.node_idx[n] == idx) {
-                // Use weight as priority (0-1 scale, but allow up to 10)
-                total_priority += constraint.weight;
-                constraint_count++;
-                break;
-            }
-        }
-    }
-
-    // Blend forces based on priority
-    float3 final_force;
-    if (constraint_count > 0) {
-        float avg_priority = total_priority / constraint_count;
-        float priority_weight = fminf(avg_priority / 10.0f, 1.0f);
-
-        // Weighted blend: higher priority = more semantic influence
-        final_force = vec3_add(
-            vec3_scale(base_force, 1.0f - priority_weight),
-            vec3_scale(semantic_force, priority_weight)
-        );
-    } else {
-        // No constraints - use base physics force only
-        final_force = base_force;
-    }
-
-    // Safety checks
-    if (!isfinite(final_force.x)) final_force.x = base_force.x;
-    if (!isfinite(final_force.y)) final_force.y = base_force.y;
-    if (!isfinite(final_force.z)) final_force.z = base_force.z;
-
-    force_x[idx] = final_force.x;
-    force_y[idx] = final_force.y;
-    force_z[idx] = final_force.z;
-}
-
-// =============================================================================
 // GPU Stability Gates - Kinetic Energy Monitoring and Early Exit
 // =============================================================================
 
@@ -2288,7 +2240,7 @@ __global__ void force_pass_with_stability_kernel(
     const int num_nodes,
     const float* __restrict__ d_sssp_dist,
     const ConstraintData* __restrict__ constraints,
-    const int num_constraints,
+    const int num_constraints,   // kept for the frozen ABI; the loop is bounded by g_constraint_index
     const int* __restrict__ should_skip_all_physics,
     // FA2: node degree buffer for degree-scaled repulsion (nullptr = use classic repulsion)
     const float* __restrict__ node_degrees,      // [num_nodes] sum of incident edge weights
@@ -2306,13 +2258,7 @@ __global__ void force_pass_with_stability_kernel(
     const float* __restrict__ node_rank,
     // ADR-141 P2 stratified planes: per-node centered plane offset (nullptr =
     // no bias). NaN = node not assigned to any plane (no force).
-    const float* __restrict__ node_plane,
-    // ADR-2169 amendment (spring mode while held): per-CSR-edge rest length
-    // captured at the moment a hold began. nullptr = overlay OFF (the stored
-    // LinLog behaviour, unchanged). Non-null = ADD a linear spring
-    // spring_k * (dist - rest) * edge_weight * spring_scale on top of the
-    // existing attraction, so the term is exactly zero at the moment of grab.
-    const float* __restrict__ edge_rest_snapshot)  // [num_edges] or nullptr
+    const float* __restrict__ node_plane)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (compute_mask != nullptr) {
@@ -2432,6 +2378,8 @@ __global__ void force_pass_with_stability_kernel(
             du = d_sssp_dist[idx];
         }
         
+        const float* __restrict__ rest_snapshot = g_edge_rest_snapshot;
+
         for (int i = start_edge; i < end_edge; ++i) {
             int neighbor_idx = edge_col_indices[i];
             float3 neighbor_pos = make_vec3(pos_in_x[neighbor_idx],
@@ -2442,29 +2390,10 @@ __global__ void force_pass_with_stability_kernel(
             float dist = vec3_length(diff);
 
             if (dist > 1e-6f) {
-                float spring_force_mag;
                 const float s = (spring_scale != nullptr) ? spring_scale[idx] : 1.0f;
-
-                if (c_params.lin_log_mode) {
-                    // LinLog: log(1+d) attraction — modularity-equivalent energy minimization
-                    spring_force_mag = log1pf(dist) * edge_weights[i] * s;
-                } else {
-                    float ideal = c_params.rest_length;
-                    if (use_sssp) {
-                        float dv = d_sssp_dist[neighbor_idx];
-                        if (isfinite(du) && isfinite(dv)) {
-                            float delta = fabsf(du - dv);
-                            float norm_delta = fminf(delta, c_params.norm_delta_cap);
-                            ideal = c_params.rest_length + c_params.sssp_alpha * norm_delta;
-                        }
-                    }
-                    float displacement = dist - ideal;
-                    spring_force_mag = c_params.spring_k * displacement * edge_weights[i] * s;
-                }
-                if (edge_rest_snapshot != nullptr) {
-                    spring_force_mag += c_params.spring_k * (dist - edge_rest_snapshot[i]) * edge_weights[i] * s;
-                }
-                total_force = vec3_add(total_force, vec3_scale(diff, spring_force_mag / dist));
+                const float force_scale = edge_spring_scale(dist, edge_weights[i], s, use_sssp, du,
+                                                            d_sssp_dist, neighbor_idx, rest_snapshot, i);
+                total_force = vec3_add(total_force, vec3_scale(diff, force_scale));
             }
         }
     }
@@ -2480,13 +2409,12 @@ __global__ void force_pass_with_stability_kernel(
     // main-pass `total_constraint_force_magnitude`.
     float total_constraint_force_magnitude = 0.0f;
     if ((c_params.feature_flags & FeatureFlags::ENABLE_CONSTRAINTS) && constraints != nullptr) {
-        const int* cn_off = g_constraint_node_offsets;
-        const int* cn_ids = g_constraint_node_ids;
-        const bool cn_indexed = (cn_off != nullptr) && (cn_ids != nullptr);
-        const int cn_begin = cn_indexed ? cn_off[idx] : 0;
-        const int cn_end = cn_indexed ? cn_off[idx + 1] : num_constraints;
+        const ConstraintIndexView cn = g_constraint_index;
+        // Unbound (offsets == nullptr) = no constraints: zero iterations.
+        const int cn_begin = (cn.offsets != nullptr) ? cn.offsets[idx] : 0;
+        const int cn_end = (cn.offsets != nullptr) ? cn.offsets[idx + 1] : 0;
         for (int cn_k = cn_begin; cn_k < cn_end; cn_k++) {
-            const int c = cn_indexed ? cn_ids[cn_k] : cn_k;
+            const int c = cn.ids[cn_k];
             const ConstraintData& constraint = constraints[c];
 
             // Check if this node is involved
