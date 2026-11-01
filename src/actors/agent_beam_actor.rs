@@ -249,10 +249,7 @@ impl Handler<UpdateBotsGraph> for AgentBeamActor {
     fn handle(&mut self, msg: UpdateBotsGraph, _ctx: &mut Self::Context) -> Self::Result {
         let events = match self.feed.lock() {
             Ok(mut f) => {
-                let events = f.apply(msg.source, &msg.agents, now_wire_ts());
-                for (key, node) in &msg.targets {
-                    f.set_target(key, *node);
-                }
+                let events = f.apply(msg.source, &msg.agents, &msg.targets, now_wire_ts());
                 info!(
                     "AgentBeamActor: roster from {:?}: {} live agents, {} frame(s)",
                     msg.source,

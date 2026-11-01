@@ -217,14 +217,22 @@ impl RosterFeed {
         }
     }
 
-    /// Apply one producer's roster. Returns the frames to broadcast now.
+    /// Apply one producer's roster. Returns the frames to broadcast now. `targets` are the
+    /// producer's work nodes by agent id (the mock roster picks real knowledge nodes); they are
+    /// recorded before any frame is built, so a spawn frame already names its node.
     pub fn apply(
         &mut self,
         source: RosterSource,
         agents: &[Agent],
+        targets: &[(String, u32)],
         now_ts: u32,
     ) -> Vec<AgentActionEvent> {
         let mut out = Vec::new();
+        for (key, node) in targets {
+            if let Some(l) = self.agents.get_mut(key) {
+                l.target = *node;
+            }
+        }
         let mut named: Vec<&Agent> = Vec::with_capacity(agents.len());
         let mut seen = std::collections::HashSet::with_capacity(agents.len());
         for a in agents {
@@ -285,7 +293,10 @@ impl RosterFeed {
                             done,
                             done_at: now_ts,
                             left: false,
-                            target: 0,
+                            target: targets
+                                .iter()
+                                .find(|(k, _)| *k == a.id)
+                                .map_or(0, |(_, n)| *n),
                         },
                     );
                     let st = if done { STATE_DONE } else { STATE_WORKING };
@@ -339,14 +350,6 @@ impl RosterFeed {
             }
         }
         out
-    }
-
-    /// Set a live agent's work node (a producer that knows it, e.g. the mock roster). It
-    /// rides the agent's next state frame and keep-alives.
-    pub fn set_target(&mut self, key: &str, node: u32) {
-        if let Some(l) = self.agents.get_mut(key) {
-            l.target = node;
-        }
     }
 
     /// Re-source a hub action to the roster agent it belongs to, when its metadata names a
@@ -464,10 +467,32 @@ mod tests {
         v["state"].as_str().unwrap().to_string()
     }
 
+    /// F8: a producer that knows an agent's work node (the mock roster) has it on the spawn
+    /// frame itself, so the desktop marker spawns beside its node instead of jumping there on
+    /// the first keep-alive five seconds later.
+    #[test]
+    fn the_spawn_frame_carries_the_producers_target() {
+        let mut f = RosterFeed::new();
+        let out = f.apply(
+            RosterSource::Mock,
+            &[agent("m1", "active")],
+            &[("m1".to_string(), 77)],
+            1_000);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].target_node_id, 77, "the spawn frame already names the work node");
+        // A later roster that names a different node updates it on the next frame.
+        let out = f.apply(
+            RosterSource::Mock,
+            &[agent("m1", "Completed")],
+            &[("m1".to_string(), 78)],
+            2_000);
+        assert_eq!(out[0].target_node_id, 78);
+    }
+
     #[test]
     fn a_spawned_agent_gets_a_working_frame_in_the_real_band() {
         let mut f = RosterFeed::new();
-        let out = f.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], 1_000);
+        let out = f.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], &[], 1_000);
         assert_eq!(out.len(), 1);
         let id = out[0].source_agent_id;
         assert_eq!(id, f.wire_id("task-1").unwrap());
@@ -483,19 +508,18 @@ mod tests {
     #[test]
     fn the_id_is_stable_across_roster_updates_and_derived_from_the_key() {
         let mut f = RosterFeed::new();
-        f.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], 1_000);
+        f.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], &[], 1_000);
         let first = f.wire_id("task-1").unwrap();
         let out = f.apply(
             RosterSource::ManagementApi,
-            &[agent("task-0", "Running"), agent("task-1", "Running")],
-            2_000,
-        );
+            &[agent("task-0", "Running"), agent("task-1", "Running")], &[],
+            2_000);
         assert_eq!(f.wire_id("task-1"), Some(first));
         assert_eq!(out.len(), 1, "only the new agent gets a frame");
         assert_eq!(first & 0x03FF_FFFF, band_id("task-1"));
         // A fresh feed (a server restart) derives the same id.
         let mut g = RosterFeed::new();
-        g.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], 1);
+        g.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], &[], 1);
         assert_eq!(g.wire_id("task-1"), Some(first));
     }
 
@@ -505,10 +529,10 @@ mod tests {
             REAL_AGENT_BASE | 7
         }
         let mut f = RosterFeed::with_hasher(same);
-        f.apply(RosterSource::ManagementApi, &[agent("a", "Running"), agent("b", "Running")], 1);
+        f.apply(RosterSource::ManagementApi, &[agent("a", "Running"), agent("b", "Running")], &[], 1);
         assert_eq!(f.wire_id("a"), Some(AGENT_NODE_FLAG | REAL_AGENT_BASE | 7));
         assert_eq!(f.wire_id("b"), Some(AGENT_NODE_FLAG | REAL_AGENT_BASE | 8));
-        f.apply(RosterSource::ManagementApi, &[agent("b", "Running"), agent("a", "Running")], 2);
+        f.apply(RosterSource::ManagementApi, &[agent("b", "Running"), agent("a", "Running")], &[], 2);
         assert_eq!(f.wire_id("a"), Some(AGENT_NODE_FLAG | REAL_AGENT_BASE | 7));
         assert_eq!(f.wire_id("b"), Some(AGENT_NODE_FLAG | REAL_AGENT_BASE | 8));
     }
@@ -516,8 +540,8 @@ mod tests {
     #[test]
     fn finishing_sends_done_and_keepalives_keep_a_finished_agent_present() {
         let mut f = RosterFeed::new();
-        f.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], 1_000);
-        let out = f.apply(RosterSource::ManagementApi, &[agent("task-1", "Completed")], 2_000);
+        f.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], &[], 1_000);
+        let out = f.apply(RosterSource::ManagementApi, &[agent("task-1", "Completed")], &[], 2_000);
         assert_eq!(out.len(), 1);
         assert_eq!(state_of(&out[0]), STATE_DONE);
         // Nothing for 4.9 s, then a keep-alive with the done state; repeated past the TTL.
@@ -528,7 +552,7 @@ mod tests {
             assert_eq!(state_of(&ka[0]), STATE_DONE);
         }
         // An unchanged roster sends nothing.
-        assert!(f.apply(RosterSource::ManagementApi, &[agent("task-1", "Completed")], 60_000).is_empty());
+        assert!(f.apply(RosterSource::ManagementApi, &[agent("task-1", "Completed")], &[], 60_000).is_empty());
     }
 
     /// Live agentbox lists only `running` tasks (`management-api/utils/process-manager.js`
@@ -538,10 +562,10 @@ mod tests {
     #[test]
     fn leaving_the_roster_is_done_for_the_run_then_one_retired_frame_frees_the_id() {
         let mut f = RosterFeed::new();
-        f.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], 1_000);
+        f.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], &[], 1_000);
         let id = f.wire_id("task-1").unwrap();
 
-        let out = f.apply(RosterSource::ManagementApi, &[], 2_000);
+        let out = f.apply(RosterSource::ManagementApi, &[], &[], 2_000);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].source_agent_id, id);
         assert_eq!(state_of(&out[0]), STATE_DONE);
@@ -552,7 +576,7 @@ mod tests {
         assert_eq!(ka.len(), 1);
         assert_eq!(state_of(&ka[0]), STATE_DONE);
         // Still-absent rosters during the run send nothing new.
-        assert!(f.apply(RosterSource::ManagementApi, &[], 20_000).is_empty());
+        assert!(f.apply(RosterSource::ManagementApi, &[], &[], 20_000).is_empty());
         assert!(f.tick(1, 31_999).is_empty(), "not before the run ends");
 
         let end = f.tick(1, 2_000 + DONE_RUN_MS as u32);
@@ -568,10 +592,10 @@ mod tests {
     #[test]
     fn a_completed_agent_that_then_leaves_retires_when_its_run_ends() {
         let mut f = RosterFeed::new();
-        f.apply(RosterSource::Rest, &[agent("dev-1", "active")], 1_000);
-        let out = f.apply(RosterSource::Rest, &[agent("dev-1", "Completed")], 3_000);
+        f.apply(RosterSource::Rest, &[agent("dev-1", "active")], &[], 1_000);
+        let out = f.apply(RosterSource::Rest, &[agent("dev-1", "Completed")], &[], 3_000);
         assert_eq!(state_of(&out[0]), STATE_DONE);
-        assert!(f.apply(RosterSource::Rest, &[], 4_000).is_empty(), "already done");
+        assert!(f.apply(RosterSource::Rest, &[], &[], 4_000).is_empty(), "already done");
         assert!(f.tick(1, 32_999).is_empty());
         let end = f.tick(1, 3_000 + DONE_RUN_MS as u32);
         assert_eq!(state_of(&end[0]), STATE_RETIRED);
@@ -581,10 +605,10 @@ mod tests {
     #[test]
     fn an_agent_back_in_the_roster_during_its_run_is_working_again() {
         let mut f = RosterFeed::new();
-        f.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], 1_000);
+        f.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], &[], 1_000);
         let id = f.wire_id("task-1").unwrap();
-        f.apply(RosterSource::ManagementApi, &[], 2_000);
-        let back = f.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], 5_000);
+        f.apply(RosterSource::ManagementApi, &[], &[], 2_000);
+        let back = f.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], &[], 5_000);
         assert_eq!(back.len(), 1);
         assert_eq!(state_of(&back[0]), STATE_WORKING);
         assert_eq!(f.wire_id("task-1"), Some(id));
@@ -594,13 +618,13 @@ mod tests {
     #[test]
     fn a_producer_never_retires_another_producers_agents() {
         let mut f = RosterFeed::new();
-        f.apply(RosterSource::Rest, &[agent("dev-1", "active")], 1);
-        let out = f.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], 2);
+        f.apply(RosterSource::Rest, &[agent("dev-1", "active")], &[], 1);
+        let out = f.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], &[], 2);
         assert_eq!(out.len(), 1);
         assert_eq!(state_of(&out[0]), STATE_WORKING);
         assert_eq!(f.len(), 2);
         let task = f.wire_id("task-1").unwrap();
-        let out = f.apply(RosterSource::ManagementApi, &[], 3);
+        let out = f.apply(RosterSource::ManagementApi, &[], &[], 3);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].source_agent_id, task);
         assert_eq!(state_of(&out[0]), STATE_DONE);
@@ -614,7 +638,7 @@ mod tests {
     #[test]
     fn a_hub_action_naming_a_roster_task_joins_that_agent_on_one_clock() {
         let mut f = RosterFeed::new();
-        f.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], 5_000);
+        f.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], &[], 5_000);
         let mut ev = AgentActionEvent {
             source_agent_id: AGENT_NODE_FLAG | 1003,
             target_node_id: 42,
@@ -642,7 +666,7 @@ mod tests {
         let mut f = RosterFeed::new();
         let mut a = agent("task-1", "Running");
         a.did_nostr = Some(format!("did:nostr:{}", "a".repeat(64)));
-        f.apply(RosterSource::ManagementApi, &[a, agent("task-2", "Running")], 1);
+        f.apply(RosterSource::ManagementApi, &[a, agent("task-2", "Running")], &[], 1);
         let v = f.view();
         assert_eq!(v.nodes.len(), 2);
         let n = v.nodes.iter().find(|n| n.metadata_id == "task-1").unwrap();
@@ -659,10 +683,10 @@ mod tests {
         let mut f = RosterFeed::new();
         // Evaluated in order: the feed's state advances spawn → keep-alive → done → retired.
         let frames: Vec<(&str, Vec<AgentActionEvent>)> = vec![
-            ("spawn", f.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], 1_000)),
+            ("spawn", f.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], &[], 1_000)),
             ("keepalive", f.tick(KEEPALIVE_MS, 6_000)),
             // Live agentbox drops a finished task from its list: leaving is the finish.
-            ("done", f.apply(RosterSource::ManagementApi, &[], 7_000)),
+            ("done", f.apply(RosterSource::ManagementApi, &[], &[], 7_000)),
             ("retired", f.tick(1, 7_000 + DONE_RUN_MS as u32)),
         ];
         let json_frames: Vec<serde_json::Value> = frames
