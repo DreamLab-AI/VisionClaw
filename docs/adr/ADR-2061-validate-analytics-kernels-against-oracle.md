@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: d6bdbc67c0a4a605047407cbed8b032162c8b770
+verified_commit: bfaf6e77cd20bef8429d1b9cef11a144af1479c0
 verified_paths: [crates/visionclaw-gpu/src/cuda_sources/gpu_clustering_kernels.cu, crates/visionclaw-gpu/tests/analytics_oracle_conformance.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: Before any claim that Louvain, PageRank or DBSCAN output is trustworthy, or before a release that surfaces community/centrality/cluster values to users; activates when a rebuilt running backend serves Louvain/PageRank/DBSCAN output that is checked against the CPU oracle
@@ -272,4 +272,4 @@ Governed-path delta since `f68ad414f`: `docs/GPU-wire-abi.md` wording only. The 
 
 ## Re-stamp — 2026-11-01 (ADR-2169 item 9, `phys/hold-springs`)
 
-**Governed change:** `GPU-wire-abi.md` gains documentation of the overlay kernel parameter; no analytics kernel or oracle changes. Re-stamped from `2f8a74118` to `d6bdbc67c`. Re-run: `git diff --stat 531df5ef7 d6bdbc67c -- docs/GPU-wire-abi.md` → `1 file changed, 12 insertions(+), 1 deletion(-)`.
+**Governed change:** `GPU-wire-abi.md` gains documentation of the overlay kernel parameter; no analytics kernel or oracle changes. Re-stamped from `2f8a74118` to `bfaf6e77c`. Re-run: `git diff --stat 531df5ef7 bfaf6e77c -- docs/GPU-wire-abi.md` → `1 file changed, 12 insertions(+), 1 deletion(-)`.

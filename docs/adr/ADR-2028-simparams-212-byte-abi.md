@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: d6bdbc67c0a4a605047407cbed8b032162c8b770
+verified_commit: bfaf6e77cd20bef8429d1b9cef11a144af1479c0
 verified_paths: [src/models/simulation_params.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu]
 owner: jjohare
 review_trigger: any new SimParams field, or a driver/toolkit change altering the 212-byte size
@@ -200,4 +200,4 @@ Re-stamped to `b06d44613` (2026-10-31, ADR-2140 review follow-ups). Re-run: `git
 
 ## Re-stamp — 2026-11-01 (ADR-2169 item 9, `phys/hold-springs`)
 
-**Governed change:** the `.cu` file gains `snapshot_edge_rest_kernel` and a trailing nullable `edge_rest_snapshot` parameter on the two force kernels. `SimParams` (212 bytes), its field offsets and the feature word are untouched; the ABI digest tests pass in the full `cargo test --lib` run. Re-stamped from `93302275e` to `d6bdbc67c`. Re-run: `git diff --stat 531df5ef7 d6bdbc67c -- crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu` → `1 file changed, 56 insertions(+), 2 deletions(-)`.
+**Governed change:** the `.cu` file gains `snapshot_edge_rest_kernel` and a trailing nullable `edge_rest_snapshot` parameter on the two force kernels. `SimParams` (212 bytes), its field offsets and the feature word are untouched; the ABI digest tests pass in the full `cargo test --lib` run. Re-stamped from `93302275e` to `bfaf6e77c`. Re-run: `git diff --stat 531df5ef7 bfaf6e77c -- crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu` → `1 file changed, 56 insertions(+), 2 deletions(-)`.

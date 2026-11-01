@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: d6bdbc67c0a4a605047407cbed8b032162c8b770
+verified_commit: bfaf6e77cd20bef8429d1b9cef11a144af1479c0
 verified_paths: [src/models/force_channels.rs, src/utils/unified_gpu_compute/execution.rs, src/models/simulation_params.rs]
 owner: jjohare
 review_trigger: array-backed force-term refactor (deferred step 2), or any new host→GPU conversion path
@@ -251,4 +251,4 @@ Re-stamped to `b06d44613` after merging W2's close-out (2026-10-31). The `From<&
 
 ## Re-stamp — 2026-11-01 (ADR-2169 item 9, `phys/hold-springs`)
 
-**Governed change:** `execution.rs` gains the overlay pointer, the held-only gain (applied to `spring_k` and `max_force` after the feature word is derived) and GPU tests. `derive_dispatch_feature_flags` and `force_channels.rs` are unchanged, so the final feature word is as before; the force-flag tests pass. Re-stamped from `37d1226b1` to `d6bdbc67c`. Re-run: `git diff --stat 531df5ef7 d6bdbc67c -- src/utils/unified_gpu_compute/execution.rs` → `1 file changed, 742 insertions(+), 2 deletions(-)`.
+**Governed change:** `execution.rs` gains the overlay pointer, the held-only gain (applied to `spring_k` and `max_force` after the feature word is derived) and GPU tests. `derive_dispatch_feature_flags` and `force_channels.rs` are unchanged, so the final feature word is as before; the force-flag tests pass. Re-stamped from `37d1226b1` to `bfaf6e77c`. Re-run: `git diff --stat 531df5ef7 bfaf6e77c -- src/utils/unified_gpu_compute/execution.rs` → `1 file changed, 765 insertions(+), 2 deletions(-)`.

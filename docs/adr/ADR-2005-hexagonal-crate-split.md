@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: d6bdbc67c0a4a605047407cbed8b032162c8b770
+verified_commit: bfaf6e77cd20bef8429d1b9cef11a144af1479c0
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -361,4 +361,4 @@ layer assessment does not accept or re-test the new physical behaviour.
 
 ## Re-stamp — 2026-11-01 (ADR-2169 item 9, `phys/hold-springs`)
 
-**Governed change:** `force_compute_actor.rs` gains the `hold_springs` field on `StepOverrides`, one `set_hold_springs` call before the physics step and tests. No crate boundary, member or dependency edge changes; the actor extraction remains partial. Re-stamped from `fcb924be9` to `d6bdbc67c`. Re-run: `git diff --stat 531df5ef7 d6bdbc67c -- src/actors/gpu/force_compute_actor.rs` → `1 file changed, 64 insertions(+)`.
+**Governed change:** `force_compute_actor.rs` gains the `hold_springs` field on `StepOverrides`, one `set_hold_springs` call before the physics step and tests. No crate boundary, member or dependency edge changes; the actor extraction remains partial. Re-stamped from `fcb924be9` to `bfaf6e77c`. Re-run: `git diff --stat 531df5ef7 bfaf6e77c -- src/actors/gpu/force_compute_actor.rs` → `1 file changed, 64 insertions(+)`.

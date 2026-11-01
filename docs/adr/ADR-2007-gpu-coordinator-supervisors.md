@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: d6bdbc67c0a4a605047407cbed8b032162c8b770
+verified_commit: bfaf6e77cd20bef8429d1b9cef11a144af1479c0
 verified_paths: [src/actors/gpu/gpu_manager_actor.rs, src/actors/gpu/mod.rs, src/actors/gpu/context_bus.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: a new GPU subsystem that does not fit the four-supervisor split, or a change to SharedGPUContext distribution
@@ -179,4 +179,4 @@ Governed-path delta since `f68ad414f`: `docs/GPU-wire-abi.md` wording only. The 
 
 ## Re-stamp — 2026-11-01 (ADR-2169 item 9, `phys/hold-springs`)
 
-**Governed change:** `GPU-wire-abi.md` gains the elastic hold-spring overlay section and its item 9 note. The GPU supervisors, their messages and the coordinator are unchanged. Re-stamped from `37d1226b1` to `d6bdbc67c`. Re-run: `git diff --stat 531df5ef7 d6bdbc67c -- docs/GPU-wire-abi.md` → `1 file changed, 12 insertions(+), 1 deletion(-)`.
+**Governed change:** `GPU-wire-abi.md` gains the elastic hold-spring overlay section and its item 9 note. The GPU supervisors, their messages and the coordinator are unchanged. Re-stamped from `37d1226b1` to `bfaf6e77c`. Re-run: `git diff --stat 531df5ef7 bfaf6e77c -- docs/GPU-wire-abi.md` → `1 file changed, 12 insertions(+), 1 deletion(-)`.
