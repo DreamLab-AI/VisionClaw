@@ -84,6 +84,16 @@ pub struct UnifiedGPUCompute {
     pub edge_row_offsets: DeviceBuffer<i32>,
     pub edge_col_indices: DeviceBuffer<i32>,
     pub edge_weights: DeviceBuffer<f32>,
+    /// ADR-2169 amendment (spring mode while held): per-CSR-edge length captured when the
+    /// hold begins. Only read while the springs run (bound through `g_edge_rest_snapshot`);
+    /// sized to `allocated_edges`.
+    pub(crate) edge_rest_snapshot: DeviceBuffer<f32>,
+    /// Elastic-overlay state: active flag, snapshot validity, snapshot count.
+    pub(crate) hold_overlay: super::hold_overlay::HoldOverlay,
+    /// Device address last written to the kernels' `g_edge_rest_snapshot` (0 = overlay off).
+    pub(crate) edge_rest_bound: std::sync::atomic::AtomicU64,
+    /// Multiplier on `spring_k` and `max_force` while the spring term runs (a hold only).
+    pub(crate) hold_spring_gain: f32,
 
     pub(crate) force_x: DeviceBuffer<f32>,
     pub(crate) force_y: DeviceBuffer<f32>,
@@ -122,6 +132,16 @@ pub struct UnifiedGPUCompute {
 
     pub(crate) constraint_data: DeviceBuffer<ConstraintData>,
     pub(crate) num_constraints: usize,
+    /// Host copy of the resident constraints, kept so the per-node index can be rebuilt when the
+    /// node capacity changes (`resize_buffers`).
+    pub(crate) constraints_host: Vec<ConstraintData>,
+    /// How many times `set_constraints` has committed a set to the device. Tests read it to prove
+    /// the actor uploads on change only.
+    pub(crate) constraint_uploads: u64,
+    /// Per-node constraint index (CSR) the force kernels read through the
+    /// `g_constraint_index` device global; see `constraint_index.rs`.
+    pub(crate) constraint_node_offsets: DeviceBuffer<i32>,
+    pub(crate) constraint_node_ids: DeviceBuffer<i32>,
 
     pub sssp_available: bool,
 
@@ -357,6 +377,7 @@ impl UnifiedGPUCompute {
         let edge_row_offsets = DeviceBuffer::zeroed(num_nodes + 1)?;
         let edge_col_indices = DeviceBuffer::zeroed(num_edges)?;
         let edge_weights = DeviceBuffer::zeroed(num_edges)?;
+        let edge_rest_snapshot = DeviceBuffer::zeroed(num_edges)?;
         let force_x = DeviceBuffer::zeroed(num_nodes)?;
         let force_y = DeviceBuffer::zeroed(num_nodes)?;
         let force_z = DeviceBuffer::zeroed(num_nodes)?;
@@ -461,6 +482,10 @@ impl UnifiedGPUCompute {
             edge_row_offsets,
             edge_col_indices,
             edge_weights,
+            edge_rest_snapshot,
+            hold_overlay: Default::default(),
+            edge_rest_bound: std::sync::atomic::AtomicU64::new(0),
+            hold_spring_gain: super::HOLD_SPRING_GAIN,
             force_x,
             force_y,
             force_z,
@@ -486,6 +511,10 @@ impl UnifiedGPUCompute {
 
             constraint_data: DeviceBuffer::from_slice(&[])?,
             num_constraints: 0,
+            constraints_host: Vec::new(),
+            constraint_uploads: 0,
+            constraint_node_offsets: DeviceBuffer::from_slice(&[])?,
+            constraint_node_ids: DeviceBuffer::from_slice(&[])?,
             sssp_available: false,
             sssp_device_distances: None,
             sssp_spring_adjust_enabled: false,

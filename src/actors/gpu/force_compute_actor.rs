@@ -104,6 +104,9 @@ pub struct ForceComputeActor {
 
     /// Cached constraint buffer from OntologyConstraintActor for GPU upload
     cached_constraint_buffer: Vec<crate::models::constraints::ConstraintData>,
+    /// The cache holds a set the engine has not received. Set by every writer of the cache and
+    /// by a new GPU context; cleared only when `set_constraints` returns `Ok`.
+    constraints_dirty: bool,
 
     /// Pre-allocated buffer for position/velocity data (reused every frame to avoid 60Hz allocations)
     position_velocity_buffer: Vec<(Vec3, Vec3)>,
@@ -253,6 +256,7 @@ impl ForceComputeActor {
             stability_warmup_remaining: 600,
             graph_service_addr: None,
             cached_constraint_buffer: Vec::new(),
+            constraints_dirty: false,
             position_velocity_buffer: Vec::with_capacity(10000),
             node_id_buffer: Vec::with_capacity(10000),
             gpu_index_to_node_id: Vec::new(),
@@ -839,6 +843,7 @@ impl ForceComputeActor {
         });
 
         self.shared_context = Some(shared_context);
+        self.constraints_dirty = true; // a new engine holds no constraints
         self.gpu_state.is_initialized = true;
         info!("ForceComputeActor: GPU context self-initialized successfully — GPU physics enabled");
     }
@@ -1646,45 +1651,71 @@ impl ForceComputeActor {
         self.consecutive_bad_frames = 0;
     }
 
-    /// Apply ontology-derived constraint forces to the physics simulation
-    /// This method integrates ontology constraints from the OntologyConstraintActor
-    /// into the physics pipeline, enabling semantic relationships to influence node positions.
-    /// # Implementation Notes
-    /// This is the final integration point for P0-2 ontology constraints. It:
-    /// 1. Retrieves constraint buffer from OntologyConstraintActor (via shared memory/coordination)
-    /// 2. Uploads constraints to GPU via UnifiedGPUCompute::upload_constraints()
-    /// 3. Constraints are automatically applied during execute_physics_step()
+    /// Replace the cached constraint set and mark it for upload. This and a new GPU context are
+    /// the only ways a set becomes pending; `sync_constraints` is the only way it reaches the
+    /// device.
+    pub(crate) fn replace_constraint_cache(
+        &mut self,
+        set: Vec<crate::models::constraints::ConstraintData>,
+    ) {
+        self.cached_constraint_buffer = set;
+        self.constraints_dirty = true;
+    }
+
+    /// Upload the cached set to `gpu` if, and only if, the engine does not already hold it.
     ///
-    /// The constraint buffer contains ConstraintData structs generated from OWL axioms
-    /// by OntologyConstraintTranslator, which are processed by ontology_constraints.cu kernels.
+    /// A step with an unchanged set does no upload work: no clone, no allocation, no
+    /// synchronisation. The set is pending when `constraints_dirty` is set (a writer replaced the
+    /// cache, or the GPU context is new) or when the engine's resident count differs from the
+    /// cache (the engine dropped its constraints, for instance after a failed resize rebuild, or
+    /// another actor replaced them). The count compare is an integer read under the lock the
+    /// caller already holds. Returns whether an upload happened; on `Err` the set stays pending.
+    ///
+    /// An empty cache uploads nothing: clearing the device set belongs to `OntologyConstraintActor`.
+    pub(crate) fn sync_constraints(
+        &mut self,
+        gpu: &mut crate::utils::unified_gpu_compute::UnifiedGPUCompute,
+    ) -> Result<bool, String> {
+        if self.cached_constraint_buffer.is_empty() {
+            return Ok(false);
+        }
+        if !self.constraints_dirty && gpu.num_constraints == self.cached_constraint_buffer.len() {
+            return Ok(false);
+        }
+        gpu.set_constraints(self.cached_constraint_buffer.clone())
+            .map_err(|e| format!("Failed to upload ontology constraints to GPU: {}", e))?;
+        self.constraints_dirty = false;
+        Ok(true)
+    }
+
+    /// Apply ontology-derived constraint forces to the physics simulation: before each step,
+    /// upload the cached set if the engine does not hold it (`sync_constraints`). Once uploaded,
+    /// the constraints act at their stored strength on every step, held, settling, warming up or
+    /// idle; `set_constraints` stamps `activation_frame` once, so the engine's linear ramp-in
+    /// (`constraint_ramp_frames`) runs once per upload.
+    ///
     /// # Thread Safety
-    /// This method uses try_lock() to avoid blocking Tokio threads. If the GPU mutex
-    /// is held, constraint upload is deferred to the next frame. This is acceptable
-    /// because constraint uploads are idempotent and the GPU will apply the cached
-    /// constraints on subsequent physics steps.
+    /// This uses `try_lock()` so it never blocks a Tokio thread. If the GPU mutex is held the
+    /// upload waits for the next frame: the set is still pending, so nothing is lost.
     fn apply_ontology_forces(&mut self) -> Result<(), String> {
         trace!("ForceComputeActor: Applying ontology constraint forces");
 
         // Check if we have a shared context with access to the GPU compute system
         let shared_context = match &self.shared_context {
-            Some(ctx) => ctx,
+            Some(ctx) => Arc::clone(ctx),
             None => {
                 trace!("ForceComputeActor: No shared context available for ontology forces");
                 return Ok(()); // Not an error, just not available yet
             }
         };
 
-        // Use the cached constraint buffer (updated via UpdateOntologyConstraintBuffer message)
-        let constraint_buffer = &self.cached_constraint_buffer;
-
-        // Skip if no constraints to apply
-        if constraint_buffer.is_empty() {
-            trace!("ForceComputeActor: No ontology constraints to apply");
+        // Nothing cached: nothing to upload.
+        if self.cached_constraint_buffer.is_empty() {
             return Ok(());
         }
 
         // Use try_lock() to avoid blocking Tokio threads
-        // If mutex is held by spawn_blocking task, skip this frame (constraints are idempotent)
+        // If the mutex is held by a spawn_blocking task, try again next frame (the set stays pending)
         let mut unified_compute = match shared_context.unified_compute.try_lock() {
             Ok(guard) => guard,
             Err(_) => {
@@ -1695,25 +1726,13 @@ impl ForceComputeActor {
             }
         };
 
-        // Upload constraints to GPU via the LOSSLESS writer (ADR-098 break #4).
-        // set_constraints preserves all four node_idx (the *other* endpoint of
-        // every pairwise constraint, which the old upload_constraints 7-float
-        // round-trip dropped) and all eight params, and stamps activation_frame
-        // so the live constraint_ramp_frames progressive ramp engages. The live
-        // force_pass_kernel constraint loop consumes this buffer directly once
-        // ENABLE_CONSTRAINTS is set (execution.rs).
-        unified_compute
-            .set_constraints(constraint_buffer.clone())
-            .map_err(|e| format!("Failed to upload ontology constraints to GPU: {}", e))?;
+        if self.sync_constraints(&mut unified_compute)? {
+            debug!(
+                "ForceComputeActor: Uploaded {} ontology constraints to GPU",
+                self.cached_constraint_buffer.len()
+            );
+        }
 
-        debug!(
-            "ForceComputeActor: Uploaded {} ontology constraints to GPU",
-            constraint_buffer.len()
-        );
-
-        // Constraints are now on GPU and will be automatically applied
-        // during the next execute_physics_step() call
-        trace!("ForceComputeActor: Ontology constraint upload complete");
         Ok(())
     }
 }
@@ -1921,6 +1940,8 @@ impl Handler<ComputeForces> for ForceComputeActor {
             self.simulation_params.global_speed,
             self.reheat_factor,
         );
+        let elastic_overlay = overrides.elastic_overlay;
+        let hold_springs = overrides.hold_springs;
         let mut sim_params = self.simulation_params.clone();
         sim_params.damping = overrides.damping;
         sim_params.global_speed = overrides.global_speed;
@@ -1991,6 +2012,8 @@ impl Handler<ComputeForces> for ForceComputeActor {
 
                 add_phase(1, mutex_wait);
                 let exec_timer = Instant::now();
+                unified_compute.set_hold_overlay(elastic_overlay);
+                unified_compute.set_hold_springs(hold_springs);
                 let gpu_result = unified_compute.execute_physics_step_with_bypass(&sim_params, stability_bypass);
                 add_phase(2, exec_timer);
                 let execution_duration = step_start.elapsed().as_secs_f64() * 1000.0;
@@ -3365,7 +3388,7 @@ impl Handler<UpdateConstraints> for ForceComputeActor {
             "ForceComputeActor: UpdateConstraints cached {} constraints for the live force_pass_kernel loop",
             constraints.len()
         );
-        self.cached_constraint_buffer = constraints;
+        self.replace_constraint_cache(constraints);
         Ok(())
     }
 }
@@ -3382,7 +3405,7 @@ impl Handler<UploadConstraintsToGPU> for ForceComputeActor {
             "ForceComputeActor: UploadConstraintsToGPU caching {} constraints for the live constraint loop",
             msg.constraint_data.len()
         );
-        self.cached_constraint_buffer = msg.constraint_data;
+        self.replace_constraint_cache(msg.constraint_data);
 
         let deferred = self.apply_ontology_forces().err();
         if let Some(ref e) = deferred {
@@ -3506,7 +3529,7 @@ impl Handler<crate::actors::messages::UpdateOntologyConstraintBuffer> for ForceC
         );
 
         // Update the cached constraint buffer
-        self.cached_constraint_buffer = msg.constraint_buffer;
+        self.replace_constraint_cache(msg.constraint_buffer);
 
         debug!("ForceComputeActor: Ontology constraint buffer cached, will be uploaded to GPU on next physics step");
     }
@@ -3528,6 +3551,7 @@ impl Handler<SetSharedGPUContext> for ForceComputeActor {
         // which is important for clustering and analytics actors that also need
         // the same SharedGPUContext.
         self.shared_context = Some(msg.context);
+        self.constraints_dirty = true; // a new engine holds no constraints
 
         if let Some(addr) = msg.graph_service_addr {
             self.graph_service_addr = Some(addr);
@@ -4292,7 +4316,10 @@ mod hold_physics_tests {
             1.0,
         );
         assert!(during.bypass_stability);
-        assert_eq!(during.damping, 0.9, "damping is always the stored value (owner, 2026-11-01)");
+        assert_eq!(
+            during.damping, 0.9,
+            "damping is always the stored value (owner, 2026-11-01)"
+        );
         assert_eq!(
             during.global_speed, HOLD_GLOBAL_SPEED,
             "the settle window keeps the speed floor (owner, 2026-11-01)"
@@ -4345,6 +4372,56 @@ mod hold_physics_tests {
             strong.global_speed, 3.0,
             "a stored speed above the floor is not lowered"
         );
+    }
+
+    #[test]
+    fn the_elastic_overlay_is_on_for_a_hold_and_its_settle_window_only() {
+        let t0 = Instant::now();
+        let until = Some(t0 + std::time::Duration::from_secs(2));
+        let ov = |held: bool, settle: Option<Instant>, now: Instant| {
+            step_overrides(0, held, settle, now, 0.9, 0.4, 0.0).elastic_overlay
+        };
+        assert!(
+            !ov(false, None, t0),
+            "idle: stored LinLog and adaptive speed"
+        );
+        assert!(ov(true, None, t0), "held");
+        assert!(
+            ov(true, until, t0),
+            "a re-grab inside the settle window stays on"
+        );
+        assert!(
+            ov(false, until, t0 + std::time::Duration::from_millis(1999)),
+            "settling"
+        );
+        assert!(
+            !ov(false, until, t0 + std::time::Duration::from_secs(2)),
+            "off the moment the window ends"
+        );
+        assert!(
+            !ov(false, None, t0 + std::time::Duration::from_secs(1)),
+            "a cancelled settle window (release_settle_until = None) ends it at once"
+        );
+    }
+
+    #[test]
+    fn the_springs_run_while_held_and_stop_at_release_though_verlet_runs_on() {
+        let t0 = Instant::now();
+        let until = Some(t0 + std::time::Duration::from_secs(2));
+        let o = |held: bool, settle: Option<Instant>| {
+            step_overrides(0, held, settle, t0, 0.9, 0.4, 0.0)
+        };
+        assert!(o(true, None).hold_springs, "held: springs on");
+        assert!(
+            o(true, until).hold_springs,
+            "a re-grab inside the window: springs on"
+        );
+        let released = o(false, until);
+        assert!(
+            released.elastic_overlay && !released.hold_springs,
+            "settling: Verlet runs, nothing pulls the node back to its pre-grab shape"
+        );
+        assert!(!o(false, None).hold_springs, "idle: springs off");
     }
 }
 
@@ -4471,6 +4548,12 @@ pub(crate) struct StepOverrides {
     pub global_speed: f32,
     /// Per-step random velocity noise (the settings reheat).
     pub reheat: f32,
+    /// Spring mode while held (ADR-2169 amendment, owner-accepted 2026-11-01): the GPU adds a
+    /// linear spring overlay and integrates with Verlet. On for a hold and its settle window.
+    pub elastic_overlay: bool,
+    /// The overlay's spring term: a hold only. A release ends it so the node is placed where it
+    /// was dropped; the Verlet integrator still runs through the settle window.
+    pub hold_springs: bool,
 }
 
 /// Decide the stability bypass, damping and reheat for one step.
@@ -4479,6 +4562,8 @@ pub(crate) struct StepOverrides {
 ///   withheld: random per-step noise would fight the hand.
 /// * For `RELEASE_SETTLE_WINDOW` after the last release the GPU still steps every tick at the
 ///   same speed floor. Damping is always the stored value (owner, 2026-11-01).
+/// * The elastic spring overlay is on for exactly the same two spans (a hold, then the settle
+///   window) and off otherwise, so LinLog and adaptive speed return when it ends.
 /// * Otherwise the settings warmup and reheat apply as they always did.
 pub(crate) fn step_overrides(
     warmup_remaining: u32,
@@ -4499,6 +4584,8 @@ pub(crate) fn step_overrides(
         },
         damping: base_damping,
         reheat: if any_held || settling { 0.0 } else { reheat },
+        elastic_overlay: any_held || settling,
+        hold_springs: any_held,
     }
 }
 
@@ -4800,6 +4887,78 @@ fn add_phase(slot: usize, since: Instant) {
     );
 }
 
+/// Sub-phases of the `execute` kernel bucket, in launch order. Opt-in (see
+/// [`kernel_stage_profiling`]) because attributing time to a stage means synchronising the stream
+/// at every boundary, which serialises work the GPU would otherwise overlap.
+pub(crate) const KERNEL_STAGE_NAMES: [&str; 10] = [
+    "stability gate",
+    "aabb reduce",
+    "build_grid",
+    "thrust sort",
+    "cell bounds",
+    "force pass",
+    "cohesion",
+    "degree gravity",
+    "semantic",
+    "integrate",
+];
+
+static KERNEL_STAGE_US: [std::sync::atomic::AtomicU64; 10] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 10];
+static KERNEL_STAGE_LAST_US: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static KERNEL_STAGE_FORCED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+fn kernel_stage_epoch() -> Instant {
+    static EPOCH: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    *EPOCH.get_or_init(Instant::now)
+}
+
+/// True when per-stage kernel timing is on: `VISIONCLAW_STEP_STAGES=1` in the environment (read
+/// once), or [`set_kernel_stage_profiling`] (tests).
+pub(crate) fn kernel_stage_profiling() -> bool {
+    static ENV: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    KERNEL_STAGE_FORCED.load(std::sync::atomic::Ordering::Relaxed)
+        || *ENV.get_or_init(|| std::env::var("VISIONCLAW_STEP_STAGES").is_ok_and(|v| v == "1"))
+}
+
+/// Force per-stage kernel timing on or off regardless of the environment.
+#[cfg(test)]
+pub(crate) fn set_kernel_stage_profiling(on: bool) {
+    KERNEL_STAGE_FORCED.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Open a profiled step: stage 0 starts now. No-op unless profiling is on.
+pub(crate) fn kernel_stage_begin() {
+    if kernel_stage_profiling() {
+        KERNEL_STAGE_LAST_US.store(
+            kernel_stage_epoch().elapsed().as_micros() as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    }
+}
+
+/// Close stage `idx`: wait for the stream, charge the time since the previous mark.
+pub(crate) fn kernel_stage_mark(stream: &cust::stream::Stream, idx: usize) {
+    use std::sync::atomic::Ordering::Relaxed;
+    if !kernel_stage_profiling() {
+        return;
+    }
+    let _ = stream.synchronize();
+    let now = kernel_stage_epoch().elapsed().as_micros() as u64;
+    let last = KERNEL_STAGE_LAST_US.swap(now, Relaxed);
+    KERNEL_STAGE_US[idx].fetch_add(now.saturating_sub(last), Relaxed);
+}
+
+/// Drain the per-stage accumulators (microseconds since the last drain).
+pub(crate) fn take_kernel_stage_us() -> [u64; 10] {
+    let mut out = [0u64; 10];
+    for (o, a) in out.iter_mut().zip(KERNEL_STAGE_US.iter()) {
+        *o = a.swap(0, std::sync::atomic::Ordering::Relaxed);
+    }
+    out
+}
+
 /// Rolling timing of the compute step, so "why is the physics tick slow" is a log line and not a
 /// guess. `period` is start-to-start (what the stream rate follows), `gpu` is handler start to
 /// kernels + readback done (includes waiting for the GPU lock), `total` adds the CPU
@@ -4834,9 +4993,20 @@ impl StepTiming {
             .iter()
             .map(|a| a.swap(0, std::sync::atomic::Ordering::Relaxed) as f64 / 1000.0 / n)
             .collect();
+        let stages_us = take_kernel_stage_us();
+        let stages = if stages_us.iter().any(|&u| u > 0) {
+            let parts: Vec<String> = KERNEL_STAGE_NAMES
+                .iter()
+                .zip(stages_us)
+                .map(|(name, u)| format!("{name} {:.2}", u as f64 / 1000.0 / n))
+                .collect();
+            format!(", execute stages (synchronised) [{}]", parts.join(", "))
+        } else {
+            String::new()
+        };
         let line = format!(
-            "ForceComputeActor: step timing (last {} steps, iter {}): period {:.1} ms ({:.1} Hz), kernels+readback {:.1} ms [gate wait {:.1}, mutex wait {:.1}, execute {:.1}, readback {:.1}], total in actor {:.1} ms, outside actor {:.1} ms",
-            self.n, iteration, self.period_ms / n, 1000.0 * n / self.period_ms.max(1e-9), self.gpu_ms / n, ph[0], ph[1], ph[2], ph[3], self.total_ms / n, (self.period_ms - self.total_ms) / n
+            "ForceComputeActor: step timing (last {} steps, iter {}): period {:.1} ms ({:.1} Hz), kernels+readback {:.1} ms [gate wait {:.1}, mutex wait {:.1}, execute {:.1}, readback {:.1}], total in actor {:.1} ms, outside actor {:.1} ms{}",
+            self.n, iteration, self.period_ms / n, 1000.0 * n / self.period_ms.max(1e-9), self.gpu_ms / n, ph[0], ph[1], ph[2], ph[3], self.total_ms / n, (self.period_ms - self.total_ms) / n, stages
         );
         self.period_ms = 0.0;
         self.gpu_ms = 0.0;
@@ -5328,5 +5498,244 @@ mod settlement_tests {
     fn counter_saturates_without_overflow() {
         // A graph parked at rest indefinitely must not panic on counter overflow.
         assert_eq!(FCA::next_stable_frames(u32::MAX, 0.0, EPS), u32::MAX);
+    }
+}
+
+/// Constraint scheduling at the actor: a set is uploaded when it changes and stays active
+/// through holds, the settle window and warm-up. Each test drives the same two calls the live
+/// step makes (`sync_constraints`, then a physics step) against a real engine.
+#[cfg(test)]
+mod constraint_schedule_tests {
+    use super::*;
+    use crate::models::constraints::ConstraintData;
+    use crate::models::simulation_params::SimulationParams;
+    use crate::utils::unified_gpu_compute::UnifiedGPUCompute;
+    use cust::memory::CopyDestination;
+
+    const N: usize = 64;
+
+    fn engine() -> Option<(cust::context::Context, UnifiedGPUCompute)> {
+        let required = std::env::var("VISIONCLAW_GPU_TESTS_REQUIRED").is_ok_and(|v| v == "1");
+        let fail = |what: String| -> Option<(cust::context::Context, UnifiedGPUCompute)> {
+            if required {
+                panic!("[constraint_schedule_tests] needs a CUDA device: {what}");
+            }
+            eprintln!("[constraint_schedule_tests] SKIPPED, {what}");
+            None
+        };
+        let ctx = match cust::quick_init() {
+            Ok(c) => c,
+            Err(e) => return fail(format!("CUDA init failed: {e}")),
+        };
+        let ptx = match crate::utils::ptx::load_ptx_sync() {
+            Ok(p) => p,
+            Err(e) => return fail(format!("no PTX: {e}")),
+        };
+        let mut g = match UnifiedGPUCompute::new(N, N * 2, &ptx) {
+            Ok(g) => g,
+            Err(e) => return fail(format!("no engine: {e}")),
+        };
+        let (mut x, mut y, z) = (vec![0f32; N], vec![0f32; N], vec![0f32; N]);
+        for i in 0..N {
+            // Inside the default viewport bounds, so nothing is clamped onto a wall.
+            x[i] = (i % 8) as f32 * 60.0 - 210.0;
+            y[i] = ((i / 8) % 8) as f32 * 60.0 - 210.0;
+        }
+        g.upload_positions(&x, &y, &z).expect("positions");
+        let offsets: Vec<i32> = (0..=N as i32).collect();
+        let cols: Vec<i32> = (0..N as i32).map(|i| (i + 1) % N as i32).collect();
+        g.upload_edges_csr(&offsets, &cols, &vec![1.0; N])
+            .expect("edges");
+        Some((ctx, g))
+    }
+
+    /// Only constraints can move a node; the ramp is the live default (60 frames).
+    fn settings() -> SimulationParams {
+        SimulationParams {
+            repel_k: 0.0,
+            spring_k: 0.0,
+            center_gravity_k: 0.0,
+            gravity: 0.0,
+            temperature: 0.0,
+            cooling_rate: 0.0,
+            warmup_iterations: 0,
+            constraint_ramp_frames: 60,
+            ..Default::default()
+        }
+    }
+
+    fn pair(a: i32, b: i32) -> ConstraintData {
+        ConstraintData {
+            kind: 0,
+            count: 2,
+            node_idx: [a, b, -1, -1],
+            params: [10.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            weight: 0.5,
+            activation_frame: 0,
+        }
+    }
+
+    fn position(node: i32, target: [f32; 3]) -> ConstraintData {
+        ConstraintData {
+            kind: 1,
+            count: 1,
+            node_idx: [node, -1, -1, -1],
+            params: [target[0], target[1], target[2], 0.0, 0.0, 0.0, 0.0, 0.0],
+            weight: 1.0,
+            activation_frame: 0,
+        }
+    }
+
+    fn set_in_motion(g: &mut UnifiedGPUCompute) {
+        let n = g.vel_in_x.len();
+        let vx: Vec<f32> = (0..n).map(|i| 1.0 + (i % 5) as f32 * 0.25).collect();
+        let vy: Vec<f32> = (0..n).map(|i| -1.0 + (i % 3) as f32 * 0.5).collect();
+        let vz: Vec<f32> = (0..n).map(|i| 0.5 - (i % 7) as f32 * 0.1).collect();
+        g.vel_in_x.copy_from(&vx).expect("vx");
+        g.vel_in_y.copy_from(&vy).expect("vy");
+        g.vel_in_z.copy_from(&vz).expect("vz");
+    }
+
+    /// One live step: the actor's upload decision, then the engine step.
+    fn step(
+        actor: &mut ForceComputeActor,
+        g: &mut UnifiedGPUCompute,
+        s: &SimulationParams,
+        bypass: bool,
+    ) {
+        actor.sync_constraints(g).expect("sync");
+        g.execute_physics_step_with_bypass(s, bypass).expect("step");
+    }
+
+    fn node_force(g: &UnifiedGPUCompute) -> Vec<f32> {
+        g.stream.synchronize().expect("sync");
+        let mut out = vec![0f32; g.node_constraint_force.len()];
+        g.node_constraint_force.copy_to(&mut out).expect("read");
+        out
+    }
+
+    fn pos(g: &mut UnifiedGPUCompute, node: usize) -> [f32; 3] {
+        g.stream.synchronize().expect("sync");
+        let (x, y, z) = g.get_node_positions().expect("positions");
+        [x[node], y[node], z[node]]
+    }
+
+    #[test]
+    fn an_unchanged_set_is_uploaded_once_and_a_change_uploads_once_more() {
+        let Some((_c, mut g)) = engine() else { return };
+        let mut actor = ForceComputeActor::headless();
+        let s = settings();
+        actor.replace_constraint_cache(vec![pair(0, 1)]);
+        for _ in 0..50 {
+            step(&mut actor, &mut g, &s, false);
+        }
+        assert_eq!(
+            g.constraint_uploads, 1,
+            "50 steps of one set must upload it once"
+        );
+        actor.replace_constraint_cache(vec![pair(0, 1), pair(2, 3)]);
+        for _ in 0..50 {
+            step(&mut actor, &mut g, &s, false);
+        }
+        assert_eq!(
+            g.constraint_uploads, 2,
+            "one real change must add exactly one upload"
+        );
+        assert_eq!(g.num_constraints, 2);
+    }
+
+    #[test]
+    fn constraints_act_through_a_hold_the_settle_window_and_warmup() {
+        let t0 = Instant::now();
+        // (label, warmup_remaining, any_held, settle_until)
+        let cases = [
+            ("hold", 0u32, true, None),
+            (
+                "settle window",
+                0,
+                false,
+                Some(t0 + std::time::Duration::from_secs(2)),
+            ),
+            ("warm-up", 30, false, None),
+        ];
+        for (label, warmup, held, settle) in cases {
+            let ov = step_overrides(warmup, held, settle, t0, 0.9, 1.0, 0.0);
+            assert!(ov.bypass_stability, "{label}: the plain kernel runs");
+            let Some((_c, mut g)) = engine() else { return };
+            let mut actor = ForceComputeActor::headless();
+            actor.replace_constraint_cache(vec![pair(0, 1)]);
+            let s = settings();
+            // Read the per-node force on every step after the 60-frame ramp has finished, while
+            // the pair is still closing on its target, and keep the last one that was non-zero.
+            let mut at_full_weight = Vec::new();
+            for i in 0..90 {
+                step(&mut actor, &mut g, &s, ov.bypass_stability);
+                if i >= 60 {
+                    let f = node_force(&g);
+                    if f[0] > 0.0 {
+                        at_full_weight = f;
+                    }
+                }
+            }
+            eprintln!(
+                "{label}: force at full weight {:?}",
+                at_full_weight.get(..2)
+            );
+            assert!(
+                !at_full_weight.is_empty(),
+                "{label}: constrained nodes felt no force after the ramp"
+            );
+            assert!(
+                at_full_weight[1] > 0.0,
+                "{label}: the second node of the pair felt no force"
+            );
+            assert!(
+                at_full_weight
+                    .iter()
+                    .enumerate()
+                    .all(|(i, v)| i < 2 || *v == 0.0),
+                "{label}: no other node feels constraint force"
+            );
+        }
+    }
+
+    #[test]
+    fn a_position_constraint_moves_its_node_toward_the_target() {
+        for bypass in [true, false] {
+            let target = [-300.0, -300.0, 0.0];
+            let node = 63usize;
+            let run = |constrained: bool| -> f32 {
+                let Some((_c, mut g)) = engine() else {
+                    return f32::NAN;
+                };
+                let mut actor = ForceComputeActor::headless();
+                if constrained {
+                    actor.replace_constraint_cache(vec![position(node as i32, target)]);
+                }
+                set_in_motion(&mut g);
+                // Seeded annealing jitter keeps the system above the stability gate, as the
+                // engine tests do; both runs see the same jitter, so only the constraint differs.
+                let s = SimulationParams {
+                    temperature: 2.0,
+                    ..settings()
+                };
+                for _ in 0..120 {
+                    step(&mut actor, &mut g, &s, bypass);
+                }
+                let p = pos(&mut g, node);
+                ((p[0] - target[0]).powi(2)
+                    + (p[1] - target[1]).powi(2)
+                    + (p[2] - target[2]).powi(2))
+                .sqrt()
+            };
+            let (with, without) = (run(true), run(false));
+            if with.is_nan() {
+                return;
+            }
+            assert!(
+                with < without - 1.0,
+                "bypass={bypass}: constrained node ends {with} from its target, control {without}"
+            );
+        }
     }
 }

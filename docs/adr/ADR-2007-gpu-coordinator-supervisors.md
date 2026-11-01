@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 37d1226b10c36c44ba854a3fccfe8dff3785aec5
+verified_commit: 8f796ad8645a6dca5303150273b36de677e1ab70
 verified_paths: [src/actors/gpu/gpu_manager_actor.rs, src/actors/gpu/mod.rs, src/actors/gpu/context_bus.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: a new GPU subsystem that does not fit the four-supervisor split, or a change to SharedGPUContext distribution
@@ -176,3 +176,13 @@ edit. **Still holds.**
 ## Re-verification — 2026-10-31 (`2f8a74118`)
 
 Governed-path delta since `f68ad414f`: `docs/GPU-wire-abi.md` wording only. The build-fallback sentence now says both a failure to launch `nvcc` and a non-zero exit reach the pre-compiled fallback (`ptx_policy::NvccOutcome::needs_fallback`), replacing stale `build.rs` line citations, and the ADR-2030 runtime-identity paragraph now states the check is inert in the runtime images. Nothing this record decides is changed; status axes unchanged. Re-run: `git diff f68ad414f..2f8a74118 -- docs/GPU-wire-abi.md`.
+
+Re-verified at `d184e89fb` after ADR-2173 added a section and an invariant to `docs/GPU-wire-abi.md`: the four supervisors are still spawned in `gpu_manager_actor.rs`, `GPUContextBus` still defines `publish` in `context_bus.rs`, no file under `src/actors/gpu/` changed in that commit, and the doc's "Analytics kernel trust status" section this record cites is unchanged.
+
+## Re-stamp — 2026-11-01 (ADR-2169 item 9, `phys/hold-springs`)
+
+**Governed change:** `GPU-wire-abi.md` gains the elastic hold-spring overlay section and its item 9 note. The GPU supervisors, their messages and the coordinator are unchanged. Re-stamped from `37d1226b1` to `bfaf6e77c`. Re-run: `git diff --stat 531df5ef7 bfaf6e77c -- docs/GPU-wire-abi.md` → `1 file changed, 12 insertions(+), 1 deletion(-)`.
+
+## Re-stamp — 2026-11-01 (integration of `phys/tick-rate` and `phys/hold-springs`, `8f796ad86`)
+
+Re-read against `docs/GPU-wire-abi.md` at this commit: the four supervisors are still spawned in `gpu_manager_actor.rs` (`ResourceSupervisor`, `PhysicsSupervisor`, `AnalyticsSupervisor`, `GraphAnalyticsSupervisor`), `GPUContextBus::publish` is still at `context_bus.rs:92`, and no file under `src/actors/gpu/` that this record cites changed. The doc gained the constraint-index section, the hold-overlay section and invariant 7; its "Analytics kernel trust status" section, which this record cites, is unchanged. Re-run: `git diff --stat 531df5ef7 8f796ad86 -- src/actors/gpu/gpu_manager_actor.rs src/actors/gpu/mod.rs src/actors/gpu/context_bus.rs docs/GPU-wire-abi.md` → `1 file changed, 32 insertions(+), 1 deletion(-)`.

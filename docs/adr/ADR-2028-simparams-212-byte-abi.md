@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 93302275ecab90dfa73284405d331d56a3cd9840
+verified_commit: e2afd65d656977d082382e724198e86d2b8cabdf
 verified_paths: [src/models/simulation_params.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu]
 owner: jjohare
 review_trigger: any new SimParams field, or a driver/toolkit change altering the 212-byte size
@@ -197,3 +197,21 @@ Re-stamped to `b06d44613` (2026-10-31, ADR-2140 review follow-ups). Re-run: `git
 ## Re-stamp — 2026-10-31 (ADR-2140 item 1)
 
 **Governed change:** `From<&PhysicsSettings> for SimParams` now delegates to `SimParams::from(&SimulationParams::from(..))` (ADR-2140 item 1); the `SimParams` struct, its field order, the `== 212` assertion and `SIMPARAMS_MANIFEST` are untouched, and `layout_mode` stays one `u32` (the two new modes take values 6 and 7). **Decision holds.** The ABI manifest tests pass in `cargo test --lib` (1721 passed). Re-run: `git diff --stat 75b72416b 93302275e -- src/models/simulation_params.rs`. Checked by reading that diff against this record's claims; server `cargo test --lib` 1721 passed, 0 failed, 9 ignored, `cargo test -p visionclaw-domain` 317 passed at `93302275e`.
+
+Re-verified at `d184e89fb` after ADR-2173 added two `__device__` pointer globals to `visionclaw_unified.cu`: `static_assert(sizeof(SimParams) == 212)` (line 118) and the Rust `== 212` assertion (`simulation_params.rs:231`) are present and in lockstep; no `c_params` field or kernel signature changed.
+
+## Re-stamp — 2026-11-01 (ADR-2169 item 9, `phys/hold-springs`)
+
+**Governed change:** the `.cu` file gains `snapshot_edge_rest_kernel` and a trailing nullable `edge_rest_snapshot` parameter on the two force kernels. `SimParams` (212 bytes), its field offsets and the feature word are untouched; the ABI digest tests pass in the full `cargo test --lib` run. Re-stamped from `93302275e` to `bfaf6e77c`. Re-run: `git diff --stat 531df5ef7 bfaf6e77c -- crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu` → `1 file changed, 56 insertions(+), 2 deletions(-)`.
+
+## Re-stamp — 2026-11-01 (integration of `phys/tick-rate` and `phys/hold-springs`, `8f796ad86`)
+
+`static_assert(sizeof(SimParams) == 212)` (`visionclaw_unified.cu:118`) and the Rust `== 212` assertion (`simulation_params.rs:231`) are present and in lockstep. The `.cu` file now declares the `ConstraintIndexView` struct, the `g_constraint_index` and `g_edge_rest_snapshot` device globals and the `edge_spring_scale` device function, gains `snapshot_edge_rest_kernel`, and loses `blend_semantic_physics_forces`; no `c_params` field, no `SimParams` offset and no kernel signature changed (`codescape_abi_tests` reads the built PTX: `force_pass_kernel` 30, `force_pass_with_stability_kernel` 29, `c_params[212]`). The ABI digest tests pass in the full `cargo test --lib` run. Re-run: `git diff --stat 531df5ef7 8f796ad86 -- src/models/simulation_params.rs crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu` → `1 file changed, 121 insertions(+), 119 deletions(-)`.
+
+## Re-stamp — 2026-11-01 (comment-only follow-up, `1ec762f39`)
+
+Comment-only change since `8f796ad86` (the commit the tests and measurements in the previous stamp ran at): `git diff 8f796ad86 1ec762f39 -- crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu src/utils/unified_gpu_compute/execution.rs` is 3 comment lines in the `.cu` file and 1 doc-comment line in `execution.rs`, no code token. The `.cu` still compiles with `nvcc -ptx`, and its PTX still has `force_pass_kernel` at 30 parameters, `force_pass_with_stability_kernel` at 29, `c_params[212]` and no `blend_semantic_physics_forces`. Re-run: `git diff --stat 531df5ef7 1ec762f39 -- src/models/simulation_params.rs crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu` → `1 file changed, 122 insertions(+), 119 deletions(-)`.
+
+## Re-stamp — 2026-11-01 (constraint scheduling, `e2afd65d6`)
+
+Re-read against `visionclaw_unified.cu` at `e2afd65d6`: the file gains `constraint_ramp_multiplier` and a POSITION branch plus the ramp in `force_pass_with_stability_kernel`. No `c_params` field, no `SimParams` offset and no kernel signature changed: `force_pass_kernel` 30, `force_pass_with_stability_kernel` 29, `c_params[212]` in the built PTX; `static_assert(sizeof(SimParams) == 212)` unchanged. Re-run: `git diff --stat 7fbcd997b e2afd65d6 -- crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu`.

@@ -174,6 +174,7 @@ impl UnifiedGPUCompute {
         let _thread_context =
             Context::new(self.device).map_err(|e| anyhow!("Failed to set CUDA context: {}", e))?;
 
+        crate::actors::gpu::force_compute_actor::kernel_stage_begin();
         params.iteration = self.iteration;
         let block_size = Self::kernel_block_size();
         let grid_size = (self.num_nodes as u32).div_ceil(block_size);
@@ -300,6 +301,8 @@ impl UnifiedGPUCompute {
             }
         }
 
+        crate::actors::gpu::force_compute_actor::kernel_stage_mark(&self.stream, 0);
+
         crate::utils::gpu_diagnostics::validate_kernel_launch(
             "unified_gpu_execute",
             grid_size,
@@ -337,6 +340,7 @@ impl UnifiedGPUCompute {
             &mut block_results,
             "aabb_block_results read",
         )?;
+        crate::actors::gpu::force_compute_actor::kernel_stage_mark(&self.stream, 1);
 
         let mut aabb = Aabb {
             min: [f32::MAX; 3],
@@ -578,6 +582,8 @@ impl UnifiedGPUCompute {
             ))?;
         }
 
+        crate::actors::gpu::force_compute_actor::kernel_stage_mark(&self.stream, 2);
+
         // Persistent grid-sort output buffers (allocated once in new()/resize_buffers,
         // reused every frame). `sort_keys_out` receives the sorted cell keys;
         // `sort_values_out` receives the sorted node indices and is ping-ponged with
@@ -613,6 +619,7 @@ impl UnifiedGPUCompute {
         // Sorted node indices now live in sort_values_out; swap them into
         // sorted_node_indices for downstream kernels (ping-pong, no allocation).
         std::mem::swap(&mut self.sorted_node_indices, &mut self.sort_values_out);
+        crate::actors::gpu::force_compute_actor::kernel_stage_mark(&self.stream, 3);
 
         if self.cell_start.len() != self.zero_buffer.len() {
             return Err(anyhow!(
@@ -648,6 +655,8 @@ impl UnifiedGPUCompute {
                 num_grid_cells as i32
             ))?;
         }
+
+        crate::actors::gpu::force_compute_actor::kernel_stage_mark(&self.stream, 4);
 
         let force_kernel_name = if params.stability_threshold > 0.0 {
             "force_pass_with_stability_kernel"
@@ -701,6 +710,35 @@ impl UnifiedGPUCompute {
         } else {
             (DevicePointer::<i32>::null(), 0i32, grid_size)
         };
+
+        // ADR-2169 amendment (spring mode while held): when the overlay switches on, capture
+        // every edge's current length on the GPU (one thread per node, no host round-trip), so
+        // the overlay term is exactly zero at the moment of grab. The kernels read the buffer
+        // through the `g_edge_rest_snapshot` global; address 0 switches the overlay off.
+        let edge_rest_raw = if self.hold_overlay.springs_active() {
+            if self.hold_overlay.snapshot_due() {
+                let snapshot_kernel = self._module.get_function("snapshot_edge_rest_kernel")?;
+                // SAFETY: positions and the CSR are valid buffers of >= num_nodes / num_edges
+                // entries; `edge_rest_snapshot` is sized to `allocated_edges` (kept in step by
+                // the resize path), and the CSR row ranges bound every write.
+                unsafe {
+                    launch!(
+                        snapshot_kernel<<<grid_size, block_size, 0, stream>>>(
+                        self.pos_in_x.as_device_ptr(),
+                        self.pos_in_y.as_device_ptr(),
+                        self.pos_in_z.as_device_ptr(),
+                        self.edge_row_offsets.as_device_ptr(),
+                        self.edge_col_indices.as_device_ptr(),
+                        self.edge_rest_snapshot.as_device_ptr(),
+                        self.num_nodes as i32
+                    ))?;
+                }
+            }
+            self.edge_rest_snapshot.as_device_ptr().as_raw()
+        } else {
+            0
+        };
+        self.bind_edge_rest(edge_rest_raw)?;
 
         unsafe {
             if params.stability_threshold > 0.0 {
@@ -788,6 +826,8 @@ impl UnifiedGPUCompute {
         // Cluster cohesion: gentle attraction toward cluster centroids.
         // cluster_strength IS the raw kernel coefficient — no magic scale; clamp
         // to the valid contract range [0, 0.02]. The slider has full authority.
+        crate::actors::gpu::force_compute_actor::kernel_stage_mark(&self.stream, 5);
+
         let cohesion_strength = params.cluster_strength.clamp(0.0, 0.02);
         if cohesion_strength > 0.0001 {
             // Community-driven cohesion (Leiden default / Louvain). Communities are
@@ -869,6 +909,8 @@ impl UnifiedGPUCompute {
         // Degree-weighted gravity correction: replaces uniform centering with
         // degree-aware gravity for connected nodes and peripheral shell force
         // for isolated nodes. Only runs when degree weights have been uploaded.
+        crate::actors::gpu::force_compute_actor::kernel_stage_mark(&self.stream, 6);
+
         if self.degree_weights_available && params.center_gravity_k > 0.0 {
             if let Ok(dw_gravity_kernel) =
                 self._module.get_function("degree_weighted_gravity_kernel")
@@ -916,6 +958,8 @@ impl UnifiedGPUCompute {
         // Semantic forces: add the ontology-derived forces to the live force buffers before
         // integration, exactly as configured in the central settings store. Present only after
         // `enable_semantic`; `semantic_active` is false when every force is switched off.
+        crate::actors::gpu::force_compute_actor::kernel_stage_mark(&self.stream, 7);
+
         if self.semantic_active {
             if let Some(sem) = &self.semantic {
                 if sem.num_nodes() == self.num_nodes {
@@ -939,6 +983,8 @@ impl UnifiedGPUCompute {
                 }
             }
         }
+
+        crate::actors::gpu::force_compute_actor::kernel_stage_mark(&self.stream, 8);
 
         let integrate_pass_kernel = self._module.get_function(self.integrate_pass_kernel_name)?;
         let stream = &self.stream;
@@ -981,6 +1027,8 @@ impl UnifiedGPUCompute {
                 self.pinned_mask.as_device_ptr()
             ))?;
         }
+
+        crate::actors::gpu::force_compute_actor::kernel_stage_mark(&self.stream, 9);
 
         let completion_event = cust::event::Event::new(cust::event::EventFlags::DEFAULT)?;
         completion_event.record(&self.stream)?;
@@ -1046,6 +1094,30 @@ impl UnifiedGPUCompute {
         Ok(())
     }
 
+    /// Switch the elastic spring overlay (ADR-2169 amendment, "spring mode while held") on or
+    /// off for the next step. Call it every step with "any node held, or inside the settle
+    /// window". The first step after it turns on snapshots every edge length on the GPU.
+    pub fn set_hold_overlay(&mut self, on: bool) {
+        self.hold_overlay.set_active(on);
+    }
+
+    /// Switch the overlay's spring term on or off for the next step: on while a node is held,
+    /// off through the settle window. A release therefore places the node: the snapshot is not
+    /// consulted again, and the next hold takes a fresh one. Needs `set_hold_overlay(true)`.
+    pub fn set_hold_springs(&mut self, on: bool) {
+        self.hold_overlay.set_springs(on);
+    }
+
+    /// Override the held-only spring gain (calibration and tests).
+    pub fn set_hold_spring_gain(&mut self, gain: f32) {
+        self.hold_spring_gain = gain;
+    }
+
+    /// Edge-length snapshots taken so far (diagnostics and tests).
+    pub fn hold_overlay_snapshot_count(&self) -> u64 {
+        self.hold_overlay.snapshot_count()
+    }
+
     pub fn execute_physics_step(
         &mut self,
         params: &crate::models::simulation_params::SimulationParams,
@@ -1081,6 +1153,18 @@ impl UnifiedGPUCompute {
         // never reached the GPU kernel.
         let mut sim_params = params.to_sim_params();
         sim_params.feature_flags = feature_flags;
+        // Spring mode while held: the integrator takes the Verlet path so the pull is not
+        // divided by FA2 swing. The stored `adaptive_speed` setting is untouched and applies
+        // again as soon as the overlay ends.
+        if self.hold_overlay.is_active() {
+            sim_params.adaptive_speed = 0;
+        }
+        // Held-only gain: the spring is `gain` times stronger and its force cap scales with it,
+        // or the cap would still saturate the pull at the stored `max_force / spring_k` stretch.
+        if self.hold_overlay.springs_active() {
+            sim_params.spring_k *= self.hold_spring_gain;
+            sim_params.max_force *= self.hold_spring_gain;
+        }
 
         // When stability_bypass is true, disable the GPU stability check so physics
         // runs unconditionally. This prevents the check_system_stability_kernel from
@@ -1797,61 +1881,348 @@ mod grid_gpu_tests {
         }
     }
 
-    /// Measurement: where one physics step's time goes at the live graph size. Run with
-    /// `--ignored --nocapture`.
+    const LIVE_NODES: usize = 9_688;
+    const LIVE_EDGES: usize = 147_048;
+    /// Live constraint count (OWL mapper: 96,742 = 20,000 sibling-alignment + the rest
+    /// DISTANCE / SEPARATION). Override with `TICK_CONSTRAINTS` (0 disables).
+    const LIVE_CONSTRAINTS: usize = 96_742;
+    /// ASSUMPTION: the ontology nodes the constraints touch are a skewed subset of the graph.
+    const CONSTRAINT_NODE_POOL: usize = 3_000;
+
+    /// xorshift64*: deterministic, so before/after runs see the same graph.
+    struct BenchRng(u64);
+    impl BenchRng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 >> 12;
+            self.0 ^= self.0 << 25;
+            self.0 ^= self.0 >> 27;
+            self.0.wrapping_mul(0x2545_F491_4F6C_DD1D)
+        }
+        fn unit(&mut self) -> f32 {
+            (self.next() >> 40) as f32 / (1u64 << 24) as f32
+        }
+    }
+
+    /// Barabasi-Albert preferential attachment, then trimmed/padded to exactly `LIVE_EDGES` edges.
+    fn synthetic_edges(rng: &mut BenchRng) -> Vec<(usize, usize)> {
+        let m = LIVE_EDGES / LIVE_NODES; // 15
+        let mut targets: Vec<usize> = (0..=m).collect(); // repeated-endpoint urn
+        let mut edges = Vec::with_capacity(LIVE_EDGES + LIVE_NODES);
+        for a in 0..=m {
+            for b in (a + 1)..=m {
+                edges.push((a, b));
+            }
+        }
+        for v in (m + 1)..LIVE_NODES {
+            let mut picked = Vec::with_capacity(m);
+            while picked.len() < m {
+                let t = targets[(rng.next() as usize) % targets.len()];
+                if t != v && !picked.contains(&t) {
+                    picked.push(t);
+                }
+            }
+            for t in picked {
+                edges.push((v, t));
+                targets.push(v);
+                targets.push(t);
+            }
+        }
+        while edges.len() < LIVE_EDGES {
+            let a = (rng.next() as usize) % LIVE_NODES;
+            let b = (rng.next() as usize) % LIVE_NODES;
+            if a != b {
+                edges.push((a, b));
+            }
+        }
+        edges.truncate(LIVE_EDGES);
+        edges
+    }
+
+    /// Live-sized constraint set: 20,000 ALIGNMENT (7, params[0] = axis), then alternating
+    /// DISTANCE (0) / SEPARATION (6). Endpoints are drawn from a squared-uniform skew over the
+    /// first `CONSTRAINT_NODE_POOL` nodes, so a few class nodes are hubs.
+    fn synthetic_constraints(
+        rng: &mut BenchRng,
+        n: usize,
+    ) -> Vec<crate::models::constraints::ConstraintData> {
+        let pick = |rng: &mut BenchRng| {
+            let u = rng.unit();
+            ((u * u * CONSTRAINT_NODE_POOL as f32) as i32).min(CONSTRAINT_NODE_POOL as i32 - 1)
+        };
+        (0..n)
+            .map(|i| {
+                let (a, mut b) = (pick(rng), pick(rng));
+                if a == b {
+                    b = (a + 1) % CONSTRAINT_NODE_POOL as i32;
+                }
+                let mut c = crate::models::constraints::ConstraintData {
+                    count: 2,
+                    node_idx: [a, b, 0, 0],
+                    weight: 0.5,
+                    ..crate::models::constraints::ConstraintData::default()
+                };
+                if i < 20_000 {
+                    c.kind = 7;
+                    c.params[0] = (i % 3) as f32;
+                } else if i % 2 == 0 {
+                    c.kind = 0;
+                    c.params[0] = 30.0;
+                } else {
+                    c.kind = 6;
+                    c.params[0] = 60.0;
+                }
+                c
+            })
+            .collect()
+    }
+
+    /// `TICK_HUB=n` appends n DISTANCE constraints to node 0, a class node with n children. With the
+    /// per-node index a node's thread walks its own list serially, so the longest list bounds the step.
+    fn with_hub(
+        mut v: Vec<crate::models::constraints::ConstraintData>,
+    ) -> Vec<crate::models::constraints::ConstraintData> {
+        let hub: usize = std::env::var("TICK_HUB")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(0);
+        let mut rng = BenchRng(99);
+        for _ in 0..hub {
+            let b = 1 + (rng.next() as usize % (CONSTRAINT_NODE_POOL - 1)) as i32;
+            v.push(crate::models::constraints::ConstraintData {
+                kind: 0,
+                count: 2,
+                node_idx: [0, b, -1, -1],
+                params: [30.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                weight: 0.5,
+                ..crate::models::constraints::ConstraintData::default()
+            });
+        }
+        v
+    }
+
+    fn live_shape_graph() -> UnifiedGPUCompute {
+        let ptx = crate::utils::ptx::load_ptx_sync().expect("unified PTX");
+        let mut rng = BenchRng(0x9E37_79B9_7F4A_7C15);
+        let edges = synthetic_edges(&mut rng);
+
+        let mut adj: Vec<Vec<(i32, f32)>> = vec![Vec::new(); LIVE_NODES];
+        for &(a, b) in &edges {
+            adj[a].push((b as i32, 1.0));
+            adj[b].push((a as i32, 1.0));
+        }
+        let mut row = vec![0i32; LIVE_NODES + 1];
+        let (mut col, mut w) = (Vec::new(), Vec::new());
+        for (i, l) in adj.iter().enumerate() {
+            for &(t, wt) in l {
+                col.push(t);
+                w.push(wt);
+            }
+            row[i + 1] = col.len() as i32;
+        }
+
+        // Random points in a ball: the same start the live graph is seeded from.
+        let (mut px, mut py, mut pz) = (
+            vec![0f32; LIVE_NODES],
+            vec![0f32; LIVE_NODES],
+            vec![0f32; LIVE_NODES],
+        );
+        for i in 0..LIVE_NODES {
+            loop {
+                let (x, y, z) = (
+                    rng.unit() * 2.0 - 1.0,
+                    rng.unit() * 2.0 - 1.0,
+                    rng.unit() * 2.0 - 1.0,
+                );
+                if x * x + y * y + z * z <= 1.0 {
+                    (px[i], py[i], pz[i]) = (x * 400.0, y * 400.0, z * 400.0);
+                    break;
+                }
+            }
+        }
+
+        let mut gpu =
+            UnifiedGPUCompute::new(LIVE_NODES, col.len(), &ptx).expect("GPU compute on device 0");
+        gpu.initialize_graph(&row, &col, &w, [&px, &py, &pz], LIVE_NODES, col.len())
+            .expect("graph upload");
+        // Same degree weighting the actor uploads (log(1+deg), median-normalised).
+        let dw: Vec<f32> = (0..LIVE_NODES)
+            .map(|i| (1.0 + (row[i + 1] - row[i]) as f32).ln())
+            .collect();
+        let mut sorted: Vec<f32> = dw.iter().copied().filter(|&x| x > 1e-6).collect();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let norm = 1.0 / sorted[sorted.len() / 2];
+        let dw: Vec<f32> = dw.iter().map(|&x| x * norm).collect();
+        gpu.upload_degree_weights(&dw).expect("degree weights");
+        gpu
+    }
+
+    /// The settings the live backend logs on its first step.
+    fn live_params() -> crate::models::simulation_params::SimulationParams {
+        let mut p = crate::models::simulation_params::SimulationParams::new();
+        p.dt = 0.016;
+        p.damping = 0.9;
+        p.repel_k = 343.98535;
+        p.spring_k = 12.0;
+        p.center_gravity_k = 0.2;
+        // Attribution knobs for the remaining force-pass cost: TICK_REPEL_K=0 / TICK_SPRING_K=0.
+        if let Some(v) = std::env::var("TICK_REPEL_K")
+            .ok()
+            .and_then(|v| v.parse().ok())
+        {
+            p.repel_k = v;
+        }
+        if let Some(v) = std::env::var("TICK_SPRING_K")
+            .ok()
+            .and_then(|v| v.parse().ok())
+        {
+            p.spring_k = v;
+        }
+        p
+    }
+
+    fn timed_steps(
+        gpu: &mut UnifiedGPUCompute,
+        actor: &mut crate::actors::gpu::force_compute_actor::ForceComputeActor,
+        p: &crate::models::simulation_params::SimulationParams,
+        bypass: bool,
+        steps: usize,
+    ) -> f64 {
+        let t = std::time::Instant::now();
+        for _ in 0..steps {
+            // The live per-step path: the actor decides whether the engine needs the set.
+            actor.sync_constraints(gpu).expect("sync constraints");
+            gpu.execute_physics_step_with_bypass(p, bypass)
+                .expect("step");
+        }
+        t.elapsed().as_secs_f64() * 1000.0 / steps as f64
+    }
+
+    fn repeated(
+        gpu: &mut UnifiedGPUCompute,
+        actor: &mut crate::actors::gpu::force_compute_actor::ForceComputeActor,
+        p: &crate::models::simulation_params::SimulationParams,
+        bypass: bool,
+        label: &str,
+    ) -> f64 {
+        let v: Vec<f64> = (0..3)
+            .map(|_| timed_steps(gpu, actor, p, bypass, 150))
+            .collect();
+        let (lo, hi) = (
+            v.iter().cloned().fold(f64::MAX, f64::min),
+            v.iter().cloned().fold(f64::MIN, f64::max),
+        );
+        let mean = v.iter().sum::<f64>() / 3.0;
+        println!(
+            "{label:<34} {mean:7.2} ms/step = {:6.1} Hz   (3 reps x150, min {lo:.2} max {hi:.2})",
+            1000.0 / mean
+        );
+        mean
+    }
+
+    /// Measurement: where one physics step's time goes on a graph with the live dev shape
+    /// (9,688 nodes, 147,048 undirected edges with a preferential-attachment degree distribution,
+    /// 96,742 ontology constraints). Reports held / idle ms per step and Hz, the readback, then the
+    /// per-stage breakdown from `StepTiming`'s kernel sub-phases (synchronised at each boundary, so
+    /// reported separately from the plain timing). `TICK_HUB=n` adds n constraints on node 0 to
+    /// find the hub-list slope; `TICK_CONSTRAINTS=0` runs without constraints; `TICK_MIN_HZ` turns
+    /// the report into an assertion. Every step makes the actor's upload decision before it
+    /// steps (`sync_constraints`), as the live tick does, and the test fails if the steady state
+    /// uploads the unchanged set. Run with `--ignored --nocapture`, on a spare device.
     #[test]
     #[ignore = "timing measurement; run explicitly with --ignored --nocapture"]
     fn step_stage_timings_at_the_live_graph_size() {
-        const M: usize = 9478;
-        let _ctx = cust::quick_init().expect("cuda");
-        let ptx = crate::utils::ptx::load_ptx_sync().expect("ptx");
-        let mut g = UnifiedGPUCompute::new(M, M * 2, &ptx).expect("gpu");
-        let mut seed = 5u64;
-        let (mut x, mut y, mut z) = (vec![0f32; M], vec![0f32; M], vec![0f32; M]);
-        for i in 0..M {
-            x[i] = (lcg(&mut seed) - 0.5) * 600.0;
-            y[i] = (lcg(&mut seed) - 0.5) * 400.0;
-            z[i] = (lcg(&mut seed) - 0.5) * 400.0;
-        }
-        g.upload_positions(&x, &y, &z).unwrap();
-        let n = M as i32;
-        let offsets: Vec<i32> = (0..=n).map(|i| i * 2).collect();
-        let mut cols = Vec::new();
-        for i in 0..n {
-            cols.push((i + n - 1) % n);
-            cols.push((i + 1) % n);
-        }
-        g.upload_edges_csr(&offsets, &cols, &vec![1.0; M * 2])
-            .unwrap();
-        let mut p = SimParams::new();
-        p.stability_threshold = 0.0;
-        p.repulsion_cutoff = 400.0;
-        let time = |label: &str, reps: u32, f: &mut dyn FnMut()| {
-            let t0 = std::time::Instant::now();
-            for _ in 0..reps {
-                f();
-            }
-            println!(
-                "STEP_TIMING {label:<28} {:8.2} ms",
-                t0.elapsed().as_secs_f64() * 1000.0 / reps as f64
-            );
+        use crate::actors::gpu::force_compute_actor::{
+            set_kernel_stage_profiling, take_kernel_stage_us, KERNEL_STAGE_NAMES,
         };
-        for _ in 0..3 {
-            g.execute(p).unwrap();
+        let env = |k: &str| std::env::var(k).ok().and_then(|v| v.parse::<f64>().ok());
+        let n_constraints = env("TICK_CONSTRAINTS").map_or(LIVE_CONSTRAINTS, |v| v as usize);
+        let _ctx = cust::quick_init().expect("cuda");
+        let mut gpu = live_shape_graph();
+        let mut actor = crate::actors::gpu::force_compute_actor::ForceComputeActor::headless();
+        let mut p = live_params();
+        p.cluster_strength = 0.0; // keep the Louvain refresh out of the steady-state numbers
+        println!("nodes={LIVE_NODES} undirected_edges={LIVE_EDGES} constraints={n_constraints}");
+
+        // Let the layout leave its random-ball start so the grid density is realistic.
+        timed_steps(&mut gpu, &mut actor, &p, true, 400);
+        println!("-- WITHOUT constraints");
+        let (mut held, mut idle) = (
+            repeated(&mut gpu, &mut actor, &p, true, "HELD (stability bypass)"),
+            repeated(&mut gpu, &mut actor, &p, false, "IDLE (stability gate)"),
+        );
+        if n_constraints > 0 {
+            let cs = with_hub(synthetic_constraints(&mut BenchRng(7), n_constraints));
+            let (_, longest, p99) =
+                super::super::constraint_index::build_constraint_index(&cs, LIVE_NODES)
+                    .list_stats();
+            actor.replace_constraint_cache(cs);
+            // The first step uploads the set; every step after it must find it resident.
+            timed_steps(&mut gpu, &mut actor, &p, true, 100);
+            let uploads_before = gpu.constraint_uploads;
+            println!("-- WITH {n_constraints} constraints (+TICK_HUB): longest node list {longest}, p99 {p99}");
+            held = repeated(&mut gpu, &mut actor, &p, true, "HELD (stability bypass)");
+            idle = repeated(&mut gpu, &mut actor, &p, false, "IDLE (stability gate)");
+            println!(
+                "UPLOADS in the steady state: {} (set uploaded once at warm-up: {})",
+                gpu.constraint_uploads - uploads_before,
+                uploads_before
+            );
+            assert_eq!(
+                gpu.constraint_uploads, uploads_before,
+                "the steady state re-uploaded an unchanged constraint set"
+            );
+            assert_eq!(
+                uploads_before, 1,
+                "the set must reach the device exactly once"
+            );
         }
-        time("execute (kernels, no sync)", 20, &mut || {
-            g.execute(p).unwrap();
-        });
-        time("execute + stream sync", 20, &mut || {
-            g.execute(p).unwrap();
-            g.stream.synchronize().unwrap();
-        });
-        time("get_node_positions (D2H)", 20, &mut || {
-            let _ = g.get_node_positions().unwrap();
-        });
-        time("update_positions_only (H2D)", 20, &mut || {
-            g.update_positions_only(&x, &y, &z).unwrap();
-        });
+
+        // Idle must actually integrate: a stability skip would return early and flatter the number.
+        let before = gpu.get_node_positions().unwrap().0;
+        timed_steps(&mut gpu, &mut actor, &p, false, 5);
+        let after = gpu.get_node_positions().unwrap().0;
+        let moved = before.iter().zip(&after).filter(|(a, b)| a != b).count();
+        println!(
+            "IDLE integrates: {moved}/{} nodes moved in 5 steps",
+            before.len()
+        );
+        assert!(
+            moved > 0,
+            "the idle run integrated nothing; its timing is a skip, not a step"
+        );
+
+        let t = std::time::Instant::now();
+        for _ in 0..50 {
+            gpu.get_node_positions().unwrap();
+            gpu.get_node_velocities().unwrap();
+        }
+        println!(
+            "READBACK pos+vel: {:.2} ms",
+            t.elapsed().as_secs_f64() * 1000.0 / 50.0
+        );
+
+        set_kernel_stage_profiling(true);
+        let _ = take_kernel_stage_us();
+        let prof_steps = 100;
+        let prof = timed_steps(&mut gpu, &mut actor, &p, true, prof_steps);
+        set_kernel_stage_profiling(false);
+        let us = take_kernel_stage_us();
+        println!("STAGES (held, synchronised at each boundary; total {prof:.2} ms/step):");
+        for (name, u) in KERNEL_STAGE_NAMES.iter().zip(us.iter()) {
+            println!(
+                "  {name:<16} {:8.3} ms",
+                *u as f64 / 1000.0 / prof_steps as f64
+            );
+        }
+
+        if let Some(min_hz) = env("TICK_MIN_HZ").filter(|&v| v > 0.0) {
+            assert!(
+                1000.0 / held >= min_hz && 1000.0 / idle >= min_hz,
+                "tick rate below {min_hz} Hz: held {:.1} Hz, idle {:.1} Hz",
+                1000.0 / held,
+                1000.0 / idle
+            );
+        }
     }
 
     /// A pinned node must DRAG its graph neighbours: the spring between a held node and its
@@ -2262,7 +2633,7 @@ mod grid_gpu_tests {
 
 /// ADR-2029: the effect of `ENABLE_CONSTRAINTS` on positions, observed on the device.
 ///
-/// The kernel loops `for c < num_constraints`, so with nothing resident the bit is moot;
+/// The kernel walks the per-node constraint index, which is empty with nothing resident, so the bit is moot;
 /// to isolate the *bit* these tests keep the same constraint resident and change only
 /// `feature_flags`, calling `execute` directly. Every other force is zero, so only the
 /// constraint loop can move a node. A further test shows that the physics-step authority
@@ -2478,6 +2849,362 @@ mod adr_2029_constraint_gpu_tests {
         }
         assert_eq!(positions(&mut cleared), baseline);
     }
+
+    /// A mixed constraint set over most of the 64 nodes: hubs in several constraints, a node in two
+    /// slots of one constraint, a padded slot beyond `count`, and all of DISTANCE, SEPARATION and
+    /// ALIGNMENT, so every branch of the per-node loop is exercised.
+    fn mixed_constraints() -> Vec<ConstraintData> {
+        let mut out = Vec::new();
+        for i in 0..N as i32 {
+            let j = (i * 7 + 3) % N as i32;
+            let k = (i * 13 + 5) % N as i32;
+            out.push(ConstraintData {
+                kind: 0,
+                count: 2,
+                node_idx: [i, j, -1, -1],
+                params: [TARGET_GAP, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                weight: 0.5,
+                activation_frame: 0,
+            });
+            out.push(ConstraintData {
+                kind: 6,
+                count: 2,
+                node_idx: [i, k, -1, -1],
+                params: [90.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                weight: 0.5,
+                activation_frame: 0,
+            });
+            out.push(ConstraintData {
+                kind: 7,
+                count: 2,
+                node_idx: [j, k, -1, -1],
+                params: [(i % 3) as f32, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                weight: 0.5,
+                activation_frame: 0,
+            });
+        }
+        // Node 4 in two slots of one constraint; node 9 only in a padded slot (count 1).
+        out.push(ConstraintData {
+            kind: 0,
+            count: 3,
+            node_idx: [4, 4, 11, -1],
+            params: [TARGET_GAP, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            weight: 0.5,
+            activation_frame: 0,
+        });
+        out.push(ConstraintData {
+            kind: 1,
+            count: 1,
+            node_idx: [20, 9, -1, -1],
+            params: [10.0, 10.0, 10.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            weight: 0.5,
+            activation_frame: 0,
+        });
+        out
+    }
+
+    /// An index in which every node lists every constraint, ascending. The kernel's loop body still
+    /// tests `node_idx[k] == idx`, so walking this index is the old flat scan, bit for bit. It
+    /// exists only here: the production code has no unindexed walk.
+    fn every_node_lists_every_constraint(
+        g: &UnifiedGPUCompute,
+        constraints: usize,
+    ) -> crate::utils::unified_gpu_compute::constraint_index::ConstraintIndex {
+        let nodes = g.allocated_nodes;
+        crate::utils::unified_gpu_compute::constraint_index::ConstraintIndex {
+            offsets: (0..=nodes).map(|n| (n * constraints) as i32).collect(),
+            ids: (0..nodes).flat_map(|_| 0..constraints as i32).collect(),
+        }
+    }
+
+    /// Non-zero velocity on every node, so the stability kernel's per-node check passes and it
+    /// reaches the constraint loop (a node at rest returns before it).
+    fn set_in_motion(g: &mut UnifiedGPUCompute) {
+        let n = g.vel_in_x.len();
+        let vx: Vec<f32> = (0..n).map(|i| 1.0 + (i % 5) as f32 * 0.25).collect();
+        let vy: Vec<f32> = (0..n).map(|i| -1.0 + (i % 3) as f32 * 0.5).collect();
+        let vz: Vec<f32> = (0..n).map(|i| 0.5 - (i % 7) as f32 * 0.1).collect();
+        g.vel_in_x.copy_from(&vx).expect("vx");
+        g.vel_in_y.copy_from(&vy).expect("vy");
+        g.vel_in_z.copy_from(&vz).expect("vz");
+    }
+
+    /// Settings that keep the system moving under the stability gate: annealing jitter is seeded
+    /// (`c_params.seed`), so it is reproducible, and a cooling rate of 0 never lets it fade.
+    fn moving_settings() -> SimulationParams {
+        SimulationParams {
+            constraint_ramp_frames: 0,
+            temperature: 2.0,
+            cooling_rate: 0.0,
+            ..Default::default()
+        }
+    }
+
+    /// The last step's per-node constraint-force magnitudes, as the kernel wrote them.
+    fn constraint_force(g: &UnifiedGPUCompute) -> Vec<f32> {
+        g.stream.synchronize().expect("sync");
+        let mut out = vec![0f32; g.node_constraint_force.len()];
+        g.node_constraint_force
+            .copy_to(&mut out)
+            .expect("read force");
+        out
+    }
+
+    /// Steps `g` the same way for both the plain (`bypass`) and the stability-gated kernel.
+    fn run_moving(g: &mut UnifiedGPUCompute, bypass: bool) {
+        set_in_motion(g);
+        let settings = moving_settings();
+        for _ in 0..60 {
+            g.execute_physics_step_with_bypass(&settings, bypass)
+                .expect("step");
+        }
+    }
+
+    /// The per-node constraint index is an optimisation: the forces with the production index bound
+    /// and with the all-constraints oracle bound (the old flat scan, reproduced exactly) must agree
+    /// bit for bit, under both the stability-gated kernel and the plain one, and the constraints
+    /// must have moved something in both. The nodes are in motion, so the stability kernel reaches
+    /// its constraint loop: the per-node constraint-force readback proves it did.
+    #[test]
+    fn the_constraint_index_changes_no_bit_of_the_result() {
+        for stability in [true, false] {
+            let bypass = !stability;
+            let Some((_c1, mut indexed)) = engine() else {
+                return;
+            };
+            let Some((_c2, mut oracle)) = engine() else {
+                return;
+            };
+            let Some((_c3, mut none)) = engine() else {
+                return;
+            };
+            let constraints = mixed_constraints();
+            indexed
+                .upload_constraints(&constraints)
+                .expect("constraints");
+            oracle
+                .upload_constraints(&constraints)
+                .expect("constraints");
+            let all = every_node_lists_every_constraint(&oracle, constraints.len());
+            oracle
+                .bind_constraint_index(Some(&all))
+                .expect("oracle index");
+            assert!(
+                all.ids.len() > indexed.constraint_node_ids.len(),
+                "the oracle lists far more entries than the real index"
+            );
+
+            for g in [&mut indexed, &mut oracle, &mut none] {
+                run_moving(g, bypass);
+            }
+            let (a, b, c) = (
+                positions(&mut indexed),
+                positions(&mut oracle),
+                positions(&mut none),
+            );
+            assert_eq!(a, b, "index vs the old scan (stability gate {stability})");
+            assert_ne!(
+                a, c,
+                "the constraints moved something (stability gate {stability})"
+            );
+
+            let (fa, fb) = (constraint_force(&indexed), constraint_force(&oracle));
+            assert!(
+                fa.iter().any(|&f| f > 0.0),
+                "the force kernel reached the constraint loop (stability gate {stability})"
+            );
+            assert_eq!(
+                fa, fb,
+                "per-node constraint force (stability gate {stability})"
+            );
+            assert!(
+                constraint_force(&none).iter().all(|&f| f == 0.0),
+                "no constraints, no constraint force"
+            );
+        }
+    }
+
+    /// An unbound index means no constraints, never "scan them all": constraints are resident and
+    /// counted, the index is unbound, and the forces are those of an engine without constraints.
+    #[test]
+    fn an_unbound_index_means_no_constraints() {
+        for bypass in [true, false] {
+            let Some((_c1, mut unbound)) = engine() else {
+                return;
+            };
+            let Some((_c2, mut none)) = engine() else {
+                return;
+            };
+            let Some((_c3, mut bound)) = engine() else {
+                return;
+            };
+            unbound
+                .upload_constraints(&mixed_constraints())
+                .expect("constraints");
+            bound
+                .upload_constraints(&mixed_constraints())
+                .expect("constraints");
+            unbound.bind_constraint_index(None).expect("unbind");
+            assert_eq!(unbound.num_constraints, mixed_constraints().len());
+
+            for g in [&mut unbound, &mut none, &mut bound] {
+                run_moving(g, bypass);
+            }
+            assert_eq!(
+                positions(&mut unbound),
+                positions(&mut none),
+                "unbound index, constraints resident (bypass {bypass})"
+            );
+            assert_ne!(
+                positions(&mut bound),
+                positions(&mut none),
+                "the same constraints with the index bound do act (bypass {bypass})"
+            );
+        }
+    }
+
+    /// The kernel-visible index is one 16-byte object, written once, so its two pointers are bound
+    /// together or not at all, and it always matches the resident buffers, through upload, clear
+    /// and a node-capacity resize.
+    #[test]
+    fn the_index_view_is_bound_whole_and_follows_the_buffers() {
+        use crate::utils::unified_gpu_compute::constraint_index::ConstraintIndexView;
+        let Some((_c, mut g)) = engine() else {
+            return;
+        };
+        let view = |g: &UnifiedGPUCompute| -> ConstraintIndexView {
+            let mut out = ConstraintIndexView::default();
+            g._module
+                .get_global::<ConstraintIndexView>(c"g_constraint_index")
+                .expect("g_constraint_index is one 16-byte symbol")
+                .copy_to(&mut out)
+                .expect("read view");
+            out
+        };
+        assert_eq!(view(&g), ConstraintIndexView::default(), "unbound at start");
+
+        g.upload_constraints(&mixed_constraints())
+            .expect("constraints");
+        let v = view(&g);
+        assert_eq!(
+            v.offsets,
+            g.constraint_node_offsets.as_device_ptr().as_raw()
+        );
+        assert_eq!(v.ids, g.constraint_node_ids.as_device_ptr().as_raw());
+        assert!(v.offsets != 0 && v.ids != 0);
+        assert_eq!(g.constraint_node_offsets.len(), g.allocated_nodes + 1);
+
+        let before = g.allocated_nodes;
+        g.resize_buffers(before * 2, before * 4).expect("resize");
+        assert!(g.allocated_nodes > before);
+        let v = view(&g);
+        assert_eq!(
+            v.offsets,
+            g.constraint_node_offsets.as_device_ptr().as_raw()
+        );
+        assert_eq!(v.ids, g.constraint_node_ids.as_device_ptr().as_raw());
+        assert_eq!(
+            g.constraint_node_offsets.len(),
+            g.allocated_nodes + 1,
+            "the index covers the new node capacity"
+        );
+
+        g.clear_constraints().expect("clear");
+        assert_eq!(
+            view(&g),
+            ConstraintIndexView::default(),
+            "unbound after clear"
+        );
+        assert_eq!(g.num_constraints, 0);
+    }
+
+    /// The hold overlay reaches the kernels through `g_edge_rest_snapshot`: bound to the snapshot
+    /// buffer while the springs run, null otherwise, and re-pointed (never left dangling) when a
+    /// resize re-allocates the buffer mid-hold.
+    #[test]
+    fn the_overlay_pointer_follows_the_hold_and_the_buffer() {
+        let Some((_c, mut g)) = engine() else {
+            return;
+        };
+        let bound = |g: &UnifiedGPUCompute| -> u64 {
+            let mut out = 0u64;
+            g._module
+                .get_global::<u64>(c"g_edge_rest_snapshot")
+                .expect("g_edge_rest_snapshot in PTX")
+                .copy_to(&mut out)
+                .expect("read global");
+            out
+        };
+        let settings = moving_settings();
+        assert_eq!(bound(&g), 0);
+        g.set_hold_overlay(true);
+        g.set_hold_springs(true);
+        g.execute_physics_step_with_bypass(&settings, true)
+            .expect("step");
+        assert_eq!(bound(&g), g.edge_rest_snapshot.as_device_ptr().as_raw());
+        assert!(bound(&g) != 0);
+
+        let before = g.allocated_nodes;
+        g.resize_buffers(before * 2, before * 4).expect("resize");
+        assert_eq!(bound(&g), 0, "a resize unbinds the buffer it frees");
+        g.execute_physics_step_with_bypass(&settings, true)
+            .expect("step");
+        assert_eq!(bound(&g), g.edge_rest_snapshot.as_device_ptr().as_raw());
+
+        g.set_hold_springs(false);
+        g.execute_physics_step_with_bypass(&settings, true)
+            .expect("step");
+        assert_eq!(bound(&g), 0, "springs off, overlay off");
+    }
+}
+
+/// The unified PTX is consumed by a second repository (Codescape), which refuses it unless the
+/// force kernels keep the arities it was built against (ADR-2143 I7) and `c_params` stays 212
+/// bytes (ADR-2028). Optional per-launch inputs therefore travel in `__device__` globals
+/// (ADR-2173), not as new kernel parameters. This reads the built PTX itself, so it needs no
+/// device.
+#[cfg(test)]
+mod codescape_abi_tests {
+    /// `.param` count of `.entry <name>(...)` in the PTX text.
+    fn arity(ptx: &str, name: &str) -> usize {
+        let head = format!(".entry {name}(");
+        let start = ptx
+            .find(&head)
+            .unwrap_or_else(|| panic!("no kernel {name} in the PTX"))
+            + head.len();
+        let end = start + ptx[start..].find(')').expect("entry parameter list closes");
+        ptx[start..end].matches(".param").count()
+    }
+
+    #[test]
+    fn the_force_kernels_keep_the_arities_codescape_checks() {
+        let ptx = crate::utils::ptx::load_ptx_sync().expect("unified PTX");
+        assert_eq!(arity(&ptx, "force_pass_kernel"), 30, "ADR-2143 I7");
+        assert_eq!(arity(&ptx, "force_pass_with_stability_kernel"), 29);
+        assert_eq!(arity(&ptx, "integrate_pass_kernel"), 24);
+        assert_eq!(arity(&ptx, "cluster_cohesion_kernel"), 13);
+        assert!(
+            ptx.contains("c_params[212]"),
+            "c_params is the 212-byte SimParams (ADR-2028)"
+        );
+    }
+
+    /// The two optional inputs are globals, and nothing else walks the constraints.
+    #[test]
+    fn the_optional_inputs_are_globals_and_the_dead_kernel_is_gone() {
+        let ptx = crate::utils::ptx::load_ptx_sync().expect("unified PTX");
+        for symbol in ["g_constraint_index", "g_edge_rest_snapshot"] {
+            assert!(
+                ptx.lines()
+                    .any(|l| l.contains(".global") && l.contains(symbol)),
+                "{symbol} is a device global in the PTX"
+            );
+        }
+        assert!(
+            !ptx.contains("blend_semantic_physics_forces"),
+            "the unlaunched flat constraint walk is deleted"
+        );
+    }
 }
 
 /// ADR-2140 item 1, the GPU receipt: set a layout mode through the physics patch path, then read
@@ -2679,5 +3406,700 @@ mod adr_2140_layout_mode_gpu_tests {
         assert_eq!(dev.center_gravity_k, 0.05);
         assert_eq!(dev.sssp_alpha, 0.3);
         assert_eq!((dev.layer_bias_k, dev.layer_spacing), (2.5, 33.0));
+    }
+}
+
+/// ADR-2169 amendment ("spring mode while held", owner-accepted 2026-11-01): the elastic overlay
+/// must make a held node's graph neighbours follow it, with no lurch at the moment of grab.
+///
+/// The fixture is a hub with 12 first-hop neighbours (each with a ring link and 3 leaf nodes,
+/// so each neighbour has 4 other springs) and 36 second-hop leaves. It is settled with the
+/// stored LinLog and adaptive-speed behaviour, then the hub is pinned and dragged along +X
+/// exactly as the actor drags a held node (position rewritten every step, integration skipped).
+///
+/// These tests need a CUDA device. Like the other GPU modules here they print `SKIPPED` without
+/// one; set `VISIONCLAW_GPU_TESTS_REQUIRED=1` to make a missing device or PTX a failure instead
+/// (the GPU CI lane, and the evidence runs for ADR-2169).
+#[cfg(test)]
+mod hold_spring_overlay_gpu_tests {
+    use super::*;
+    use crate::models::simulation_params::SimulationParams;
+
+    /// A hub with `nb` first-hop neighbours, each with `leaves` second-hop leaves and a ring
+    /// link, so every neighbour has `leaves + 1` other springs besides the hub's.
+    #[derive(Clone, Copy)]
+    struct Shape {
+        nb: usize,
+        leaves: usize,
+        /// Edge weight on every link (live median 1.1).
+        weight: f32,
+        /// Node mass (live: `0.5 + 2w`, about 2.7).
+        mass: f32,
+        /// Hop-3 nodes, one hung off each of the first `far` leaves: the "far graph" that a
+        /// placed node must leave undisturbed.
+        far: usize,
+    }
+
+    impl Shape {
+        fn n(self) -> usize {
+            1 + self.nb + self.nb * self.leaves + self.far
+        }
+        fn far_node(self, k: usize) -> usize {
+            1 + self.nb + self.nb * self.leaves + k
+        }
+        fn leaf(self, nb: usize, k: usize) -> usize {
+            1 + self.nb + (nb - 1) * self.leaves + k
+        }
+    }
+
+    /// The spec's small graph: neighbours with a few other springs.
+    const SMALL: Shape = Shape {
+        nb: 12,
+        leaves: 3,
+        weight: 1.0,
+        mass: 1.0,
+        far: 0,
+    };
+    /// Live-like: neighbours carry about 30 other springs (the live graph's typical degree).
+    const DENSE: Shape = Shape {
+        nb: 60,
+        leaves: 30,
+        weight: 1.0,
+        mass: 1.0,
+        far: 0,
+    };
+    /// The live hub probe's shape: a hub of about 1,200 neighbours, each with a ring link and 17
+    /// leaves (live median degree 19), the live median weight 1.1 and mass about 2.7.
+    const PROBE: Shape = Shape {
+        nb: 1200,
+        leaves: 17,
+        weight: 1.1,
+        mass: 2.7,
+        far: 4000,
+    };
+
+    const DRAG: f32 = 60.0;
+    const DRAG_STEPS: usize = 180;
+    const HOLD_STEPS: usize = 120;
+
+    /// Stored live values (`data/settings.yaml`): LinLog and adaptive speed on, springK 12,
+    /// damping 0.9, maxForce 150, maxVelocity 100, dt 0.016. `global_speed` is the held floor.
+    fn stored_params() -> SimulationParams {
+        SimulationParams {
+            lin_log_mode: true,
+            adaptive_speed: true,
+            spring_k: 12.0,
+            repel_k: 120.0,
+            rest_length: 50.0,
+            damping: 0.9,
+            max_force: 150.0,
+            max_velocity: 100.0,
+            dt: 0.016,
+            temperature: 0.0,
+            center_gravity_k: 0.2,
+            gravity: 0.002,
+            warmup_iterations: 100,
+            global_speed: 2.0,
+            cluster_strength: 0.0,
+            ..SimulationParams::default()
+        }
+    }
+
+    fn engine(sh: Shape) -> Option<(cust::context::Context, UnifiedGPUCompute)> {
+        let required = std::env::var("VISIONCLAW_GPU_TESTS_REQUIRED").is_ok_and(|v| v == "1");
+        let fail = |what: String| -> Option<(cust::context::Context, UnifiedGPUCompute)> {
+            if required {
+                panic!("[hold_spring_overlay_gpu_tests] needs a CUDA device: {what}");
+            } else {
+                eprintln!("[hold_spring_overlay_gpu_tests] SKIPPED, {what}");
+                None
+            }
+        };
+        let ctx = match cust::quick_init() {
+            Ok(c) => c,
+            Err(e) => return fail(format!("CUDA init failed: {e}")),
+        };
+        let ptx = match crate::utils::ptx::load_ptx_sync() {
+            Ok(p) => p,
+            Err(e) => return fail(format!("no PTX: {e}")),
+        };
+        let mut g = match UnifiedGPUCompute::new(sh.n(), sh.n() * 8, &ptx) {
+            Ok(g) => g,
+            Err(e) => return fail(format!("no CUDA device: {e}")),
+        };
+
+        // Directed edge list, both directions (CSR rows list every neighbour).
+        let (nbn, leaves, n) = (sh.nb, sh.leaves, sh.n());
+        let mut adj: Vec<Vec<i32>> = vec![Vec::new(); n];
+        let mut link = |a: usize, b: usize| {
+            adj[a].push(b as i32);
+            adj[b].push(a as i32);
+        };
+        for nb in 1..=nbn {
+            link(0, nb);
+            link(nb, if nb == nbn { 1 } else { nb + 1 });
+            for k in 0..leaves {
+                link(nb, sh.leaf(nb, k));
+            }
+        }
+        for k in 0..sh.far {
+            link(sh.leaf(1 + k / leaves, k % leaves), sh.far_node(k));
+        }
+        let mut offsets = vec![0i32];
+        let (mut cols, mut w) = (Vec::new(), Vec::new());
+        for row in &adj {
+            cols.extend_from_slice(row);
+            w.extend(std::iter::repeat_n(sh.weight, row.len()));
+            offsets.push(cols.len() as i32);
+        }
+
+        // Fibonacci-sphere directions: neighbours at the rest length, leaves twice as far.
+        let (mut x, mut y, mut z) = (vec![0f32; n], vec![0f32; n], vec![0f32; n]);
+        let mut lcg = 12345u32;
+        let mut jitter = move || {
+            lcg = lcg.wrapping_mul(1664525).wrapping_add(1013904223);
+            (lcg >> 8) as f32 / (1u32 << 24) as f32 * 2.0 - 1.0
+        };
+        let golden = std::f32::consts::PI * (3.0 - 5.0f32.sqrt());
+        for nb in 1..=nbn {
+            let t = (nb as f32 - 0.5) / nbn as f32;
+            let zz = 1.0 - 2.0 * t;
+            let r = (1.0 - zz * zz).max(0.0).sqrt();
+            let th = golden * nb as f32;
+            let d = (r * th.cos(), r * th.sin(), zz);
+            x[nb] = d.0 * 50.0;
+            y[nb] = d.1 * 50.0;
+            z[nb] = d.2 * 50.0;
+            for k in 0..leaves {
+                let i = sh.leaf(nb, k);
+                x[i] = d.0 * 100.0 + jitter() * 30.0;
+                y[i] = d.1 * 100.0 + jitter() * 30.0;
+                z[i] = d.2 * 100.0 + jitter() * 30.0;
+            }
+        }
+        g.upload_positions(&x, &y, &z).expect("upload positions");
+        g.upload_edges_csr(&offsets, &cols, &w)
+            .expect("upload edges");
+        if sh.mass != 1.0 {
+            g.upload_class_metadata(&vec![0i32; n], &vec![1.0f32; n], &vec![sh.mass; n])
+                .expect("upload masses");
+        }
+        Some((ctx, g))
+    }
+
+    fn step(g: &mut UnifiedGPUCompute, p: &SimulationParams) {
+        g.execute_physics_step_with_bypass(p, true).expect("step");
+    }
+
+    fn pos(g: &mut UnifiedGPUCompute) -> Vec<[f32; 3]> {
+        let (x, y, z) = g.get_node_positions().expect("positions");
+        (0..x.len()).map(|i| [x[i], y[i], z[i]]).collect()
+    }
+
+    /// Settle with the stored behaviour (no hold) until it is quiet and past warmup.
+    fn settle(g: &mut UnifiedGPUCompute, p: &SimulationParams) {
+        for _ in 0..800 {
+            step(g, p);
+        }
+    }
+
+    fn pin_node(g: &mut UnifiedGPUCompute, n: usize, i: usize) {
+        let mut mask = vec![0i32; n];
+        mask[i] = 1;
+        g.upload_pinned_mask(&mask).expect("pin node");
+    }
+
+    fn pin_hub(g: &mut UnifiedGPUCompute, n: usize) {
+        pin_node(g, n, 0);
+    }
+
+    fn set_node(g: &mut UnifiedGPUCompute, i: usize, to: [f32; 3]) {
+        let (mut x, mut y, mut z) = g.get_node_positions().expect("positions");
+        x[i] = to[0];
+        y[i] = to[1];
+        z[i] = to[2];
+        g.upload_positions(&x, &y, &z).expect("move node");
+    }
+
+    fn set_hub(g: &mut UnifiedGPUCompute, to: [f32; 3]) {
+        set_node(g, 0, to);
+    }
+
+    /// Numbers from one run of the drag.
+    #[derive(Debug)]
+    struct Drag {
+        /// Largest displacement of any node over the first `GRAB_STEPS` steps of a zero drag.
+        grab_lurch: f32,
+        /// Mean +X displacement of the first-hop neighbours, as a fraction of `DRAG`, at the end
+        /// of the drag ramp.
+        hop1: f32,
+        hop2: f32,
+        /// The same two, after the extra still-hold steps.
+        hop1_held: f32,
+        #[allow(dead_code)]
+        hop2_held: f32,
+    }
+
+    const GRAB_STEPS: usize = 10;
+
+    fn run(sh: Shape, overlay: bool) -> Option<Drag> {
+        let (_ctx, mut g) = engine(sh)?;
+        let (n, nbn) = (sh.n(), sh.nb);
+        let mut p = stored_params();
+        settle(&mut g, &p);
+        let before = pos(&mut g);
+        pin_hub(&mut g, n);
+        // The actor's held step: speed floor 2.0 (already in `p.global_speed`), overlay per flag.
+        p.global_speed = 2.0;
+        g.set_hold_overlay(overlay);
+        g.set_hold_springs(overlay);
+        g.set_hold_spring_gain(1.0);
+
+        for _ in 0..GRAB_STEPS {
+            step(&mut g, &p);
+        }
+        let after_grab = pos(&mut g);
+        let grab_lurch = (0..n)
+            .map(|i| {
+                (0..3)
+                    .map(|a| (after_grab[i][a] - before[i][a]).powi(2))
+                    .sum::<f32>()
+                    .sqrt()
+            })
+            .fold(0.0, f32::max);
+
+        let follow = |g: &mut UnifiedGPUCompute| {
+            let now = pos(g);
+            let mean = |range: std::ops::Range<usize>| {
+                range.clone().map(|i| now[i][0] - before[i][0]).sum::<f32>() / range.len() as f32
+            };
+            let h1 = mean(1..1 + nbn) / DRAG;
+            let h2 = mean(1 + nbn..n) / DRAG;
+            (h1, h2)
+        };
+
+        let origin = before[0];
+        for s in 1..=DRAG_STEPS {
+            set_hub(
+                &mut g,
+                [
+                    origin[0] + DRAG * s as f32 / DRAG_STEPS as f32,
+                    origin[1],
+                    origin[2],
+                ],
+            );
+            step(&mut g, &p);
+        }
+        let (hop1, hop2) = follow(&mut g);
+        for _ in 0..HOLD_STEPS {
+            set_hub(&mut g, [origin[0] + DRAG, origin[1], origin[2]]);
+            step(&mut g, &p);
+        }
+        let (hop1_held, hop2_held) = follow(&mut g);
+        let d = Drag {
+            grab_lurch,
+            hop1,
+            hop2,
+            hop1_held,
+            hop2_held,
+        };
+        eprintln!(
+            "[hold_spring_overlay] nb={} leaves={} overlay={overlay} {d:?} snapshots={}",
+            sh.nb,
+            sh.leaves,
+            g.hold_overlay_snapshot_count()
+        );
+        Some(d)
+    }
+
+    #[test]
+    fn stored_linlog_and_adaptive_speed_barely_move_neighbours() {
+        // Overlay off is today's behaviour. The dense fixture is the live-like one: neighbours
+        // with about 30 other springs follow the hub by a few percent at most.
+        let Some(d) = run(DENSE, false) else { return };
+        assert!(
+            d.hop1_held < 0.05,
+            "today's behaviour, dense graph: first-hop neighbours follow < 5 % of the drag, got {:.4}",
+            d.hop1_held
+        );
+        // The 12-neighbour hub pulls harder per neighbour than the live 904-neighbour hub, so
+        // its LinLog baseline is higher (measured 0.12) but still well under the overlay's.
+        let Some(d) = run(SMALL, false) else { return };
+        assert!(
+            d.hop1_held < 0.15,
+            "today's behaviour, small graph: got {:.4}",
+            d.hop1_held
+        );
+    }
+
+    fn assert_overlay_follows(sh: Shape, min_hop1: f32) {
+        let Some(base) = run(sh, false) else { return };
+        let Some(d) = run(sh, true) else { return };
+        assert!(
+            d.hop1 >= min_hop1,
+            "overlay on: first-hop neighbours follow >= {min_hop1} of the drag by the end of the \
+             ramp, got {:.4} (off: {:.4})",
+            d.hop1,
+            base.hop1
+        );
+        assert!(
+            d.hop1_held > 2.0 * base.hop1_held,
+            "overlay on must clearly beat the stored behaviour: {:.4} vs {:.4}",
+            d.hop1_held,
+            base.hop1_held
+        );
+        assert!(
+            d.hop2 > 0.0 && d.hop2 < d.hop1 && d.hop2_held < d.hop1_held,
+            "second hop follows less than first, more than zero: hop1 {:.4}/{:.4}, hop2 {:.4}/{:.4}",
+            d.hop1,
+            d.hop1_held,
+            d.hop2,
+            d.hop2_held
+        );
+        assert!(
+            d.grab_lurch <= base.grab_lurch.max(0.5),
+            "no lurch at the moment of grab: the overlay moved a node {:.4} in {GRAB_STEPS} steps \
+             (off: {:.4})",
+            d.grab_lurch,
+            base.grab_lurch
+        );
+    }
+
+    #[test]
+    fn the_overlay_makes_neighbours_follow_hop_by_hop_without_a_lurch() {
+        assert_overlay_follows(SMALL, 0.30);
+    }
+
+    #[test]
+    fn the_overlay_on_a_live_like_dense_graph() {
+        // Each neighbour has about 32 springs, as the live graph's do. A linear spring network
+        // gives roughly 1/(1+k) of the drag at equilibrium, so the bar here is lower.
+        assert_overlay_follows(DENSE, 0.03);
+    }
+
+    /// What one probe-shaped hold and release produced.
+    #[derive(Debug, Default)]
+    struct Probe {
+        /// Median first-hop displacement magnitude over the drag and the hold, as a fraction of
+        /// the drag distance (what `hub-probe.mjs` reports).
+        hop1: f32,
+        hop2: f32,
+        /// Largest speed any node reached, in units per step of 1 (position delta per step).
+        max_speed: f32,
+        finite: bool,
+        /// Hub distance from where it was dropped, at the end of the settle span (2 s).
+        window_from_drop: f32,
+        /// Hub distance from where it was before the grab, at the end of the settle span.
+        window_from_start: f32,
+        /// Hub distance from where it was dropped, after release and settle.
+        hub_from_drop: f32,
+        /// Hub distance from where it was before the grab, after release and settle.
+        hub_from_start: f32,
+        /// Median first-hop displacement from the pre-grab layout, after release and settle,
+        /// as a fraction of the drag.
+        hop1_rest: f32,
+        /// Median hop-3 displacement from the pre-grab layout, after settle, in units.
+        far_rest: f32,
+        /// Largest node speed in the last 5 steps of the Verlet settle span, over the peak speed
+        /// of the hold: below 1 and near 0 means the response decays inside the window.
+        decay: f32,
+    }
+
+    /// One probe run. `Cfg::live(shape, drag)` is the live step rate: 30 drag steps, 20 held and
+    /// a 20-step settle window (2 s at about 10 Hz).
+    #[derive(Clone, Copy)]
+    struct Cfg {
+        shape: Shape,
+        drag: f32,
+        /// `None` keeps the shipped `HOLD_SPRING_GAIN`.
+        gain: Option<f32>,
+        spring_k: f32,
+        /// Keep the springs on through the settle window, as `1a16d43b3` did.
+        keep_springs: bool,
+        /// The node that is held (0 is the hub).
+        held_node: usize,
+        drag_steps: usize,
+        held_steps: usize,
+        settle_steps: usize,
+        rest_steps: usize,
+    }
+
+    impl Cfg {
+        fn live(shape: Shape, drag: f32) -> Self {
+            Cfg {
+                shape,
+                drag,
+                gain: None,
+                spring_k: LIVE_SPRING_K,
+                keep_springs: false,
+                held_node: 0,
+                drag_steps: 30,
+                held_steps: 20,
+                settle_steps: 20,
+                rest_steps: 400,
+            }
+        }
+    }
+
+    /// The `springK` recommended for the stored document alongside `HOLD_SPRING_GAIN`.
+    const LIVE_SPRING_K: f32 = 30.0;
+
+    fn dist3(a: [f32; 3], b: [f32; 3]) -> f32 {
+        (0..3).map(|k| (a[k] - b[k]).powi(2)).sum::<f32>().sqrt()
+    }
+
+    fn median(mut v: Vec<f32>) -> f32 {
+        if v.is_empty() {
+            return 0.0;
+        }
+        v.sort_by(|a, b| a.total_cmp(b));
+        v[v.len() / 2]
+    }
+
+    fn max_speed_now(g: &mut UnifiedGPUCompute) -> f32 {
+        let (vx, vy, vz) = g.get_node_velocities().expect("velocities");
+        (0..vx.len())
+            .map(|i| (vx[i] * vx[i] + vy[i] * vy[i] + vz[i] * vz[i]).sqrt())
+            .fold(0.0, |a, b| {
+                if b.is_nan() {
+                    f32::INFINITY
+                } else {
+                    f32::max(a, b)
+                }
+            })
+    }
+
+    /// Hold the hub of `sh`, drag it `drag` units along X over `c.drag_steps`, hold it still
+    /// for `c.held_steps`, release it, run `c.settle_steps` of the settle span and then
+    /// `c.rest_steps` of the stored behaviour. `gain` and `spring_k` are the values under test.
+    fn probe(c: Cfg) -> Option<Probe> {
+        let Cfg {
+            shape: sh,
+            drag,
+            gain,
+            spring_k,
+            keep_springs,
+            held_node,
+            ..
+        } = c;
+        let (_ctx, mut g) = engine(sh)?;
+        let (n, nbn) = (sh.n(), sh.nb);
+        let mut p = stored_params();
+        p.spring_k = spring_k;
+        settle(&mut g, &p);
+        let before = pos(&mut g);
+        pin_node(&mut g, n, held_node);
+        p.global_speed = 2.0;
+        g.set_hold_overlay(true);
+        g.set_hold_springs(true);
+        if let Some(gain) = gain {
+            g.set_hold_spring_gain(gain);
+        }
+
+        let origin = before[held_node];
+        let mut peak = 0.0f32;
+        let mut finite = true;
+        let mut watch = |g: &mut UnifiedGPUCompute, peak: &mut f32| {
+            let v = max_speed_now(g);
+            finite &= v.is_finite();
+            *peak = peak.max(v);
+        };
+        for s in 1..=c.drag_steps {
+            set_node(
+                &mut g,
+                held_node,
+                [
+                    origin[0] + drag * s as f32 / c.drag_steps as f32,
+                    origin[1],
+                    origin[2],
+                ],
+            );
+            step(&mut g, &p);
+            watch(&mut g, &mut peak);
+        }
+        for _ in 0..c.held_steps {
+            set_node(&mut g, held_node, [origin[0] + drag, origin[1], origin[2]]);
+            step(&mut g, &p);
+            watch(&mut g, &mut peak);
+        }
+        let held = pos(&mut g);
+        let disp = |a: &[[f32; 3]], b: &[[f32; 3]], i: usize| {
+            (0..3)
+                .map(|k| (a[i][k] - b[i][k]).powi(2))
+                .sum::<f32>()
+                .sqrt()
+        };
+        let hop1 = median((1..=nbn).map(|i| disp(&held, &before, i)).collect()) / drag;
+        let hop2 = median(
+            (1 + nbn..1 + nbn + nbn * sh.leaves)
+                .map(|i| disp(&held, &before, i))
+                .collect(),
+        ) / drag;
+        let drop = held[held_node];
+
+        // Release: unpin, springs off, Verlet through the settle span, then the stored behaviour.
+        g.upload_pinned_mask(&vec![0i32; n]).expect("unpin");
+        // `keep_springs` reproduces the release of `1a16d43b3`, where the springs ran through the
+        // settle window and pulled the node back to the shape it had when grabbed.
+        g.set_hold_springs(keep_springs);
+        let (mut tail, mut hold_peak) = (0.0f32, peak.max(1e-9));
+        for s in 0..c.settle_steps {
+            step(&mut g, &p);
+            let v = max_speed_now(&mut g);
+            finite &= v.is_finite();
+            hold_peak = hold_peak.max(v);
+            if s + 5 >= c.settle_steps {
+                tail = tail.max(v);
+            }
+        }
+        let at_window = pos(&mut g);
+        g.set_hold_overlay(false);
+        for _ in 0..c.rest_steps {
+            step(&mut g, &p);
+        }
+        let rest = pos(&mut g);
+        finite &= rest.iter().all(|r| r.iter().all(|c| c.is_finite()));
+        let out = Probe {
+            hop1,
+            hop2,
+            max_speed: peak,
+            finite,
+            window_from_drop: dist3(at_window[held_node], drop),
+            window_from_start: dist3(at_window[held_node], before[held_node]),
+            hub_from_drop: dist3(rest[held_node], drop),
+            hub_from_start: disp(&rest, &before, 0),
+            hop1_rest: median((1..=nbn).map(|i| disp(&rest, &before, i)).collect()) / drag,
+            far_rest: median(
+                (0..sh.far)
+                    .map(|k| disp(&rest, &before, sh.far_node(k)))
+                    .collect(),
+            ),
+            decay: tail / hold_peak,
+        };
+        Some(out)
+    }
+
+    /// The calibration sweep (not a gate): `cargo test --lib hold_spring_overlay_gpu_tests::sweep
+    /// -- --ignored --nocapture` on GPU 1. Prints one row per gain and `springK`.
+    #[test]
+    #[ignore = "calibration sweep, prints a table"]
+    fn sweep_gain_against_spring_k() {
+        for gain in [1.0f32, 20.0] {
+            let r = probe(Cfg {
+                gain: Some(gain),
+                keep_springs: true,
+                ..Cfg::live(PROBE, 183.0)
+            })
+            .expect("gpu");
+            eprintln!(
+                "SWEEP old-release(springs kept) gain={gain} win_from_drop={:.2} win_from_start={:.2} hub_from_start={:.2} hop1={:.4}",
+                r.window_from_drop, r.window_from_start, r.hub_from_start, r.hop1
+            );
+        }
+        let runs: &[(f32, f32, f32)] = &[(183.0, 30.0, 20.0)];
+        for &(drag, k, gain) in runs {
+            {
+                {
+                    let Some(r) = probe(Cfg {
+                        gain: Some(gain),
+                        spring_k: k,
+                        ..Cfg::live(PROBE, drag)
+                    }) else {
+                        return;
+                    };
+                    eprintln!(
+                        "SWEEP drag={drag} k={k} gain={gain} hop1={:.4} hop2={:.4} maxv={:.2} finite={} \
+                         win_from_drop={:.2} win_from_start={:.2} hub_from_drop={:.2} hub_from_start={:.2} hop1_rest={:.4} far_rest={:.4} decay={:.3}",
+                        r.hop1, r.hop2, r.max_speed, r.finite, r.window_from_drop, r.window_from_start, r.hub_from_drop, r.hub_from_start,
+                        r.hop1_rest, r.far_rest, r.decay
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_probe_hub_drag_moves_neighbours_a_lot_and_stays_stable() {
+        // The live hub probe's shape, at the live step rate, with the recommended stored
+        // springK. At gain 1 this measures 0.026; the bar is the owner's "big effect".
+        let Some(r) = probe(Cfg::live(PROBE, 183.0)) else {
+            return;
+        };
+        assert!(r.finite, "no NaN or infinity anywhere: {r:?}");
+        assert!(
+            r.hop1 >= 0.30,
+            "one-hop median follow >= 0.3 of the drag, got {:.4} ({r:?})",
+            r.hop1
+        );
+        assert!(
+            r.hop2 > 0.05 && r.hop2 < r.hop1,
+            "two hops follow less than one, and visibly: {:.4} vs {:.4}",
+            r.hop2,
+            r.hop1
+        );
+        assert!(
+            r.max_speed <= 100.5,
+            "no node outruns max_velocity (100): {:.2}",
+            r.max_speed
+        );
+        assert!(
+            r.decay < 0.5,
+            "the response decays inside the 2 s settle window, tail/peak speed {:.3}",
+            r.decay
+        );
+        assert!(
+            r.far_rest < 0.15 * 183.0,
+            "hop-3 nodes end within 15 % of the drag of where they were (the layout's own \
+             drift is about 11 units), got {:.2}",
+            r.far_rest
+        );
+    }
+
+    #[test]
+    fn a_released_leaf_is_placed_where_it_was_dropped() {
+        // A low-degree node, so the only strong force on it in the settle window is the
+        // snapshot spring: LinLog on one edge is `log1p(183) * 1.1`, about 5.8, far below both
+        // `max_force` 150 and the spring. The cap therefore cannot confound the two arms.
+        // (A 1,200-neighbour hub is the opposite case: LinLog saturates the cap, and the
+        // snapshot makes no measurable difference in the 2 s window, see ADR-2169 item 9.)
+        let leaf = PROBE.leaf(1, 0);
+        let live = Cfg {
+            held_node: leaf,
+            settle_steps: 100,
+            rest_steps: 0,
+            ..Cfg::live(PROBE, 183.0)
+        };
+        let Some(placed) = probe(live) else { return };
+        assert!(placed.finite);
+        assert!(
+            placed.window_from_drop < 5.0,
+            "the leaf stays within 5 units of where it was dropped through the settle window, \
+             moved {:.2}",
+            placed.window_from_drop
+        );
+        assert!(
+            placed.window_from_start > 0.9 * 183.0,
+            "and has not returned towards its pre-grab position: {:.2} of 183 from it",
+            placed.window_from_start
+        );
+        // The release of `1a16d43b3`: springs kept through the window, no gain, stored springK 12.
+        let before = Cfg {
+            keep_springs: true,
+            gain: Some(1.0),
+            spring_k: 12.0,
+            ..live
+        };
+        let Some(pulled) = probe(before) else { return };
+        eprintln!(
+            "[release] placed {:.3} vs springs kept {:.3}",
+            placed.window_from_drop, pulled.window_from_drop
+        );
+        assert!(
+            pulled.window_from_drop > 5.0 * placed.window_from_drop.max(0.5),
+            "control, the release of 1a16d43b3: the kept springs pull the leaf back {:.2} \
+             (placed: {:.2})",
+            pulled.window_from_drop,
+            placed.window_from_drop
+        );
     }
 }
