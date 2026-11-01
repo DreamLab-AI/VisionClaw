@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
 
+use super::hold_registry::{HoldRegistry, Release};
 use super::shared::{GPUOperation, GPUState, SharedGPUContext};
 use crate::actors::messages::*;
 use crate::models::simulation_params::{SimulationParams, ToSimParams};
@@ -113,14 +114,24 @@ pub struct ForceComputeActor {
     /// Maps GPU buffer index → actual graph node ID (populated during graph upload)
     gpu_index_to_node_id: Vec<u32>,
 
-    /// Client-dragged nodes pinned to a fixed position (node_id → world position).
-    /// Each step, pinned nodes are rewritten to these positions on the GPU buffer
-    /// (and held there rather than integrated) so the force kernel relaxes their
-    /// neighbours around the dragged location. Populated by `PinNodePositions`.
-    pinned_nodes: std::collections::HashMap<u32, Vec3>,
+    /// Who holds which node, and which nodes carry an explicit pin. The effective pinned
+    /// positions (`holds.positions()`) are rewritten onto the GPU buffer every step and the
+    /// nodes are held there rather than integrated, so the force kernel relaxes their
+    /// neighbours around the held location. A released hold leaves the set: the node rejoins
+    /// the simulation. Populated by `HoldNodes`, `ReleaseNodes`, `ReleaseHolder` and
+    /// `PinNodePositions`.
+    holds: HoldRegistry,
 
-    /// Set whenever `pinned_nodes` changes (pin/unpin). The next physics step
-    /// rebuilds the per-node GPU pinned mask from `pinned_nodes` and uploads it,
+    /// End of the post-release settle window. While it is in the future (and nothing is held)
+    /// the GPU steps every tick and the integrator is damped harder (see `step_overrides`).
+    release_settle_until: Option<Instant>,
+
+    /// One-shot velocity kick for the next step (consumed when applied). Replaces the old
+    /// per-step reheat for pin events.
+    pending_impulse: f32,
+
+    /// Set whenever the pinned set changes (pin/unpin). The next physics step
+    /// rebuilds the per-node GPU pinned mask from `holds` and uploads it,
     /// then clears this. Ensures the last unpin still uploads a cleared mask.
     pinned_mask_dirty: bool,
 
@@ -249,7 +260,9 @@ impl ForceComputeActor {
             dag_ranks: Vec::new(),
             graph_adjacency: Vec::new(),
             radial_node_index: std::collections::HashMap::new(),
-            pinned_nodes: std::collections::HashMap::new(),
+            holds: HoldRegistry::new(),
+            release_settle_until: None,
+            pending_impulse: 0.0,
             semantic_engine: crate::gpu::semantic_forces::SemanticForcesEngine::new(),
             semantic_graph: None,
             pinned_mask_dirty: false,
@@ -345,6 +358,7 @@ impl ForceComputeActor {
             physics_running: self.gpu_state.is_initialized
                 && self.gpu_state.num_nodes > 0
                 && !self.settle_paused,
+            iterations: u64::from(self.gpu_state.iteration_count),
         }
     }
 
@@ -357,28 +371,23 @@ impl ForceComputeActor {
     /// Non-pinned nodes are re-uploaded with the positions the GPU just integrated
     /// (a no-op for them), so normal integration continues. Cheap host→device copy
     /// (~3·N f32); only runs while at least one node is actively pinned.
-    /// Pure pin/unpin bookkeeping: apply a set of pins and unpins to a pinned-node
-    /// map. Pins insert/update `node_id → position`; unpins remove. Returns true if
-    /// the map changed (so the caller can mark the GPU mask dirty). Actor-free so
-    /// the mask bookkeeping is unit-testable without a GPU context.
-    fn apply_pin_ops(
-        pinned: &mut std::collections::HashMap<u32, Vec3>,
-        pins: &[(u32, [f32; 3])],
-        unpin: &[u32],
-    ) -> bool {
-        let mut changed = false;
-        for (id, p) in pins {
-            let v = Vec3::new(p[0], p[1], p[2]);
-            if pinned.insert(*id, v) != Some(v) {
-                changed = true;
-            }
+    /// Start the post-release settle window if nothing is held any more.
+    fn begin_release_settle(&mut self) {
+        if !self.holds.any_held() {
+            self.release_settle_until = Some(Instant::now() + RELEASE_SETTLE_WINDOW);
         }
-        for id in unpin {
-            if pinned.remove(id).is_some() {
-                changed = true;
-            }
+    }
+
+    /// Book-keeping after one or more holds ended: refresh the GPU mask for the nodes that
+    /// rejoined, give the neighbourhood a tiny one-shot kick, and open the settle window.
+    fn after_release(&mut self, outcomes: &[Release]) {
+        if outcomes.contains(&Release::Rejoined) {
+            self.pinned_mask_dirty = true;
+            self.pending_impulse = self.pending_impulse.max(RELEASE_IMPULSE);
         }
-        changed
+        if outcomes.iter().any(|r| *r != Release::Ignored) {
+            self.begin_release_settle();
+        }
     }
 
     /// Build the per-node GPU pinned mask (0 = free, 1 = pinned) aligned to GPU
@@ -515,7 +524,7 @@ impl ForceComputeActor {
         dist
     }
 
-    /// Rebuild and upload the GPU pinned mask from `pinned_nodes` when dirty.
+    /// Rebuild and upload the GPU pinned mask from `holds` when dirty.
     /// Runs once per step (cheap: only rebuilds after a pin/unpin). Indexing
     /// mirrors `apply_node_pins` (`node_id_buffer[idx]` = GPU index idx), so the
     /// mask and the pinned-position rewrite always agree on which node is pinned.
@@ -529,7 +538,7 @@ impl ForceComputeActor {
         if self.node_id_buffer.is_empty() {
             return; // No graph uploaded yet; retry on a later step (stay dirty).
         }
-        let flags = Self::build_pinned_mask(&self.node_id_buffer, &self.pinned_nodes);
+        let flags = Self::build_pinned_mask(&self.node_id_buffer, self.holds.positions());
         let mut unified = match shared_context.unified_compute.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
@@ -539,7 +548,7 @@ impl ForceComputeActor {
                 self.pinned_mask_dirty = false;
                 debug!(
                     "ForceComputeActor: uploaded pinned mask ({} pinned / {} nodes)",
-                    self.pinned_nodes.len(),
+                    self.holds.positions().len(),
                     flags.len()
                 );
             }
@@ -551,7 +560,7 @@ impl ForceComputeActor {
     /// after the display projection; the physics state is restored separately before the next
     /// step, so this never reaches the integrator.
     fn show_pinned_at_pin(&mut self) {
-        if self.pinned_nodes.is_empty() {
+        if self.holds.positions().is_empty() {
             return;
         }
         for idx in 0..self
@@ -559,14 +568,19 @@ impl ForceComputeActor {
             .len()
             .min(self.position_velocity_buffer.len())
         {
-            if let Some(shown) = self.pinned_nodes.get(&self.node_id_buffer[idx]).copied() {
+            if let Some(shown) = self
+                .holds
+                .positions()
+                .get(&self.node_id_buffer[idx])
+                .copied()
+            {
                 self.position_velocity_buffer[idx].0 = shown;
             }
         }
     }
 
     fn apply_node_pins(&mut self) {
-        if self.pinned_nodes.is_empty() {
+        if self.holds.positions().is_empty() {
             return;
         }
 
@@ -599,7 +613,7 @@ impl ForceComputeActor {
         let mut any = false;
         for idx in 0..self.node_id_buffer.len() {
             let id = self.node_id_buffer[idx];
-            if let Some(shown) = self.pinned_nodes.get(&id).copied() {
+            if let Some(shown) = self.holds.positions().get(&id).copied() {
                 if idx < self.position_velocity_buffer.len() {
                     let pop = populations
                         .get(idx)
@@ -1275,15 +1289,15 @@ impl ForceComputeActor {
                 // sync_pinned_mask would let the first post-resize step integrate
                 // pinned nodes against a zeroed mask (they would move one frame).
                 // On failure, fall back to the dirty-flag path.
-                if !self.pinned_nodes.is_empty() {
+                if !self.holds.positions().is_empty() {
                     let flags =
-                        Self::build_pinned_mask(&self.gpu_index_to_node_id, &self.pinned_nodes);
+                        Self::build_pinned_mask(&self.gpu_index_to_node_id, self.holds.positions());
                     match compute.upload_pinned_mask(&flags) {
                         Ok(()) => {
                             self.pinned_mask_dirty = false;
                             debug!(
                                 "ForceComputeActor: re-uploaded pinned mask after graph upload ({} pinned)",
-                                self.pinned_nodes.len()
+                                self.holds.positions().len()
                             );
                         }
                         Err(e) => {
@@ -1881,12 +1895,41 @@ impl Handler<ComputeForces> for ForceComputeActor {
         }
 
         // Capture values needed for async block
-        let sim_params = self.simulation_params.clone();
-        let stability_bypass = self.stability_warmup_remaining > 0;
-        if stability_bypass {
+        // Backstop: a hold nobody has written for HOLD_EXPIRY is released, so a release that was
+        // lost or overtaken its hold cannot leave the graph bypassing the stability skip, without
+        // reheat and at the raised speed for ever.
+        let expired: Vec<Release> = self
+            .holds
+            .expire(Instant::now(), HOLD_EXPIRY)
+            .into_iter()
+            .map(|(_, r)| r)
+            .collect();
+        if !expired.is_empty() {
+            warn!(
+                "ForceComputeActor: {} hold(s) expired after {:?} without an update; released",
+                expired.len(),
+                HOLD_EXPIRY
+            );
+            self.after_release(&expired);
+        }
+        let overrides = step_overrides(
+            self.stability_warmup_remaining,
+            self.holds.any_held(),
+            self.release_settle_until,
+            Instant::now(),
+            self.simulation_params.damping,
+            self.simulation_params.global_speed,
+            self.reheat_factor,
+        );
+        let mut sim_params = self.simulation_params.clone();
+        sim_params.damping = overrides.damping;
+        sim_params.global_speed = overrides.global_speed;
+        let stability_bypass = overrides.bypass_stability;
+        if self.stability_warmup_remaining > 0 {
             self.stability_warmup_remaining -= 1;
         }
-        let reheat_factor = self.reheat_factor;
+        let reheat_factor = overrides.reheat;
+        let impulse = std::mem::take(&mut self.pending_impulse);
         let current_iteration = self.gpu_state.iteration_count;
 
         // Log GPU params on first iteration to verify non-zero values
@@ -1930,12 +1973,19 @@ impl Handler<ComputeForces> for ForceComputeActor {
                 };
 
                 if reheat_factor > 0.0 {
-                    info!(
+                    // Debug, not info: this runs once per step for minutes after a settings
+                    // change, and at info it buried every other line of the log.
+                    debug!(
                         "Reheating physics with factor {:.2} to break equilibrium after parameter change",
                         reheat_factor
                     );
                     if let Err(e) = unified_compute.inject_velocity_perturbation(reheat_factor) {
                         warn!("Failed to inject velocity perturbation: {}", e);
+                    }
+                }
+                if impulse > 0.0 {
+                    if let Err(e) = unified_compute.inject_velocity_perturbation(impulse) {
+                        warn!("Failed to inject velocity impulse: {}", e);
                     }
                 }
 
@@ -2577,58 +2627,25 @@ impl Handler<UpdateSimulationParams> for ForceComputeActor {
         // feature-flag-derived fields (eg. adaptive_speed) MUST appear here —
         // otherwise their value gets silently dropped when no other field changed.
         let cur = &self.simulation_params;
-        let eps = 1e-5_f32; // Slightly larger than EPSILON to catch floating-point round-trips
-        let physics_unchanged = (cur.spring_k - msg.params.spring_k).abs() < eps
-            && (cur.repel_k - msg.params.repel_k).abs() < eps
-            && (cur.damping - msg.params.damping).abs() < eps
-            && (cur.dt - msg.params.dt).abs() < eps
-            && (cur.max_velocity - msg.params.max_velocity).abs() < eps
-            && (cur.max_force - msg.params.max_force).abs() < eps
-            && (cur.center_gravity_k - msg.params.center_gravity_k).abs() < eps
-            && (cur.temperature - msg.params.temperature).abs() < eps
-            && (cur.cluster_strength - msg.params.cluster_strength).abs() < eps
-            && (cur.alignment_strength - msg.params.alignment_strength).abs() < eps
-            && (cur.separation_radius - msg.params.separation_radius).abs() < eps
-            && (cur.cooling_rate - msg.params.cooling_rate).abs() < eps
-            && (cur.viewport_bounds - msg.params.viewport_bounds).abs() < eps
-            && (cur.boundary_damping - msg.params.boundary_damping).abs() < eps
-            && (cur.gravity - msg.params.gravity).abs() < eps
-            && (cur.axis_compression_z - msg.params.axis_compression_z).abs() < eps
-            && cur.enable_dual_disc_layout == msg.params.enable_dual_disc_layout
-            && cur.adaptive_speed == msg.params.adaptive_speed
-            && cur.iterations == msg.params.iterations
-            && cur.use_sssp_distances == msg.params.use_sssp_distances
-            && cur.warmup_iterations == msg.params.warmup_iterations
-            && cur.constraint_ramp_frames == msg.params.constraint_ramp_frames
-            && (cur.constraint_max_force_per_node - msg.params.constraint_max_force_per_node).abs()
-                < eps
-            && (cur.spring_k_knowledge - msg.params.spring_k_knowledge).abs() < eps
-            && (cur.spring_k_ontology - msg.params.spring_k_ontology).abs() < eps
-            && (cur.spring_k_agent - msg.params.spring_k_agent).abs() < eps
-            // DAG radial bias (PHASE 2) is GPU-relevant — omitting these fields
-            // silently drops DAG-only settings changes at the early return below.
-            && (cur.dag_bias_k - msg.params.dag_bias_k).abs() < eps
-            && (cur.dag_level_distance - msg.params.dag_level_distance).abs() < eps
-            // Stratified planes (ADR-141 P2) are GPU-relevant — omitting these fields
-            // silently drops plane-only settings changes at the early return below.
-            && (cur.plane_bias_k - msg.params.plane_bias_k).abs() < eps
-            && (cur.plane_spacing - msg.params.plane_spacing).abs() < eps
-            // Sugiyama layer spring (ADR-141 P4) is GPU-relevant — omitting these
-            // fields silently drops layer-only settings changes at the early return.
-            && (cur.layer_bias_k - msg.params.layer_bias_k).abs() < eps
-            && (cur.layer_spacing - msg.params.layer_spacing).abs() < eps
-            // Radial shell centre (ADR-141 P3) rides SimParams.radial_center — omitting
-            // it would silently drop an Ego re-centre at the early return below.
-            && (cur.radial_center[0] - msg.params.radial_center[0]).abs() < eps
-            && (cur.radial_center[1] - msg.params.radial_center[1]).abs() < eps
-            && (cur.radial_center[2] - msg.params.radial_center[2]).abs() < eps
-            // Layout mode (ADR-141 P1) is GPU-relevant — it rides SimParams.layout_mode.
-            // Omitting it would silently drop a mode-only switch at the early return.
-            && cur.layout_mode == msg.params.layout_mode
-            // The semantic group is not part of the SimParams image: compare it directly.
-            && cur.semantic == msg.params.semantic
-            // Catch-all: anything else the GPU would receive differently (see gpu_image_changed).
-            && !gpu_image_changed(cur, &msg.params);
+        let eps = 1e-5_f32;
+        // A write that moves ONLY damping is the orchestrator's FastSettle override or restore
+        // (or a damping slider). It must take effect, but it is not a force-coefficient change:
+        // it must not re-arm the reheat and the 30 s stability warmup, which each cost minutes
+        // of per-step random velocity noise (see `step_overrides`).
+        let mut probe = msg.params.clone();
+        probe.damping = cur.damping;
+        let physics_unchanged =
+            same_gpu_inputs(cur, &probe) && (cur.damping - msg.params.damping).abs() < eps;
+        let damping_only = same_gpu_inputs(cur, &probe) && !physics_unchanged;
+
+        if damping_only {
+            debug!(
+                "ForceComputeActor: UpdateSimulationParams — damping-only change ({:.3} -> {:.3}), applied without reheat",
+                cur.damping, msg.params.damping
+            );
+            self.update_simulation_parameters(msg.params);
+            return Ok(());
+        }
 
         if physics_unchanged {
             debug!(
@@ -2637,7 +2654,10 @@ impl Handler<UpdateSimulationParams> for ForceComputeActor {
             return Ok(());
         }
 
-        info!("ForceComputeActor: UpdateSimulationParams received — params CHANGED");
+        info!(
+            "ForceComputeActor: UpdateSimulationParams received — params CHANGED (fields: {:?})",
+            changed_gpu_fields(&self.simulation_params, &msg.params)
+        );
         debug!(
             "  New params - spring_k: {:.3}, repel_k: {:.3}, damping: {:.3}, center_gravity_k: {:.3}, cluster: {:.3}, align: {:.3}",
             msg.params.spring_k, msg.params.repel_k, msg.params.damping,
@@ -2951,24 +2971,82 @@ impl Handler<PinNodePositions> for ForceComputeActor {
     type Result = ();
 
     fn handle(&mut self, msg: PinNodePositions, _ctx: &mut Self::Context) -> Self::Result {
-        // Bookkeeping: apply pins/unpins to the map. Mark the GPU mask dirty when
-        // membership changed so the next step re-uploads it (drag-end leaves the
-        // node pinned in place until an explicit unpin arrives in msg.unpin).
-        if Self::apply_pin_ops(&mut self.pinned_nodes, &msg.pins, &msg.unpin) {
+        // Explicit pins and unpins only. A live grab goes through `HoldNodes`/`ReleaseNodes`,
+        // so a pin here survives any number of drags.
+        let mut changed = false;
+        for (id, p) in &msg.pins {
+            changed |= self.holds.pin(*id, *p);
+        }
+        let mut freed = false;
+        for id in &msg.unpin {
+            freed |= self.holds.unpin(*id);
+        }
+        if changed || freed {
             self.pinned_mask_dirty = true;
         }
+        if freed {
+            self.begin_release_settle();
+        }
         if msg.reheat {
-            // Mild reheat: enough to give neighbours energy to spring, gentle enough
-            // not to disturb the wider layout. Decays over ~230 steps (see step loop).
-            self.reheat_factor = self.reheat_factor.max(0.3);
+            self.pending_impulse = self.pending_impulse.max(RELEASE_IMPULSE);
         }
         debug!(
             "ForceComputeActor: PinNodePositions — {} pinned total (this msg: +{} pins, -{} unpins, reheat={})",
-            self.pinned_nodes.len(),
+            self.holds.positions().len(),
             msg.pins.len(),
             msg.unpin.len(),
             msg.reheat
         );
+    }
+}
+
+/// A connection takes hold of nodes, or moves ones it holds. Last write wins.
+impl Handler<HoldNodes> for ForceComputeActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: HoldNodes, _ctx: &mut Self::Context) -> Self::Result {
+        let mut changed = false;
+        for (id, p) in &msg.holds {
+            changed |= self.holds.hold(msg.holder, *id, *p, Instant::now());
+        }
+        if changed {
+            self.pinned_mask_dirty = true;
+        }
+        // A standing reheat would keep injecting random velocity into every node for as long as
+        // it lasts and fight the hand. `step_overrides` already withholds it during a hold;
+        // clearing it here stops it resuming the moment the hand lets go.
+        self.reheat_factor = 0.0;
+        self.pending_impulse = 0.0;
+        self.release_settle_until = None;
+    }
+}
+
+/// A connection lets go of nodes: the ones it still owns rejoin the simulation.
+impl Handler<ReleaseNodes> for ForceComputeActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: ReleaseNodes, _ctx: &mut Self::Context) -> Self::Result {
+        let outcomes: Vec<Release> = msg
+            .nodes
+            .iter()
+            .map(|n| self.holds.release(msg.holder, *n))
+            .collect();
+        self.after_release(&outcomes);
+    }
+}
+
+/// A connection is gone: everything it held rejoins the simulation.
+impl Handler<ReleaseHolder> for ForceComputeActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: ReleaseHolder, _ctx: &mut Self::Context) -> Self::Result {
+        let outcomes: Vec<Release> = self
+            .holds
+            .release_holder(msg.holder)
+            .into_iter()
+            .map(|(_, r)| r)
+            .collect();
+        self.after_release(&outcomes);
     }
 }
 
@@ -3924,6 +4002,352 @@ impl Handler<ProbeSimulationParams> for ForceComputeActor {
     }
 }
 
+/// Test probe: the drag/reheat state the actor holds.
+#[cfg(test)]
+#[derive(actix::Message)]
+#[rtype(result = "DragProbe")]
+pub(crate) enum ProbeDragState {
+    /// Read the state.
+    Read,
+    /// Clear the reheat so a later write shows whether it re-armed it.
+    ClearReheat,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, actix::MessageResponse)]
+pub(crate) struct DragProbe {
+    pub reheat: f32,
+    pub warmup: u32,
+    /// Node ids currently pinned on the GPU (held or explicit), sorted.
+    pub pinned: Vec<u32>,
+    /// Nodes held by a live grab.
+    pub held: usize,
+    /// True while the post-release settle window is open.
+    pub settling: bool,
+    /// One-shot velocity kick waiting for the next step.
+    pub impulse: f32,
+}
+
+#[cfg(test)]
+impl Handler<ProbeDragState> for ForceComputeActor {
+    type Result = DragProbe;
+
+    fn handle(&mut self, m: ProbeDragState, _: &mut Self::Context) -> Self::Result {
+        if matches!(m, ProbeDragState::ClearReheat) {
+            self.reheat_factor = 0.0;
+            self.stability_warmup_remaining = 0;
+        }
+        let mut pinned: Vec<u32> = self.holds.positions().keys().copied().collect();
+        pinned.sort_unstable();
+        DragProbe {
+            reheat: self.reheat_factor,
+            warmup: self.stability_warmup_remaining,
+            pinned,
+            held: self.holds.held_count(),
+            settling: self
+                .release_settle_until
+                .is_some_and(|t| Instant::now() < t),
+            impulse: self.pending_impulse,
+        }
+    }
+}
+
+#[cfg(test)]
+mod reheat_loop_tests {
+    //! The live server re-armed a 2-minute reheat on every settings PUT. These drive the real
+    //! `UpdateSimulationParams` handler with the live settings document.
+    use super::*;
+    use visionclaw_domain::types::PhysicsSettings;
+
+    fn live() -> SimulationParams {
+        let ps: PhysicsSettings =
+            serde_json::from_str(include_str!("test_fixtures/live_physics_settings.json"))
+                .expect("live physics settings fixture parses");
+        SimulationParams::from(&ps)
+    }
+
+    #[actix::test]
+    async fn a_repeated_identical_settings_write_does_not_re_arm_the_reheat() {
+        let actor = ForceComputeActor::headless().start();
+        actor
+            .send(UpdateSimulationParams { params: live() })
+            .await
+            .unwrap()
+            .unwrap();
+        actor.send(ProbeDragState::ClearReheat).await.unwrap();
+        // The client autosave PUTs the same document again.
+        actor
+            .send(UpdateSimulationParams { params: live() })
+            .await
+            .unwrap()
+            .unwrap();
+        let after = actor.send(ProbeDragState::Read).await.unwrap();
+        assert_eq!(after.reheat, 0.0, "an identical write re-armed the reheat");
+        assert_eq!(after.warmup, 0, "an identical write re-armed the warmup");
+    }
+
+    #[actix::test]
+    async fn an_orchestrator_damping_only_write_does_not_re_arm_the_reheat() {
+        let actor = ForceComputeActor::headless().start();
+        actor
+            .send(UpdateSimulationParams { params: live() })
+            .await
+            .unwrap()
+            .unwrap();
+        actor.send(ProbeDragState::ClearReheat).await.unwrap();
+        // FastSettle override / restore: the orchestrator writes its copy with only damping moved.
+        let mut p = live();
+        p.damping = 0.4;
+        actor
+            .send(UpdateSimulationParams { params: p })
+            .await
+            .unwrap()
+            .unwrap();
+        let after = actor.send(ProbeDragState::Read).await.unwrap();
+        assert_eq!(
+            after.reheat, 0.0,
+            "a damping-only write re-armed the reheat"
+        );
+    }
+}
+
+#[cfg(test)]
+mod hold_physics_tests {
+    //! Drag semantics as the physics actor sees them: a release rejoins, an explicit pin
+    //! survives, two hands and two clients hold at once, and the GPU steps while held.
+    use super::*;
+
+    async fn read(a: &Addr<ForceComputeActor>) -> DragProbe {
+        a.send(ProbeDragState::Read).await.unwrap()
+    }
+
+    fn hold(holder: u64, node: u32) -> HoldNodes {
+        HoldNodes {
+            holder,
+            holds: vec![(node, [1.0, 2.0, 3.0])],
+        }
+    }
+
+    #[actix::test]
+    async fn drag_end_unpins_the_node_and_opens_the_settle_window() {
+        let a = ForceComputeActor::headless().start();
+        a.send(hold(1, 7)).await.unwrap();
+        assert_eq!(read(&a).await.pinned, vec![7]);
+        a.send(ReleaseNodes {
+            holder: 1,
+            nodes: vec![7],
+        })
+        .await
+        .unwrap();
+        let p = read(&a).await;
+        assert!(
+            p.pinned.is_empty(),
+            "a released node must rejoin the physics, not stay pinned"
+        );
+        assert!(p.settling, "the graph must settle after the release");
+        assert!(p.impulse > 0.0, "the release kicks the neighbourhood once");
+    }
+
+    #[actix::test]
+    async fn an_explicit_pin_survives_a_drag_and_its_release() {
+        let a = ForceComputeActor::headless().start();
+        a.send(PinNodePositions {
+            pins: vec![(7, [0.0; 3])],
+            unpin: vec![],
+            reheat: false,
+        })
+        .await
+        .unwrap();
+        a.send(hold(1, 7)).await.unwrap();
+        a.send(ReleaseNodes {
+            holder: 1,
+            nodes: vec![7],
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            read(&a).await.pinned,
+            vec![7],
+            "the explicit pin must outlive the drag"
+        );
+        a.send(PinNodePositions {
+            pins: vec![],
+            unpin: vec![7],
+            reheat: true,
+        })
+        .await
+        .unwrap();
+        assert!(
+            read(&a).await.pinned.is_empty(),
+            "an explicit unpin still frees it"
+        );
+    }
+
+    #[actix::test]
+    async fn one_connection_holds_two_nodes_at_once() {
+        let a = ForceComputeActor::headless().start();
+        a.send(HoldNodes {
+            holder: 1,
+            holds: vec![(10, [0.0; 3]), (20, [1.0; 3])],
+        })
+        .await
+        .unwrap();
+        let p = read(&a).await;
+        assert_eq!((p.held, p.pinned), (2, vec![10, 20]));
+        a.send(ReleaseNodes {
+            holder: 1,
+            nodes: vec![10],
+        })
+        .await
+        .unwrap();
+        let p = read(&a).await;
+        assert_eq!(
+            (p.held, p.pinned, p.settling),
+            (1, vec![20], false),
+            "one hand is still holding"
+        );
+    }
+
+    #[actix::test]
+    async fn two_connections_hold_one_node_each_and_a_disconnect_frees_only_its_own() {
+        let a = ForceComputeActor::headless().start();
+        a.send(hold(1, 10)).await.unwrap();
+        a.send(hold(2, 20)).await.unwrap();
+        assert_eq!(read(&a).await.pinned, vec![10, 20]);
+        a.send(ReleaseHolder { holder: 1 }).await.unwrap();
+        assert_eq!(
+            read(&a).await.pinned,
+            vec![20],
+            "connection 2 keeps its grab"
+        );
+    }
+
+    #[actix::test]
+    async fn the_last_write_wins_when_two_connections_grab_the_same_node() {
+        let a = ForceComputeActor::headless().start();
+        a.send(hold(1, 5)).await.unwrap();
+        a.send(hold(2, 5)).await.unwrap();
+        a.send(ReleaseNodes {
+            holder: 1,
+            nodes: vec![5],
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            read(&a).await.pinned,
+            vec![5],
+            "connection 1 no longer owns the node"
+        );
+        a.send(ReleaseNodes {
+            holder: 2,
+            nodes: vec![5],
+        })
+        .await
+        .unwrap();
+        assert!(read(&a).await.pinned.is_empty());
+    }
+
+    #[actix::test]
+    async fn grabbing_cancels_a_standing_reheat() {
+        let a = ForceComputeActor::headless().start();
+        a.send(UpdateSimulationParams {
+            params: SimulationParams::default(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        a.send(hold(1, 5)).await.unwrap();
+        assert_eq!(
+            read(&a).await.reheat,
+            0.0,
+            "random per-step noise must not fight the hand"
+        );
+    }
+
+    #[test]
+    fn the_gpu_steps_while_a_node_is_held_even_after_equilibrium() {
+        let now = Instant::now();
+        // No warmup left (the layout reached equilibrium long ago) and no reheat.
+        let o = step_overrides(0, true, None, now, 0.9, 0.4, 0.0);
+        assert!(
+            o.bypass_stability,
+            "the stability kernel must not skip a held step"
+        );
+        // And without a hold, an equilibrium graph is allowed to skip, as before.
+        let idle = step_overrides(0, false, None, now, 0.9, 0.4, 0.0);
+        assert!(!idle.bypass_stability);
+    }
+
+    #[test]
+    fn the_settle_window_steps_and_damps_then_ends() {
+        let t0 = Instant::now();
+        let until = Some(t0 + std::time::Duration::from_secs(2));
+        let during = step_overrides(
+            0,
+            false,
+            until,
+            t0 + std::time::Duration::from_millis(500),
+            0.9,
+            0.4,
+            1.0,
+        );
+        assert!(during.bypass_stability);
+        assert_eq!(during.damping, RELEASE_SETTLE_DAMPING);
+        assert_eq!(
+            during.global_speed, 0.4,
+            "the settle window runs at the stored speed (R16 S1)"
+        );
+        assert_eq!(
+            during.reheat, 0.0,
+            "no settings noise while the graph is settling"
+        );
+        let after = step_overrides(
+            0,
+            false,
+            until,
+            t0 + std::time::Duration::from_secs(3),
+            0.9,
+            0.4,
+            0.0,
+        );
+        assert!(!after.bypass_stability);
+        assert_eq!(after.damping, 0.9);
+        assert_eq!(
+            after.global_speed, 0.4,
+            "the stored speed returns after the window"
+        );
+    }
+
+    #[test]
+    fn a_hold_withholds_the_settings_reheat_and_keeps_the_configured_damping() {
+        let o = step_overrides(100, true, None, Instant::now(), 0.9, 0.4, 1.0);
+        assert_eq!(o.reheat, 0.0);
+        assert_eq!(
+            o.damping, 0.9,
+            "the damping is not touched while the hand moves"
+        );
+        assert_eq!(
+            o.global_speed, HOLD_GLOBAL_SPEED,
+            "the whole graph answers the hand faster"
+        );
+        // A configured damping already below the settle value is not weakened.
+        let strong = step_overrides(
+            0,
+            false,
+            Some(Instant::now() + std::time::Duration::from_secs(1)),
+            Instant::now(),
+            0.3,
+            3.0,
+            0.0,
+        );
+        assert_eq!(strong.damping, 0.3);
+        assert_eq!(
+            strong.global_speed, 3.0,
+            "a stored speed above the floor is not lowered"
+        );
+    }
+}
+
 #[cfg(test)]
 mod stored_layout_mode_tests {
     //! ADR-2140: the actor holds the layout mode and bias terms it is given. It neither
@@ -4008,6 +4432,177 @@ mod stored_layout_mode_tests {
         let b = stored(LayoutMode::TypeClustering);
         assert!(gpu_image_changed(&a, &b));
     }
+}
+
+/// After the last release the graph is stepped every tick and damped harder for this long, so it
+/// is visibly at rest about two seconds after the hand lets go.
+const RELEASE_SETTLE_WINDOW: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The integrator multiplies velocity by `damping` each step, so a smaller value damps harder.
+/// During the settle window the effective damping is the smaller of the configured value and
+/// this one: 0.6 leaves under 1 % of a velocity after ten steps.
+const RELEASE_SETTLE_DAMPING: f32 = 0.6;
+
+/// A hold not written for this long is released by the actor itself. Longer than the socket's
+/// own 2 s drag timeout, so that normally fires first.
+const HOLD_EXPIRY: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Floor for `global_speed` while any node is held and through the settle window.
+///
+/// Measured on the GPU (`held_node_response_by_parameter`, live FA2 integrator): the integrator
+/// sets velocity from `force * global_speed`, so this is the only stored parameter that moves the
+/// neighbours of a held node faster. `damping`, `max_force` and `max_velocity` change nothing
+/// there. Over 120 steps a neighbour of a node held 300 units out moves 4.5 units at the stored
+/// 0.4, 19 at 2.0 and 55 at 8.0. 2.0 is five times the stored value and the response is about
+/// four times higher; it applies only while something is held. Not in the settle window: R16
+/// measured ~22x residual motion there and a step back to the stored speed when it closed.
+const HOLD_GLOBAL_SPEED: f32 = 2.0;
+
+/// One-shot velocity kick (a random vector of magnitude up to `2 * RELEASE_IMPULSE` per node)
+/// applied once when a node rejoins, so a graph at exact rest is not skipped by the stability
+/// kernel. It replaces the old per-step reheat for pin events.
+const RELEASE_IMPULSE: f32 = 0.05;
+
+/// What one physics step runs with, given who is holding what.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct StepOverrides {
+    /// Force the GPU to step (disable the stability-skip kernel).
+    pub bypass_stability: bool,
+    /// Damping the integrator uses this step (inert under the FA2 integrator, which sets velocity
+    /// from force directly; effective in the Verlet mode).
+    pub damping: f32,
+    /// `global_speed` the integrator uses this step.
+    pub global_speed: f32,
+    /// Per-step random velocity noise (the settings reheat).
+    pub reheat: f32,
+}
+
+/// Decide the stability bypass, damping and reheat for one step.
+///
+/// * While any node is held, by any client, the GPU steps every tick and the settings reheat is
+///   withheld: random per-step noise would fight the hand.
+/// * For `RELEASE_SETTLE_WINDOW` after the last release the GPU still steps every tick and the
+///   integrator damps harder.
+/// * Otherwise the settings warmup and reheat apply as they always did.
+pub(crate) fn step_overrides(
+    warmup_remaining: u32,
+    any_held: bool,
+    settle_until: Option<Instant>,
+    now: Instant,
+    base_damping: f32,
+    base_global_speed: f32,
+    reheat: f32,
+) -> StepOverrides {
+    let settling = !any_held && settle_until.is_some_and(|t| now < t);
+    StepOverrides {
+        bypass_stability: warmup_remaining > 0 || any_held || settling,
+        global_speed: if any_held {
+            base_global_speed.max(HOLD_GLOBAL_SPEED)
+        } else {
+            base_global_speed
+        },
+        damping: if settling {
+            base_damping.min(RELEASE_SETTLE_DAMPING)
+        } else {
+            base_damping
+        },
+        reheat: if any_held || settling { 0.0 } else { reheat },
+    }
+}
+
+/// Names of the fields that make two parameter sets differ, for the "params CHANGED" log. A
+/// repeated settings write that the gate keeps calling a change shows here which field it is.
+fn changed_gpu_fields(cur: &SimulationParams, new: &SimulationParams) -> Vec<&'static str> {
+    let (a, b) = (SimParams::from(cur), SimParams::from(new));
+    let (ab, bb) = (bytemuck::bytes_of(&a), bytemuck::bytes_of(&b));
+    let mut out: Vec<&'static str> = crate::models::simulation_params::simparams_actual_layout()
+        .iter()
+        .filter(|f| ab[f.offset..f.offset + 4] != bb[f.offset..f.offset + 4])
+        .map(|f| f.name)
+        .collect();
+    if cur.semantic != new.semantic {
+        out.push("semantic");
+    }
+    if out.is_empty() {
+        out.push("(a host-side field outside the GPU image)");
+    }
+    out
+}
+
+#[cfg(test)]
+mod changed_fields_tests {
+    use super::*;
+
+    #[test]
+    fn the_log_names_the_field_that_differs() {
+        let cur = SimulationParams::default();
+        let mut new = cur.clone();
+        new.damping = 0.5;
+        new.rest_length += 3.0;
+        let names = changed_gpu_fields(&cur, &new);
+        assert!(
+            names.contains(&"damping") && names.contains(&"rest_length"),
+            "{names:?}"
+        );
+        assert_eq!(names.len(), 2, "{names:?}");
+    }
+}
+
+/// True when every GPU-relevant field of `new` equals `cur` (the idempotency gate of
+/// `UpdateSimulationParams`). Pure, so the gate is unit-testable without an actor.
+fn same_gpu_inputs(cur: &SimulationParams, new: &SimulationParams) -> bool {
+    let eps = 1e-5_f32; // Slightly larger than EPSILON to catch floating-point round-trips
+    (cur.spring_k - new.spring_k).abs() < eps
+            && (cur.repel_k - new.repel_k).abs() < eps
+            && (cur.damping - new.damping).abs() < eps
+            && (cur.dt - new.dt).abs() < eps
+            && (cur.max_velocity - new.max_velocity).abs() < eps
+            && (cur.max_force - new.max_force).abs() < eps
+            && (cur.center_gravity_k - new.center_gravity_k).abs() < eps
+            && (cur.temperature - new.temperature).abs() < eps
+            && (cur.cluster_strength - new.cluster_strength).abs() < eps
+            && (cur.alignment_strength - new.alignment_strength).abs() < eps
+            && (cur.separation_radius - new.separation_radius).abs() < eps
+            && (cur.cooling_rate - new.cooling_rate).abs() < eps
+            && (cur.viewport_bounds - new.viewport_bounds).abs() < eps
+            && (cur.boundary_damping - new.boundary_damping).abs() < eps
+            && (cur.gravity - new.gravity).abs() < eps
+            && (cur.axis_compression_z - new.axis_compression_z).abs() < eps
+            && cur.enable_dual_disc_layout == new.enable_dual_disc_layout
+            && cur.adaptive_speed == new.adaptive_speed
+            && cur.iterations == new.iterations
+            && cur.use_sssp_distances == new.use_sssp_distances
+            && cur.warmup_iterations == new.warmup_iterations
+            && cur.constraint_ramp_frames == new.constraint_ramp_frames
+            && (cur.constraint_max_force_per_node - new.constraint_max_force_per_node).abs()
+                < eps
+            && (cur.spring_k_knowledge - new.spring_k_knowledge).abs() < eps
+            && (cur.spring_k_ontology - new.spring_k_ontology).abs() < eps
+            && (cur.spring_k_agent - new.spring_k_agent).abs() < eps
+            // DAG radial bias (PHASE 2) is GPU-relevant — omitting these fields
+            // silently drops DAG-only settings changes at the early return below.
+            && (cur.dag_bias_k - new.dag_bias_k).abs() < eps
+            && (cur.dag_level_distance - new.dag_level_distance).abs() < eps
+            // Stratified planes (ADR-141 P2) are GPU-relevant — omitting these fields
+            // silently drops plane-only settings changes at the early return below.
+            && (cur.plane_bias_k - new.plane_bias_k).abs() < eps
+            && (cur.plane_spacing - new.plane_spacing).abs() < eps
+            // Sugiyama layer spring (ADR-141 P4) is GPU-relevant — omitting these
+            // fields silently drops layer-only settings changes at the early return.
+            && (cur.layer_bias_k - new.layer_bias_k).abs() < eps
+            && (cur.layer_spacing - new.layer_spacing).abs() < eps
+            // Radial shell centre (ADR-141 P3) rides SimParams.radial_center — omitting
+            // it would silently drop an Ego re-centre at the early return below.
+            && (cur.radial_center[0] - new.radial_center[0]).abs() < eps
+            && (cur.radial_center[1] - new.radial_center[1]).abs() < eps
+            && (cur.radial_center[2] - new.radial_center[2]).abs() < eps
+            // Layout mode (ADR-141 P1) is GPU-relevant — it rides SimParams.layout_mode.
+            // Omitting it would silently drop a mode-only switch at the early return.
+            && cur.layout_mode == new.layout_mode
+            // The semantic group is not part of the SimParams image: compare it directly.
+            && cur.semantic == new.semantic
+            // Catch-all: anything else the GPU would receive differently (see gpu_image_changed).
+            && !gpu_image_changed(cur, new)
 }
 
 /// True when the two parameter sets would put different bytes on the GPU.
@@ -4287,82 +4882,19 @@ mod step_timing_tests {
 #[cfg(test)]
 mod pinning_tests {
     //! Pure, actor-free tests for the pinned-node mask bookkeeping (PHASE 1):
-    //! pin/unpin map mutation and GPU mask construction, tested without a live
+    //! GPU mask construction (the pin set itself is `HoldRegistry`), tested without a live
     //! actor or GPU context (mirrors the settlement_tests precedent).
     use super::ForceComputeActor as FCA;
     use glam::Vec3;
     use std::collections::HashMap;
 
     #[test]
-    fn pin_inserts_and_reports_change() {
-        let mut pinned: HashMap<u32, Vec3> = HashMap::new();
-        let changed = FCA::apply_pin_ops(&mut pinned, &[(7, [1.0, 2.0, 3.0])], &[]);
-        assert!(changed, "inserting a new pin must report a change");
-        assert_eq!(pinned.get(&7), Some(&Vec3::new(1.0, 2.0, 3.0)));
-    }
-
-    #[test]
-    fn repinning_same_position_is_not_a_change() {
-        // A per-frame drag update that repeats the exact position must not mark the
-        // mask dirty (avoids a pointless GPU re-upload every drag frame).
-        let mut pinned: HashMap<u32, Vec3> = HashMap::new();
-        FCA::apply_pin_ops(&mut pinned, &[(7, [1.0, 2.0, 3.0])], &[]);
-        let changed = FCA::apply_pin_ops(&mut pinned, &[(7, [1.0, 2.0, 3.0])], &[]);
-        assert!(
-            !changed,
-            "re-pinning identical position must not report a change"
-        );
-    }
-
-    #[test]
-    fn moving_a_pin_reports_change() {
-        let mut pinned: HashMap<u32, Vec3> = HashMap::new();
-        FCA::apply_pin_ops(&mut pinned, &[(7, [1.0, 2.0, 3.0])], &[]);
-        let changed = FCA::apply_pin_ops(&mut pinned, &[(7, [9.0, 9.0, 9.0])], &[]);
-        assert!(
-            changed,
-            "moving a pinned node to a new position must report a change"
-        );
-        assert_eq!(pinned.get(&7), Some(&Vec3::new(9.0, 9.0, 9.0)));
-    }
-
-    #[test]
-    fn unpin_removes_and_reports_change() {
-        let mut pinned: HashMap<u32, Vec3> = HashMap::new();
-        FCA::apply_pin_ops(&mut pinned, &[(7, [1.0, 2.0, 3.0])], &[]);
-        let changed = FCA::apply_pin_ops(&mut pinned, &[], &[7]);
-        assert!(changed, "removing an existing pin must report a change");
-        assert!(pinned.is_empty());
-    }
-
-    #[test]
-    fn unpin_absent_node_is_not_a_change() {
-        let mut pinned: HashMap<u32, Vec3> = HashMap::new();
-        let changed = FCA::apply_pin_ops(&mut pinned, &[], &[42]);
-        assert!(
-            !changed,
-            "unpinning a node that was never pinned is a no-op"
-        );
-    }
-
-    #[test]
-    fn pin_and_unpin_in_one_op() {
-        // A single message may both pin some nodes and unpin others.
-        let mut pinned: HashMap<u32, Vec3> = HashMap::new();
-        FCA::apply_pin_ops(&mut pinned, &[(1, [0.0; 3]), (2, [0.0; 3])], &[]);
-        let changed = FCA::apply_pin_ops(&mut pinned, &[(3, [0.0; 3])], &[1]);
-        assert!(changed);
-        assert!(pinned.contains_key(&2));
-        assert!(pinned.contains_key(&3));
-        assert!(!pinned.contains_key(&1));
-    }
-
-    #[test]
     fn mask_sets_bit_only_for_pinned_gpu_indices() {
         // node_ids[i] is the graph node ID at GPU index i. The mask bit is set at
         // the GPU index whose node ID is pinned — regardless of ID ordering.
         let mut pinned: HashMap<u32, Vec3> = HashMap::new();
-        FCA::apply_pin_ops(&mut pinned, &[(20, [0.0; 3]), (40, [0.0; 3])], &[]);
+        pinned.insert(20, Vec3::ZERO);
+        pinned.insert(40, Vec3::ZERO);
         let node_ids = [10u32, 20, 30, 40, 50];
         let mask = FCA::build_pinned_mask(&node_ids, &pinned);
         assert_eq!(mask, vec![0, 1, 0, 1, 0]);
@@ -4380,7 +4912,7 @@ mod pinning_tests {
         // A stale pin for a node no longer in the graph must not set any bit and
         // must not panic — the mask length always matches the GPU node count.
         let mut pinned: HashMap<u32, Vec3> = HashMap::new();
-        FCA::apply_pin_ops(&mut pinned, &[(999, [0.0; 3])], &[]);
+        pinned.insert(999, Vec3::ZERO);
         let mask = FCA::build_pinned_mask(&[1, 2, 3], &pinned);
         assert_eq!(mask, vec![0, 0, 0]);
     }

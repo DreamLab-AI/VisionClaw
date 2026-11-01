@@ -540,25 +540,23 @@ pub fn edges_for_class_mask(
 }
 
 /// Full-extent (0th to 100th percentile) AABB `[minx, miny, minz, maxx, maxy, maxz]` over the
-/// positions of `ids`, skipping `exclude` (the grabbed node), ids `position_of` does not know,
-/// and non-finite positions. `None` when nothing qualifies. Unlike `render_aabb`, nothing is
-/// trimmed: a volume's fit must contain every node it draws (ADR-2158 E7).
+/// positions of `ids`, skipping every id in `exclude` (the grabbed nodes: up to one per hand, so
+/// a set, ADR-2172), ids `position_of` does not know, and non-finite positions. `None` when
+/// nothing qualifies. Unlike `render_aabb`, nothing is trimmed: a volume's fit must contain every
+/// node it draws (ADR-2158 E7).
 pub fn full_aabb_of(
     ids: &[i32],
-    exclude: Option<u32>,
+    exclude: &[i32],
     position_of: impl Fn(u32) -> Option<[f32; 3]>,
 ) -> Option<[f32; 6]> {
     let mut lo = [f32::INFINITY; 3];
     let mut hi = [f32::NEG_INFINITY; 3];
     let mut any = false;
     for &raw in ids {
-        if raw < 0 {
+        if raw < 0 || exclude.contains(&raw) {
             continue;
         }
         let id = raw as u32;
-        if Some(id) == exclude {
-            continue;
-        }
         let Some(p) = position_of(id) else { continue };
         if !p.iter().all(|c| c.is_finite()) {
             continue;
@@ -1813,6 +1811,21 @@ impl BinaryProtocolClient {
             .hunt(ease, gid, [grab_pos.x, grab_pos.y, grab_pos.z]);
     }
 
+    /// `hunt` for any number of held nodes (one per hand). `ids[i]` is pinned to
+    /// `positions[i]` (server space); the arrays are zipped, extra entries in the
+    /// longer one are ignored. Empty arrays mean no grab.
+    #[func]
+    fn hunt_grabs(&mut self, ease: f32, ids: PackedInt32Array, positions: PackedVector3Array) {
+        let grabs: Vec<(u32, [f32; 3])> = ids
+            .as_slice()
+            .iter()
+            .zip(positions.as_slice().iter())
+            .filter(|(id, _)| **id >= 0)
+            .map(|(id, p)| (*id as u32, [p.x, p.y, p.z]))
+            .collect();
+        self.store.hunt_grabs(ease, &grabs);
+    }
+
     /// Pack the node MultiMesh buffer for the drawn `ids` (20 floats/instance:
     /// transform + colour + custom). `scale_comp` folds GraphRoot scale + the HUD
     /// node-size factor; size eases `size_lo..size_hi` by sqrt(centrality-norm).
@@ -2263,16 +2276,16 @@ impl BinaryProtocolClient {
     }
 
     /// Full-extent AABB `[minx,miny,minz,maxx,maxy,maxz]` (server space) over `ids`, skipping
-    /// `exclude_id` (< 0 = none) and ids not in the store. Empty array when none qualify.
+    /// every id in `exclude` (the nodes held by a hand; empty = none) and ids not in the store.
+    /// Empty array when none qualify.
     #[func]
-    fn render_aabb_ids(&self, ids: PackedInt32Array, exclude_id: i64) -> PackedFloat32Array {
-        let excl = (exclude_id >= 0).then_some(exclude_id as u32);
+    fn render_aabb_ids(&self, ids: PackedInt32Array, exclude: PackedInt32Array) -> PackedFloat32Array {
         let known = |id: u32| {
             self.node_class
                 .contains_key(&id)
                 .then(|| self.store.position_of(id))
         };
-        match full_aabb_of(ids.as_slice(), excl, known) {
+        match full_aabb_of(ids.as_slice(), exclude.as_slice(), known) {
             Some(bb) => PackedFloat32Array::from(bb.as_slice()),
             None => PackedFloat32Array::new(),
         }
@@ -3147,27 +3160,43 @@ mod tests {
         let (_, map) = fixture_class_store();
         let pos = |id: u32| map.get(&id).map(|e| e.1);
         assert_eq!(
-            full_aabb_of(&[1, 2], None, pos),
+            full_aabb_of(&[1, 2], &[], pos),
             Some([0.0, -2.0, 0.0, 4.0, 0.0, 1.0])
         );
         // Full extent: the far outlier is inside, not trimmed as a percentile box would.
         assert_eq!(
-            full_aabb_of(&[1, 2, 3], None, pos),
+            full_aabb_of(&[1, 2, 3], &[], pos),
             Some([0.0, -2.0, 0.0, 10.0, 10.0, 10.0])
         );
         // The grabbed node is excluded.
         assert_eq!(
-            full_aabb_of(&[1, 2, 3], Some(3), pos),
+            full_aabb_of(&[1, 2, 3], &[3], pos),
             Some([0.0, -2.0, 0.0, 4.0, 0.0, 1.0])
         );
         // Unknown and negative ids are skipped; nothing left ⇒ None.
-        assert_eq!(full_aabb_of(&[2, 77, -4], None, pos), Some([4.0, -2.0, 1.0, 4.0, -2.0, 1.0]));
-        assert_eq!(full_aabb_of(&[77], None, pos), None);
-        assert_eq!(full_aabb_of(&[], None, pos), None);
-        assert_eq!(full_aabb_of(&[3], Some(3), pos), None);
+        assert_eq!(full_aabb_of(&[2, 77, -4], &[], pos), Some([4.0, -2.0, 1.0, 4.0, -2.0, 1.0]));
+        assert_eq!(full_aabb_of(&[77], &[], pos), None);
+        assert_eq!(full_aabb_of(&[], &[], pos), None);
+        assert_eq!(full_aabb_of(&[3], &[3], pos), None);
         // A non-finite position never poisons the box.
         let nan = |id: u32| (id == 9).then_some([f32::NAN, 0.0, 0.0]).or_else(|| pos(id));
-        assert_eq!(full_aabb_of(&[9, 1], None, nan), Some([0.0; 6]));
+        assert_eq!(full_aabb_of(&[9, 1], &[], nan), Some([0.0; 6]));
+    }
+
+    /// ADR-2172 F1: both hands can hold a node in one volume, so the refit excludes a SET.
+    /// With only one id excluded the other held node still drags the box (and the scale) out.
+    #[test]
+    fn render_aabb_ids_excludes_every_held_node() {
+        let (_, map) = fixture_class_store();
+        let pos = |id: u32| map.get(&id).map(|e| e.1);
+        // Node 3 is the far outlier (10,10,10); nodes 1 and 2 are the unheld cluster.
+        let rest = Some([0.0, -2.0, 0.0, 4.0, 0.0, 1.0]);
+        assert_eq!(full_aabb_of(&[1, 2, 3], &[3, 2], pos), full_aabb_of(&[1], &[], pos), "two held ids both leave the fit");
+        assert_eq!(full_aabb_of(&[1, 2, 3], &[3], pos), rest, "one held id");
+        assert_eq!(full_aabb_of(&[1, 2, 3], &[2, 3], pos), full_aabb_of(&[1], &[], pos), "order does not matter");
+        assert_eq!(full_aabb_of(&[2, 3], &[3, 2], pos), None, "everything held ⇒ nothing to fit");
+        // Negative or unknown exclusions are harmless.
+        assert_eq!(full_aabb_of(&[1, 2, 3], &[-1, 77, 3], pos), rest);
     }
 
     #[test]

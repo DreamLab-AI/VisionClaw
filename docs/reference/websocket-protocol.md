@@ -114,7 +114,8 @@ server decodes and both clients assert against a golden frame.
 | `requestInitialData` | send the sparse initial graph load |
 | `filter_update` | adjust server-side node filtering |
 | `authenticate` | upgrade an unauthenticated session in place |
-| `nodeDragStart` / `nodeDragUpdate` / `nodeDragEnd` | pin/move/release a node |
+| `nodeDragStart` / `nodeDragUpdate` / `nodeDragEnd` | hold / move / release a node; the released node rejoins the simulation (ADR-2169) |
+| `nodePin` / `nodeUnpin` | explicit lasting pin / clear it (ADR-2169) |
 
 Unknown types are logged and ignored; malformed JSON returns a
 `{"type":"error"}` frame.

@@ -41,7 +41,7 @@ class FakeClient:
 		calls.append(["node_ids_for_mask", mask])
 		return ids
 
-	func render_aabb_ids(i: PackedInt32Array, exclude: int) -> PackedFloat32Array:
+	func render_aabb_ids(i: PackedInt32Array, exclude: PackedInt32Array) -> PackedFloat32Array:
 		calls.append(["render_aabb_ids", i, exclude])
 		return aabb
 
@@ -100,14 +100,14 @@ func test_codescape_drag_returns_false_and_sends_nothing() -> void:
 	assert_eq(cs.pinned_ids(), [], "a refused drag pins nothing")
 
 
-func test_visionclaw_drag_reaches_its_client_and_records_the_pin() -> void:
+func test_visionclaw_drag_reaches_its_client_and_records_no_pin() -> void:
 	var fake := FakeClient.new()
 	var vc: Node = _conn(&"visionclaw", "visionclaw", fake)
 	assert_true(vc.send_drag_start(3, Vector3(1, 2, 3)))
 	assert_true(vc.send_drag_update(3, Vector3(2, 2, 3)))
 	assert_true(vc.send_drag_end(3))
 	assert_eq(fake.names(), ["send_drag_start", "send_drag_update", "send_drag_end"])
-	assert_eq(vc.pinned_ids(), [3])
+	assert_eq(vc.pinned_ids(), [], "ADR-2172 F3: a drag end records no pin; the server releases the node, nothing is left to unpin")
 
 
 func test_refused_fires_with_label_and_quiet_suppresses_it() -> void:
@@ -139,7 +139,7 @@ func test_close_cancels_requests_releases_pins_and_bumps_generation() -> void:
 	fake.calls.clear()
 	vc.close()
 	assert_eq(req.get_http_client_status(), HTTPClient.STATUS_DISCONNECTED, "request cancelled")
-	assert_eq(fake.names(), ["send_node_unpin", "close"], "pins released while the socket is still open, then closed")
+	assert_eq(fake.names(), ["close"], "a drag end left no pin, so close sends no nodeUnpin (and no reheat)")
 	assert_eq(vc.pinned_ids(), [], "pin set cleared")
 	assert_eq(vc.generation, gen_before + 1, "generation bumped")
 	assert_signal_emitted_with_parameters(vc, "generation_changed", [&"visionclaw", gen_before + 1])
@@ -244,8 +244,8 @@ func test_aabb_and_ids_wrap_the_client() -> void:
 	fake.aabb = PackedFloat32Array([-1, -2, -3, 1, 2, 3])
 	var vc: Node = _conn(&"visionclaw", "visionclaw", fake)
 	assert_eq(vc.node_ids_for_mask(0b0001), PackedInt32Array([1, 2]))
-	var box: AABB = vc.render_aabb_for_ids(PackedInt32Array([1, 2]), -1)
+	var box: AABB = vc.render_aabb_for_ids(PackedInt32Array([1, 2]), PackedInt32Array())
 	assert_eq(box.position, Vector3(-1, -2, -3))
 	assert_eq(box.size, Vector3(2, 4, 6))
 	fake.aabb = PackedFloat32Array()
-	assert_eq(vc.render_aabb_for_ids(PackedInt32Array([9]), -1), AABB(), "empty when none known")
+	assert_eq(vc.render_aabb_for_ids(PackedInt32Array([9]), PackedInt32Array()), AABB(), "empty when none known")

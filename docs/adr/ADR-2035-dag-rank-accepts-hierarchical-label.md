@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 93302275ecab90dfa73284405d331d56a3cd9840
+verified_commit: f1fa1862c00ad627af8f45249d51b94c3a1c238f
 verified_paths: [src/actors/gpu/force_compute_actor.rs, crates/visionclaw-domain/src/models/edge.rs, src/services/github_sync_service.rs, src/services/inferred_edge_materialiser.rs, src/services/semantic_type_registry.rs]
 owner: jjohare
 review_trigger: a producer that writes a 'hierarchical' subclass edge without rdfs:subClassOf in owl_property_iri (it would silently stop ranking), a store path that drops vc:owlProperty, or a new producer of explicit subclass_of labels
@@ -387,3 +387,7 @@ Re-verified 2026-10-30 at c75004696: `src/services/github_sync_service.rs` only 
 ## Re-stamp — 2026-10-31 (ADR-2140 item 1)
 
 **Governed change:** ADR-2140 item 1 removes the `SetLayoutMode` handler, the mode override in `UpdateSimulationParams` and `fill_mode_defaults` from this file. The DAG ranker this record governs (`hierarchy_pairs` and its consumer) is untouched and the `"hierarchical"` label is still not what is ranked. **Decision holds**; the `:581`/`:587` citations have moved, so cite by function name. Re-run: `git diff --stat 75b72416b 93302275e -- src/actors/gpu/force_compute_actor.rs`. Checked by reading that diff against this record's claims; server `cargo test --lib` 1721 passed, 0 failed, 9 ignored, `cargo test -p visionclaw-domain` 317 passed at `93302275e`.
+
+## Re-verification — 2026-10-31 (`f1fa1862c`)
+
+Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (ADR-2172), client/three-0187 and docs/splat-adr, each Opus-reviewed (R15/R16/R17). The governed-path changes are those merges: drag holds and release in the GPU actor and socket handler, the held-only global_speed floor, two-hand grab and the edge breathe in the XR client, and the ADR 2168->2172 comment renames. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1768 passed, 0 failed (GPU 1); vitest 142 files / 1468 (installed three 0.183; the 0.187 run is on client/three-0187); XR GUT 522 passing on 4.6.1 and 4.8 at the grab-client head. Re-run: `git diff 2257ee7fa..f1fa1862c -- <governed path>`.

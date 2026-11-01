@@ -40,7 +40,7 @@ The [historical closeout routing note](../adr-history-closeout.md) points each f
 
 The [estate status/evidence contract](../../../VisionFlow/docs/architecture/adr-status-contract.md) defines the independent decision, implementation and activation axes and distinguishes lineage from supersession (2026-09-07).
 
-_141 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
+_145 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 
 | ID | Title | Domain | Date | Decision | Impl | Activation | Supersedes | Superseded by | Owner | Repo |
 |----|-------|--------|------|----------|------|------------|------------|---------------|-------|------|
@@ -185,3 +185,7 @@ _141 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2166](ADR-2166-spatial-volumes-can-be-entered-the-others-become-portals.md) | Spatial volumes can be entered; the others become portals | XR-client | 2026-10-31 | accepted | partial | inactive | — | — | jjohare | visionclaw |
 | [ADR-2167](ADR-2167-the-headsets-visual-extras-are-the-allocators-last-budgeted-layer.md) | The headset's visual extras hold a bounded allowance in the allocator, tiered by measured GPU time | BASELINE-architecture | 2026-10-31 | proposed | partial | staged | — | — | jjohare | visionclaw |
 | [ADR-2168](ADR-2168-consume-ontomark-filesystem-layout-checks.md) | Consume Ontomark filesystem layout checks through crate features | VAULT-corpus-format | 2026-11-01 | accepted | complete | staged | — | — | jjohare | visionclaw |
+| [ADR-2169](ADR-2169-a-drag-is-a-hold-the-released-node-rejoins-the-simulation-and-the-graph-settles.md) | A drag is a hold: the released node rejoins the simulation and the graph answers the hand within a few ticks | PROTOCOL-registry | 2026-11-01 | accepted | partial | inactive | — | — | jjohare | visionclaw |
+| [ADR-2170](ADR-2170-gaussian-splat-scenes-are-their-own-volume-on-both-clients.md) | Gaussian splat scenes are their own volume, rendered by a per-backend library on the desktop and a CPU-sorted quad layer in the headset | XR-client | 2026-11-01 | proposed | none | inactive | — | — | jjohare | visionclaw |
+| [ADR-2171](ADR-2171-desktop-catches-up-on-webgpurenderer-not-meshlets.md) | The desktop client catches up on WebGPURenderer's own facilities and does not adopt the meshlet drawing pipeline | BASELINE-architecture | 2026-11-01 | proposed | none | inactive | — | — | jjohare | visionclaw |
+| [ADR-2172](ADR-2172-a-node-is-grabbed-with-either-hand-in-any-visionclaw-volume.md) | A node is grabbed with either hand, up to two at once, in any VisionClaw volume | XR-client | 2026-11-01 | accepted | partial | inactive | — | — | jjohare | visionclaw |

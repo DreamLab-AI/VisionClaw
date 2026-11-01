@@ -65,14 +65,14 @@ func test_grip_precedence() -> void:
 	assert_eq(GraphScene.resolve_grip(false, {}, false), "none")
 
 
-func test_drag_stays_knowledge_only() -> void:
+func test_drag_is_for_draggable_volumes_only() -> void:
 	assert_false(GraphScene.claim_blocks_drag("", &"", &"knowledge"), "no press: the Rust drag decides")
 	assert_false(GraphScene.claim_blocks_drag("none", &"", &"knowledge"))
 	assert_false(GraphScene.claim_blocks_drag("node", &"knowledge", &"knowledge"), "a knowledge node may drag")
-	assert_true(GraphScene.claim_blocks_drag("node", &"ontology", &"knowledge"), "select only in other boxes")
+	assert_false(GraphScene.claim_blocks_drag("node", &"ontology", &"knowledge"), "an ontology node drags too (same store, ADR-2166 amendment)")
 	assert_true(GraphScene.claim_blocks_drag("node", &"codescape", &"knowledge"), "E9")
 	assert_true(GraphScene.claim_blocks_drag("link", &"", &"knowledge"))
-	assert_true(GraphScene.claim_blocks_drag("frame", &"ontology", &"knowledge"), "a frame press elsewhere never drags")
+	assert_true(GraphScene.claim_blocks_drag("frame", &"codescape", &"knowledge"), "a frame press in a volume without DRAG never drags")
 	assert_false(GraphScene.claim_blocks_drag("frame", &"knowledge", &"knowledge"), "the overlay's own tube may still catch a node")
 
 
@@ -290,9 +290,11 @@ func test_box_grip_engages_without_a_jump() -> void:
 func test_held_knowledge_node_is_the_selection() -> void:
 	var scene: Node3D = await _make_scene()
 	scene.select_volume_node(&"ontology", &"visionclaw", 3)
+	scene._grab_eval_hand = 0
+	scene._grab_eval_vol = &"knowledge"
 	scene._on_node_grabbed(42, Vector3.ZERO)
 	assert_eq(scene._volumes[&"knowledge"].selected_node, 42, "the node the Rust drag holds is selected")
 	assert_eq(scene._volumes[&"ontology"].selected_node, -1)
 	assert_eq(scene._focused_volume, &"knowledge")
-	scene._grabbed_id = -1
+	scene._end_grab(0)
 	await _free(scene)

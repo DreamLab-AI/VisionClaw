@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2f8a74118cee7a2b3ab7f600f850bc1fe8b10722
+verified_commit: 37d1226b10c36c44ba854a3fccfe8dff3785aec5
 verified_paths: [src/actors/gpu/gpu_manager_actor.rs, src/actors/gpu/mod.rs, src/actors/gpu/context_bus.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: a new GPU subsystem that does not fit the four-supervisor split, or a change to SharedGPUContext distribution

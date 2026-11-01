@@ -2182,6 +2182,7 @@ mod physics_state_summary_tests {
             stable_frame_count: 3,
             kinetic_energy: 0.207,
             physics_running: true,
+            iterations: 0,
         };
         let s = physics_state_summary(Some(&snap));
         assert!(s.telemetry_live && s.physics_running);
@@ -2206,6 +2207,7 @@ mod physics_state_summary_tests {
             stable_frame_count: 90,
             kinetic_energy: 0.0,
             physics_running: false,
+            iterations: 0,
         };
         let paused = physics_state_summary(Some(&paused_snap));
         assert!(

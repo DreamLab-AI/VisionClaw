@@ -58,6 +58,9 @@ impl SocketFlowServer {
                 Some("nodeDragUpdate") => {
                     super::position_updates::handle_node_drag_update(self, &msg, ctx);
                 }
+                Some("nodePin") => {
+                    super::position_updates::handle_node_pin(self, &msg, ctx);
+                }
                 Some("nodeUnpin") => {
                     super::position_updates::handle_node_unpin(self, &msg, ctx);
                 }

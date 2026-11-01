@@ -19,6 +19,15 @@ lazy_static::lazy_static! {
     };
 }
 
+/// Default time (ms) without a drag update after which a hold is released.
+pub(crate) const DEFAULT_DRAG_TIMEOUT_MS: u64 = 2000;
+
+/// Mint a connection's hold identity. Process-unique, never reused.
+fn next_hold_id() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 pub struct SocketFlowServer {
     pub(crate) app_state: Arc<AppState>,
     pub(crate) client_id: Option<usize>,
@@ -64,7 +73,15 @@ pub struct SocketFlowServer {
     pub(crate) dragged_nodes: HashSet<u32>,
     /// Last time a drag position update was received per node (for timeout-based unpin).
     pub(crate) drag_last_update: HashMap<u32, Instant>,
-    /// Maximum time (ms) with no position update before auto-unpin. Default 500ms.
+    /// Latest position of a node whose `nodeDragUpdate` arrived inside the rate-limit interval.
+    /// It is applied by a short trailing timer, or at `nodeDragEnd`, so the final hand position
+    /// is never lost to the limiter.
+    pub(crate) drag_pending: HashMap<u32, [f32; 3]>,
+    /// Identity this connection holds nodes under. The physics actor frees a node only for the
+    /// holder that owns it, so one client letting go cannot free another client's grab.
+    pub(crate) hold_id: u64,
+    /// Maximum time (ms) with no position update before the hold is released. A held-still
+    /// hand keeps sending, so this only fires for a client that vanished without a `nodeDragEnd`.
     pub(crate) drag_timeout_ms: u64,
 
     /// Last time this connection served a `requestInitialData` full-graph push.
@@ -120,7 +137,9 @@ impl SocketFlowServer {
             relay_unauth_reported: false,
             dragged_nodes: HashSet::new(),
             drag_last_update: HashMap::new(),
-            drag_timeout_ms: 500,
+            drag_pending: HashMap::new(),
+            hold_id: next_hold_id(),
+            drag_timeout_ms: DEFAULT_DRAG_TIMEOUT_MS,
             last_initial_data_request: None,
             sync_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
@@ -489,37 +508,18 @@ impl Actor for SocketFlowServer {
     fn stopped(&mut self, _ctx: &mut Self::Context) {
         // Clean up orphaned drags: unpin any nodes this client was still dragging
         // when the WebSocket connection dropped (missed dragEnd messages).
-        if !self.dragged_nodes.is_empty() {
-            let node_ids: Vec<u32> = self.dragged_nodes.drain().collect();
-            let graph_addr = self.app_state.graph_service_addr.clone();
-            let app_state = self.app_state.clone();
-            let count = node_ids.len();
-            actix::spawn(async move {
-                use crate::actors::messages::{
-                    NodeInteractionMessage, NodeInteractionType, PinNodePositions,
-                };
-                for node_id in &node_ids {
-                    graph_addr.do_send(NodeInteractionMessage {
-                        node_id: *node_id,
-                        interaction_type: NodeInteractionType::Released,
-                        position: None,
-                    });
-                }
-                // Release the GPU pins so orphaned nodes resume normal integration.
-                if let Some(gpu_addr) = app_state.get_gpu_compute_addr().await {
-                    gpu_addr.do_send(PinNodePositions {
-                        pins: Vec::new(),
-                        unpin: node_ids.clone(),
-                        reheat: false,
-                    });
-                }
-                debug!("[Drag] Cleaned up {} orphaned drags on disconnect", count);
-            });
+        // Always release by holder, not by the list this connection believes it still holds: a
+        // hold update can reach the physics actor after the release that was meant to end it, and
+        // `dragged_nodes` is already empty by then.
+        let node_ids: Vec<u32> = self.dragged_nodes.drain().collect();
+        if !node_ids.is_empty() {
             warn!(
                 "[Drag] Client disconnected with {} nodes still dragged, sending release",
-                count
+                node_ids.len()
             );
         }
+        super::position_updates::release_holds(&self.app_state, self.hold_id, node_ids, true);
+        self.drag_pending.clear();
         self.drag_last_update.clear();
 
         if let Some(client_id) = self.client_id {

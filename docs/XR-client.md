@@ -1,10 +1,12 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.24
+version: 0.1.26
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.26 (2026-11-01): ADR-2170 (proposed, none, inactive; source evidence only): Gaussian splat scenes as their own volume; a Compatibility-safe CPU-sorted quad layer with a separate splat account (owner decision pending). New proposed section only; Current State, Invariants and verified_commit untouched. Version skips 0.1.25, which xr/grab-client (ADR-2168) uses."
+  - "0.1.25 (2026-11-01): ADR-2172 (partial, inactive, headless-GUT evidence only): a node can be grabbed with either hand, up to two at once, in any VisionClaw volume (knowledge or ontology), in the ring and inside an entered room; Codescape still refuses (E9); a portal never grabs; a drag release is no longer recorded for Unpin All (so the Unpin All count and the fold's `?pinned=` stay empty until a client-side Pin exists); a held node never refits its own volume (R15 F1); the gold-edge breathe is 36 s at depth 0.8 and swells brightness as well as alpha (its true trough is about 0.04 of peak). Volumes section only; Current State, Invariants and verified_commit untouched."
   - "0.1.24 (2026-10-31): ADR-2166 (partial, inactive, headless-GUT evidence only): a volume can be entered (room-scale bounds, centred on the user) and the others become portals on a ring outside it, with a one-draw-call membrane; Enter/Leave on the HUD; reduced-motion dim-and-snap, 0.5 s ease otherwise for Enter and for re-laying the portals (Leave and swap always dim); refused while the native arm is active. Volumes section only; Current State, Invariants and verified_commit untouched."
   - "0.1.23 (2026-10-30): Godot 4.8-beta2 target (ADR-2165). The unchanged gdext library (godot 0.2.4, API 4.3) loads under 4.8.beta2.official.cafc17a19; headless load and GUT match 4.6.1 exactly (33/33 scripts, 257/257 tests); desktop GL (XR off) fixture is pixel-identical and the benchmark about 2.6 % slower; no API break in our code (PR #116424 only breaks XRInterfaceExtension implementations, which we have none of). Invariant 1 gains an explicit clause that an engine minor-version bump re-opens it (renderer rule itself unchanged); its 4.8 on-headset re-test is recorded under Engine and renderer and is partial (FOCUSED at 90 FPS with the graph visible in the left eye; the second eye awaits the operator). Hard cutover by operator decision: the live headset client runs 4.8-beta2, and 4.6.1 stays installed as the rollback."
   - "0.1.22 (2026-10-30): ADR-2158 and ADR-2159 accepted by the operator for implementation (not built); ADR-2164 added (code-to-concept links from explicit `@ontology` annotations, joined in the client). The Proposed section becomes Being implemented: native container arm (one main container wraps the emulated arrangement, off by default, Android only, falls back, unverified), `xr.cross_volume_links` on in debug builds and off in release, E3 open items settled as defaults, link-layer budget. Current State, Invariants, Godot version facts and verified_commit untouched. Drafted against 00669b7a2."
@@ -937,7 +939,7 @@ The operator accepted these on 2026-10-30 for implementation. Nothing below exis
   - **Acceptance.** These come from the plan:
     - **E7:** no node centre lies outside its box;
     - **E8:** 90 Hz on the VIVE;
-    - **E9:** a Codescape `nodeDrag` is refused locally.
+    - **E9:** a Codescape `nodeDrag` is refused locally (a VisionClaw `nodeDrag`, from knowledge or ontology, is not: ADR-2172).
 - **Volume interactions (UX contract, built 2026-10-30 on `xr/ux-wire`).** The wand acts on any box, not only the knowledge overlay. Precedence is decided by pure statics, so GUT covers it (`tests/unit/test_volume_ux.gd`).
 
   | Input | Target | Effect | Code |
@@ -945,8 +947,8 @@ The operator accepted these on 2026-10-30 for implementation. Nothing below exis
   | Trigger (≥ 0.7, once per press) | HUD or radial menu | button press; never reaches the boxes | `graph_scene.gd:230` `resolve_trigger` |
   | Trigger | drawn link, nearer than any node | follow it: the far end's box (the end farther from the hit, `link_picker.gd` `far_end`) is focused, its node selected, the box brought to the front, the link and both ends highlighted | `graph_scene.gd:350` `apply_trigger` |
   | Trigger | node in any visible, online box | select it (in the knowledge box the node the Rust drag holds is the selection), focus its box, highlight it, its links and their counterparts; label from that box's own connection on the HUD status line and above the node | `graph_scene.gd:370` `select_volume_node` |
-  | Trigger | node in the knowledge box | as above, and the existing Rust drag also runs; drag stays knowledge-only (E9) | `graph_scene.gd:261` `claim_blocks_drag` |
-  | Trigger | box frame, no node under the ray | focus the box (same as HUD `volume_focus:<id>`); in the knowledge box the Rust drag may still catch a node within its 5 cm tube | `graph_scene.gd:327` `trigger_pick` |
+  | Trigger | node in a VisionClaw box (knowledge or ontology) | as above, and the node drag also runs for that hand, to that box's connection and through that box's Content transform (ADR-2172); a Codescape node only selects (E9) | `graph_scene.gd` `claim_blocks_drag`, `_begin_grab` |
+  | Trigger | box frame, no node under the ray | focus the box (same as HUD `volume_focus:<id>`); in a VisionClaw box the Rust drag may still catch a node within its 5 cm tube | `graph_scene.gd` `trigger_pick` |
   | Grip, near the HUD panel | HUD | carry the HUD (unchanged, wins first) | `_update_hud_grab` |
   | Grip, one hand, held 0.15 s | corner handle (ray within 4 cm) | resize the box, symmetric about its origin | `graph_scene.gd:566` `begin_box_grip` |
   | Grip, one hand, held 0.15 s | box frame | move that one box with the grabbed ray point; it keeps its rotation and leaves its ring slot | `graph_scene.gd:604` `drive_box_grip` |
@@ -955,6 +957,17 @@ The operator accepted these on 2026-10-30 for implementation. Nothing below exis
   | HUD Graph **Reset Layout** | all boxes | ring slots and default bounds restored (local, for any focused volume), then the gated physics reset | `graph_scene.gd:631` `reset_volume_layout` |
   | HUD Session **Enter** / **Leave** (ADR-2166) | focused box | **Enter**: that box becomes a 6 × 3 × 6 m room centred on the user and the other boxes become portals on a ring outside it (swap if already inside another); **Leave** restores the ring exactly. Refused (nothing changes) when the native arm is active or the box is closed, hidden or offline | `graph_scene.gd:1381` `enter_volume_space`, `space_portals.gd:301` `enter` |
 
+- **Node grab in any VisionClaw volume, with both hands (ADR-2172; headless GUT only, no headset run).**
+  - **Same nodes.** Knowledge and ontology are two filtered views of one `visionclaw` connection and one render store: a node has one wire id, sits in exactly one volume (class mask `0b0001` or `0b0010`), and is simulated once by the server. A drag therefore maps to the server exactly as before: `nodeDragStart/Update/End` for that id, on the volume's own connection. The server's drag handler takes only the id and a position, with no volume or class parameter.
+  - **Per hand.** Each hand holds at most one node (`_grab_id`, `_grab_vol`, `_grab_dist`, `_grab_target`, index 0 left and 1 right); releasing one leaves the other held. One node cannot be held by both hands. The Rust `hunt_grabs` pins every held node to its hand each frame (optimistic echo); the single-node `hunt` is a wrapper over it.
+  - **Which volume.** A trigger press that claimed a node or frame grabs in that volume only; an unclaimed press lets the Rust tube catch a node in any draggable volume of the ring (or only the entered volume inside a room). Candidates come from each volume's own pack slot, mapped through its drawn Content transform (`SpatialVolume.world_from_content`); the hand-to-server conversion inverts the same transform, so a grab works in the ring box and in a room whose content is scaled to room size.
+  - **Refusals.** A link or HUD press, Codescape (no `DRAG`, E9) and a portal never grab (`grab_volume_allowed`: the entered volume, or any volume when none is entered). No grab starts during a room transition, and entering, swapping or leaving a space releases every held node (the Content transform snaps).
+  - **Unchanged.** Double-click opens the node's document, the HUD and radial pointers do not grab, haptics are as before, and the two-hand graph gesture (both grips) still engages only on its own binding and never while a node is held, so two trigger grabs never start it.
+  - **Overlays.** The proximity labels are placed through GraphRoot (the knowledge frame), so only nodes held in the knowledge volume join the label pool. The focus and hover marker is placed through `focus_frame_for`: the Content transform of the volume holding the node, or the one the ray last targeted it in.
+  - **Release rejoins the physics.** A drag release is not recorded in `_pinned_ids` any more, and `BackendConnection.send_drag_end` records no pin either (the server releases the node). Nothing in the client writes `_pinned_ids` now and no client-side `nodePin` sender exists, so the HUD **Unpin All** count stays 0, the Pins page stays empty and the fold request's `?pinned=` stays empty until a client-side Pin exists; a node just dragged can fold away. The Pins page is kept for that future Pin.
+  - **A held node never refits its volume.** The E7 refit excludes every held node (`render_aabb_ids(ids, exclude)`, `ConnectionVolumeSource.grabbed_ids`, written by `_begin_grab` / `_end_grab`); without that a hand held beyond the box face made the node, the box scale and the server target run away. The gdext must be rebuilt for the array signature.
+  - **Locks.** No grab starts during a room transition or while an arrangement ease runs. While a node is held, a link press, the HUD Front action and a box grip on that volume move no volume. The double-click state is per hand. The catch offset from the aim axis is kept for the whole hold (no snap of up to 5 cm).
+  - **Cost.** The unclaimed-press candidate merge is one native transform per volume (about 0.17 ms per hand at 13k nodes on the HP; the per-node loop it replaced was 8 ms).
 - **Entered space and portals (ADR-2166; headless GUT only, no headset run).**
   - **State.** "Entered" is not `IMMERSIVE`. The entered box stays `BOUNDED` with `ROOM_BOUNDS` (6 × 3 × 6 m) through `set_runtime_bounds`, centred on the user's floor position, frame and handles hidden, not movable or resizable. E7 holds for it. The other open, visible boxes sit on a ring outside it, facing the user at eye height; the ring radius guarantees no portal box meets the room box. The ring stays the default layout, and E3's E7–E9 and the 90 Hz baseline are defined on it.
   - **Portals.** A portal is the box's real content seen through a membrane (`materials/portal_membrane.gdshader`: rim and edge glow, near-clear centre, unshaded additive, no depth write). All membranes are one MultiMesh (one draw call) with a per-instance tint and focus highlight. There is no second camera, render-to-texture, stencil, or screen/depth read.
@@ -1250,3 +1263,32 @@ open owner decision (ADR-2167).
 
 **Unverified.** Stereo (both eyes), the headset and fill rate in both eyes; the sky shader's behaviour under
 multiview; whether the GPU timer exists on the XR viewport. The numbers above are mono desktop.
+
+## Proposed (ADR-2170, 2026-11-01, not built): Gaussian splat scenes
+
+Nothing below exists in `xr-client/`; this section describes a proposal, not the client. The Current State and Invariants above are unchanged.
+
+- **Placement.** A splat scene is its own `splat` volume under the ADR-2158 contract and can be entered (ADR-2166), so that it becomes the environment while the graph volumes become portals. A node may link to a splat asset, but it never parents one: splat roots are never under `GraphRoot`. Transparent objects sort per object, not per fragment, so an un-entered splat volume's box never intersects a graph volume's box and shares the graph's transparent `render_priority`. An entered splat volume is a backdrop at a lower priority than every graph layer and portal, fitted to room scale (ADR-2166); splat content between the user and a portal is overdrawn by the portal (a named artefact). A 1:1 metric view needs its own amendment.
+- **Renderer.** The splat layer is built to stay within Invariants 1 and 2:
+  - **Geometry and blending:** one MultiMesh of camera-facing quads per splat volume, `blend_mix`, `depth_draw_never`, at the priority set by the placement rule.
+  - **Data:** static splat data lives in a data texture. Each sort uploads only a sorted index texture (4 B a splat), read with `texelFetch` by `INSTANCE_ID`. That this works under Compatibility multiview is unverified.
+  - **Sorting:** a CPU radix sort in gdext on a worker thread.
+  - **Overdraw and comfort guards:** a screen-radius cap and a 0.3 m near fade.
+  - **Shader rules:** no compute, post-process, `SCREEN_TEXTURE`, depth-texture read or `SubViewport`.
+- **Sort cadence.** One head-pose sort serves both eyes. A sort is triggered by 5 cm or 2° of head motion, at no more than 30 Hz, and is dropped if late.
+- **Budget (owner decision pending).** At 2 triangles a quad, splats cannot fit inside `TRI_LIMIT`, which the graph already fills (about 94.5k of 95k). The proposal is a separate splat account in `frame_budget.rs`, outside `TRI_LIMIT`:
+  - its draw calls count against the 48;
+  - its tiers are 0, 25k, 50k and 100k splats at SH 0;
+  - the tier is stepped by the ADR-2167 governor thresholds, with frame time as the fallback (ceiling tier 2).
+
+  This amends PRD-008 and ADR-2167, and needs the owner's decision. Without it, headset splats stay off.
+- **Comfort.** Splat scenes are world-locked and static. Under reduced motion (the default), entering and tier changes use dim-and-snap. `XR_VISUAL_QUALITY=low` removes splats in the same frame.
+- **Assets.** Assets are never committed. A manifest records the URL, SHA-256, author, licence and attribution. Assets are cached by `sha256-12` under `user://splat-cache/`, and attribution plus "modified" appear on the HUD credits line. Only licences that allow redistribution and adaptation are admitted.
+- **Acceptance (targets).** On the VIVE Pro with ISS `xr-3` entered:
+  - 90 Hz for 60 s with no more than 1 dropped frame, and p99 ≤ 11.1 ms;
+  - GPU p95 ≤ 8 ms;
+  - CPU sort of 100k ≤ 4 ms p95;
+  - draw calls ≤ 48;
+  - both eyes render.
+
+  Measurements need the lead's approval and never run while the owner is in the headset.

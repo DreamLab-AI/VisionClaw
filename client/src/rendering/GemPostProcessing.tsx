@@ -3,6 +3,7 @@ import { useThree, useFrame } from '@react-three/fiber';
 import { useSettingsStore } from '../store/settingsStore';
 import * as THREE from 'three';
 import { createLogger } from '../utils/loggerConfig';
+import type { Node as TslNode } from 'three/webgpu';
 import {
   initRenderGuard,
   recordRenderFailure,
@@ -156,13 +157,12 @@ export const GemPostProcessing: React.FC<GemPostProcessingProps> = ({ enabled = 
           bloomInput = tslMod.rtt(scenePassColor);
         }
 
-        const { Node: NodeClass } = await import('three/webgpu');
-        const bloomPass = bloom(bloomInput as InstanceType<typeof NodeClass>, strength, radius, threshold);
+        const bloomPass = bloom(bloomInput as TslNode<'vec4'>, strength, radius, threshold);
 
         const outputNode = scenePassColor.add(bloomPass);
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RenderPipeline constructor types don't match R3F's renderer type
-        const postProcessing = new RenderPipeline(gl as any, outputNode);
+        const postProcessing = new RenderPipeline(gl as any, outputNode as TslNode);
 
         postProcessingRef.current = postProcessing;
         bloomNodeRef.current = bloomPass;

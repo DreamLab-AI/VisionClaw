@@ -158,16 +158,55 @@ func _empty_overlay_slot(src) -> void:
 	_binary_client.drop_pack_slot(src.slot)
 
 
-# Release a node grab in flight (its volume went away mid-drag).
-func _release_grab() -> void:
-	if _grabbed_id == -1:
+# Release the node grabs in flight: every hand's, or only those held in `vid`
+# (its volume went away, hid, or turned into a portal mid-drag).
+func _release_grab(vid: StringName = &"") -> void:
+	for hand: int in 2:
+		if _grab_id[hand] != -1 and (vid == &"" or _grab_vol[hand] == vid):
+			_end_grab(hand, false)
+
+
+# The node id held by any hand (the left first), or -1 when both are free. Reads
+# that only need "is a node held" (fold, two-hand eligibility) use this.
+func _any_grab_id() -> int:
+	return _grab_id[0] if _grab_id[0] != -1 else _grab_id[1]
+
+
+func _is_held(node_id: int) -> bool:
+	return node_id >= 0 and (_grab_id[0] == node_id or _grab_id[1] == node_id)
+
+
+# Held node ids, left hand first; with `only_vol`, only those held in that volume
+# (overlays placed through GraphRoot, the knowledge frame, take only its own).
+func _held_ids(only_vol: StringName = &"") -> Array[int]:
+	var out: Array[int] = []
+	for hand: int in 2:
+		if _grab_id[hand] != -1 and (only_vol == &"" or _grab_vol[hand] == only_vol):
+			out.append(_grab_id[hand])
+	return out
+
+
+# Writes volume `vid`'s refit exclusion set from the nodes held in it (E7): a node the
+# hand drags is pinned to the hand, so letting it into the fit chases the hand outward
+# (the box refits around the held node, the hand maps to a farther server point, the
+# node moves, and so on). Called wherever a grab begins or ends.
+func _sync_grab_exclusion(vid: StringName) -> void:
+	var src = _sources.get(vid, null)
+	if src == null or not ("grabbed_ids" in src):
 		return
-	var conn: Node = _conn_for_volume(OVERLAY_VOLUME)
-	if conn != null and _grabbed_id >= 0:
-		conn.send_drag_end(_grabbed_id)
-	_grabbed_id = -1
-	_grab_controller = null
-	_grab_target_server = Vector3.ZERO
+	src.grabbed_ids = PackedInt32Array(_held_ids(vid))
+
+
+## The world frame (graph units → world) that places node `node_id` for overlays
+## such as the focus marker: the Content transform of the volume holding it, or
+## of the volume the ray last targeted it in, else GraphRoot's (knowledge).
+func focus_frame_for(node_id: int) -> Transform3D:
+	for hand: int in 2:
+		if node_id >= 0 and _grab_id[hand] == node_id:
+			return _content_xf(_grab_vol[hand])
+	if node_id >= 0 and node_id == _last_targeted_id and _last_targeted_vol != &"":
+		return _content_xf(_last_targeted_vol)
+	return graph_root.global_transform if graph_root != null else Transform3D.IDENTITY
 
 # --- Spatial-volume UX (UX contract features 1-5) ------------------------------
 #
@@ -254,12 +293,33 @@ static func resolve_grip(hud_grab: bool, frame: Dictionary, two_hand: bool) -> S
 	return "none"
 
 
+## True when a volume's connection serves node drag (BackendCaps.DRAG): the two
+## VisionClaw volumes (knowledge, ontology) do; codescape does not (ADR-2158 E9).
+static func volume_serves_drag(volume_id: StringName) -> bool:
+	var b: Dictionary = VOLUME_BINDINGS.get(volume_id, {})
+	if b.is_empty():
+		return false
+	return BackendCaps.supports(BackendCaps.for_mode(String(b["conn"])), BackendCaps.DRAG)
+
+
 ## True when a hand's trigger claim keeps the Rust node drag off that hand: a
-## link, or a node or frame in a box other than the overlay. A frame claim on
-## the overlay box leaves the drag alone, because the Rust policy's 5 cm tube
-## may catch a node the picker's cone missed, and that drag is the overlay's.
-static func claim_blocks_drag(kind: String, volume_id: StringName, overlay: StringName) -> bool:
-	return kind == "link" or ((kind == "node" or kind == "frame") and volume_id != overlay)
+## link, or a node or frame in a volume whose connection does not serve DRAG
+## (codescape). A node or frame claim in a VisionClaw volume leaves the drag
+## alone: the Rust policy's 5 cm tube may catch a node the picker's cone missed.
+## (`_overlay` is kept for the old call shape; every VisionClaw volume drags.)
+static func claim_blocks_drag(kind: String, volume_id: StringName, _overlay: StringName = &"") -> bool:
+	if kind == "link":
+		return true
+	if kind == "node" or kind == "frame":
+		return not volume_serves_drag(volume_id)
+	return false
+
+
+## ADR-2166: a node is grabbed in the entered space, or in ring view when no
+## space is entered. `entered` is the entered volume's id (&"" in ring view);
+## pointing into a portal from inside a room never grabs.
+static func grab_volume_allowed(volume_id: StringName, entered: StringName) -> bool:
+	return entered == &"" or volume_id == entered
 
 
 ## World transform of a box moved by a ray grab: the box translates with the
@@ -316,7 +376,7 @@ func _update_volume_trigger() -> void:
 				_trigger_claim[hand] = ""
 				_trigger_claim_vol[hand] = &""
 			continue
-		if trig < TRIGGER_PICK or _two_hand_active or _grabbed_id != -1:
+		if trig < TRIGGER_PICK or _two_hand_active or _grab_id[hand] != -1:
 			continue
 		var hud_hit: bool = controller == _hud_pointer_controller or controller == _radial_pointer_controller
 		trigger_pick(controller.global_position, -controller.global_transform.basis.z, hud_hit, hand)
@@ -357,7 +417,9 @@ func apply_trigger(kind: String, node: Dictionary, link: Dictionary, frame: Dict
 				return
 			var ends: Array = [link.get("from", {}), link.get("to", {})]
 			select_volume_node(StringName(far["volume"]), StringName(far["conn"]), int(far["node_id"]), ends)
-			if _arrangement != null:
+			# Never while a node is in hand: the ease moves the held node's volume under
+			# it and the node slides across server space (ADR-2172 F8).
+			if _arrangement != null and _any_grab_id() == -1:
 				_arrangement.bring_to_front(StringName(far["volume"]))
 		"frame":
 			_focus_volume(StringName(frame["volume"]))
@@ -576,6 +638,9 @@ func begin_box_grip(ctrl: Node3D, hit: Dictionary) -> void:
 	var v: Node3D = _volumes.get(vid, null)
 	if v == null or not v.visible_state:
 		return
+	# A box that holds a node does not move or resize under it (ADR-2172 F8).
+	if not _held_ids(vid).is_empty():
+		return
 	_focus_volume(vid)
 	if resolve_grip(false, hit, false) == "handle":
 		v.begin_resize(int(hit["handle"]), ctrl)
@@ -769,9 +834,30 @@ var _edge_pairs: PackedInt32Array = PackedInt32Array()
 # recomputed when the selection domain changes (visuals/topology/budget) — the
 # per-frame buffer build reuses it. Passed straight to build_node_buffer.
 var _selection_dirty: bool = true
-# Server-space target for the grabbed node, handed to the Rust hunt each frame so
-# the dragged node tracks the wand. Updated by _update_interaction.
-var _grab_target_server: Vector3 = Vector3.ZERO
+# Per-hand node grab (index 0 = left, 1 = right; two nodes can be held at once,
+# one per hand, each in its own volume). A hand's id is -1 when it holds nothing;
+# `_grab_target` is the server-space point the Rust hunt pins that node to each
+# frame so it tracks the wand. Written by _begin_grab / _drive_grab / _end_grab.
+var _grab_id: Array[int] = [-1, -1]
+var _grab_vol: Array[StringName] = [&"", &""]
+var _grab_dist: Array[float] = [1.0, 1.0]
+# The node's offset from the hand's aim axis, in the hand's own frame (x, y; z is the
+# depth, kept in _grab_dist). The Rust tube catches a node up to 5 cm off the axis;
+# without this the first drive would pull it onto the axis (a snap of up to 5 cm).
+var _grab_lateral: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO]
+var _grab_target: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO]
+# The hand and volume whose candidates the Rust interaction is evaluating right
+# now. node_grabbed carries no hand, so _update_interaction sets these just before
+# each evaluate_ray (which emits synchronously) and _on_node_grabbed reads them.
+var _grab_eval_hand: int = -1
+var _grab_eval_vol: StringName = &""
+# The merged candidate array being evaluated is one run per volume: run k covers
+# [end of run k-1, _grab_eval_ends[k]) and belongs to _grab_eval_vols[k]. A node's
+# volume is resolved from its index afterwards (_grab_volume_of), so the merge itself
+# writes no per-node map (ADR-2172 F2).
+var _grab_eval_ids: PackedInt32Array = PackedInt32Array()
+var _grab_eval_vols: Array[StringName] = []
+var _grab_eval_ends: PackedInt32Array = PackedInt32Array()
 
 # --- Proximity node-label overlay -------------------------------------------
 # A small pool of world-space Label3D anchors shown only for the nodes closest to
@@ -807,16 +893,15 @@ var _presence_reconnect_timer: float = -1.0
 var _m4_ray_observed: bool = false
 var _observe_http: HTTPRequest = null
 
-# Server-authoritative drag state.
-var _grabbed_id: int = -1
-var _grab_controller: XRController3D = null
-var _grab_distance: float = 1.0
 var _last_targeted_id: int = -1
+var _last_targeted_vol: StringName = &""   # volume the ray last targeted a node in
 
 # Double-click (node-open) detection: two grabs of the same node within the window.
 const DOUBLE_CLICK_SEC: float = 0.45
-var _dc_last_id: int = -1
-var _dc_last_time: float = 0.0
+# Per hand (indexed like _grab_id): interleaved presses of the two hands must not
+# defeat each other's double-click, and handing a node over is not one (ADR-2172 F6).
+var _dc_last_id: Array[int] = [-1, -1]
+var _dc_last_time: Array[float] = [0.0, 0.0]
 
 # Movable world-anchored HUD state.
 var _hud_grab_controller: XRController3D = null
@@ -1372,6 +1457,9 @@ func _volume_offline(vid: StringName) -> bool:
 # Budget hook (stream XE): favour the entered space in the near-cap split. The
 # method is guarded so this works before and after FrameBudgetPass has it.
 func _on_portal_entered_changed(_entered_id: StringName) -> void:
+	# Entering, swapping or leaving a space snaps every volume's Content transform
+	# (and turns a held volume into a portal): no node stays held through it.
+	_release_grab()
 	if _budget != null and _budget.has_method("set_volume_weights"):
 		_budget.set_volume_weights(_portals.budget_weights())
 	_sync_hud_backend()
@@ -1584,8 +1672,10 @@ func _update_proximity_labels() -> void:
 	# Build the shown list: grabbed node first (always labelled), then nearest
 	# labelled nodes up to the pool size.
 	var shown: Array = []
-	if _grabbed_id != -1:
-		shown.append(_grabbed_id)
+	# Labels are placed through GraphRoot (the knowledge frame): only nodes held in
+	# the knowledge volume belong in this pool.
+	for held: int in _held_ids(OVERLAY_VOLUME):
+		shown.append(held)
 	# Query variables are always labelled (with their ?vN badge), regardless of
 	# proximity, so the assembled pattern stays legible while the user works.
 	for mid: int in _query.marked_ids():
@@ -1646,7 +1736,7 @@ func _update_proximity_labels() -> void:
 		# Fade: full opacity within LABEL_INNER_M, linear to 0 at the radius edge.
 		# The grabbed node and every query variable are always fully shown.
 		var a: float = 1.0
-		if node_id != _grabbed_id and not _query.is_marked(node_id):
+		if not _held_ids(OVERLAY_VOLUME).has(node_id) and not _query.is_marked(node_id):
 			var dist: float = cam_world.distance_to(world_pos)
 			a = clampf(
 				1.0 - (dist - LABEL_INNER_M) / maxf(LABEL_PROXIMITY_M - LABEL_INNER_M, 0.001),
@@ -1809,8 +1899,8 @@ func _on_volume_action(action: String) -> void:
 				clear_volume_selection()
 			if not v.visible_state and _sources.has(vid):
 				_sources[vid].clear_instances()
+				_release_grab(vid)
 				if vid == OVERLAY_VOLUME:
-					_release_grab()
 					_empty_overlay_slot(_sources[vid])
 					_hide_all_labels()
 	elif action.begins_with("volume_focus:"):
@@ -1826,7 +1916,7 @@ func _on_volume_action(action: String) -> void:
 	elif action.begins_with("volume_front:"):
 		# Feature 5: the box eases to the 0° slot; the one there takes its slot.
 		var front := StringName(action.substr(13))
-		if _arrangement != null and _volumes.has(front):
+		if _arrangement != null and _volumes.has(front) and _any_grab_id() == -1:
 			if _box_grab_vid == front:
 				_end_box_grip()
 			_arrangement.bring_to_front(front)
@@ -2025,7 +2115,7 @@ func _request_fold(delta: int) -> void:
 	# Suppress ladder steps while a node grab or a two-hand graph manipulation owns
 	# the hands: a fold transition re-seeds/animates positions, which would fight the
 	# grab's optimistic pin and the manip's reference-frame lock (Phase-0 design).
-	if _grabbed_id != -1 or _two_hand_active:
+	if _any_grab_id() != -1 or _two_hand_active:
 		push_warning("GraphScene: fold suppressed during grab / two-hand manip")
 		return
 	var target: int = clampi(_fold_level + delta, FOLD_LEVEL_MIN, FOLD_LEVEL_MAX)
@@ -2272,8 +2362,9 @@ func _post_radial(body: Dictionary) -> bool:
 
 # Unpin every node this session pinned via a drag. No HTTP: each unpin rides the
 # existing outbound graph socket through the Rust client's send_node_unpin, which
-# sends {"type":"nodeUnpin",...} to hand the node back to physics. (drag-end now
-# PINS persistently, so releasing must go through this explicit unpin path.)
+# sends {"type":"nodeUnpin",...} to hand the node back to physics. A drag release
+# is not recorded here: the server unpins on release, so Unpin All only covers
+# explicit pins.
 func _unpin_all() -> void:
 	if _binary_client == null or not _binary_client.has_method("send_node_unpin"):
 		return
@@ -2568,8 +2659,18 @@ func _physics_process(delta: float) -> void:
 	# Rust owns the hunt now: one call eases all render positions toward their
 	# targets and pins the grabbed node to the wand — replaces the old GDScript
 	# per-node lerp over a 13k Dictionary.
-	if _binary_client != null and _binary_client.has_method("hunt"):
-		_binary_client.hunt(chase_ease(delta), _grabbed_id, _grab_target_server)
+	if _binary_client != null and _binary_client.has_method("hunt_grabs"):
+		var hunt_ids := PackedInt32Array()
+		var hunt_pos := PackedVector3Array()
+		for hand: int in 2:
+			if _grab_id[hand] != -1:
+				hunt_ids.append(_grab_id[hand])
+				hunt_pos.append(_grab_target[hand])
+		_binary_client.hunt_grabs(chase_ease(delta), hunt_ids, hunt_pos)
+	elif _binary_client != null and _binary_client.has_method("hunt"):
+		# An older gdext without hunt_grabs echoes the first held node only.
+		var first: int = 0 if _grab_id[0] != -1 else 1
+		_binary_client.hunt(chase_ease(delta), _grab_id[first], _grab_target[first])
 	if _cs_conn != null and _cs_conn.client != null and _cs_conn.client.has_method("hunt"):
 		_cs_conn.client.hunt(chase_ease(delta), -1, Vector3.ZERO)
 	# Each visible volume refits from its source's full extent (E7); this
@@ -2724,7 +2825,7 @@ func _update_hud_pointer() -> void:
 	for controller: XRController3D in [right_controller, left_controller]:
 		if controller == null or not controller.get_is_active():
 			continue
-		if _grabbed_id != -1 and controller == _grab_controller:
+		if _grab_id[_hand_of(controller)] != -1:
 			continue
 		# Arbitration: this controller's ray is nearer the radial menu — it owns the
 		# radial, so the HUD yields it this frame.
@@ -2846,7 +2947,7 @@ func _percentile(values: PackedFloat32Array, q: float) -> float:
 
 # --- Two-hand pinch: whole-graph scale / rotate / move -----------------------
 # Ported conceptually from Graph2VR's SphereInteraction.cs. When BOTH grips are
-# held — and neither hand is grabbing a node (_grabbed_id) nor the HUD panel
+# held — and neither hand is grabbing a node (_grab_id) nor the HUD panel
 # (_hud_grab_controller) — the graph locks into a manipulation session. At
 # gesture start we capture: the left→right controller vector, the hand midpoint,
 # graph_root's current world transform, and a world-space pivot at the render
@@ -2907,7 +3008,7 @@ func _update_two_hand_manip(_delta: float) -> void:
 	# A node grab uses the trigger and the HUD grab uses a single grip; either one
 	# taking a hand blocks the two-hand gesture (and vice versa).
 	var eligible: bool = lc != null and rc != null and two_hand_eligible(
-		lc.get_is_active(), rc.get_is_active(), _grabbed_id,
+		lc.get_is_active(), rc.get_is_active(), _any_grab_id(),
 		_hud_grab_controller != null, _box_grab_ctrl != null)
 	if _two_hand_active:
 		# End when either grip relaxes below the release threshold, a wand drops
@@ -3120,43 +3221,23 @@ func _update_interaction() -> void:
 	if _two_hand_active:
 		return
 
-	# Active drag: the grabbed node rides the grab controller's aim point.
-	if _grabbed_id != -1:
-		var trigger_now: float = _controller_trigger(_grab_controller)
-		if trigger_now < GRAB_RELEASE or _grab_controller == null:
-			var drag_conn: Node = _conn_for_volume(OVERLAY_VOLUME)
-			if drag_conn != null:
-				drag_conn.send_drag_end(_grabbed_id)
-			# Track the node this drag pinned so Unpin All can release it later. The
-			# server pins on drag; drag-end above is our own release of THIS node, but
-			# the operator may re-pin via a fresh drag — recording it keeps the Unpin
-			# All set authoritative for the session.
-			# Codescape ignores nodePin/nodeUnpin frames, so there is nothing to
-			# release later: record the pin only where the server will ack it.
-			if _grabbed_id >= 0 and backend_supports(BackendCaps.PIN):
-				_pinned_ids[_grabbed_id] = true
-				_refresh_controls_status()
-			_pulse(_grab_controller, 0.3, 0.05)
-			_grabbed_id = -1
-			_grab_controller = null
-			_grab_target_server = Vector3.ZERO
+	# Held nodes first: each hand's grab rides that hand's aim point, or is released
+	# when its trigger falls. The other hand is unaffected either way.
+	for hand: int in 2:
+		if _grab_id[hand] == -1:
+			continue
+		var held_ctrl: XRController3D = _ctrl_at(hand)
+		if held_ctrl == null or _controller_trigger(held_ctrl) < GRAB_RELEASE:
+			_end_grab(hand)
 		else:
-			# Keep the node at the distance it was grabbed at (ride the ray), rather
-			# than snapping it to a fixed point in front of the wand. World→server
-			# because the store works in GraphRoot-local space. The Rust hunt pins
-			# the grabbed node to _grab_target_server each frame (optimistic echo).
-			var ray_origin: Vector3 = _grab_controller.global_position
-			var ray_dir: Vector3 = -_grab_controller.global_transform.basis.z
-			var hand_world: Vector3 = ray_origin + ray_dir * _grab_distance
-			var hand_server: Vector3 = graph_root.global_transform.affine_inverse() * hand_world
-			_grab_target_server = hand_server
-			var upd_conn: Node = _conn_for_volume(OVERLAY_VOLUME)
-			if upd_conn != null:
-				upd_conn.send_drag_update(_grabbed_id, hand_server)
-		return
+			_drive_grab(hand, held_ctrl.global_position, -held_ctrl.global_transform.basis.z, held_ctrl.global_transform.basis)
 
 	for controller: XRController3D in [left_controller, right_controller]:
 		if controller == null or not controller.get_is_active():
+			continue
+		var hand: int = _hand_of(controller)
+		# One node per hand: a hand that holds one does not evaluate a second.
+		if _grab_id[hand] != -1:
 			continue
 		# Don't start a node grab with a controller that's pointing at the HUD —
 		# that trigger pull is a button click. (Release of an already-held grab is
@@ -3167,33 +3248,228 @@ func _update_interaction() -> void:
 		# not a node grab.
 		if controller == _radial_pointer_controller:
 			continue
-		# This press picked a link, a frame or a node in another box: no drag.
-		var hand: int = _hand_of(controller)
-		if claim_blocks_drag(_trigger_claim[hand], _trigger_claim_vol[hand], OVERLAY_VOLUME):
-			continue
 		var pinch: float = _controller_trigger(controller)
 		if pinch < 0.05:
 			continue
-		_grab_controller = controller
-		# Candidate ids + render positions come from the Rust store (the drawn
-		# subset from the last node buffer build). Positions are GraphRoot-local
-		# scaled space; transform to world so the world-space wand ray and the
-		# interaction's metre-space thresholds intersect the nodes.
-		var render_ids: PackedInt32Array = _binary_client.get_render_ids()
-		var render_positions: PackedVector3Array = _binary_client.get_render_positions()
-		var gxf: Transform3D = graph_root.global_transform
-		var world_positions := PackedVector3Array()
-		world_positions.resize(render_positions.size())
-		for i: int in range(render_positions.size()):
-			world_positions[i] = gxf * render_positions[i]
+		# The volumes this press may grab in: none when it picked a link, a frame
+		# or a node in a volume without DRAG, or pointed into a portal.
+		var cand_vols: Array[StringName] = _grab_candidate_volumes(hand)
+		if cand_vols.is_empty():
+			continue
+		# Candidate ids + render positions come from each volume's own pack slot
+		# (graph units); its drawn Content transform takes them to world, so the
+		# world-space wand ray and the interaction's metre-space thresholds
+		# intersect the nodes whatever the volume's scale (ring box or room).
+		var merged: Array = _merge_grab_candidates(cand_vols, _grab_id[0], _grab_id[1])
+		var ids: PackedInt32Array = merged[0]
+		var world_positions: PackedVector3Array = merged[1]
+		_grab_eval_hand = hand
+		_grab_eval_vol = cand_vols[0]
 		_interaction.evaluate_ray(
 			controller.global_position,
 			-controller.global_transform.basis.z,
 			pinch,
-			render_ids,
+			ids,
 			world_positions
 		)
-		break
+		_grab_eval_hand = -1
+		_grab_eval_vol = &""
+		_grab_eval_ids = PackedInt32Array()
+		_grab_eval_vols = []
+		_grab_eval_ends = PackedInt32Array()
+
+
+# The entered volume's id, or &"" in ring view.
+func _entered_volume() -> StringName:
+	return _portals.entered_id() if _portals != null else &""
+
+
+# A room transition dims and snaps the content, and an arrangement ease (the first
+# entry from the ring eases the boxes over EASE_SEC with no dim, a bring-to-front
+# eases two) scales or moves a Content transform under the hand: no grab starts
+# through either, because the grab depth is measured at the old transform and each
+# drive would slide the node across server space (ADR-2172 F4).
+func _grab_locked() -> bool:
+	if _portals != null and _portals.is_transitioning():
+		return true
+	return _arrangement != null and _arrangement.is_easing()
+
+
+# The volumes the hand's current trigger press may start a grab in. A press
+# that claimed a node or frame grabs in that volume only; a link, HUD or a
+# volume without DRAG grabs nowhere; an unclaimed press (the Rust tube decides)
+# may catch a node in any draggable volume of the entered space, or of the ring.
+func _grab_candidate_volumes(hand: int) -> Array[StringName]:
+	var out: Array[StringName] = []
+	var kind: String = _trigger_claim[hand]
+	var cv: StringName = _trigger_claim_vol[hand]
+	if claim_blocks_drag(kind, cv, OVERLAY_VOLUME) or _grab_locked():
+		return out
+	var entered: StringName = _entered_volume()
+	if (kind == "node" or kind == "frame") and cv != &"":
+		if grab_volume_allowed(cv, entered) and volume_serves_drag(cv):
+			out.append(cv)
+		return out
+	for vid: StringName in VOLUME_ORDER:
+		if grab_volume_allowed(vid, entered) and volume_serves_drag(vid):
+			out.append(vid)
+	return out
+
+
+# Every candidate the hand's press may catch, merged across `vols`: [ids, world
+# positions]. Each volume's drawn ids and graph-unit positions come from its own pack
+# slot (empty when it is hidden, closed or offline: its slot would be stale), and its
+# Content transform, hoisted once per volume, takes them to world so the world-space
+# wand ray and the interaction's metre-space thresholds intersect the nodes whatever
+# the volume's scale (ring box or room). `held_a` / `held_b` (the ids the hands hold,
+# -1 for none) are dropped by id: the other hand's node must never shadow a free
+# neighbour in the Rust tube. Runs every physics frame per pressed hand at up to ~13k
+# candidates, so nothing here loops over nodes in script: the transform is one native
+# `Transform3D * PackedVector3Array`, a held id is found and removed natively, and the
+# runs are appended whole. The volume of each run is kept as an end offset for
+# _grab_volume_of (no per-node map). ADR-2172 F2: 8 ms -> ~0.2 ms per hand at 13k.
+func _merge_grab_candidates(vols: Array[StringName], held_a: int, held_b: int) -> Array:
+	var ids := PackedInt32Array()
+	var world := PackedVector3Array()
+	_grab_eval_vols = []
+	_grab_eval_ends = PackedInt32Array()
+	for vid: StringName in vols:
+		var v: Node3D = _volumes.get(vid, null)
+		var src = _sources.get(vid, null)
+		if v == null or src == null or not VolumePicker.pickable(v, src):
+			continue
+		var cand: Array = VolumePicker.candidates(src)
+		var rids: PackedInt32Array = cand[0]
+		var rpos: PackedVector3Array = cand[1]
+		if rids.size() != rpos.size():
+			var n: int = mini(rids.size(), rpos.size())
+			rids = rids.slice(0, n)
+			rpos = rpos.slice(0, n)
+		if rids.is_empty():
+			continue
+		v.world_from_content(Vector3.ZERO)  # builds the volume (and its Content) if it has not yet
+		rpos = _content_xf(vid) * rpos
+		for held: int in [held_a, held_b]:
+			var at: int = rids.find(held) if held >= 0 else -1
+			if at >= 0:
+				rids.remove_at(at)  # the other hand holds it
+				rpos.remove_at(at)
+		ids.append_array(rids)
+		world.append_array(rpos)
+		_grab_eval_vols.append(vid)
+		_grab_eval_ends.append(ids.size())
+	_grab_eval_ids = ids
+	return [ids, world]
+
+
+# The volume the merged candidate `node_id` was drawn in, or the evaluating volume
+# when it is not in the merged array (a direct call, or an id the tube caught alone).
+func _grab_volume_of(node_id: int) -> StringName:
+	var idx: int = _grab_eval_ids.find(node_id)
+	if idx >= 0:
+		for k: int in _grab_eval_ends.size():
+			if idx < _grab_eval_ends[k]:
+				return _grab_eval_vols[k]
+	return _grab_eval_vol if _grab_eval_vol != &"" else OVERLAY_VOLUME
+
+
+# The drawn Content transform of a volume (graph units → world); the hand-to-server
+# conversion of a drag inverts it. Mirrors SpatialVolume._content_world.
+func _content_xf(vid: StringName) -> Transform3D:
+	var v: Node3D = _volumes.get(vid, null)
+	if v == null:
+		return Transform3D.IDENTITY
+	var c: Node3D = v.content
+	if c == null:
+		return v.global_transform if v.is_inside_tree() else v.transform
+	return c.global_transform if c.is_inside_tree() else v.transform * c.transform
+
+
+## Starts `hand`'s grab of node `node_id` in volume `vid`: records the hand's
+## state, selects the node, and sends nodeDragStart on that volume's connection.
+## `hand_pos` is the controller's world position (grab depth is measured from
+## it); `hand_basis` (the controller's global basis) lets the drive hold the node
+## at the same hand-local offset it was caught at, so an off-axis catch does not snap
+## it onto the ray. False and no state change when the grab is refused: the hand already
+## holds a node, the other hand holds this one, the volume's connection has no
+## DRAG (codescape), the volume is a portal of the entered space, or a room
+## transition is in flight.
+func _begin_grab(hand: int, vid: StringName, node_id: int, hand_pos: Vector3, hand_basis: Variant = null) -> bool:
+	if hand < 0 or hand > 1 or node_id < 0 or _grab_id[hand] != -1 or _is_held(node_id):
+		return false
+	if not volume_serves_drag(vid) or not grab_volume_allowed(vid, _entered_volume()) or _grab_locked():
+		return false
+	var conn: Node = _conn_for_volume(vid)
+	if conn == null:
+		return false
+	_grab_id[hand] = node_id
+	_grab_vol[hand] = vid
+	_sync_grab_exclusion(vid)
+	print("GraphScene DEBUG: node_grabbed hand=%d volume=%s id=%d" % [hand, vid, node_id])
+	# The held node is the selection (UX feature 2): the Rust tube may catch a
+	# node the volume picker's cone missed, or a different one.
+	select_volume_node(vid, StringName(VOLUME_BINDINGS[vid]["conn"]), node_id)
+	# Node render position lives in the connection's Rust store.
+	var pos: Vector3 = Vector3.ZERO
+	if conn.client != null and conn.client.has_method("node_position"):
+		pos = conn.client.node_position(node_id)
+	_grab_target[hand] = pos
+	# Remember how far along the ray the node was so the drag preserves depth.
+	var node_world: Vector3 = _content_xf(vid) * pos
+	_grab_dist[hand] = clampf(hand_pos.distance_to(node_world), 0.2, 6.0)
+	_grab_lateral[hand] = Vector3.ZERO
+	if hand_basis is Basis:
+		# The catch offset in the hand's own frame: depth along -Z, lateral in x / y.
+		var local: Vector3 = (hand_basis as Basis).orthonormalized().inverse() * (node_world - hand_pos)
+		_grab_lateral[hand] = Vector3(local.x, local.y, 0.0)
+		_grab_dist[hand] = clampf(-local.z, 0.2, 6.0)
+	conn.send_drag_start(node_id, pos)
+	_pulse(_ctrl_at(hand), 0.6, 0.08)
+	return true
+
+
+## One frame of `hand`'s held node: keeps it at the depth it was grabbed at (rides
+## the ray) rather than snapping it in front of the wand. World → server through
+## the inverse of the held volume's Content transform, because the store works in
+## content-local space. The Rust hunt pins the node to `_grab_target[hand]` each
+## frame (optimistic echo); the update goes to that volume's connection.
+func _drive_grab(hand: int, ray_origin: Vector3, ray_dir: Vector3, hand_basis: Variant = null) -> void:
+	var node_id: int = _grab_id[hand]
+	if node_id == -1:
+		return
+	var vid: StringName = _grab_vol[hand]
+	var hand_world: Vector3 = ray_origin + ray_dir * float(_grab_dist[hand])
+	if hand_basis is Basis:
+		hand_world += (hand_basis as Basis).orthonormalized() * (_grab_lateral[hand] as Vector3)
+	var hand_server: Vector3 = _content_xf(vid).affine_inverse() * hand_world
+	_grab_target[hand] = hand_server
+	var conn: Node = _conn_for_volume(vid)
+	if conn != null:
+		conn.send_drag_update(node_id, hand_server)
+
+
+## Ends `hand`'s grab: nodeDragEnd on the held volume's connection, a release
+## pulse, and the hand's state cleared. Nothing is recorded in `_pinned_ids`: the
+## server unpins on release, so the node rejoins the simulation (explicit Pin and
+## Unpin All are unchanged). The other hand's grab is untouched.
+func _end_grab(hand: int, pulse: bool = true) -> void:
+	var node_id: int = _grab_id[hand]
+	if node_id == -1:
+		return
+	var vid: StringName = _grab_vol[hand]
+	var conn: Node = _conn_for_volume(vid)
+	if conn != null:
+		conn.send_drag_end(node_id)
+	if pulse:
+		_pulse(_ctrl_at(hand), 0.3, 0.05)
+	_grab_id[hand] = -1
+	_grab_vol[hand] = &""
+	_grab_dist[hand] = 1.0
+	_grab_lateral[hand] = Vector3.ZERO
+	_grab_target[hand] = Vector3.ZERO
+	# After the state is cleared, so the other hand's node (if it is in the same
+	# volume) stays excluded and this one rejoins the fit.
+	_sync_grab_exclusion(vid)
 
 
 func _controller_trigger(controller: XRController3D) -> float:
@@ -4188,42 +4464,34 @@ func _on_node_targeted(node_id: int, _distance: float) -> void:
 	if _radial_picking:
 		_radial_pick_capture = node_id
 		return
+	_last_targeted_vol = _grab_volume_of(node_id)
 	emit_signal("node_targeted_in_scene", node_id)
 	if node_id != _last_targeted_id:
 		print("GraphScene DEBUG: node_targeted id=%d dist=%.2f" % [node_id, _distance])
 		_last_targeted_id = node_id
-		_pulse(_grab_controller, 0.15, 0.02)
+		_pulse(_ctrl_at(_grab_eval_hand) if _grab_eval_hand in [0, 1] else null, 0.15, 0.02)
 
 
 func _on_node_grabbed(node_id: int, _position: Vector3) -> void:
-	if _grabbed_id == node_id:
+	# node_grabbed fires synchronously inside evaluate_ray, which names no hand:
+	# _update_interaction records the evaluating hand and its volumes first.
+	var hand: int = _grab_eval_hand
+	if hand < 0 or hand > 1 or _grab_id[hand] == node_id or _is_held(node_id):
 		return
 	# Double-click = two grabs of the SAME node within the window → open the node's
 	# linked page in the HUD instead of grabbing. The grab this second press would
-	# start is suppressed cleanly (we return before setting _grabbed_id / drag_start).
+	# start is suppressed cleanly (we return before the grab begins).
 	var now: float = float(Time.get_ticks_msec()) / 1000.0
-	if node_id == _dc_last_id and (now - _dc_last_time) <= DOUBLE_CLICK_SEC:
-		_dc_last_id = -1
+	if node_id == _dc_last_id[hand] and (now - _dc_last_time[hand]) <= DOUBLE_CLICK_SEC:
+		_dc_last_id[hand] = -1
 		_open_node_document(node_id)
 		return
-	_dc_last_id = node_id
-	_dc_last_time = now
-	_grabbed_id = node_id
-	print("GraphScene DEBUG: node_grabbed id=%d" % node_id)
-	# The held node is the selection (UX feature 2): the Rust tube may catch a
-	# node the volume picker's cone missed, or a different one.
-	select_volume_node(OVERLAY_VOLUME, StringName(VOLUME_BINDINGS[OVERLAY_VOLUME]["conn"]), node_id)
-	# Node render position now lives in the Rust store.
-	var pos: Vector3 = _binary_client.node_position(node_id) if _binary_client != null else Vector3.ZERO
-	_grab_target_server = pos
-	# Remember how far along the ray the node was so the drag preserves depth.
-	if _grab_controller != null:
-		var node_world: Vector3 = graph_root.global_transform * pos
-		_grab_distance = clampf(_grab_controller.global_position.distance_to(node_world), 0.2, 6.0)
-	var start_conn: Node = _conn_for_volume(OVERLAY_VOLUME)
-	if start_conn != null:
-		start_conn.send_drag_start(node_id, pos)
-	_pulse(_grab_controller, 0.6, 0.08)
+	_dc_last_id[hand] = node_id
+	_dc_last_time[hand] = now
+	var vid: StringName = _grab_volume_of(node_id)
+	var ctrl: XRController3D = _ctrl_at(hand)
+	var ctrl_basis: Variant = ctrl.global_transform.basis if ctrl != null else null
+	_begin_grab(hand, vid, node_id, ctrl.global_position if ctrl != null else Vector3.ZERO, ctrl_basis)
 
 
 # Resolve a node to its narrativegoldmine slug and hand it to the HUD document

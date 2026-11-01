@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: efbd7f6f080df06ecb580254bddabcee59d4fbf8
+verified_commit: f1fa1862c00ad627af8f45249d51b94c3a1c238f
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -335,6 +335,10 @@ All governed paths were byte-identical between the previous verification pin and
 the pre-change baseline `5e1bd90a4`. The reviewed delta is the shared-layout change
 through `974daf5d22d2d0ea709140777eae58d60ddb2c36`. Existing activation and acceptance limits
 remain in force; this stamp does not repeat historical runtime measurements.
+
+## Re-verification — 2026-10-31 (`f1fa1862c`)
+
+Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (ADR-2172), client/three-0187 and docs/splat-adr, each Opus-reviewed (R15/R16/R17). The governed-path changes are those merges: drag holds and release in the GPU actor and socket handler, the held-only global_speed floor, two-hand grab and the edge breathe in the XR client, and the ADR 2168->2172 comment renames. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1768 passed, 0 failed (GPU 1); vitest 142 files / 1468 (installed three 0.183; the 0.187 run is on client/three-0187); XR GUT 522 passing on 4.6.1 and 4.8 at the grab-client head. Re-run: `git diff 2257ee7fa..f1fa1862c -- <governed path>`.
 
 ## Scoped patch re-verification — 2026-11-01
 
