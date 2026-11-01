@@ -9,7 +9,7 @@ evidence_class: source+test
 acceptance_boundary: mono desktop and headless on HP (Godot 4.6.1 and 4.8-beta2); not stereo, headset or both-eye fill rate
 supersedes: []
 superseded_by: []
-verified_commit: ca35fd9dbd6c0b5a2ea532c185a24274ca52d09d
+verified_commit: 484d9392f00967420a418cb10dc3eea331e627db
 verified_paths: [xr-client/rust/src/frame_budget.rs, xr-client/scripts/frame_budget_pass.gd, xr-client/scripts/eye_candy.gd, xr-client/scripts/emulated_volume.gd, xr-client/scripts/spatial_environment.gd, xr-client/perf/benchmark.gd, xr-client/perf/gpu_time_probe.gd]
 owner: jjohare
 review_trigger: A headset session that measures both eyes, or any change to the renderer, the frame budget or the comfort switches.
@@ -55,3 +55,5 @@ Re-stamped to `6f5e7ad48` (2026-10-31, this amendment; previous stamp `a4c07caed
 ## Re-verification — 2026-10-31 (`ca35fd9db`)
 
 The only governed-path change since 6f5e7ad48 is the test module of `xr-client/rust/src/frame_budget.rs` (R12 F3: two pressure sweep tests). Allocator code is unchanged. `cargo test --lib frame_budget` in `xr-client/rust`: 30 passed; removing the route or burst pressure term fails exactly the matching new test. Evidence: `git diff 6f5e7ad48..ca35fd9db -- xr-client/rust/src/frame_budget.rs`.
+
+Re-verified 2026-11-01 at `484d9392f` (xr/grab-client, ADR-2172). The only change to `spatial_environment.gd` since `ca35fd9db` is the focus marker following the first held node in that node's volume frame (ADR-2172). The extras allocator, its budget and its tiers are untouched. The decision holds.

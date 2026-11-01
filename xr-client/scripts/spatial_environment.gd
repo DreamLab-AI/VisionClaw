@@ -92,14 +92,19 @@ func _process(_delta: float) -> void:
     var client: RefCounted = _scene.get("_binary_client") as RefCounted
     var graph_root: Node3D = _scene.get_node_or_null("GraphRoot")
     var camera := get_viewport().get_camera_3d()
-    var grabbed: int = int(_scene.get("_grabbed_id"))
+    # Either hand may hold a node (ADR-2172); the marker follows the first held one,
+    # in that node's own volume frame.
+    var grabbed: int = int(_scene.call("_any_grab_id")) if _scene.has_method("_any_grab_id") else -1
     var active_id: int = grabbed if grabbed >= 0 else _target_id
     var recent: bool = grabbed >= 0 or Time.get_ticks_msec() - _last_target_msec < FOCUS_TIMEOUT_MSEC
     _focus.visible = client != null and graph_root != null and camera != null and active_id >= 0 and recent
     if not _focus.visible:
         return
     var position_in_graph: Vector3 = client.call("node_position", active_id)
-    _focus.global_position = graph_root.global_transform * position_in_graph
+    var frame: Transform3D = graph_root.global_transform
+    if _scene.has_method("focus_frame_for"):
+        frame = _scene.call("focus_frame_for", active_id)
+    _focus.global_position = frame * position_in_graph
     # A world-space billboard remains at the target's actual depth in both eyes.
     _focus.global_basis = camera.global_basis
     # Production node buffers compensate GraphRoot scale; the largest centrality

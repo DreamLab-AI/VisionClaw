@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2a763c423cff1fc63e0db2813a64a8a29562e118
+verified_commit: 232130a645d2580c846f8b0abce16aa5c037e0e8
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a new GPU analytics field that cannot fit an existing slot, or any need to change the 52-byte node-record layout
@@ -278,3 +278,7 @@ Re-verified 2026-10-30 at feb3c81a3 (merge of `xr/p1-a`, phase-1 XR: multi-backe
 Re-verified 2026-10-30 at b1835a4d0. The only change since feb3c81a3 is in `connect_to_url`, outside the codec range: an explicit redial now calls `FreshnessGate::reconnect()` (and the refetch cooldown reset), because an aborted pump never emits `Disconnected`. This implements this ADR's resync-on-reconnect rule on a path that previously skipped it; record layout, envelope, offsets and tags are untouched. xr-client lib tests 460/0 on the HP.
 
 Re-verified 2026-10-30 at 2a763c423 (spatial-volume UX: merge of `xr/ux-pick` 3b8babe89 plus `xr/ux-wire`). The only change to `binary_protocol.rs` since b1835a4d0 is two additive read-only `#[func]` accessors, `get_render_ids_for_slot` / `get_render_positions_for_slot` (`:2082-2105`), well outside the codec range `:441-956`. No byte of the 52-byte V3 record or the V5 envelope changed. xr-client lib tests 461/0 on the HP.
+
+Re-verified 2026-11-01 at `484d9392f` (xr/grab-client, ADR-2172). The only change to `binary_protocol.rs` since `2a763c423` is one additive `#[func]`, `hunt_grabs` (ADR-2172), a per-frame render-position pin that touches no codec, record size or envelope. The decision holds.
+
+Re-verified 2026-11-01 at `232130a64` (xr/grab-client, ADR-2172 review fixes). The only change to `binary_protocol.rs` since `484d9392f` is the held-node exclusion of the volume refit: `full_aabb_of` / `render_aabb_ids` take a set of ids instead of one. It reads no byte of the 52-byte V3 record or the V5 envelope, and touches no codec. The decision holds.

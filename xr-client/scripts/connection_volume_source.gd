@@ -44,9 +44,10 @@ const NodeLod := preload("res://scripts/node_lod.gd")
 
 var conn: Node = null
 var mask: int = 0
-## Node excluded from content_aabb while grabbed (E7: a dragged outlier must
-## not refit the volume under the hand). -1 = none.
-var grabbed_id: int = -1
+## Nodes excluded from content_aabb while grabbed (E7: a dragged outlier must
+## not refit the volume under the hand). A set, because each hand may hold one
+## (ADR-2172); the scene writes it from the held ids of this volume. Empty = none.
+var grabbed_ids: PackedInt32Array = PackedInt32Array()
 ## Mounted container and its MultiMeshInstance3Ds by role; empty when unmounted.
 var root: Node3D = null
 var instances: Dictionary = {}
@@ -178,11 +179,11 @@ func demand() -> Dictionary:
 	}
 
 
-## Full extent over content_ids() in graph units, excluding the grabbed node.
+## Full extent over content_ids() in graph units, excluding the grabbed nodes.
 func content_aabb() -> AABB:
 	if conn == null:
 		return AABB()
-	return conn.render_aabb_for_ids(content_ids(), grabbed_id)
+	return conn.render_aabb_for_ids(content_ids(), grabbed_ids)
 
 
 func position_of(id: int) -> Vector3:

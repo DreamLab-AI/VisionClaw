@@ -46,7 +46,9 @@ var _connected: bool = false
 var _open: bool = false
 var _reconnect_attempts: int = 0
 var _reconnect_timer: float = -1.0
-## Node ids this connection pinned on its server (A6 hygiene: released on close).
+## Node ids this connection pinned explicitly on its server (A6 hygiene: released on
+## close). Nothing writes it until a client-side Pin sender exists (ADR-2172 F5):
+## a drag end no longer records a pin.
 var _pinned: Dictionary = {}
 var _http: Array[HTTPRequest] = []
 
@@ -218,12 +220,12 @@ func class_of(id: int) -> int:
 	return -1
 
 
-## Full-extent AABB of `ids` in graph units, excluding `exclude_id` (< 0 = none).
-## An empty AABB when none of the ids is known.
-func render_aabb_for_ids(ids: PackedInt32Array, exclude_id: int) -> AABB:
+## Full-extent AABB of `ids` in graph units, excluding every id in `exclude` (the
+## nodes a hand holds; empty = none). An empty AABB when none of the ids is known.
+func render_aabb_for_ids(ids: PackedInt32Array, exclude: PackedInt32Array = PackedInt32Array()) -> AABB:
 	if client == null or not client.has_method("render_aabb_ids"):
 		return AABB()
-	return aabb_from_flat(client.render_aabb_ids(ids, exclude_id))
+	return aabb_from_flat(client.render_aabb_ids(ids, exclude))
 
 
 ## Pure: `[minx, miny, minz, maxx, maxy, maxz]` → AABB; empty AABB otherwise.
@@ -268,9 +270,9 @@ func send_drag_end(id: int) -> bool:
 	if client == null or not client.has_method("send_drag_end"):
 		return false
 	client.send_drag_end(id)
-	# The server pins a node at drag end (fx/fy/fz); remember it for release.
-	if supports(BackendCaps.PIN):
-		_pinned[id] = true
+	# ADR-2172 F3: a drag end records nothing. The server releases the node into the
+	# simulation (it does not pin it), so there is no pin for close() to undo; a
+	# recorded id made every teardown send a nodeUnpin (and a reheat) per node ever dragged.
 	return true
 
 

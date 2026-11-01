@@ -1733,6 +1733,16 @@ impl RenderStore {
     /// Ease every render position toward its target. The grabbed node (if any) is
     /// pinned to `grab_pos` (server space) so it tracks the hand exactly.
     pub fn hunt(&mut self, ease: f32, grab_id: Option<u32>, grab_pos: [f32; 3]) {
+        match grab_id {
+            Some(id) => self.hunt_grabs(ease, &[(id, grab_pos)]),
+            None => self.hunt_grabs(ease, &[]),
+        }
+    }
+
+    /// `hunt` for any number of held nodes (one per hand): each `(id, pos)` in
+    /// `grabs` is pinned to its server-space `pos`, every other node eases. An id
+    /// the store does not hold is ignored.
+    pub fn hunt_grabs(&mut self, ease: f32, grabs: &[(u32, [f32; 3])]) {
         // Fold-in members ease toward their representative's CURRENT position, not
         // their own server target. Snapshot rep positions first so the per-slot
         // mutation below doesn't clash with reading another slot.
@@ -1771,7 +1781,7 @@ impl RenderStore {
         };
         for slot in 0..self.ids.len() {
             let id = self.ids[slot];
-            if Some(id) == grab_id {
+            if let Some(&(_, grab_pos)) = grabs.iter().find(|(gid, _)| *gid == id) {
                 self.positions[slot] = grab_pos;
                 self.targets[slot] = grab_pos;
                 continue;
@@ -3050,6 +3060,39 @@ mod tests {
         s.hunt(0.1, Some(3), [1.0, 2.0, 3.0]);
         // Grabbed → pinned exactly at grab position, ignoring the target.
         assert_eq!(s.position_of(3), [1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn hunt_grabs_pins_every_held_node_and_eases_the_rest() {
+        let mut s = RenderStore::new();
+        s.upsert(1, [0.0, 0.0, 0.0], 0, 0.0, 0.0);
+        s.upsert(2, [0.0, 0.0, 0.0], 0, 0.0, 0.0);
+        s.upsert(3, [0.0, 0.0, 0.0], 0, 0.0, 0.0);
+        s.upsert(1, [100.0, 0.0, 0.0], 0, 0.0, 0.0);
+        s.upsert(2, [0.0, 100.0, 0.0], 0, 0.0, 0.0);
+        s.upsert(3, [10.0, 0.0, 0.0], 0, 0.0, 0.0);
+        s.hunt_grabs(0.5, &[(1, [1.0, 2.0, 3.0]), (2, [4.0, 5.0, 6.0]), (99, [9.0; 3])]);
+        assert_eq!(s.position_of(1), [1.0, 2.0, 3.0]);
+        assert_eq!(s.position_of(2), [4.0, 5.0, 6.0]);
+        assert!(approx(s.position_of(3)[0], 5.0), "an un-held node still eases");
+        // Releasing one keeps the other pinned: the freed node eases from the
+        // hand's last position toward its own (now hand-set) target.
+        s.hunt_grabs(0.5, &[(2, [7.0, 8.0, 9.0])]);
+        assert_eq!(s.position_of(2), [7.0, 8.0, 9.0]);
+        assert_eq!(s.position_of(1), [1.0, 2.0, 3.0], "released node stays where the hand left it");
+    }
+
+    #[test]
+    fn hunt_single_grab_is_hunt_grabs_with_one_entry() {
+        let mut a = RenderStore::new();
+        let mut b = RenderStore::new();
+        for s in [&mut a, &mut b] {
+            s.upsert(3, [0.0, 0.0, 0.0], 0, 0.0, 0.0);
+            s.upsert(3, [100.0, 0.0, 0.0], 0, 0.0, 0.0);
+        }
+        a.hunt(0.1, Some(3), [1.0, 2.0, 3.0]);
+        b.hunt_grabs(0.1, &[(3, [1.0, 2.0, 3.0])]);
+        assert_eq!(a.position_of(3), b.position_of(3));
     }
 
     #[test]

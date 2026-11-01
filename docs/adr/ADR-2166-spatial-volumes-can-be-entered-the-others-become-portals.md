@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158]
-verified_commit: ecd78b6cb25d6e702e6c2459c209ccdd2c5c6b4b
+verified_commit: 232130a645d2580c846f8b0abce16aa5c037e0e8
 verified_paths: [xr-client/scripts/space_portals.gd, xr-client/scripts/spatial_volume.gd, xr-client/scripts/emulated_volume.gd, xr-client/scripts/volume_arrangement.gd, xr-client/scripts/graph_scene.gd, xr-client/scripts/hud.gd, xr-client/scripts/xr_prefs.gd, xr-client/materials/portal_membrane.gdshader]
 owner: jjohare
 review_trigger: the first headset session with Enter used (stereo membranes, 90 Hz with an entered 6 m room, comfort of the dim); or XE merging FrameBudgetPass.set_volume_weights
@@ -60,3 +60,7 @@ Note (2026-10-31, owner decision on ADR-2167 R11 F5): the portal weighting is le
 ## Re-verification — 2026-10-31 (`ecd78b6cb`)
 
 Re-verified 2026-11-01 at `ecd78b6cb`: the only change to the governed path is `xr-client/scripts/hud.gd`, where `KEY_EDGE_FLOW` (the Key page swatch mirroring the graph's flow-edge colour) moves from cyan to gold and its label gains "breathes slowly". It changes no HUD panel palette, no tab, and nothing this record decides. Evidence: `git diff 8e92c5d5c..ecd78b6cb -- xr-client/scripts/hud.gd` (2 lines).
+
+Re-verified 2026-11-01 at `484d9392f` (xr/grab-client, ADR-2172). Changes since `a4c07caed`: `graph_scene.gd` now lets a node be grabbed in the entered volume and in the ring, never in a portal, releases held nodes when a space is entered, swapped or left, and refuses a grab during a transition (ADR-2172, which amends this record); `hud.gd` has a two-line edge-key edit. Enter, Leave, the ring, the membranes and the transitions are unchanged. The decision holds; its line 8 (E9) still holds for Codescape.
+
+Re-verified 2026-11-01 at `232130a64` (xr/grab-client, ADR-2172 review fixes). The changes to `graph_scene.gd` since `484d9392f` extend the portal rules without changing them: `_grab_locked` also holds while an arrangement ease runs (the first entry from the ring eases with no dim, R15 F4), and while a node is held the HUD Front action, a link press and a box grip on the holding volume move no volume (F8). `space_portals.gd` and the room rules are untouched. The decision holds.

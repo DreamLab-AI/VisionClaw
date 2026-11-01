@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: ecd78b6cb25d6e702e6c2459c209ccdd2c5c6b4b
+verified_commit: 484d9392f00967420a418cb10dc3eea331e627db
 verified_paths: [xr-client/scenes/GraphScene.tscn, xr-client/scenes/HUD.tscn, xr-client/scripts/spatial_environment.gd, xr-client/scripts/xr_theme.gd, xr-client/scripts/hud.gd, xr-client/scripts/radial_menu.gd, xr-client/scripts/dwell_reticle.gd, xr-client/scripts/agent_avatar.gd, xr-client/materials/spatial_floor.gdshader, xr-client/materials/edge_flow.gdshader, xr-client/tests/spatial_visual_fixture.gd, xr-client/tests/unit/test_xr_visual_accessibility.gd]
 owner: jjohare
 review_trigger: Headset acceptance, a renderer change, or a change to graph instance channels and world-radius compensation.
@@ -162,3 +162,5 @@ Re-stamped to `8e92c5d5c` (2026-10-31, ADR-2167, the visual extras). Re-run: `gi
 ## Re-verification — 2026-10-31 (`ecd78b6cb`)
 
 Re-verified 2026-11-01 at `ecd78b6cb`: the only change to the governed path is `xr-client/scripts/hud.gd`, where `KEY_EDGE_FLOW` (the Key page swatch mirroring the graph's flow-edge colour) moves from cyan to gold and its label gains "breathes slowly". It changes no HUD panel palette, no tab, and nothing this record decides. Evidence: `git diff 8e92c5d5c..ecd78b6cb -- xr-client/scripts/hud.gd` (2 lines).
+
+Re-verified 2026-11-01 at `484d9392f` (xr/grab-client, ADR-2172). Two changes since `8e92c5d5c`. `hud.gd`: the edge key is now gold with the text "breathes slowly" (lead, 2026-11-01). `spatial_environment.gd`: the focus marker follows the first held node in that node's volume (ADR-2172). One recorded exception to the reduced-motion paragraph: the gold-edge breathe (`breathe_period` 36 s, `breathe_depth` 0.8) is a whole-edge luminance swell with nothing travelling and stays on under reduced motion by the owner's choice (2026-11-01); the travelling edge pulse, the beat swell and the query pulse still stop. The rest of the decision holds.

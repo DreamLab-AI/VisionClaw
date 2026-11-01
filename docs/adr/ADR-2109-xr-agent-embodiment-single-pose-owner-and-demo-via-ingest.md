@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: a4c07caed3f05bc170a0096fdde878ceebbd19c1
+verified_commit: 232130a645d2580c846f8b0abce16aa5c037e0e8
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -174,3 +174,7 @@ Re-verified 2026-10-30 at 2a763c423 (merge of `xr/ux-pick` 3b8babe89 plus `xr/ux
 Re-stamped to `b4b399760` (2026-10-31, ADR-2166 and its review follow-up; first stamped at `e49db1836`). Re-run: `git diff --stat 2a763c423cff1fc63e0db2813a64a8a29562e118 b4b39976065fe958a1a33ebda5c090dc2b770a54 -- xr-client/scripts/agent_choreography.gd xr-client/scripts/agent_effects.gd xr-client/scripts/agent_role.gd xr-client/scripts/graph_scene.gd xr-client/scenes/GraphScene.tscn xr-client/rust/src/render_store.rs xr-client/rust/src/binary_protocol.rs` gives only `xr-client/scripts/graph_scene.gd | 91 +++`. The additions are the `SpacePortals` wiring and the entered-space actions. None writes an agent pose, touches the agent registry, or changes `_update_selection`, and the Rust files are unchanged. Agent bodies are still driven only by the VisionClaw connection. **Decision unaffected.**
 
 Re-stamped to `a4c07caed` (2026-10-31, ADR-2167 review fixes R11; first stamped at `b4b399760`). Re-run: `git diff --stat b4b39976065fe958a1a33ebda5c090dc2b770a54 a4c07caed3f05bc170a0096fdde878ceebbd19c1 -- xr-client/scripts/agent_choreography.gd xr-client/scripts/agent_effects.gd xr-client/scripts/agent_role.gd xr-client/scripts/graph_scene.gd xr-client/scenes/GraphScene.tscn xr-client/rust/src/render_store.rs xr-client/rust/src/binary_protocol.rs` gives only `xr-client/scripts/graph_scene.gd | 4 ++++`. The four lines are in `_tick_frame_budget`: for every volume the scene now adds `v.overhead_draw_calls()` (the volume frame's own call and the handle markers') to the draw calls it hands the frame-budget pass, so the volume frames are counted at every extras tier. It writes no agent pose and touches neither the agent registry nor `_update_selection`. The decision holds.
+
+Re-verified 2026-11-01 at `484d9392f` (xr/grab-client, ADR-2172). Changes since `a4c07caed`: `binary_protocol.rs` and `render_store.rs` gain `hunt_grabs`, with `hunt` kept as a one-node wrapper; `graph_scene.gd` holds per-hand node grabs (ADR-2172). Agent poses, the single pose owner and the demo-through-ingest rule are untouched: the hunt still hovers active agents and only pins the nodes a hand holds. The decision holds.
+
+Re-verified 2026-11-01 at `232130a64` (xr/grab-client, ADR-2172 review fixes). The changes to `graph_scene.gd` since `484d9392f` are grab-path only (candidate merge, per-hand double-click and catch offset, ease and box locks), and the `binary_protocol.rs` change is the held-node refit exclusion. Neither touches agent poses, the one pose writer (`agent_choreography.gd`) or the demo ingest door. The decision holds.
