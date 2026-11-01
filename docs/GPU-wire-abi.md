@@ -289,6 +289,7 @@ While a node is held, and through the settle window, the force pass adds `spring
 - `edge_rest_snapshot` is a `DeviceBuffer<f32>` of `allocated_edges` entries (`construction.rs`, re-allocated by `resize_buffers` in `memory.rs`; a CSR upload or resize invalidates it).
 - `snapshot_edge_rest_kernel(pos_x, pos_y, pos_z, edge_row_offsets, edge_col_indices, edge_rest_snapshot, num_nodes)` writes each edge's current length, one thread per node, once per overlay activation (`hold_overlay.rs`).
 - The integrator switch rides the existing `adaptive_speed` field: `execute_physics_step_with_bypass` sends 0 while the overlay is on, and the Verlet branch of `integrate_pass_kernel` clears `prev_force`.
+- ADR-2169 item 9 changes no kernel signature and no byte of `SimParams`: the held-only gain multiplies `spring_k` and `max_force` on the host before upload, and the spring term (the non-null `edge_rest_snapshot`) is passed only while a node is held. The settle window runs the Verlet switch without springs, and every spring off-to-on transition re-takes the snapshot.
 
 ## Layout and force closeout — 2026-09-04
 
