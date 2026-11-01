@@ -11,9 +11,27 @@ export class DrawnOffsets {
   data = new Float32Array(0)
   /** Bumped whenever any stored offset actually changes (feeds the edge skip gate). */
   version = 0
+  private written = new Set<number>()
+  private lastWritten = new Set<number>()
+
+  /** Start an agent pass: remember which slots this pass writes. */
+  beginFrame(): void {
+    this.written.clear()
+  }
+
+  /** End an agent pass: slots written last pass but not this one go back to zero. */
+  endFrame(): void {
+    for (const idx of this.lastWritten) {
+      if (!this.written.has(idx)) this.set(idx, 0, 0, 0)
+    }
+    const done = this.written
+    this.written = this.lastWritten
+    this.lastWritten = done
+  }
 
   /** Record the offset for node `idx`; bumps `version` only on a real change. */
   set(idx: number, dx: number, dy: number, dz: number): void {
+    this.written.add(idx)
     const o = idx * 3
     if (o + 3 > this.data.length) {
       const grown = new Float32Array(Math.max(o + 3, this.data.length * 2))

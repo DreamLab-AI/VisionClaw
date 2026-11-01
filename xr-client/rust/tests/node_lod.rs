@@ -294,17 +294,18 @@ fn whole_scene_worst_case_stays_under_100k_at_production_density() {
     }
 }
 
-// --- far edge tier at half rate (CPU budget) -------------------------------------
+// --- far edge tier refreshed every frame (edges meet the drawn nodes) -------------
 
 #[test]
-fn ribbons_refresh_every_other_frame_and_immediately_on_tier_change() {
+fn ribbons_refresh_every_frame_and_immediately_on_tier_change() {
+    use std::collections::HashSet;
     use visionclaw_xr_gdext::perf_fixture::production_store;
     let mut f = production_store(400, 900, 3);
     let cam = [0.0f32; 3];
     let total = |s: &mut RenderStore, pairs: &[i32]| s.build_edge_buffer(pairs, 1.0).len() / 16;
-    // Per ribbon instance: changed this frame?
-    let mut prev: Vec<f32> = Vec::new();
-    let mut history: Vec<Vec<bool>> = Vec::new();
+    let bits = |c: &[f32]| c.iter().map(|x| x.to_bits()).collect::<Vec<u32>>();
+    let mut stable_frames = 0;
+    let mut prev_len = None;
     for frame in 0..8u32 {
         f.advance(frame);
         f.store.build_node_buffer(&f.ids, 1.0, 0.7, 1.9);
@@ -314,43 +315,26 @@ fn ribbons_refresh_every_other_frame_and_immediately_on_tier_change() {
             .len()
             / 16;
         let ribbons = f.store.ribbon_edge_buffer().to_vec();
+        // The full pack of the same frame is the truth for where every edge ends.
+        let full = f.store.build_edge_buffer(&f.pairs, 1.0);
         // Never an edge drawn twice or dropped: the tiers always partition the drawn set.
-        assert_eq!(
-            near + ribbons.len() / 16,
-            total(&mut f.store, &f.pairs),
-            "frame {frame}"
-        );
-        if prev.len() == ribbons.len() {
-            history.push(
-                ribbons
-                    .as_chunks::<16>()
-                    .0
-                    .iter()
-                    .zip(prev.as_chunks::<16>().0)
-                    .map(|(a, b)| a != b)
-                    .collect(),
+        assert_eq!(near + ribbons.len() / 16, full.len() / 16, "frame {frame}");
+        let truth: HashSet<Vec<u32>> = full.as_chunks::<16>().0.iter().map(|c| bits(c)).collect();
+        for (i, r) in ribbons.as_chunks::<16>().0.iter().enumerate() {
+            assert!(
+                truth.contains(&bits(r)),
+                "frame {frame}: ribbon {i} is not this frame's transform (stale)"
             );
         }
-        prev = ribbons;
+        if prev_len == Some(ribbons.len()) {
+            stable_frames += 1;
+        }
+        prev_len = Some(ribbons.len());
     }
     assert!(
-        history.len() >= 6,
+        stable_frames >= 6,
         "tier membership stays stable while only positions move"
     );
-    for (k, h) in history.iter().enumerate() {
-        let n = h.iter().filter(|&&c| c).count();
-        assert!(
-            n * 10 <= h.len() * 6,
-            "frame {k}: about half the far tier repacked per frame, got {n}/{}",
-            h.len()
-        );
-    }
-    for w in history.windows(2) {
-        assert!(w[1].len() >= w[0].len());
-        for (i, (&now, &next)) in w[0].iter().zip(&w[1]).enumerate() {
-            assert!(now || next, "ribbon {i} stale for two frames running");
-        }
-    }
     // Moving the eye across the graph changes tier membership: the far tier is
     // rebuilt at once and still partitions the drawn set.
     let near = f

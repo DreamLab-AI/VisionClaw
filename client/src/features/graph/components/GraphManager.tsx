@@ -17,7 +17,8 @@ import { TransientBeamsLayer, type BeamPositionResolver } from '../../visualisat
 import { VirtualAgentMarkers } from '../../visualisation/components/VirtualAgentMarkers'
 import { isVirtualAgentId, resolveVirtualAgentPosition } from '../../bots/virtualAgents'
 import { useAgentTargetStore } from '../../../store/agentTargetStore'
-import { resolveNodeWorldPosition } from '../../visualisation/cameraFocus'
+import { resolveNodeWorldPosition, resolveDrawnNodePosition } from '../../visualisation/cameraFocus'
+import { drawnOffsets } from '../utils/drawnOffsets'
 import { useBotsData } from '../../bots/contexts/BotsDataContext'
 import { useGraphVisualState, type GraphVisualMode } from '../hooks/useGraphVisualState'
 import { useGraphFiltering } from '../hooks/useGraphFiltering'
@@ -164,6 +165,13 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   const resolveAgentPosition = useCallback<BeamPositionResolver>((id, out) => {
     const map = agentPositionMapRef.current
     const masked = getActualNodeId(id)
+    // The agent's body is drawn at SAB position + client offset (GemNodes), the same point
+    // its edges end at; prefer that over the React-state copy, which updates at a lower rate.
+    const drawn = resolveDrawnNodePosition(id, nodeIdToIndexMap, nodePositionsRef.current, drawnOffsets.data)
+    if (drawn) {
+      out.set(drawn.x, drawn.y, drawn.z)
+      return true
+    }
     const pos = map.get(String(masked)) ?? map.get(String(id))
     if (pos) {
       out.set(pos.x, pos.y, pos.z)

@@ -2679,7 +2679,7 @@ func _physics_process(delta: float) -> void:
 	# Both packs run every frame: the Rust pack plans (render_store_pack.rs) cost
 	# ~1 ms for 13k nodes + 20k edges together, so the old 45 Hz alternation (from
 	# when GDScript looped over the instances) is gone — it also left edge ends a
-	# frame behind their nodes. The far ribbon tier refreshes half per frame.
+	# frame behind their nodes. The far ribbon tier is re-transformed every frame too.
 	_pack_volumes()
 	_tick_frame_budget(delta)
 	_log_volumes(delta)

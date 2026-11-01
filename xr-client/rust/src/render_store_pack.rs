@@ -340,7 +340,7 @@ impl RenderStore {
     /// near cylinders are transformed every frame, and the far ribbons — about
     /// 19 900 of 20 000 at production density — are re-transformed in
     /// place every frame, so every endpoint is the node's drawn position of THIS
-    /// frame (a half-per-frame parity was tried and left half a frame behind). Any change of tier membership rebuilds the
+    /// frame (the earlier half-per-frame parity left half of them up to one frame behind). Any change of tier membership rebuilds the
     /// far tier at once, so the tiers always partition the drawn set (no edge
     /// drawn twice or dropped).
     pub(super) fn pack_edges_lod(

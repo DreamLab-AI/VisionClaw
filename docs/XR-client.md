@@ -753,8 +753,10 @@ replays it while a `visual_epoch` is unchanged. Every mutation that can change a
 instance's look or the drawn set bumps the epoch (`touch()`); per-frame feeds bump
 only on a real change (`upsert` analytics, node kind, agent expiry, label-fade
 membership). Edge tiers are chosen from midpoints; near cylinders are transformed
-every frame and far ribbons half per frame (alternating parity, in place), so each
-ribbon is at most one frame old and any tier change rebuilds the far tier at once.
+every frame and far ribbons every frame too, in place (they were half per frame until
+viz/edge-tracking: half the ribbons were a frame behind their nodes; the full refresh
+costs about 0.3 ms more at 20 000 edges on an x86 host), so every edge endpoint is its
+node's drawn position of the same frame; any tier change rebuilds the far tier at once.
 Per-frame tints that must not invalidate a plan (attention heat) go through
 `RenderStore::live_tint`. Steady state allocates nothing (`tests/pack_alloc.rs`,
 counting allocator: 79 allocations per frame before, 0 after). GraphScene now runs

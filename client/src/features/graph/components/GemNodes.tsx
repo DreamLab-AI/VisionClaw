@@ -969,6 +969,7 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
     const drift = isAgent && separatedRef.current ? agentDriftFeed() : null;
     drift?.step();
     const triFrame = triFrameRef.current;
+    if (isAgent) drawnOffsets.beginFrame();
     for (let i = 0; i < visCount; i++) {
       let s = scaleCache[i];
       if (i === selectedLocalIdx) {
@@ -1038,6 +1039,8 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
         inst.setMatrixAt(i, _mat);
       }
     }
+    // Agents that stopped being drawn (filtered, reindexed, replaced) go back to zero offset.
+    if (isAgent) drawnOffsets.endFrame();
     inst.count = visCount;
     if (xformBuf) {
       if (xformTexRef.current) xformTexRef.current.needsUpdate = true;
