@@ -102,11 +102,8 @@ func _process(_delta: float) -> void:
         return
     var position_in_graph: Vector3 = client.call("node_position", active_id)
     var frame: Transform3D = graph_root.global_transform
-    if grabbed >= 0 and _scene.has_method("_content_xf"):
-        var held: Array = _scene.get("_grab_id")
-        var vols: Array = _scene.get("_grab_vol")
-        var hand: int = 0 if int(held[0]) == grabbed else 1
-        frame = _scene.call("_content_xf", vols[hand])
+    if _scene.has_method("focus_frame_for"):
+        frame = _scene.call("focus_frame_for", active_id)
     _focus.global_position = frame * position_in_graph
     # A world-space billboard remains at the target's actual depth in both eyes.
     _focus.global_basis = camera.global_basis

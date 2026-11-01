@@ -176,13 +176,26 @@ func _is_held(node_id: int) -> bool:
 	return node_id >= 0 and (_grab_id[0] == node_id or _grab_id[1] == node_id)
 
 
-# Held node ids, left hand first.
-func _held_ids() -> Array[int]:
+# Held node ids, left hand first; with `only_vol`, only those held in that volume
+# (overlays placed through GraphRoot, the knowledge frame, take only its own).
+func _held_ids(only_vol: StringName = &"") -> Array[int]:
 	var out: Array[int] = []
 	for hand: int in 2:
-		if _grab_id[hand] != -1:
+		if _grab_id[hand] != -1 and (only_vol == &"" or _grab_vol[hand] == only_vol):
 			out.append(_grab_id[hand])
 	return out
+
+
+## The world frame (graph units → world) that places node `node_id` for overlays
+## such as the focus marker: the Content transform of the volume holding it, or
+## of the volume the ray last targeted it in, else GraphRoot's (knowledge).
+func focus_frame_for(node_id: int) -> Transform3D:
+	for hand: int in 2:
+		if node_id >= 0 and _grab_id[hand] == node_id:
+			return _content_xf(_grab_vol[hand])
+	if node_id >= 0 and node_id == _last_targeted_id and _last_targeted_vol != &"":
+		return _content_xf(_last_targeted_vol)
+	return graph_root.global_transform if graph_root != null else Transform3D.IDENTITY
 
 # --- Spatial-volume UX (UX contract features 1-5) ------------------------------
 #
@@ -855,6 +868,7 @@ var _m4_ray_observed: bool = false
 var _observe_http: HTTPRequest = null
 
 var _last_targeted_id: int = -1
+var _last_targeted_vol: StringName = &""   # volume the ray last targeted a node in
 
 # Double-click (node-open) detection: two grabs of the same node within the window.
 const DOUBLE_CLICK_SEC: float = 0.45
@@ -1630,7 +1644,9 @@ func _update_proximity_labels() -> void:
 	# Build the shown list: grabbed node first (always labelled), then nearest
 	# labelled nodes up to the pool size.
 	var shown: Array = []
-	for held: int in _held_ids():
+	# Labels are placed through GraphRoot (the knowledge frame): only nodes held in
+	# the knowledge volume belong in this pool.
+	for held: int in _held_ids(OVERLAY_VOLUME):
 		shown.append(held)
 	# Query variables are always labelled (with their ?vN badge), regardless of
 	# proximity, so the assembled pattern stays legible while the user works.
@@ -1692,7 +1708,7 @@ func _update_proximity_labels() -> void:
 		# Fade: full opacity within LABEL_INNER_M, linear to 0 at the radius edge.
 		# The grabbed node and every query variable are always fully shown.
 		var a: float = 1.0
-		if not _is_held(node_id) and not _query.is_marked(node_id):
+		if not _held_ids(OVERLAY_VOLUME).has(node_id) and not _query.is_marked(node_id):
 			var dist: float = cam_world.distance_to(world_pos)
 			a = clampf(
 				1.0 - (dist - LABEL_INNER_M) / maxf(LABEL_PROXIMITY_M - LABEL_INNER_M, 0.001),
@@ -4366,6 +4382,7 @@ func _on_node_targeted(node_id: int, _distance: float) -> void:
 	if _radial_picking:
 		_radial_pick_capture = node_id
 		return
+	_last_targeted_vol = _grab_eval_map.get(node_id, _grab_eval_vol if _grab_eval_vol != &"" else OVERLAY_VOLUME)
 	emit_signal("node_targeted_in_scene", node_id)
 	if node_id != _last_targeted_id:
 		print("GraphScene DEBUG: node_targeted id=%d dist=%.2f" % [node_id, _distance])

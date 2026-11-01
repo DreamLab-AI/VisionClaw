@@ -236,6 +236,107 @@ func test_entering_a_room_releases_grabs_held_by_other_volumes() -> void:
 	await _free(scene)
 
 
+# --- no jump on grab: real client, real packed slots ---------------------------------
+
+## Ingests one knowledge node (wire flag 0x4000_0000) and one ontology-class node
+## (0x0400_0000) at known positions and packs each volume's own slot, so the
+## picker's candidates are the real per-slot render positions. Returns
+## {volume: [node id, store position]}.
+func _seed_real_nodes(scene: Node3D) -> Dictionary:
+	var client: RefCounted = scene._vc_conn.client
+	scene._vc_conn._connected = true
+	var b := PackedByteArray()
+	b.append(0x03)
+	var spec := [[0x40000000 | 5, Vector3(3.0, 2.0, -1.5)], [0x04000000 | 7, Vector3(-2.0, 1.0, 4.0)]]
+	for sp: Array in spec:
+		var rec := PackedByteArray()
+		rec.resize(52)
+		rec.encode_u32(0, int(sp[0]))
+		var p: Vector3 = sp[1]
+		rec.encode_float(4, p.x)
+		rec.encode_float(8, p.y)
+		rec.encode_float(12, p.z)
+		b.append_array(rec)
+	client.ingest(b)
+	var out := {}
+	for vid: StringName in [&"knowledge", &"ontology"]:
+		var src = scene._sources[vid]
+		src.invalidate()  # the first frame cached an empty id list
+		var ids: PackedInt32Array = src.content_ids()
+		client.set_pack_slot(src.slot)
+		client.build_node_buffer_lod(ids, 1.0, 0.7, 1.9, Vector3.ZERO, 8, 100.0)
+		out[vid] = [ids[0] if ids.size() > 0 else -1, client.node_position(ids[0]) if ids.size() > 0 else Vector3.ZERO]
+	return out
+
+
+## Grabs the volume's node from a hand 1 m straight behind it along -Z and checks
+## the first drag target is the node's own store position: no jump, whatever the
+## volume's Content transform.
+func _assert_no_jump(scene: Node3D, vid: StringName, hand: int, seeded: Dictionary) -> void:
+	var node_id: int = seeded[vid][0]
+	assert_ne(node_id, -1, "%s: the class mask routed a node here" % vid)
+	var cand: Array = scene._grab_candidates(vid)
+	assert_eq((cand[0] as PackedInt32Array).size(), 1, "%s: one drawn candidate" % vid)
+	if (cand[0] as PackedInt32Array).size() != 1:
+		return
+	var world: Vector3 = (cand[1] as PackedVector3Array)[0]
+	var origin: Vector3 = world + Vector3(0, 0, 1)
+	assert_true(scene._begin_grab(hand, vid, node_id, origin), "%s: grab begins" % vid)
+	assert_almost_eq(float(scene._grab_dist[hand]), 1.0, 1e-3, "%s: depth is the hand-to-node distance" % vid)
+	scene._drive_grab(hand, origin, Vector3(0, 0, -1))
+	var want: Vector3 = seeded[vid][1]
+	assert_true((scene._grab_target[hand] as Vector3).is_equal_approx(want), "%s: first target %s is the node's position %s" % [vid, scene._grab_target[hand], want])
+
+
+func test_no_jump_on_grab_in_the_ring_for_both_volumes_and_hands() -> void:
+	var scene: Node3D = await _make_scene()
+	var seeded := _seed_real_nodes(scene)
+	assert_ne(seeded[&"knowledge"][0], seeded[&"ontology"][0], "disjoint class masks: two different nodes")
+	_assert_no_jump(scene, &"knowledge", 0, seeded)
+	_assert_no_jump(scene, &"ontology", 1, seeded)
+	assert_ne(scene._any_grab_id(), -1)
+	scene._release_grab()
+	await _free(scene)
+
+
+func test_no_jump_on_grab_inside_a_scaled_entered_room() -> void:
+	var scene: Node3D = await _make_scene()
+	_settle(scene)
+	var seeded := _seed_real_nodes(scene)
+	scene._on_hud_control("volume_enter:ontology")
+	_tick(scene, 0.6)
+	assert_eq(scene._portals.entered_id(), &"ontology")
+	(scene._volumes[&"ontology"].content as Node3D).scale = Vector3.ONE * 4.0
+	_assert_no_jump(scene, &"ontology", 0, seeded)
+	assert_false(scene._begin_grab(1, &"knowledge", seeded[&"knowledge"][0], Vector3.ZERO), "the knowledge portal never grabs")
+	scene._release_grab()
+	await _free(scene)
+
+
+# --- overlays placed through GraphRoot see only knowledge-held nodes -----------------
+
+func test_label_pool_and_focus_marker_follow_the_volume_of_the_node() -> void:
+	var scene: Node3D = await _make_scene()
+	_fake(scene)
+	scene._begin_grab(0, &"knowledge", 11, Vector3.ZERO)
+	scene._begin_grab(1, &"ontology", 22, Vector3.ZERO)
+	assert_eq(scene._held_ids(), [11, 22])
+	assert_eq(scene._held_ids(scene.OVERLAY_VOLUME), [11], "an ontology-held node is not a knowledge label")
+	assert_true(scene.focus_frame_for(22).is_equal_approx(scene._content_xf(&"ontology")), "held ontology node: its own frame")
+	assert_true(scene.focus_frame_for(11).is_equal_approx(scene._content_xf(&"knowledge")))
+	scene._release_grab()
+	# A hover target is placed in the volume the ray targeted it in.
+	scene._grab_eval_hand = 1
+	scene._grab_eval_vol = &"knowledge"
+	scene._grab_eval_map = {33: &"ontology"}
+	scene._on_node_targeted(33, 2.0)
+	scene._grab_eval_hand = -1
+	scene._grab_eval_map = {}
+	assert_eq(scene._last_targeted_vol, &"ontology")
+	assert_true(scene.focus_frame_for(33).is_equal_approx(scene._content_xf(&"ontology")), "hover ring lands in the ontology box")
+	await _free(scene)
+
+
 # --- the two-hand graph gesture stays on its own binding ----------------------------
 
 func test_two_trigger_grabs_do_not_start_the_two_hand_gesture() -> void:
