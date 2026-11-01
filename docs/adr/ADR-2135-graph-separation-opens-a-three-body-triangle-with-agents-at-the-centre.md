@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 0df96bc52459cd19b08683a96912e85c45c08f41
+verified_commit: 25e8a7ad0a73b3cca71af5272b865eb1dd574731
 verified_paths: [xr-client/rust/src/memory_route.rs, crates/visionclaw-tri-layout/src, crates/visionclaw-tri-layout/fixtures, src/actors/gpu/display_projection.rs, src/handlers/memory_flash_handler.rs, client/src/features/graph/triLayout.ts, client/src/features/graph/agentDrift.ts, client/src/features/bots/agentDriftFeed.ts, client/src/features/graph/utils/agentNudge.ts, client/src/features/visualisation/memoryCloud/cloudFrame.ts, client/src/features/graph/utils/sceneFitBounds.ts, client/src/features/visualisation/memoryCloud/cloudSprites.ts, xr-client/rust/src/cloud_frame.rs]
 owner: jjohare
 review_trigger: "Activation (staged → live): the operator seeing the triangle live on a backend built from main. Review: a change of the default camera direction; a fourth body joining the separated layout; agent nodes leaving the GPU graph; the XR work-layer pose rules (ADR-2109) changing; the live graph's p99 radius passing LIVE_GRAPH_RADIUS (152)"
@@ -275,3 +275,7 @@ Re-verified 2026-11-01 at `46c77c465` (three.js 0.183 → 0.187.0, owner-approve
 ## Re-verification — 2026-11-01 (`0df96bc52`)
 
 `client/src/features/graph/utils/agentNudge.ts` loses the merged-layout outward drift of a done agent (a dead branch: the layout is always separated) together with its `separated` and centre inputs, and the nudge is now applied once a frame by `DrawnPositions.applyAgents` instead of inside `GemNodes`. The decision is recorded in the Desktop nudge bullet above. Tests: `agentNudge.test.ts` (5) and `drawnPositions.test.ts` (13) pass; a done agent's drawn position becomes bit-identical within a few hundred frames and the edge gate then skips.
+
+## Re-verification — 2026-11-01 (`25e8a7ad0`)
+
+Adds `AGENT_RELAX_SNAP` to `agentNudge.ts` (the relax snaps to zero under 1e-4 units) after measuring the settle tail in the production configuration; the Desktop nudge bullet carries the measured frame counts. Tests: `agentNudge.test.ts` (6) and `drawnPositions.test.ts` (15) pass.
