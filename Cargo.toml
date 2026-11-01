@@ -40,6 +40,7 @@ license = "AGPL-3.0-only"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+ontomark-compile = { version = "0.6.2", default-features = false, optional = true }
 # Workspace crates — ADR-090 hexagonal modularisation. Each `pub use`
 # re-export shim in src/{models,types,config,layout} reaches into these
 # crates so a one-line change in a domain type no longer triggers a full
@@ -275,7 +276,9 @@ tempfile = "3.14"
 [features]
 # GPU and ontology features for conditional compilation
 # Enable by default for full system capabilities
-default = ["gpu", "ontology", "persistence-oxigraph", "solid-pod-embed"]
+default = ["gpu", "ontology", "persistence-oxigraph", "solid-pod-embed", "shared-corpus-layout"]
+# Shared filesystem checks; this does not switch the ontology producer.
+shared-corpus-layout = ["dep:ontomark-compile"]
 gpu = []  # GPU acceleration with CUDA kernels
 ontology = []  # Ontology validation and reasoning
 redis = ["dep:redis"]  # Enable Redis distributed caching

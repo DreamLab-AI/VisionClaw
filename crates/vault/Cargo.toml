@@ -17,11 +17,15 @@ name = "vault"
 path = "src/lib.rs"
 
 [features]
+default = ["shared-layout"]
+# Consume the released Ontomark root checks without its reasoner feature.
+shared-layout = ["dep:ontomark-compile"]
 # VC-20-S1-01: the opt-in Jev option (`vault rank`). Off by default, so the
 # default build carries no HTTP client and no network code path.
 jev = ["dep:visionclaw-jev", "dep:tokio"]
 
 [dependencies]
+ontomark-compile = { version = "0.6.2", default-features = false, optional = true }
 visionclaw-jev = { path = "../visionclaw-jev", optional = true }
 tokio = { version = "1.47.1", features = ["rt", "time"], optional = true }
 # RDFS derivation certificates in the oo-cert/1 format (ADR-2147).

@@ -1,11 +1,11 @@
 ---
 title: VAULT — authored corpus format (Obsidian vault)
-version: 2.3.0
+version: 3.0.0
 status: living
 verified_commit:
 owner: jjohare
 domain: VAULT-corpus-format
-ledger: [ADR-2112, ADR-2113, ADR-2114, ADR-2115, ADR-2116, ADR-2117, ADR-2118, ADR-2124, ADR-2125, ADR-2128]
+ledger: [ADR-2112, ADR-2113, ADR-2114, ADR-2115, ADR-2116, ADR-2117, ADR-2118, ADR-2124, ADR-2125, ADR-2128, ADR-2168]
 agentbox_ledger: [ADR-2107, ADR-2108, ADR-2109, ADR-2129]
 proposed: [ADR-2126, ADR-2127]
 ---
@@ -144,6 +144,17 @@ may reuse those names.
 - `vault.toml` is the single path authority. No consumer hard-codes a corpus path;
   agentbox's manifest `[vault].root` supplies the root and every sub-path derives
   from `vault.toml`.
+- **Shared filesystem checks (ADR-2168).** The default `vault/shared-layout`
+  and server `shared-corpus-layout` crate features consume published
+  `ontomark-compile` with its default features disabled. Configured roots are
+  repository-relative, canonical, disjoint and contained by the repository:
+  aliases, nested roots, parent traversal and escaping root symlinks are refused.
+  A missing optional ingest half is still skipped. The local walk skips child
+  symlinks, including cycles; explicit prefixes and fetched files must resolve
+  inside configured roots. These are configuration checks, not a race-safe
+  filesystem sandbox. Feature-off builds retain the compatibility path.
+  `vault` shares canonical ancestor discovery while retaining `vault-core`'s
+  vocabulary parser. This does not replace the producer or claim its parity gates.
 - **Page identity** is the path relative to the configured base path
   (`GITHUB_BASE_PATH` / `VAULT_BASE_PATHS`, default `knowledge,working`)
   without `.md` (`knowledge/Knowledge Graph.md` ⇒ id `Knowledge Graph`;
@@ -471,6 +482,7 @@ decision (V7).
 
 | Version | Date | Change |
 |---|---|---|
+| 3.0.0 | 2026-11-01 | ADR-2168: shared Ontomark filesystem checks reject ambiguous or escaping roots; local child symlinks are skipped. Default crate features enable the checks; runtime deployment is separate. |
 | 2.4.0 | 2026-10-20 | ADR-2147: Invariant 12 (derivation certificates and the consequence delta); `vault certify` and `vault propose --certificate-dir` added to the readers/writers table. No rule was loosened. |
 | 2.3.0 | 2026-10-19 | ADR-2124, ADR-2125 and ADR-2128 re-verified at b4a175412 and moved from "proposed, not ratified" to accepted: Invariant 6 names the `defines-as` / `disjoint-with` keys and the version IRI; Invariant 9 records the armed-gate probe. No rule was loosened. |
 | 2.2.0 | 2026-10-05 | Proposed-amendments section for ADR-2124–2128 and agentbox ADR-2129 (PRD-029 / DDD-023, reasoning and integrity). Not ratified; Invariants unchanged. |

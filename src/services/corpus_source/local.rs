@@ -107,7 +107,25 @@ impl LocalDirectorySource {
 
     /// Collect every markdown page under one vault-relative prefix.
     fn collect_under(&self, prefix: &str) -> Result<Vec<CorpusPage>, String> {
+        #[cfg(not(feature = "shared-corpus-layout"))]
         let dir = self.root.join(prefix);
+        #[cfg(feature = "shared-corpus-layout")]
+        let dir = {
+            let roots = self.checked_roots()?;
+            let requested =
+                ontomark_compile::profile::resolve_roots(&self.root, &[PathBuf::from(prefix)])
+                    .map_err(|e| format!("invalid corpus prefix: {e}"))?;
+            let dir = requested
+                .into_iter()
+                .next()
+                .expect("one requested prefix produces one path");
+            if !roots.iter().any(|base| dir.starts_with(base)) {
+                return Err(format!(
+                    "corpus prefix {prefix} is outside the configured source roots"
+                ));
+            }
+            dir
+        };
         if !dir.is_dir() {
             return Err(format!("no such corpus path: {}", dir.display()));
         }
@@ -115,6 +133,13 @@ impl LocalDirectorySource {
         walk(&dir, prefix, &mut pages)?;
         pages.sort_by(|a, b| a.path.cmp(&b.path));
         Ok(pages)
+    }
+
+    /// Validate configuration through the shared owner before reading any source.
+    #[cfg(feature = "shared-corpus-layout")]
+    fn checked_roots(&self) -> Result<Vec<PathBuf>, String> {
+        ontomark_compile::profile::resolve_roots(&self.root, &self.base_paths)
+            .map_err(|e| format!("invalid corpus roots: {e}"))
     }
 }
 
@@ -162,8 +187,17 @@ fn walk(dir: &Path, rel_prefix: &str, out: &mut Vec<CorpusPage>) -> Result<(), S
         let name = entry.file_name().to_string_lossy().to_string();
         let path = entry.path();
 
-        // Symlinks are resolved once, so a linked page or directory still
-        // ingests; `file_type` alone reports the link, not its target.
+        // Match Ontomark's page walk: configured roots may resolve symlinks,
+        // but child symlinks are not followed (including cycles and escapes).
+        #[cfg(feature = "shared-corpus-layout")]
+        if entry
+            .file_type()
+            .map_err(|e| format!("file type {}: {e}", path.display()))?
+            .is_symlink()
+        {
+            continue;
+        }
+        // The legacy feature-off path retains its existing link behaviour.
         let meta = match std::fs::metadata(&path) {
             Ok(m) => m,
             Err(e) => {
@@ -211,6 +245,8 @@ impl CorpusSource for LocalDirectorySource {
     }
 
     async fn list_pages(&self) -> Result<Vec<CorpusPage>, String> {
+        #[cfg(feature = "shared-corpus-layout")]
+        self.checked_roots()?;
         let mut all = Vec::new();
         for prefix in &self.slash_paths {
             match self.collect_under(prefix) {
@@ -242,6 +278,22 @@ impl CorpusSource for LocalDirectorySource {
 
     async fn fetch_page(&self, page: &CorpusPage) -> Result<String, String> {
         let path = PathBuf::from(&page.fetch_ref);
+        #[cfg(feature = "shared-corpus-layout")]
+        let path = {
+            let resolved = std::fs::canonicalize(&path)
+                .map_err(|e| format!("Failed to resolve {}: {e}", path.display()))?;
+            if !self
+                .checked_roots()?
+                .iter()
+                .any(|base| resolved.starts_with(base))
+            {
+                return Err(format!(
+                    "page {} is outside the configured corpus roots",
+                    path.display()
+                ));
+            }
+            resolved
+        };
         tokio::fs::read_to_string(&path)
             .await
             .map_err(|e| format!("Failed to read {}: {}", path.display(), e))
@@ -444,6 +496,79 @@ mod tests {
         assert_eq!(d.location, "/vault/visionGraph");
         assert_eq!(d.base_paths, vec!["knowledge", "working"]);
         assert_eq!(src.base_paths(), d.base_paths.as_slice());
+    }
+
+    #[cfg(feature = "shared-corpus-layout")]
+    #[tokio::test]
+    async fn shared_layout_rejects_aliases_nested_roots_and_parent_escapes() {
+        let vault = fixture_vault();
+        for roots in [
+            ["knowledge", "./knowledge"],
+            ["knowledge", "knowledge/nested"],
+            ["knowledge", "../outside"],
+        ] {
+            let src = LocalDirectorySource::new(vault.path(), roots.map(PathBuf::from).to_vec());
+            assert!(
+                src.list_pages().await.is_err(),
+                "invalid roots must fail before partial ingest: {roots:?}"
+            );
+        }
+    }
+
+    #[cfg(feature = "shared-corpus-layout")]
+    #[tokio::test]
+    async fn shared_layout_rejects_unconfigured_prefixes_and_fetches() {
+        let vault = fixture_vault();
+        let src = source(vault.path());
+        assert!(src.list_pages_under("elsewhere").await.is_err());
+        assert!(src
+            .list_pages_under("knowledge/../elsewhere")
+            .await
+            .is_err());
+        let mut page = src.list_pages().await.unwrap().remove(0);
+        page.fetch_ref = vault
+            .path()
+            .join("elsewhere/Unreachable.md")
+            .to_string_lossy()
+            .into_owned();
+        assert!(src.fetch_page(&page).await.is_err());
+        assert_eq!(
+            src.list_pages_under("knowledge/nested")
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[cfg(all(unix, feature = "shared-corpus-layout"))]
+    #[tokio::test]
+    async fn shared_layout_rejects_linked_root_aliases_and_escapes() {
+        let vault = fixture_vault();
+        let outside = fixture_vault();
+        std::os::unix::fs::symlink("knowledge", vault.path().join("alias")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), vault.path().join("escape")).unwrap();
+        for roots in [["knowledge", "alias"], ["knowledge", "escape"]] {
+            let src = LocalDirectorySource::new(vault.path(), roots.map(PathBuf::from).to_vec());
+            assert!(src.list_pages().await.is_err());
+        }
+    }
+
+    #[cfg(all(unix, feature = "shared-corpus-layout"))]
+    #[tokio::test]
+    async fn shared_layout_skips_child_symlinks_like_the_owner_walk() {
+        let vault = fixture_vault();
+        let outside = fixture_vault();
+        let src = source(vault.path());
+        let before = src.list_pages().await.unwrap();
+        std::os::unix::fs::symlink(outside.path(), vault.path().join("knowledge/external"))
+            .unwrap();
+        std::os::unix::fs::symlink("Alpha.md", vault.path().join("knowledge/alias.md")).unwrap();
+        // Do not introduce a cycle until a finite linked-directory case passes:
+        // the legacy walker recurses through symlinks.
+        assert_eq!(src.list_pages().await.unwrap(), before);
+        std::os::unix::fs::symlink(".", vault.path().join("knowledge/cycle")).unwrap();
+        assert_eq!(src.list_pages().await.unwrap(), before);
     }
 
     #[test]

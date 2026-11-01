@@ -320,6 +320,12 @@ fn main() -> ExitCode {
         Ok(code) => code,
         Err(e) => {
             eprintln!("vault: {e:#}");
+            #[cfg(feature = "shared-layout")]
+            if e.downcast_ref::<ontomark_compile::profile::LayoutError>()
+                .is_some()
+            {
+                return ExitCode::from(2);
+            }
             ExitCode::from(1)
         }
     }
@@ -331,17 +337,32 @@ fn resolve_repo(explicit: Option<&Path>) -> anyhow::Result<(PathBuf, Vocabulary)
         Some(p) => p.to_path_buf(),
         None => std::env::current_dir()?,
     };
+    #[cfg(not(feature = "shared-layout"))]
     let (path, vocab) = Vocabulary::discover(&start).with_context(|| {
         format!(
             "looking for ontology/vocabulary.yaml from {}",
             start.display()
         )
     })?;
+    #[cfg(feature = "shared-layout")]
+    let (path, vocab) = {
+        let path = ontomark_compile::input::vocabulary::Vocabulary::discover_path(&start)
+            .with_context(|| {
+                format!(
+                    "looking for ontology/vocabulary.yaml from {}",
+                    start.display()
+                )
+            })?;
+        let vocab = Vocabulary::load(&path)?;
+        (path, vocab)
+    };
     let root = path
         .parent()
         .and_then(Path::parent)
         .map(Path::to_path_buf)
         .unwrap_or(start);
+    #[cfg(feature = "shared-layout")]
+    ontomark_compile::profile::Layout::default().validate(&root)?;
     Ok((root, vocab))
 }
 
@@ -452,7 +473,8 @@ fn run() -> anyhow::Result<ExitCode> {
                 proposer: args.proposer.clone(),
                 now: time::OffsetDateTime::now_utc(),
             };
-            let built = propose::build_with_certificates(&vault, &corpus, &vocab, &generation, &options)?;
+            let built =
+                propose::build_with_certificates(&vault, &corpus, &vocab, &generation, &options)?;
             if let Some(dir) = &args.certificate_dir {
                 let (base, proposed) = built
                     .write_certificates(dir)

@@ -40,7 +40,7 @@ The [historical closeout routing note](../adr-history-closeout.md) points each f
 
 The [estate status/evidence contract](../../../VisionFlow/docs/architecture/adr-status-contract.md) defines the independent decision, implementation and activation axes and distinguishes lineage from supersession (2026-09-07).
 
-_140 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
+_141 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 
 | ID | Title | Domain | Date | Decision | Impl | Activation | Supersedes | Superseded by | Owner | Repo |
 |----|-------|--------|------|----------|------|------------|------------|---------------|-------|------|
@@ -184,3 +184,4 @@ _140 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2165](ADR-2165-the-xr-client-targets-godot-4-8-beta.md) | The XR client targets Godot 4.8 (beta), with 4.6.1-stable as rollback until the headset re-test passes | XR-client | 2026-10-30 | accepted | partial | staged | — | — | jjohare | visionclaw |
 | [ADR-2166](ADR-2166-spatial-volumes-can-be-entered-the-others-become-portals.md) | Spatial volumes can be entered; the others become portals | XR-client | 2026-10-31 | accepted | partial | inactive | — | — | jjohare | visionclaw |
 | [ADR-2167](ADR-2167-the-headsets-visual-extras-are-the-allocators-last-budgeted-layer.md) | The headset's visual extras hold a bounded allowance in the allocator, tiered by measured GPU time | BASELINE-architecture | 2026-10-31 | proposed | partial | staged | — | — | jjohare | visionclaw |
+| [ADR-2168](ADR-2168-consume-ontomark-filesystem-layout-checks.md) | Consume Ontomark filesystem layout checks through crate features | VAULT-corpus-format | 2026-11-01 | accepted | complete | staged | — | — | jjohare | visionclaw |
