@@ -4800,6 +4800,78 @@ fn add_phase(slot: usize, since: Instant) {
     );
 }
 
+/// Sub-phases of the `execute` kernel bucket, in launch order. Opt-in (see
+/// [`kernel_stage_profiling`]) because attributing time to a stage means synchronising the stream
+/// at every boundary, which serialises work the GPU would otherwise overlap.
+pub(crate) const KERNEL_STAGE_NAMES: [&str; 10] = [
+    "stability gate",
+    "aabb reduce",
+    "build_grid",
+    "thrust sort",
+    "cell bounds",
+    "force pass",
+    "cohesion",
+    "degree gravity",
+    "semantic",
+    "integrate",
+];
+
+static KERNEL_STAGE_US: [std::sync::atomic::AtomicU64; 10] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 10];
+static KERNEL_STAGE_LAST_US: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static KERNEL_STAGE_FORCED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+fn kernel_stage_epoch() -> Instant {
+    static EPOCH: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    *EPOCH.get_or_init(Instant::now)
+}
+
+/// True when per-stage kernel timing is on: `VISIONCLAW_STEP_STAGES=1` in the environment (read
+/// once), or [`set_kernel_stage_profiling`] (tests).
+pub(crate) fn kernel_stage_profiling() -> bool {
+    static ENV: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    KERNEL_STAGE_FORCED.load(std::sync::atomic::Ordering::Relaxed)
+        || *ENV.get_or_init(|| std::env::var("VISIONCLAW_STEP_STAGES").is_ok_and(|v| v == "1"))
+}
+
+/// Force per-stage kernel timing on or off regardless of the environment.
+#[cfg(test)]
+pub(crate) fn set_kernel_stage_profiling(on: bool) {
+    KERNEL_STAGE_FORCED.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Open a profiled step: stage 0 starts now. No-op unless profiling is on.
+pub(crate) fn kernel_stage_begin() {
+    if kernel_stage_profiling() {
+        KERNEL_STAGE_LAST_US.store(
+            kernel_stage_epoch().elapsed().as_micros() as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    }
+}
+
+/// Close stage `idx`: wait for the stream, charge the time since the previous mark.
+pub(crate) fn kernel_stage_mark(stream: &cust::stream::Stream, idx: usize) {
+    use std::sync::atomic::Ordering::Relaxed;
+    if !kernel_stage_profiling() {
+        return;
+    }
+    let _ = stream.synchronize();
+    let now = kernel_stage_epoch().elapsed().as_micros() as u64;
+    let last = KERNEL_STAGE_LAST_US.swap(now, Relaxed);
+    KERNEL_STAGE_US[idx].fetch_add(now.saturating_sub(last), Relaxed);
+}
+
+/// Drain the per-stage accumulators (microseconds since the last drain).
+pub(crate) fn take_kernel_stage_us() -> [u64; 10] {
+    let mut out = [0u64; 10];
+    for (o, a) in out.iter_mut().zip(KERNEL_STAGE_US.iter()) {
+        *o = a.swap(0, std::sync::atomic::Ordering::Relaxed);
+    }
+    out
+}
+
 /// Rolling timing of the compute step, so "why is the physics tick slow" is a log line and not a
 /// guess. `period` is start-to-start (what the stream rate follows), `gpu` is handler start to
 /// kernels + readback done (includes waiting for the GPU lock), `total` adds the CPU
@@ -4834,9 +4906,20 @@ impl StepTiming {
             .iter()
             .map(|a| a.swap(0, std::sync::atomic::Ordering::Relaxed) as f64 / 1000.0 / n)
             .collect();
+        let stages_us = take_kernel_stage_us();
+        let stages = if stages_us.iter().any(|&u| u > 0) {
+            let parts: Vec<String> = KERNEL_STAGE_NAMES
+                .iter()
+                .zip(stages_us)
+                .map(|(name, u)| format!("{name} {:.2}", u as f64 / 1000.0 / n))
+                .collect();
+            format!(", execute stages (synchronised) [{}]", parts.join(", "))
+        } else {
+            String::new()
+        };
         let line = format!(
-            "ForceComputeActor: step timing (last {} steps, iter {}): period {:.1} ms ({:.1} Hz), kernels+readback {:.1} ms [gate wait {:.1}, mutex wait {:.1}, execute {:.1}, readback {:.1}], total in actor {:.1} ms, outside actor {:.1} ms",
-            self.n, iteration, self.period_ms / n, 1000.0 * n / self.period_ms.max(1e-9), self.gpu_ms / n, ph[0], ph[1], ph[2], ph[3], self.total_ms / n, (self.period_ms - self.total_ms) / n
+            "ForceComputeActor: step timing (last {} steps, iter {}): period {:.1} ms ({:.1} Hz), kernels+readback {:.1} ms [gate wait {:.1}, mutex wait {:.1}, execute {:.1}, readback {:.1}], total in actor {:.1} ms, outside actor {:.1} ms{}",
+            self.n, iteration, self.period_ms / n, 1000.0 * n / self.period_ms.max(1e-9), self.gpu_ms / n, ph[0], ph[1], ph[2], ph[3], self.total_ms / n, (self.period_ms - self.total_ms) / n, stages
         );
         self.period_ms = 0.0;
         self.gpu_ms = 0.0;
