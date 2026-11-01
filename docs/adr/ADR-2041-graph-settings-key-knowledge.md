@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: 484d9392f00967420a418cb10dc3eea331e627db
+verified_commit: 232130a645d2580c846f8b0abce16aa5c037e0e8
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -195,3 +195,5 @@ Re-stamped to `a4c07caed` (2026-10-31, ADR-2167 review fixes R11; first stamped 
 **Governed change:** The file gains `PhysicsSettings.layoutMode` and a deprecation note on `QualityGatesSettings.layoutMode` (ADR-2140 item 1). Neither reads or writes a graph-type key: `graphs.knowledge` stays canonical. **Decision unaffected.** Re-run: `git diff --stat 75b72416b 93302275e -- client/src/features/settings/config/settings.ts`. Checked by reading that diff against this record's claims; server `cargo test --lib` 1721 passed, 0 failed, 9 ignored, `cargo test -p visionclaw-domain` 317 passed at `93302275e`.
 
 Re-verified 2026-11-01 at `484d9392f` (xr/grab-client, ADR-2168). The change to `graph_scene.gd` since `93302275e` is the per-hand node-grab state (ADR-2168). No settings key, graph-type value or alias is read or written differently. The decision holds.
+
+Re-verified 2026-11-01 at `232130a64` (xr/grab-client, ADR-2168 review fixes). The changes to `graph_scene.gd` since `484d9392f` are grab-path only: the candidate merge, per-hand double-click and catch offset, the ease and box locks, and the held-node refit exclusion. No settings key, graph-type value or alias is read or written differently. The decision holds.

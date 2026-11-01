@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158, ADR-2166]
-verified_commit: 484d9392f00967420a418cb10dc3eea331e627db
+verified_commit: 232130a645d2580c846f8b0abce16aa5c037e0e8
 verified_paths: [xr-client/scripts/graph_scene.gd, xr-client/scripts/spatial_environment.gd, xr-client/scripts/backend_connection.gd, xr-client/scripts/connection_volume_source.gd, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs, xr-client/materials/edge_flow_common.gdshaderinc, xr-client/materials/edge_flow.tres]
 owner: jjohare
 review_trigger: the first headset session grabbing in the Ontology volume and inside an entered room (reach, depth feel, two-hand comfort); or the server's drag-release unpin (stream GS) merging
