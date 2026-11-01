@@ -9,7 +9,10 @@ uniform vec3 flow_color : source_color = vec3(1.0, 0.80, 0.36);
 // removed at the trough (0 = off); breathe_period is seconds per full cycle.
 // 36 s divides Godot's 3600 s TIME rollover exactly (100 cycles), so there is no
 // jump once an hour. Depth 0.8 (the first 0.45 swing of a 0.16 alpha was too
-// small to see): the edges dim to a fifth of their peak at the trough.
+// small to see). Under blend_mix an edge's contribution is albedo x alpha, and both
+// are scaled by (1 - depth x swell), so the trough is (1 - 0.8)^2 = 0.04 of the peak
+// (about 4 %), much deeper than the 0.2 each factor shows alone. The owner approved
+// this depth; lower breathe_depth if it should bottom out higher.
 uniform float breathe_period = 36.0;
 uniform float breathe_depth = 0.8;
 // Baseline alpha so the whole edge network is faintly visible.

@@ -841,6 +841,10 @@ var _selection_dirty: bool = true
 var _grab_id: Array[int] = [-1, -1]
 var _grab_vol: Array[StringName] = [&"", &""]
 var _grab_dist: Array[float] = [1.0, 1.0]
+# The node's offset from the hand's aim axis, in the hand's own frame (x, y; z is the
+# depth, kept in _grab_dist). The Rust tube catches a node up to 5 cm off the axis;
+# without this the first drive would pull it onto the axis (a snap of up to 5 cm).
+var _grab_lateral: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO]
 var _grab_target: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO]
 # The hand and volume whose candidates the Rust interaction is evaluating right
 # now. node_grabbed carries no hand, so _update_interaction sets these just before
@@ -3226,7 +3230,7 @@ func _update_interaction() -> void:
 		if held_ctrl == null or _controller_trigger(held_ctrl) < GRAB_RELEASE:
 			_end_grab(hand)
 		else:
-			_drive_grab(hand, held_ctrl.global_position, -held_ctrl.global_transform.basis.z)
+			_drive_grab(hand, held_ctrl.global_position, -held_ctrl.global_transform.basis.z, held_ctrl.global_transform.basis)
 
 	for controller: XRController3D in [left_controller, right_controller]:
 		if controller == null or not controller.get_is_active():
@@ -3384,11 +3388,13 @@ func _content_xf(vid: StringName) -> Transform3D:
 ## Starts `hand`'s grab of node `node_id` in volume `vid`: records the hand's
 ## state, selects the node, and sends nodeDragStart on that volume's connection.
 ## `hand_pos` is the controller's world position (grab depth is measured from
-## it). False and no state change when the grab is refused: the hand already
+## it); `hand_basis` (the controller's global basis) lets the drive hold the node
+## at the same hand-local offset it was caught at, so an off-axis catch does not snap
+## it onto the ray. False and no state change when the grab is refused: the hand already
 ## holds a node, the other hand holds this one, the volume's connection has no
 ## DRAG (codescape), the volume is a portal of the entered space, or a room
 ## transition is in flight.
-func _begin_grab(hand: int, vid: StringName, node_id: int, hand_pos: Vector3) -> bool:
+func _begin_grab(hand: int, vid: StringName, node_id: int, hand_pos: Vector3, hand_basis: Variant = null) -> bool:
 	if hand < 0 or hand > 1 or node_id < 0 or _grab_id[hand] != -1 or _is_held(node_id):
 		return false
 	if not volume_serves_drag(vid) or not grab_volume_allowed(vid, _entered_volume()) or _grab_locked():
@@ -3411,6 +3417,12 @@ func _begin_grab(hand: int, vid: StringName, node_id: int, hand_pos: Vector3) ->
 	# Remember how far along the ray the node was so the drag preserves depth.
 	var node_world: Vector3 = _content_xf(vid) * pos
 	_grab_dist[hand] = clampf(hand_pos.distance_to(node_world), 0.2, 6.0)
+	_grab_lateral[hand] = Vector3.ZERO
+	if hand_basis is Basis:
+		# The catch offset in the hand's own frame: depth along -Z, lateral in x / y.
+		var local: Vector3 = (hand_basis as Basis).orthonormalized().inverse() * (node_world - hand_pos)
+		_grab_lateral[hand] = Vector3(local.x, local.y, 0.0)
+		_grab_dist[hand] = clampf(-local.z, 0.2, 6.0)
 	conn.send_drag_start(node_id, pos)
 	_pulse(_ctrl_at(hand), 0.6, 0.08)
 	return true
@@ -3421,12 +3433,14 @@ func _begin_grab(hand: int, vid: StringName, node_id: int, hand_pos: Vector3) ->
 ## the inverse of the held volume's Content transform, because the store works in
 ## content-local space. The Rust hunt pins the node to `_grab_target[hand]` each
 ## frame (optimistic echo); the update goes to that volume's connection.
-func _drive_grab(hand: int, ray_origin: Vector3, ray_dir: Vector3) -> void:
+func _drive_grab(hand: int, ray_origin: Vector3, ray_dir: Vector3, hand_basis: Variant = null) -> void:
 	var node_id: int = _grab_id[hand]
 	if node_id == -1:
 		return
 	var vid: StringName = _grab_vol[hand]
 	var hand_world: Vector3 = ray_origin + ray_dir * float(_grab_dist[hand])
+	if hand_basis is Basis:
+		hand_world += (hand_basis as Basis).orthonormalized() * (_grab_lateral[hand] as Vector3)
 	var hand_server: Vector3 = _content_xf(vid).affine_inverse() * hand_world
 	_grab_target[hand] = hand_server
 	var conn: Node = _conn_for_volume(vid)
@@ -3451,6 +3465,7 @@ func _end_grab(hand: int, pulse: bool = true) -> void:
 	_grab_id[hand] = -1
 	_grab_vol[hand] = &""
 	_grab_dist[hand] = 1.0
+	_grab_lateral[hand] = Vector3.ZERO
 	_grab_target[hand] = Vector3.ZERO
 	# After the state is cleared, so the other hand's node (if it is in the same
 	# volume) stays excluded and this one rejoins the fit.
@@ -4475,7 +4490,8 @@ func _on_node_grabbed(node_id: int, _position: Vector3) -> void:
 	_dc_last_time[hand] = now
 	var vid: StringName = _grab_volume_of(node_id)
 	var ctrl: XRController3D = _ctrl_at(hand)
-	_begin_grab(hand, vid, node_id, ctrl.global_position if ctrl != null else Vector3.ZERO)
+	var ctrl_basis: Variant = ctrl.global_transform.basis if ctrl != null else null
+	_begin_grab(hand, vid, node_id, ctrl.global_position if ctrl != null else Vector3.ZERO, ctrl_basis)
 
 
 # Resolve a node to its narrativegoldmine slug and hand it to the HUD document
