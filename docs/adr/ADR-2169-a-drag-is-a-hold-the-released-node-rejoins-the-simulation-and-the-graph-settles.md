@@ -9,7 +9,7 @@ supersedes: []
 superseded_by: []
 amends: [ADR-2140]
 relates: [ADR-2141, ADR-2172]
-verified_commit: f1fa1862c00ad627af8f45249d51b94c3a1c238f
+verified_commit: 3f25181a2bf5a427c0be9aca621d379a06565671
 verified_paths: [src/actors/gpu/hold_registry.rs, src/actors/gpu/force_compute_actor.rs, src/actors/physics_orchestrator_actor.rs, src/handlers/socket_flow_handler/position_updates.rs, src/handlers/socket_flow_handler/types.rs, src/handlers/layout_handler.rs, scripts/drag-physics-acceptance.mjs]
 owner: jjohare
 review_trigger: the first headset session after the server carrying this change is deployed (does the graph answer the hand, does it rest about two seconds after release), or any change to the FA2 integrator or the stored `globalSpeed`.
@@ -50,3 +50,11 @@ acceptance_boundary: registry, actor, orchestrator and handler rules are covered
 ## Re-verification — 2026-10-31 (`f1fa1862c`)
 
 Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (ADR-2172), client/three-0187 and docs/splat-adr, each Opus-reviewed (R15/R16/R17). The governed-path changes are those merges: drag holds and release in the GPU actor and socket handler, the held-only global_speed floor, two-hand grab and the edge breathe in the XR client, and the ADR 2168->2172 comment renames. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1768 passed, 0 failed (GPU 1); vitest 142 files / 1468 (installed three 0.183; the 0.187 run is on client/three-0187); XR GUT 522 passing on 4.6.1 and 4.8 at the grab-client head. Re-run: `git diff 2257ee7fa..f1fa1862c -- <governed path>`.
+
+## Re-verification — 2026-11-01 (`3f25181a2`, branch `viz/edge-tracking`)
+
+Re-verified against two changes to governed paths since `f1fa1862c`. Re-run: `git diff f1fa1862c 3f25181a2 --stat -- src/actors/gpu/hold_registry.rs src/actors/gpu/force_compute_actor.rs src/actors/physics_orchestrator_actor.rs src/handlers/socket_flow_handler/position_updates.rs src/handlers/socket_flow_handler/types.rs src/handlers/layout_handler.rs scripts/drag-physics-acceptance.mjs` lists exactly two files:
+- `src/handlers/socket_flow_handler/position_updates.rs` (this branch, `15acb9219`): 95 deleted lines, the `handle_request_swarm_telemetry` handler and nothing else (`git diff 531df5ef7 3f25181a2 -- src/handlers/socket_flow_handler/position_updates.rs`). The hold path (`may_hold`, `HoldNodes`, the per-connection hand limit) is untouched. Unrelated to holds; every claim above holds.
+- `src/actors/gpu/force_compute_actor.rs` (already on `main`, not this branch; `git diff f1fa1862c 531df5ef7 -- src/actors/gpu/force_compute_actor.rs`): the settle window keeps the `HOLD_GLOBAL_SPEED` floor and damping is always the stored value (`RELEASE_SETTLE_DAMPING` deleted). Item 5 and item 6 above already say exactly this, so the record needs no change.
+
+Evidence: `cargo test --lib -- hold_physics_tests hold_registry socket_flow_handler stored_layout_mode`, 57 passed, 0 failed (`CUDA_VISIBLE_DEVICES=1`). Not repeated: the GPU tests on the A6000 and the acceptance script against a mock.
