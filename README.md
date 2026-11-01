@@ -14,6 +14,12 @@ VisionClaw turns an identified Markdown-ontology corpus into a queryable, spatia
 
 Use it for ontology exploration, reviewing corpus changes, following agent activity or immersive discussion of a complex domain. The corpus, agent runtime, community review surface and grounding server have separate owners and deployment requirements in the [VisionFlow estate](https://github.com/DreamLab-AI/VisionFlow).
 
+<p align="center">
+  <img src="docs/assets/media/2026-10-31-headset-portals.gif" alt="Headset view of the VisionClaw XR client: a knowledge graph inside a spatial volume, with the other volumes visible as portals, under a starfield sky" width="432">
+</p>
+
+Headset session from 31 October 2026, sped up about 8× (6 minutes 15 seconds shown in 45). It is one eye from the desktop mirror of the Godot 4.8 OpenXR client, showing the enterable spatial volumes and portals ([ADR-2166](docs/adr/ADR-2166-spatial-volumes-can-be-entered-the-others-become-portals.md)) and the budgeted visual extras ([ADR-2167](docs/adr/ADR-2167-the-headsets-visual-extras-are-the-allocators-last-budgeted-layer.md)). It is a demonstration, not stereo or frame-rate acceptance evidence.
+
 <details>
 <summary><strong>Recorded immersive graph walkthrough, September 2026</strong></summary>
 
