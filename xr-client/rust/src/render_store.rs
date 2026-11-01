@@ -34,6 +34,11 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 // private state without widening any visibility.
 #[path = "render_store_pack.rs"]
 mod pack;
+pub use pack::{
+    pack_links, LinkFrame, LinkSegment, LinkSpec, LinkVolume, LINK_HIGHLIGHT_LIFT,
+    LINK_HIGHLIGHT_RADIUS_SCALE, LINK_MARKER_HEIGHT_M, LINK_MARKER_RADIUS_M, LINK_MIN_LENGTH_M,
+    LINK_RADIUS_M, LINK_STRIDE, LINK_VOL_DRAWABLE, LINK_VOL_HIDDEN, LINK_VOL_UNMAPPED,
+};
 
 /// One `search_labels` match. `Ord` is defined so that a GREATER value is a WORSE
 /// result (higher rank tier, then lower centrality, then larger id) — a max-heap
@@ -1393,7 +1398,7 @@ impl RenderStore {
             }
         }
         for (m, old_r) in to_unfold {
-            let rp = self.position_of(old_r);
+            let rp = self.raw_position_of(old_r);
             if let Some(&slot) = self.id_index.get(&m) {
                 self.positions[slot] = rp;
             }
@@ -1746,7 +1751,9 @@ impl RenderStore {
             HashMap::new()
         } else {
             let reps: HashSet<u32> = self.folding.values().copied().collect();
-            reps.into_iter().map(|r| (r, self.position_of(r))).collect()
+            reps.into_iter()
+                .map(|r| (r, self.raw_position_of(r)))
+                .collect()
         };
         // Embodiment (Pillar 1): an active agent NODE eases toward a HOVER point near
         // the node it is working on, instead of its server layout target — so the
@@ -1806,7 +1813,7 @@ impl RenderStore {
                 .folding
                 .iter()
                 .filter(|(&m, &r)| {
-                    dist2(self.position_of(m), self.position_of(r)) < FOLD_ARRIVE_EPS2
+                    dist2(self.raw_position_of(m), self.raw_position_of(r)) < FOLD_ARRIVE_EPS2
                 })
                 .map(|(&m, _)| m)
                 .collect();
@@ -2230,8 +2237,28 @@ impl RenderStore {
         &self.ids
     }
 
-    /// Current render position of a node (zeros if unknown) — used at grab start.
+    /// Where a node is DRAWN: the position of the slot its edges attach to
+    /// ([`edge_endpoint`](Self::edge_endpoint)), so a fully folded member answers with
+    /// its representative's position and a member animating in or out with its own.
+    /// `None` when the store holds neither. This is the one answer to "where is this
+    /// node drawn" for an edge end, a link end or a grab: the edge pack, the link pack
+    /// and [`position_of`](Self::position_of) all read it.
+    pub fn drawn_position_of(&self, node_id: u32) -> Option<[f32; 3]> {
+        self.id_index
+            .get(&self.edge_endpoint(node_id))
+            .map(|&s| self.positions[s])
+    }
+
+    /// Current drawn position of a node (zeros if unknown) — used at grab start. Goes
+    /// through the fold-aware resolver ([`drawn_position_of`](Self::drawn_position_of)).
     pub fn position_of(&self, node_id: u32) -> [f32; 3] {
+        self.drawn_position_of(node_id).unwrap_or([0.0, 0.0, 0.0])
+    }
+
+    /// The node's own slot position, ignoring the fold plan. Only the fold animation
+    /// itself needs this (it moves members toward their representative's slot); every
+    /// reader of "where is it drawn" uses [`drawn_position_of`](Self::drawn_position_of).
+    fn raw_position_of(&self, node_id: u32) -> [f32; 3] {
         self.id_index
             .get(&node_id)
             .map(|&s| self.positions[s])
@@ -4607,5 +4634,313 @@ mod tests {
         }
         ms.sort_by(|a, b| a.total_cmp(b));
         println!("edge pack ms: median {:.3} p95 {:.3} ribbons {}", ms[50], ms[95], f.store.ribbon_edge_buffer().len() / 16);
+    }
+
+    // ---- cross-volume links: one resolver (owner rule 2026-11-01) ---------------------------
+    //
+    // A link end is `volume.xf * store.drawn_position_of(id)`, the same answer the edge pack
+    // draws its ends with. These use the real `pack_links` and `build_edge_buffer`.
+
+    const IDENT: [f32; 12] = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0];
+
+    fn vol(xf: [f32; 12]) -> LinkVolume {
+        LinkVolume {
+            state: LINK_VOL_DRAWABLE,
+            xf,
+        }
+    }
+
+    fn spec(src: (usize, u32, usize), dst: (usize, u32, usize)) -> LinkSpec {
+        LinkSpec {
+            src_conn: src.0,
+            src_id: src.1,
+            src_vol: src.2,
+            dst_conn: dst.0,
+            dst_id: dst.1,
+            dst_vol: dst.2,
+            colour: [0.35, 0.85, 1.0, 1.0],
+            lit: false,
+        }
+    }
+
+    fn fold_3_into_1(s: &mut RenderStore) {
+        s.set_fold_plan(&[], &[3], &[1]);
+        for _ in 0..200 {
+            s.hunt(0.5, None, [0.0; 3]);
+        }
+    }
+
+    #[test]
+    fn a_link_end_on_a_folded_node_lands_where_its_edges_land() {
+        let (mut a, _, pairs) = chain_store();
+        let (b, _, _) = chain_store();
+        fold_3_into_1(&mut a);
+        let rep = a.position_of(1);
+        assert!(
+            !v_eq(rep, a.raw_position_of(3)),
+            "member 3 sits apart from its representative"
+        );
+        // Offset volumes prove the transform is applied to the resolved (representative) position.
+        let xf = [1.0, 0.0, 0.0, 100.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0];
+        let specs = [spec((0, 3, 0), (1, 2, 1))];
+        let mut out = LinkFrame::default();
+        pack_links(
+            &[Some(&a), Some(&b)],
+            &[vol(xf), vol(IDENT)],
+            &specs,
+            &IDENT,
+            &mut out,
+        );
+        assert_eq!(out.links, 1);
+        let end = out.segments[0].a;
+        assert!(
+            v_eq(end, [rep[0] + 100.0, rep[1], rep[2]]),
+            "link end {end:?} is not on {rep:?}"
+        );
+        // The edge 3-4 in the same store ends at the same drawn point.
+        let _ = a.build_node_buffer(&(1..=6).collect::<Vec<i32>>(), 1.0, 0.7, 1.9);
+        let edges = a.build_edge_buffer(&pairs, 0.1);
+        let at = [end[0] - 100.0, end[1], end[2]];
+        assert!(
+            edges
+                .as_chunks::<16>()
+                .0
+                .iter()
+                .any(|e| joins(e, at, a.position_of(4))),
+            "the edge and the link end disagree about where node 3 is drawn"
+        );
+        // The target end is a plain node, resolved the same way.
+        assert!(v_eq(out.segments[0].b, b.position_of(2)));
+    }
+
+    #[test]
+    fn a_member_folding_in_has_its_link_end_on_the_member_like_its_edges() {
+        let (mut a, _, pairs) = chain_store();
+        a.set_fold_plan(&[], &[3], &[1]);
+        a.hunt(0.2, None, [0.0; 3]);
+        let m = a.raw_position_of(3);
+        assert!(m[0] > 10.0 && m[0] < 30.0, "member is in transit: {m:?}");
+        let mut out = LinkFrame::default();
+        pack_links(
+            &[Some(&a)],
+            &[vol(IDENT)],
+            &[spec((0, 3, 0), (0, 5, 0))],
+            &IDENT,
+            &mut out,
+        );
+        assert!(v_eq(out.segments[0].a, m));
+        let _ = a.build_node_buffer(&(1..=6).collect::<Vec<i32>>(), 1.0, 0.7, 1.9);
+        let edges = a.build_edge_buffer(&pairs, 0.1);
+        assert!(edges
+            .as_chunks::<16>()
+            .0
+            .iter()
+            .any(|e| joins(e, m, a.position_of(4))));
+    }
+
+    #[test]
+    fn a_moved_nodes_link_end_matches_it_in_the_same_frame() {
+        let (mut a, ids, pairs) = chain_store();
+        let (b, _, _) = chain_store();
+        let specs = [spec((0, 3, 0), (1, 5, 0))];
+        let mut out = LinkFrame::default();
+        for step in 0..4 {
+            a.upsert(3, [30.0, 20.0 * (step + 1) as f32, 0.0], 0, 0.0, 0.0);
+            a.hunt(0.3, None, [0.0; 3]);
+            let drawn = a.position_of(3);
+            pack_links(
+                &[Some(&a), Some(&b)],
+                &[vol(IDENT)],
+                &specs,
+                &IDENT,
+                &mut out,
+            );
+            assert!(
+                v_eq(out.segments[0].a, drawn),
+                "step {step}: link end lags the node"
+            );
+            let nodes = a.build_node_buffer(&ids, 1.0, 0.7, 1.9);
+            assert!(
+                node_drawn_at(&[&nodes], out.segments[0].a),
+                "step {step}: not where the gem is"
+            );
+            let edges = a.build_edge_buffer(&pairs, 0.1);
+            assert!(edges
+                .as_chunks::<16>()
+                .0
+                .iter()
+                .any(|e| joins(e, out.segments[0].a, a.position_of(4))));
+        }
+        // A held node follows the hand the same frame.
+        a.hunt_grabs(0.3, &[(3, [5.0, 6.0, 7.0])]);
+        pack_links(
+            &[Some(&a), Some(&b)],
+            &[vol(IDENT)],
+            &specs,
+            &IDENT,
+            &mut out,
+        );
+        assert!(v_eq(out.segments[0].a, [5.0, 6.0, 7.0]));
+    }
+
+    #[test]
+    fn position_of_is_the_drawn_position() {
+        let (mut s, _, _) = chain_store();
+        fold_3_into_1(&mut s);
+        assert_eq!(s.position_of(3), s.position_of(1));
+        assert_eq!(s.drawn_position_of(3), Some(s.position_of(1)));
+        assert_eq!(s.drawn_position_of(99), None);
+        assert_eq!(s.position_of(99), [0.0; 3]);
+    }
+
+    /// `_pack` of the GDScript layer, captured from Godot 4.6.1 before it was deleted:
+    /// `(a, b, colour, radius, instance)`.
+    #[allow(clippy::type_complexity)]
+    #[rustfmt::skip]
+    const GOLDEN: [([f32; 3], [f32; 3], [f32; 4], f32, [f32; 16]); 5] = [
+        ([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.35, 0.85, 1.0, 1.0], 0.004,
+         [0.0, 1.0, 0.0, 0.5, 0.0, 0.0, 0.004, 0.0, 0.004, 0.0, 0.0, 0.0, 0.35, 0.85, 1.0, 1.0]),
+        ([0.1, 0.2, 0.3], [0.1, 0.7, 0.3], [1.0, 0.72, 0.2, 1.0], 0.004,
+         [0.0, 0.0, 0.004, 0.1, 0.0, 0.5, 0.0, 0.45, -0.004, 0.0, 0.0, 0.3, 1.0, 0.72, 0.2, 1.0]),
+        ([0.1, 0.7, 0.3], [0.1, 0.2, 0.3], [1.0, 0.72, 0.2, 1.0], 0.01,
+         [0.0, 0.0, 0.01, 0.1, 0.0, -0.5, 0.0, 0.45, 0.01, 0.0, 0.0, 0.3, 1.0, 0.72, 0.2, 1.0]),
+        ([-0.3, 0.2, 0.5], [0.4, -0.1, 0.25], [0.9, 0.4, 1.0, 1.0], 0.004,
+         [0.001345346, 0.70000005, 0.001409862, 0.049999997, 0.0, -0.3, 0.00370928, 0.05, 0.003766968, -0.25, -0.000503522, 0.375, 0.9, 0.4, 1.0, 1.0]),
+        ([0.0, 0.0, 0.0], [0.0, 0.995, 0.0999], [1.0, 1.0, 1.0, 1.0], 0.004,
+         [0.0, 0.0, 0.004, 0.0, 0.000399599, 0.995, 0.0, 0.4975, -0.00397999, 0.0999, 0.0, 0.04995, 1.0, 1.0, 1.0, 1.0]),
+    ];
+
+    #[test]
+    fn link_instances_match_the_deleted_gdscript_pack() {
+        for (i, (pa, pb, col, radius, want)) in GOLDEN.iter().enumerate() {
+            let mut s = RenderStore::new();
+            s.upsert(1, *pa, 0, 0.0, 0.0);
+            s.upsert(2, *pb, 0, 0.0, 0.0);
+            let mut spec1 = spec((0, 1, 0), (0, 2, 0));
+            spec1.colour = *col;
+            let mut out = LinkFrame::default();
+            pack_links(&[Some(&s)], &[vol(IDENT)], &[spec1], &IDENT, &mut out);
+            assert_eq!(out.buf.len(), LINK_STRIDE, "case {i}");
+            // The golden radius is RADIUS_M except case 2 (a 0.01 test radius): rescale x and z.
+            let k = radius / LINK_RADIUS_M;
+            for (j, w) in want.iter().enumerate() {
+                let col_idx = j % 4;
+                let g = if j < 12 && col_idx != 1 && col_idx != 3 {
+                    out.buf[j] * k
+                } else {
+                    out.buf[j]
+                };
+                assert!((g - w).abs() < 1e-5, "case {i} float {j}: {g} vs {w}");
+            }
+        }
+    }
+
+    #[test]
+    fn hidden_unresolved_and_short_links_are_counted_as_before() {
+        let (a, _, _) = chain_store();
+        let hidden = LinkVolume {
+            state: LINK_VOL_HIDDEN,
+            xf: IDENT,
+        };
+        let unmapped = LinkVolume {
+            state: LINK_VOL_UNMAPPED,
+            xf: IDENT,
+        };
+        let mut out = LinkFrame::default();
+        let specs = [
+            spec((0, 1, 0), (0, 2, 1)),  // target volume hidden: skipped, not counted
+            spec((0, 1, 0), (0, 2, 2)),  // target volume unmapped: unresolved
+            spec((0, 1, 0), (1, 2, 0)),  // target connection unusable: unresolved
+            spec((0, 1, 0), (0, 99, 0)), // node the store does not hold: unresolved
+            spec((0, 1, 0), (0, 1, 0)),  // zero length: skipped
+            spec((0, 1, 0), (0, 2, 0)),  // drawn
+        ];
+        pack_links(
+            &[Some(&a), None],
+            &[vol(IDENT), hidden, unmapped],
+            &specs,
+            &IDENT,
+            &mut out,
+        );
+        assert_eq!((out.links, out.unresolved), (1, 3));
+        assert_eq!(out.segments[0].spec, 5);
+    }
+
+    #[test]
+    fn highlighted_links_are_lifted_thickened_and_ringed_once_per_end() {
+        let (a, _, _) = chain_store();
+        let mut s1 = spec((0, 1, 0), (0, 2, 0));
+        let mut s2 = spec((0, 2, 0), (0, 3, 0));
+        s1.lit = true;
+        s2.lit = true;
+        let mut out = LinkFrame::default();
+        pack_links(
+            &[Some(&a)],
+            &[vol(IDENT)],
+            &[s1, s2, spec((0, 4, 0), (0, 5, 0))],
+            &IDENT,
+            &mut out,
+        );
+        assert_eq!(
+            (out.links, out.markers),
+            (3, 3),
+            "ends 1, 2, 3: node 2 is shared"
+        );
+        assert_eq!(out.buf.len(), 6 * LINK_STRIDE);
+        let c = &out.buf[12..16];
+        assert!(
+            (c[0] - (0.35 + 0.65 * LINK_HIGHLIGHT_LIFT)).abs() < 1e-5,
+            "lifted: {c:?}"
+        );
+        let plain = &out.buf[2 * LINK_STRIDE..2 * LINK_STRIDE + 16];
+        assert!((plain[12] - 0.35).abs() < 1e-6);
+        // Lit radius is 2.5x the plain one (x column magnitude).
+        let mag = |i: &[f32]| (i[0] * i[0] + i[4] * i[4] + i[8] * i[8]).sqrt();
+        assert!((mag(&out.buf[0..16]) / mag(plain) - LINK_HIGHLIGHT_RADIUS_SCALE).abs() < 1e-3);
+    }
+
+    /// Cost of one `pack_links` at the 512-link cap, against the 2.6 ms the per-frame GDScript
+    /// rebuild cost (`f15-report.md`, Godot 4.6.1 x86_64 headless, fake endpoints). Run with
+    /// `cargo test --lib link_pack_cost -- --ignored --nocapture`; the dev profile is opt-level 2,
+    /// the same codegen the headset loads.
+    #[test]
+    #[ignore]
+    fn link_pack_cost_at_512_links() {
+        let mut a = RenderStore::new();
+        let mut b = RenderStore::new();
+        for id in 1u32..=2000 {
+            a.upsert(
+                id,
+                [id as f32 * 0.5, (id % 17) as f32, (id % 5) as f32],
+                0,
+                0.0,
+                0.0,
+            );
+            b.upsert(id, [(id % 11) as f32, id as f32 * 0.25, 0.0], 0, 0.0, 0.0);
+        }
+        let specs: Vec<LinkSpec> = (0..512u32)
+            .map(|i| spec((0, 1 + i, 0), (1, 1000 + i, 1)))
+            .collect();
+        let vols = [vol(IDENT), vol(IDENT)];
+        let mut out = LinkFrame::default();
+        let mut samples = Vec::new();
+        for k in 0..600 {
+            let t0 = std::time::Instant::now();
+            pack_links(&[Some(&a), Some(&b)], &vols, &specs, &IDENT, &mut out);
+            if k >= 100 {
+                samples.push(t0.elapsed().as_secs_f64() * 1e3);
+            }
+        }
+        samples.sort_by(|x, y| x.total_cmp(y));
+        let (med, p95) = (samples[250], samples[475]);
+        println!(
+            "LINK-PACK links={} median_ms={med:.4} p95_ms={p95:.4}",
+            out.links
+        );
+        assert_eq!(out.links, 512);
+        assert!(
+            med < 2.6,
+            "512 links must cost well under the old 2.6 ms, got {med} ms"
+        );
     }
 }

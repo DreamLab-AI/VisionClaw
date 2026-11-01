@@ -14,7 +14,7 @@
 import { getAgentWork, type AgentWorkInfo } from '../../bots/agentWorkTargets'
 import { agentDriftFeed } from '../../bots/agentDriftFeed'
 import { agentOffsetsEnabled } from '../../../store/agentOffsetPrefs'
-import { stepAgentOffset, type SceneEdge } from './agentNudge'
+import { stepAgentOffset, newAgentFinish, type AgentFinish, type SceneEdge } from './agentNudge'
 import type { TriangleFrame } from '../triLayout'
 
 /** One drawn agent: its graph node id (wire id string, flag bit included) and its slot in the buffer. */
@@ -45,10 +45,14 @@ export interface AgentPassInput {
   nodeIdToIndex: Map<string, number>
   /** The scene's edge (the sphere the camera frames), where finished agents stop; null if unknown. */
   edge: SceneEdge | null
+  /** The frame's time in milliseconds (`performance.now()`); finished agents' drift runs on it. */
+  nowMs: number
 }
 
 interface AgentState {
   off: Float32Array
+  /** When this agent finished (drives its 30 s run to the edge). */
+  finish: AgentFinish
   seen: number
 }
 
@@ -110,7 +114,7 @@ export class DrawnPositions {
       if (i3 + 2 >= drawn.length || i3 + 2 >= sab.length) continue
       let st = this.agentState.get(id)
       if (st === undefined) {
-        st = { off: new Float32Array(3), seen: pass }
+        st = { off: new Float32Array(3), finish: newAgentFinish(), seen: pass }
         this.agentState.set(id, st)
       }
       st.seen = pass
@@ -135,7 +139,7 @@ export class DrawnPositions {
           }
         }
         _base[0] = x; _base[1] = y; _base[2] = z
-        stepAgentOffset(off, 0, _base, target, work?.state ?? null, input.edge)
+        stepAgentOffset(off, 0, _base, target, work?.state ?? null, input.edge, st.finish, input.nowMs)
       } else {
         off[0] = 0; off[1] = 0; off[2] = 0
       }

@@ -9,9 +9,13 @@ extends Node3D
 ## knowledge ↔ ontology `bridge`, later `dataspace`) is drawn here, in world
 ## space, by ONE MultiMeshInstance3D: one draw call, at most MAX_LINKS
 ## instances of a TRIS_PER_LINK-triangle segment, with the edge stride of 16
-## floats (12 transform + 4 custom data, Invariant 3). Endpoints are rebuilt on
-## every `tick`, from the same node positions the volumes draw that frame, so a
-## link never trails the node it ends on.
+## floats (12 transform + 4 custom data, Invariant 3). The buffer is packed by
+## the Rust `LinkPacker` (`render_store_pack.rs::pack_links`) on every `tick`: each
+## end is the volume's content-to-world transform applied to the connection's
+## `RenderStore::drawn_position_of`, the same fold-aware answer the edges draw
+## with, read in the frame the volumes moved. This script keeps the records, their
+## order, the generation purge and the per-volume and per-connection state, and
+## uploads what the pack returns; it resolves no position and builds no instance.
 ##
 ## Records are client render state only (ADR-2164 D5): Dictionaries shaped
 ## `{source: {volume, conn, key, id}, target: {…}, kind, provenance: {…,
@@ -29,21 +33,19 @@ extends Node3D
 ## of the same MultiMesh, so the layer stays one draw call; `triangle_count()`
 ## charges links and markers, while `drawn_count()` and `counts_changed` stay
 ## links only. `drawn_segments()` exposes the last refresh's segments in world
-## space for the link picker (rebuilt every tick, so they are this frame's).
+## space for the link picker (packed every tick, so they are this frame's).
 
 const MAX_LINKS := 512
 const TRIS_PER_LINK := 12
 const STRIDE := 16
 const SIDES := 6  # open hexagonal prism: 6 quads = 12 triangles
+## Mirrors of the Rust pack's constants (`LINK_RADIUS_M`, `LINK_HIGHLIGHT_RADIUS_SCALE`,
+## `LINK_HIGHLIGHT_LIFT`, `LINK_MARKER_RADIUS_M`), which draw the instances; the tests pin the
+## drawn buffer to them.
 const RADIUS_M := 0.004
-const MIN_LENGTH_M := 1.0e-4
-## Highlighted links: radius factor and colour lift toward white.
 const HIGHLIGHT_RADIUS_SCALE := 2.5
 const HIGHLIGHT_LIFT := 0.55
-## Ring marker on each end of a highlighted link: radius and height in metres.
 const MARKER_RADIUS_M := 0.018
-const MARKER_HEIGHT_M := 0.006
-const MARKER_COLOUR := Color(1.0, 1.0, 1.0)
 ## Draw order of kinds (ADR-2164 D8: ordered by kind, target key, source key).
 const KIND_ORDER := ["annotates", "bridge", "dataspace"]
 const KIND_COLOURS := {
@@ -51,6 +53,9 @@ const KIND_COLOURS := {
 	"bridge": Color(0.35, 0.85, 1.0),
 	"dataspace": Color(0.9, 0.4, 1.0),
 }
+const VOL_UNMAPPED := 0  # absent, or cannot map content: its links count as unresolved
+const VOL_HIDDEN := 1    # exists but hidden or closed: its links are skipped, not counted
+const VOL_DRAWABLE := 2
 const SHADER_CODE := """
 shader_type spatial;
 render_mode unshaded, cull_disabled;
@@ -66,9 +71,11 @@ var _enabled := false
 var _records := {}          # kind (String) → Array of record Dictionaries
 var _external_unresolved := {}  # kind → int, from the producer (e.g. the join)
 var _ordered: Array = []    # drawable order, capped at MAX_LINKS
-# Per drawable record, in `_ordered` order: [src volume, dst volume, src conn, dst conn, src id,
-# dst id, base colour]. Strings and ids are read from the record once, here, not every tick.
-var _ends: Array = []
+# The Rust pack: owns the link table and the instance buffer. Records reach it as indices
+# into `_conn_ids` and `_vol_ids`, built when the records change, not every tick.
+var _packer: RefCounted = ClassDB.instantiate(&"LinkPacker")
+var _conn_ids: Array = []   # distinct connection ids named by `_ordered`, index = packer connection
+var _vol_ids: Array = []    # distinct volume ids named by `_ordered`, index = packer volume
 var _overflow := 0
 var _drawn := 0
 var _unresolved := 0
@@ -77,12 +84,7 @@ var _last_conns := {}
 var _emitted := Vector3i(-1, -1, -1)
 var _highlight := {}        # "conn|node_id" → true
 var _markers := 0
-# Last tick's segments, world space, in draw order, as parallel arrays so a tick allocates no
-# per-link Dictionary; `drawn_segments()` builds the Dictionaries on demand (the picker, tests).
-var _seg_a := PackedVector3Array()
-var _seg_b := PackedVector3Array()
-var _seg_rec: Array = []
-var _seg_lit := PackedByteArray()
+# Last tick's segments, built from the pack on demand by `drawn_segments()` (the picker, tests).
 var _segments_cache: Array = []
 var _segments_cache_valid := false
 # Record validity depends only on connection generations and on the records themselves, so the
@@ -161,8 +163,8 @@ func drop_connection(conn_id: StringName) -> void:
 	_refresh(_last_volumes, _last_conns)
 
 
-## Per frame. Rebuilds every segment: each end is
-## `volume.world_from_content(conn.node_position(id))`, read this frame.
+## Per frame. Packs every segment in Rust: each end is the volume's content-to-world transform
+## applied to the connection store's drawn position of the node, read this frame.
 func tick(_delta: float, volumes: Dictionary, conns: Dictionary) -> void:
 	_last_volumes = volumes
 	_last_conns = conns
@@ -193,12 +195,15 @@ func drawn_segments() -> Array:
 		return []
 	if not _segments_cache_valid:
 		var out: Array = []
-		for i: int in _seg_rec.size():
-			var r: Dictionary = _seg_rec[i]
+		var pa: PackedVector3Array = _packer.segment_a()
+		var pb: PackedVector3Array = _packer.segment_b()
+		var which: PackedInt32Array = _packer.segment_links()
+		for i: int in which.size():
+			var r: Dictionary = _ordered[which[i]]
 			out.append({
-				"a": _seg_a[i], "b": _seg_b[i], "record": r,
+				"a": pa[i], "b": pb[i], "record": r,
 				"from": _end_ref(r, "source"), "to": _end_ref(r, "target"),
-				"highlighted": _seg_lit[i] == 1,
+				"highlighted": _is_highlighted(r),
 			})
 		_segments_cache = out
 		_segments_cache_valid = true
@@ -215,6 +220,7 @@ func set_highlight(keys: Array) -> void:
 	if next == _highlight:
 		return
 	_highlight = next
+	_sync_lit()
 	if _enabled:
 		_refresh(_last_volumes, _last_conns)
 
@@ -335,16 +341,45 @@ func _reorder() -> void:
 	all.sort_custom(_before)
 	_overflow = maxi(all.size() - MAX_LINKS, 0)
 	_ordered = all.slice(0, MAX_LINKS)
-	_ends.clear()
-	for r: Dictionary in _ordered:
+	var conn_idx := {}
+	var vol_idx := {}
+	_conn_ids = []
+	_vol_ids = []
+	var ends := PackedInt32Array()
+	var colours := PackedColorArray()
+	ends.resize(_ordered.size() * 6)
+	colours.resize(_ordered.size())
+	for i: int in _ordered.size():
+		var r: Dictionary = _ordered[i]
 		var se: Dictionary = r.get("source", {})
 		var te: Dictionary = r.get("target", {})
-		_ends.append([
-			String(se.get("volume", "")), String(te.get("volume", "")),
-			String(se.get("conn", "")), String(te.get("conn", "")),
-			int(se.get("id", -1)), int(te.get("id", -1)),
-			KIND_COLOURS.get(String(r.get("kind", "")), Color.WHITE),
-		])
+		ends[i * 6] = _index_of(conn_idx, _conn_ids, String(se.get("conn", "")))
+		ends[i * 6 + 1] = _index_of(conn_idx, _conn_ids, String(te.get("conn", "")))
+		ends[i * 6 + 2] = int(se.get("id", -1))
+		ends[i * 6 + 3] = int(te.get("id", -1))
+		ends[i * 6 + 4] = _index_of(vol_idx, _vol_ids, String(se.get("volume", "")))
+		ends[i * 6 + 5] = _index_of(vol_idx, _vol_ids, String(te.get("volume", "")))
+		colours[i] = KIND_COLOURS.get(String(r.get("kind", "")), Color.WHITE)
+	_packer.set_links(ends, colours)
+	_sync_lit()
+
+
+## Index of `name` in `names`, appending it on first sight.
+static func _index_of(index: Dictionary, names: Array, name: String) -> int:
+	if not index.has(name):
+		index[name] = names.size()
+		names.append(name)
+	return index[name]
+
+
+## Tell the pack which links are highlighted.
+func _sync_lit() -> void:
+	var lit := PackedByteArray()
+	lit.resize(_ordered.size())
+	if not _highlight.is_empty():
+		for i: int in _ordered.size():
+			lit[i] = 1 if _is_highlighted(_ordered[i]) else 0
+	_packer.set_lit(lit)
 
 
 ## Drop records whose generations no longer match their connections. A
@@ -386,51 +421,35 @@ static func _volume_lookup(volumes: Dictionary, vid: String) -> Object:
 
 
 static func _drawable(v: Object) -> bool:
-	if v == null or not v.has_method("world_from_content"):
+	if v == null or not v.has_method("content_to_world"):
 		return false
 	if v.get("is_closed") == true:
 		return false
 	return v.get("visible_state") != false
 
 
-const VOL_UNMAPPED := 0  # absent, or cannot map content: its links count as unresolved
-const VOL_HIDDEN := 1    # exists but hidden or closed: its links are skipped, not counted
-const VOL_DRAWABLE := 2
-
-
-## A volume's state for this tick, memoised in `cache` ([object, state] per volume id) so the
-## per-link loop does two Dictionary reads instead of a lookup and three property reads.
-func _volume_state(volumes: Dictionary, vid: String, cache: Dictionary) -> Array:
-	var hit: Variant = cache.get(vid)
-	if hit != null:
-		return hit
+## A volume's state for this tick: [state, content-to-world Transform3D].
+static func _volume_state(volumes: Dictionary, vid: String) -> Array:
 	var v := _volume_lookup(volumes, vid)
 	var state := VOL_UNMAPPED
-	if v != null and v.has_method("world_from_content"):
+	var xf := Transform3D.IDENTITY
+	if v != null and v.has_method("content_to_world"):
 		state = VOL_DRAWABLE if _drawable(v) else VOL_HIDDEN
-	var entry := [v, state]
-	cache[vid] = entry
-	return entry
+		if state == VOL_DRAWABLE:
+			xf = v.content_to_world()
+	return [state, xf]
 
 
-## A connection usable as an endpoint source this tick, or null (absent, no `node_position`,
-## offline); memoised in `cache` by connection id.
-func _usable_conn(conns: Dictionary, cid: String, cache: Dictionary) -> Object:
-	if cache.has(cid):
-		return cache[cid]
+## The gdext client of a connection usable as an endpoint source this tick, or null (absent, no
+## client, offline); the pack treats a null as unresolved.
+static func _usable_client(conns: Dictionary, cid: String) -> Object:
 	var c := _conn_lookup(conns, cid)
-	if c != null and (not c.has_method("node_position") \
-			or (c.has_method("is_connected_now") and not c.is_connected_now())):
-		c = null
-	cache[cid] = c
-	return c
+	if c == null or (c.has_method("is_connected_now") and not c.is_connected_now()):
+		return null
+	return c.get("client") as Object
 
 
 func _clear_segments() -> void:
-	_seg_a.resize(0)
-	_seg_b.resize(0)
-	_seg_rec.clear()
-	_seg_lit.resize(0)
 	_segments_cache = []
 	_segments_cache_valid = false
 
@@ -463,89 +482,25 @@ func _refresh(volumes: Dictionary, conns: Dictionary) -> void:
 		_set_counts(0, unresolved, _overflow)
 		return
 	var inv: Transform3D = global_transform.affine_inverse() if is_inside_tree() else Transform3D.IDENTITY
-	var buf := PackedFloat32Array()
-	buf.resize(_ordered.size() * STRIDE)
-	var n := 0
-	_clear_segments()
-	var vcache := {}
-	var ccache := {}
-	var marks := {}  # "conn|id" → local position, one ring per highlighted end
-	var any_lit := not _highlight.is_empty()
-	for ri: int in _ordered.size():
-		var r: Dictionary = _ordered[ri]
-		var e: Array = _ends[ri]
-		var sv := _volume_state(volumes, e[0], vcache)
-		var tv := _volume_state(volumes, e[1], vcache)
-		if sv[1] == VOL_HIDDEN or tv[1] == VOL_HIDDEN:
-			continue
-		var sc := _usable_conn(conns, e[2], ccache)
-		var tc := _usable_conn(conns, e[3], ccache)
-		if sv[1] != VOL_DRAWABLE or tv[1] != VOL_DRAWABLE or sc == null or tc == null:
-			unresolved += 1
-			continue
-		var a: Vector3 = (sv[0] as Object).world_from_content(sc.node_position(e[4]))
-		var b: Vector3 = (tv[0] as Object).world_from_content(tc.node_position(e[5]))
-		var pa: Vector3 = inv * a
-		var pb: Vector3 = inv * b
-		var d := pb - pa
-		if d.length() < MIN_LENGTH_M:
-			continue
-		var colour: Color = e[6]
-		var lit := any_lit and _is_highlighted(r)
-		if lit:
-			colour = colour.lerp(Color.WHITE, HIGHLIGHT_LIFT)
-			marks[_end_key(r, "source")] = pa
-			marks[_end_key(r, "target")] = pb
-		_pack(buf, n, pa, pb, colour, RADIUS_M * (HIGHLIGHT_RADIUS_SCALE if lit else 1.0))
-		_seg_a.append(a)
-		_seg_b.append(b)
-		_seg_rec.append(r)
-		_seg_lit.append(1 if lit else 0)
-		n += 1
-	var links := n
-	buf.resize((n + marks.size()) * STRIDE)
-	var up := (inv.basis * Vector3.UP).normalized() if is_inside_tree() else Vector3.UP
-	for k: String in marks:
-		var c: Vector3 = marks[k]
-		var h := up * (MARKER_HEIGHT_M * 0.5)
-		_pack(buf, n, c - h, c + h, MARKER_COLOUR, MARKER_RADIUS_M)
-		n += 1
-	buf.resize(n * STRIDE)
+	var clients: Array = []
+	for cid: String in _conn_ids:
+		clients.append(_usable_client(conns, cid))
+	var states := PackedByteArray()
+	var xfs: Array = []
+	for vid: String in _vol_ids:
+		var vs := _volume_state(volumes, vid)
+		states.append(vs[0])
+		xfs.append(vs[1])
+	var buf: PackedFloat32Array = _packer.pack(clients, states, xfs, inv)
+	_segments_cache = []
+	_segments_cache_valid = false
+	var links: int = _packer.link_count()
+	_markers = _packer.marker_count()
+	var n := links + _markers
 	mm.instance_count = n
 	if n > 0:
 		mm.buffer = buf
-	_markers = n - links
-	_set_counts(links, unresolved, _overflow)
-
-
-## Write instance `i`: a unit segment along local Y (-0.5..0.5, radius 1)
-## stretched from `a` to `b` with radius `radius` (RADIUS_M for a plain link),
-## plus the colour.
-static func _pack(buf: PackedFloat32Array, i: int, a: Vector3, b: Vector3, colour: Color, radius: float = RADIUS_M) -> void:
-	var y := b - a
-	var dir := y.normalized()
-	var ref := Vector3.UP if absf(dir.dot(Vector3.UP)) < 0.99 else Vector3.RIGHT
-	var x := dir.cross(ref).normalized() * radius
-	var z := x.cross(dir).normalized() * radius
-	var o := (a + b) * 0.5
-	var k := i * STRIDE
-	# MultiMesh 3D layout: rows of the basis with the origin in the 4th column.
-	buf[k] = x.x
-	buf[k + 1] = y.x
-	buf[k + 2] = z.x
-	buf[k + 3] = o.x
-	buf[k + 4] = x.y
-	buf[k + 5] = y.y
-	buf[k + 6] = z.y
-	buf[k + 7] = o.y
-	buf[k + 8] = x.z
-	buf[k + 9] = y.z
-	buf[k + 10] = z.z
-	buf[k + 11] = o.z
-	buf[k + 12] = colour.r
-	buf[k + 13] = colour.g
-	buf[k + 14] = colour.b
-	buf[k + 15] = colour.a
+	_set_counts(links, unresolved + _packer.unresolved_count(), _overflow)
 
 
 func _set_counts(drawn: int, unresolved: int, overflow: int) -> void:

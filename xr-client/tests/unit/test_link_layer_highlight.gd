@@ -1,35 +1,12 @@
 extends "res://addons/gut/test.gd"
 const LinkLayer := preload("res://scripts/link_layer.gd")
+const LinkFakes := preload("res://tests/fixtures/link_fakes.gd")
 
 # Spatial-volume UX features 2 and 3: the link layer's picking and highlight
 # API. drawn_segments() exposes the last refresh in world space; set_highlight
 # draws touching links brighter and thicker and rings their ends, all in the
 # one MultiMesh; triangle_count() charges the rings; highlighted_counterparts
 # lists the far ends from the records.
-
-
-class FakeVolume extends RefCounted:
-	var offset := Vector3.ZERO
-	var visible_state := true
-	var is_closed := false
-
-	func world_from_content(p: Vector3) -> Vector3:
-		return p + offset
-
-
-class FakeConn extends RefCounted:
-	var conn_id: StringName
-	var generation := 1
-	var connected := true
-
-	func _init(id: StringName) -> void:
-		conn_id = id
-
-	func node_position(id: int) -> Vector3:
-		return Vector3(float(id), 0.0, 0.0)
-
-	func is_connected_now() -> bool:
-		return connected
 
 
 var layer: Node3D
@@ -40,14 +17,14 @@ var conns: Dictionary
 func before_each() -> void:
 	layer = LinkLayer.new()
 	add_child_autofree(layer)
-	var code := FakeVolume.new()
+	var code := LinkFakes.FakeVolume.new()
 	code.offset = Vector3(0, 0, -2)
-	var onto := FakeVolume.new()
+	var onto := LinkFakes.FakeVolume.new()
 	onto.offset = Vector3(2, 0, 0)
-	var know := FakeVolume.new()
+	var know := LinkFakes.FakeVolume.new()
 	know.offset = Vector3(-2, 0, 0)
 	volumes = {&"codescape": code, &"ontology": onto, &"knowledge": know}
-	conns = {&"codescape": FakeConn.new(&"codescape"), &"visionclaw": FakeConn.new(&"visionclaw")}
+	conns = {&"codescape": LinkFakes.FakeConn.new(&"codescape"), &"visionclaw": LinkFakes.FakeConn.new(&"visionclaw")}
 	layer.set_enabled(true)
 	# code 1 → onto 5, code 1 → know 6, code 2 → onto 5.
 	layer.set_records("annotates", [_rec(1, 5), _rec(1, 6, "knowledge"), _rec(2, 5)])
@@ -110,7 +87,7 @@ func test_drawn_segments_follow_the_layer_transform_and_empty_when_off() -> void
 
 
 func test_hidden_volume_link_is_not_a_segment() -> void:
-	(volumes[&"knowledge"] as FakeVolume).visible_state = false
+	(volumes[&"knowledge"] as LinkFakes.FakeVolume).visible_state = false
 	layer.set_highlight([{"conn": &"codescape", "node_id": 2}])  # forces a refresh
 	assert_eq(layer.drawn_segments().size(), 2)
 
@@ -189,10 +166,10 @@ func test_counterparts_are_the_far_ends_deduplicated() -> void:
 
 
 func test_counterparts_include_hidden_volumes_but_not_stale_generations() -> void:
-	(volumes[&"knowledge"] as FakeVolume).visible_state = false
+	(volumes[&"knowledge"] as LinkFakes.FakeVolume).visible_state = false
 	layer.tick(1.0, volumes, conns)
 	assert_eq(layer.highlighted_counterparts({"conn": &"codescape", "node_id": 1}).size(), 2, "hidden still listed")
-	(conns[&"visionclaw"] as FakeConn).generation = 2
+	(conns[&"visionclaw"] as LinkFakes.FakeConn).generation = 2
 	assert_eq(layer.highlighted_counterparts({"conn": &"codescape", "node_id": 1}), [], "old generation")
 
 

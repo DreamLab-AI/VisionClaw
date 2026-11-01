@@ -2132,7 +2132,8 @@ impl BinaryProtocolClient {
         self.store.len() as i64
     }
 
-    /// Current render position of a node (ZERO if unknown) — used at grab start.
+    /// Where a node is drawn (ZERO if unknown) — used at grab start. Resolved by the same
+    /// fold-aware answer the edges and the cross-volume links use.
     #[func]
     fn node_position(&self, node_id: u32) -> Vector3 {
         let p = self.store.position_of(node_id);
@@ -2510,6 +2511,11 @@ impl BinaryProtocolClient {
 
 #[cfg(not(test))]
 impl BinaryProtocolClient {
+    /// The hot-path store, for the cross-volume link pack ([`crate::link_packer`]).
+    pub(crate) fn render_store(&self) -> &crate::render_store::RenderStore {
+        &self.store
+    }
+
     fn send_drag(&mut self, msg_type: &str, node_id: u32, position: Option<Vector3>) {
         let Some(tx) = self.outbound.as_ref() else {
             return;

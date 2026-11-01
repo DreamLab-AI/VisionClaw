@@ -487,6 +487,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
         dragIndex: dragNodeId === null ? -1 : (nodeIdToIndexMap.get(dragNodeId) ?? -1),
         nodeIdToIndex: nodeIdToIndexMap,
         edge: sceneEdgeRef.current,
+        nowMs: performance.now(),
       })
 
       requestCameraFit()

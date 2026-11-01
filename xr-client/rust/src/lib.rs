@@ -32,6 +32,7 @@ pub mod gaze;
 pub mod hulls;
 pub mod interaction;
 pub mod link_index;
+pub mod link_packer;
 pub mod lod;
 pub mod memory_cloud;
 pub mod memory_query;

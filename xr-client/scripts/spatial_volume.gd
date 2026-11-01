@@ -326,8 +326,14 @@ func source() -> Object:
 
 ## Graph units → world, through the drawn Content transform.
 func world_from_content(p: Vector3) -> Vector3:
+	return content_to_world() * p
+
+
+## The content-to-world transform itself, for the link layer's Rust pack (one transform per
+## volume per frame instead of a call per link end).
+func content_to_world() -> Transform3D:
 	_ensure_built()
-	return _content_world() * p
+	return _content_world()
 
 
 ## True when world point `p` lies inside the box (always true in immersive

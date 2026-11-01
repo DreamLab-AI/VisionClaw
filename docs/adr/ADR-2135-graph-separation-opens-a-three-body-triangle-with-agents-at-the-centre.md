@@ -75,18 +75,20 @@ back lets ~56k knowledge↔ontology cross-links (rest length ~30) pull the popul
   (centroid plus drift, on an 0.18 m ring), and a new avatar materialises at the centroid.
   The choreography stays the only pose writer (Invariant 8).
 - **Desktop nudge.** Working agents converge on their target node, so they visit the graph they
-  act on. **A finished agent drifts outward to the edge of the scene and stops there (owner
-  decision, 2026-11-01).** The edge is the bounding sphere the camera already frames
+  act on. **A finished agent reaches the edge of the scene in about 30 seconds and stops there
+  (owner decisions, 2026-11-01).** The edge is the bounding sphere the camera already frames
   (`sceneFitBounds`, `sceneFitBounds.ts:57`, taken from the server positions and refreshed twice a
-  second by GraphManager), not a constant of its own. The drift keeps the long-standing 0.005 a frame
-  (`AGENT_DRIFT_SPEED`), eases over the last stretch (a tenth of the remaining distance), snaps onto
-  the edge under `AGENT_EDGE_SNAP` (1e-4 units) and is put straight back if it is ever beyond the
-  edge, so it never passes it. Once on the edge the offset is constant, the agent's drawn position
-  is bit-identical and the edge skip gate skips. (An earlier draft of this change removed the drift
-  instead; the owner corrected it.) Only an agent whose work is recorded as `done` drifts out; one with
-  no work on record relaxes back to its server position (`AGENT_RELAX_SNAP` ends that tail), and with
-  no known scene edge a finished agent holds still. The nudge is applied once a frame by
-  `DrawnPositions.applyAgents` (`agentNudge.ts`), not in `GemNodes`.
+  second by GraphManager), not a constant of its own. The motion runs on time, not frames: from the
+  moment the agent is recorded as `done` its distance from the scene centre is
+  `r0 + (edge - r0) * easeOutCubic(elapsed / 30 s)`, where `r0` is its distance at that moment
+  (`AGENT_EDGE_SECONDS`, `agentNudge.ts`). It therefore takes the same 30 s at 60 or 120 fps, slows
+  as it arrives, never passes the edge (an agent already beyond it is put straight onto it), and
+  once there its offset is constant: the drawn position is bit-identical and the edge skip gate
+  skips. Going back to work, or losing its work record, restarts the clock for its next finish. An
+  agent with no work on record relaxes back to its server position (`AGENT_RELAX_SNAP` ends that
+  tail), and with no known scene edge a finished agent holds still. The nudge is applied once a
+  frame by `DrawnPositions.applyAgents` (`agentNudge.ts`) from the frame's `performance.now()`,
+  not in `GemNodes`.
 - **Camera.** On the desktop the auto-fit frames the sphere enclosing all three bodies whenever
   separation is above 0: each graph is one graph's folded extent at its vertex, and the cloud is
   where and as large as `cloudPlacement` puts it (only while it is on and loaded). At separation
@@ -271,6 +273,6 @@ The walk fix (470dd26ae) changed `xr-client/rust/src/memory_route.rs`. It adds a
 
 Re-verified 2026-11-01 at `46c77c465` (three.js 0.183 → 0.187.0, owner-approved): the only change to a governed path is a type-only cast in `cloudSprites.ts`, which passes `instancedBufferAttribute(colAttr)` as `TslNode<'vec3'>` to satisfy 0.187's stricter TSL typings. The runtime node graph is unchanged and nothing this record decides is affected. Evidence: `git diff 46c77c465^..46c77c465 -- '*cloudSprites.ts'` (2 lines). R17 review: tsc 0, vitest 140/1462, vite build OK.
 
-## Re-verification — 2026-11-01 (`868c73f26`)
+## Re-verification — 2026-11-01 (finished-agent drift)
 
-`client/src/features/graph/utils/agentNudge.ts` changes: a done agent drifts outward to the scene edge (`sceneFitBounds`) and holds there, with an easing arrival, a snap, and a clamp so it never passes the edge; an agent with no work relaxes home and snaps to zero. The nudge moves to `DrawnPositions.applyAgents` (once a frame, on the single drawn-positions array). The Desktop nudge bullet records the decision. Tests: `agentNudge.test.ts` (8) and `drawnPositions.test.ts` pass; fail-before in the F15 report.
+`client/src/features/graph/utils/agentNudge.ts` runs a finished agent's drift on time: it reaches the scene edge (`sceneFitBounds`) in `AGENT_EDGE_SECONDS` (30 s), easing out, and holds there. An agent with no work relaxes home and snaps to zero. The nudge runs in `DrawnPositions.applyAgents` (once a frame, on the single drawn-positions array). The Desktop nudge bullet records the rule. Tests: `agentNudge.test.ts` and `drawnPositions.test.ts` (arrival at 60 and 120 fps, never past the edge, the edge gate skipping once every finished agent has arrived).
