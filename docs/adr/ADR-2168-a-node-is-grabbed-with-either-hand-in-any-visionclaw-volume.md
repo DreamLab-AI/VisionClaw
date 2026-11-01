@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158, ADR-2166]
-verified_commit: 42befe3d273face354cf7f10c13a9057a47db3d2
+verified_commit: 484d9392f00967420a418cb10dc3eea331e627db
 verified_paths: [xr-client/scripts/graph_scene.gd, xr-client/scripts/spatial_environment.gd, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs, xr-client/materials/edge_flow_common.gdshaderinc, xr-client/materials/edge_flow.tres]
 owner: jjohare
 review_trigger: the first headset session grabbing in the Ontology volume and inside an entered room (reach, depth feel, two-hand comfort); or the server's drag-release unpin (stream GS) merging
@@ -47,6 +47,6 @@ acceptance_boundary: the gate, the per-hand state, the routing and transform ari
 - The gdext gains `hunt_grabs`; a stale `.so` degrades to a single-node echo.
 
 ## Verification
-- Evidence class `source+test`, headless only: `tests/unit/test_grab_client.gd` (15 tests) covers the gate, the per-hand state, release of one hand keeping the other, refusal of a node held by the other hand, drag frames per volume with each Content transform (including a scaled room), the Codescape refusal sending nothing, the portal refusal, release on entering a room, the two-hand gesture staying off, no pin recorded on release, the hunt echo for two nodes, and the breathe parameters. `render_store::tests::hunt_grabs_*` covers the Rust side. Updated existing tests: `test_volume_ux.gd`, `test_backend_switch.gd`, `test_node_lod.gd`.
+- Evidence class `source+test`, headless only: `tests/unit/test_grab_client.gd` (18 tests) covers the gate, the per-hand state, release of one hand keeping the other, refusal of a node held by the other hand, drag frames per volume with each Content transform (including a scaled room), the Codescape refusal sending nothing, the portal refusal, release on entering a room, the two-hand gesture staying off, no pin recorded on release, the hunt echo for two nodes, no jump on grab with the real client and real packed slots (both volumes, both hands, and a scaled entered room), the labels and focus marker following the node's own volume, and the breathe parameters. `render_store::tests::hunt_grabs_*` covers the Rust side. Updated existing tests: `test_volume_ux.gd`, `test_backend_switch.gd`, `test_node_lod.gd`.
 - Not verified: the headset (reach, depth, comfort), a live server with two simultaneous pins, the shader on a real renderer, 90 Hz inside an entered room with grabs.
 - `implementation_status` stays `partial` and `activation_status` `inactive` until a headset session.

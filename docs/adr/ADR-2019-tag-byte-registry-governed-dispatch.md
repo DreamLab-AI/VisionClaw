@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 42befe3d273face354cf7f10c13a9057a47db3d2
+verified_commit: 484d9392f00967420a418cb10dc3eea331e627db
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs, src/protocols/binary_settings_protocol.rs, crates/visionclaw-xr-presence/src/wire.rs, crates/visionclaw-xr-presence/src/agent_presence.rs]
 owner: jjohare
 review_trigger: allocation of a new opcode/version tag on any binary socket, or a proposal to share one demultiplexer across sockets
@@ -285,4 +285,4 @@ Re-verified 2026-10-30 at b1835a4d0. The only change since feb3c81a3 is two rese
 
 Re-verified 2026-10-30 at 2a763c423 (merge of `xr/ux-pick` plus `xr/ux-wire`, spatial-volume UX). `binary_protocol.rs` gains only the two per-slot render readers (`:2082-2105`). No tag byte, dispatch arm or registry entry changed. xr-client lib tests 461/0 on the HP.
 
-Re-verified 2026-11-01 at `42befe3d2` (xr/grab-client, ADR-2168). The only change to `binary_protocol.rs` since `2a763c423` is one additive `#[func]`, `hunt_grabs` (ADR-2168), a per-frame render-position pin. No tag byte, registry or dispatch changed. The decision holds.
+Re-verified 2026-11-01 at `484d9392f` (xr/grab-client, ADR-2168). The only change to `binary_protocol.rs` since `2a763c423` is one additive `#[func]`, `hunt_grabs` (ADR-2168), a per-frame render-position pin. No tag byte, registry or dispatch changed. The decision holds.

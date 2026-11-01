@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 42befe3d273face354cf7f10c13a9057a47db3d2
+verified_commit: 484d9392f00967420a418cb10dc3eea331e627db
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a new GPU analytics field that cannot fit an existing slot, or any need to change the 52-byte node-record layout
@@ -279,4 +279,4 @@ Re-verified 2026-10-30 at b1835a4d0. The only change since feb3c81a3 is in `conn
 
 Re-verified 2026-10-30 at 2a763c423 (spatial-volume UX: merge of `xr/ux-pick` 3b8babe89 plus `xr/ux-wire`). The only change to `binary_protocol.rs` since b1835a4d0 is two additive read-only `#[func]` accessors, `get_render_ids_for_slot` / `get_render_positions_for_slot` (`:2082-2105`), well outside the codec range `:441-956`. No byte of the 52-byte V3 record or the V5 envelope changed. xr-client lib tests 461/0 on the HP.
 
-Re-verified 2026-11-01 at `42befe3d2` (xr/grab-client, ADR-2168). The only change to `binary_protocol.rs` since `2a763c423` is one additive `#[func]`, `hunt_grabs` (ADR-2168), a per-frame render-position pin that touches no codec, record size or envelope. The decision holds.
+Re-verified 2026-11-01 at `484d9392f` (xr/grab-client, ADR-2168). The only change to `binary_protocol.rs` since `2a763c423` is one additive `#[func]`, `hunt_grabs` (ADR-2168), a per-frame render-position pin that touches no codec, record size or envelope. The decision holds.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 42befe3d273face354cf7f10c13a9057a47db3d2
+verified_commit: 484d9392f00967420a418cb10dc3eea331e627db
 verified_paths: [src/layout/scc.rs, src/handlers/api_handler/analytics/cycles_handlers.rs, src/settings/api/settings_routes.rs, client/src/api/layoutApi.ts, client/src/features/graph/hooks/useCyclicNodeIds.ts, xr-client/rust/src/render_store.rs, xr-client/scripts/hud.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): the XR Shapes tab first run on a headset against a live graph. Review: before any cycle datum is added to the 52-byte position frame"
@@ -88,4 +88,4 @@ Re-stamped to `347f03407` (2026-10-31, ADR-2140 closes: the `/analytics/sssp/par
 
 Re-stamped to `a71b2608dc905e970c69a5383eeb6880654aa4d6` (2026-11-01, ADR-2140 second review). `settings_routes.rs` gained `layout_mode_to_forward` (a quality-gate PUT forwards a `layoutMode` only when it differs from the stored echo), `reset_document_for`, and a `stored_physics()` that reads the stored `physics` row first. The whitelist decision 4 describes (`validate_quality_gate_settings`, `LIVE_LAYOUT_MODES`) and the cycle routes are untouched. **Decision holds.** Re-run: `git diff --stat 347f03407 a71b2608d -- src/settings/api/settings_routes.rs client/src/api/layoutApi.ts src/layout/scc.rs src/handlers/api_handler/analytics/cycles_handlers.rs` → only `settings_routes.rs | 197`; and `git diff 347f03407 a71b2608d -- src/settings/api/settings_routes.rs | grep -c 'LIVE_LAYOUT_MODES\|validate_quality_gate_settings'` → 1, an unchanged context line (a comment); no added or removed line names either (`... | grep -E '^[+-]' | grep -c 'LIVE_LAYOUT_MODES\|validate_quality_gate_settings'` → 0).
 
-Re-verified 2026-11-01 at `42befe3d2` (xr/grab-client, ADR-2168). Changes since `a71b2608d`: `render_store.rs` gains `hunt_grabs` (ADR-2168) and `hud.gd` has a two-line edge-key edit (colour and text). Neither touches the cycle analysis or its single adjacency. The decision holds.
+Re-verified 2026-11-01 at `484d9392f` (xr/grab-client, ADR-2168). Changes since `a71b2608d`: `render_store.rs` gains `hunt_grabs` (ADR-2168) and `hud.gd` has a two-line edge-key edit (colour and text). Neither touches the cycle analysis or its single adjacency. The decision holds.
