@@ -894,8 +894,10 @@ var _last_targeted_vol: StringName = &""   # volume the ray last targeted a node
 
 # Double-click (node-open) detection: two grabs of the same node within the window.
 const DOUBLE_CLICK_SEC: float = 0.45
-var _dc_last_id: int = -1
-var _dc_last_time: float = 0.0
+# Per hand (indexed like _grab_id): interleaved presses of the two hands must not
+# defeat each other's double-click, and handing a node over is not one (ADR-2168 F6).
+var _dc_last_id: Array[int] = [-1, -1]
+var _dc_last_time: Array[float] = [0.0, 0.0]
 
 # Movable world-anchored HUD state.
 var _hud_grab_controller: XRController3D = null
@@ -4465,12 +4467,12 @@ func _on_node_grabbed(node_id: int, _position: Vector3) -> void:
 	# linked page in the HUD instead of grabbing. The grab this second press would
 	# start is suppressed cleanly (we return before the grab begins).
 	var now: float = float(Time.get_ticks_msec()) / 1000.0
-	if node_id == _dc_last_id and (now - _dc_last_time) <= DOUBLE_CLICK_SEC:
-		_dc_last_id = -1
+	if node_id == _dc_last_id[hand] and (now - _dc_last_time[hand]) <= DOUBLE_CLICK_SEC:
+		_dc_last_id[hand] = -1
 		_open_node_document(node_id)
 		return
-	_dc_last_id = node_id
-	_dc_last_time = now
+	_dc_last_id[hand] = node_id
+	_dc_last_time[hand] = now
 	var vid: StringName = _grab_volume_of(node_id)
 	var ctrl: XRController3D = _ctrl_at(hand)
 	_begin_grab(hand, vid, node_id, ctrl.global_position if ctrl != null else Vector3.ZERO)
