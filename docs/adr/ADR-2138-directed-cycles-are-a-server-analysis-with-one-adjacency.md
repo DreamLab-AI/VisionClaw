@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: a71b2608dc905e970c69a5383eeb6880654aa4d6
+verified_commit: ecd78b6cb25d6e702e6c2459c209ccdd2c5c6b4b
 verified_paths: [src/layout/scc.rs, src/handlers/api_handler/analytics/cycles_handlers.rs, src/settings/api/settings_routes.rs, client/src/api/layoutApi.ts, client/src/features/graph/hooks/useCyclicNodeIds.ts, xr-client/rust/src/render_store.rs, xr-client/scripts/hud.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): the XR Shapes tab first run on a headset against a live graph. Review: before any cycle datum is added to the 52-byte position frame"
@@ -87,3 +87,7 @@ Re-checked at `db3ab82fa`: `settings_routes.rs` also gained `reset_document` (a 
 Re-stamped to `347f03407` (2026-10-31, ADR-2140 closes: the `/analytics/sssp/params` routes are deleted). The claim that moved is decision 2's route line, now `analytics/mod.rs:258`. The `:255` citation was already stale at `1b8335c4c` (the route was at `:261` there); this change moved it up to `:258` and the citation now matches. Re-run: `git show 1b8335c4c:src/handlers/api_handler/analytics/mod.rs | grep -n get_cycles` → `261`, and `grep -n 'cycles_handlers::get_cycles' src/handlers/api_handler/analytics/mod.rs` → `258`. Nothing else this record cites changed.
 
 Re-stamped to `a71b2608dc905e970c69a5383eeb6880654aa4d6` (2026-11-01, ADR-2140 second review). `settings_routes.rs` gained `layout_mode_to_forward` (a quality-gate PUT forwards a `layoutMode` only when it differs from the stored echo), `reset_document_for`, and a `stored_physics()` that reads the stored `physics` row first. The whitelist decision 4 describes (`validate_quality_gate_settings`, `LIVE_LAYOUT_MODES`) and the cycle routes are untouched. **Decision holds.** Re-run: `git diff --stat 347f03407 a71b2608d -- src/settings/api/settings_routes.rs client/src/api/layoutApi.ts src/layout/scc.rs src/handlers/api_handler/analytics/cycles_handlers.rs` → only `settings_routes.rs | 197`; and `git diff 347f03407 a71b2608d -- src/settings/api/settings_routes.rs | grep -c 'LIVE_LAYOUT_MODES\|validate_quality_gate_settings'` → 1, an unchanged context line (a comment); no added or removed line names either (`... | grep -E '^[+-]' | grep -c 'LIVE_LAYOUT_MODES\|validate_quality_gate_settings'` → 0).
+
+## Re-verification — 2026-10-31 (`ecd78b6cb`)
+
+Re-verified 2026-11-01 at `ecd78b6cb`: the only change to the governed path is `xr-client/scripts/hud.gd`, where `KEY_EDGE_FLOW` (the Key page swatch mirroring the graph's flow-edge colour) moves from cyan to gold and its label gains "breathes slowly". It changes no HUD panel palette, no tab, and nothing this record decides. Evidence: `git diff 8e92c5d5c..ecd78b6cb -- xr-client/scripts/hud.gd` (2 lines).
