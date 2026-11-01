@@ -79,9 +79,10 @@ func test_hidden_overlay_volume_leaves_nothing_pickable() -> void:
 	client.ingest(_frame([1 | 0x40000000, 2 | 0x40000000]))
 	client.build_node_buffer_lod(PackedInt32Array([1, 2]), 1.0, 0.7, 1.9, Vector3.ZERO, 8, 100.0)
 	assert_eq(client.get_render_ids().size(), 2, "precondition: the slot has pickable ids")
-	scene._grabbed_id = 1
+	scene._grab_id[0] = 1
+	scene._grab_vol[0] = &"knowledge"
 	scene._on_hud_control("volume_toggle:knowledge")
-	assert_eq(scene._grabbed_id, -1, "a grab in flight is released")
+	assert_eq(scene._grab_id[0], -1, "a grab in flight is released")
 	assert_eq(client.pack_slot(), src.slot)
 	assert_eq(client.get_render_ids().size(), 0, "no invisible node left for the ray")
 	await get_tree().physics_frame

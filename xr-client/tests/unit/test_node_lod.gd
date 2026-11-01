@@ -113,6 +113,13 @@ func test_edge_lod_build_caps_cylinders_and_ribbons_take_the_rest() -> void:
 
 func test_ribbons_breathe_with_the_cylinders_and_the_key_matches_the_gold_edges() -> void:
 	var cyl := (load("res://materials/edge_flow.tres") as ShaderMaterial).duplicate() as ShaderMaterial
+	# Shipped breathe: 36 s (divides the 3600 s TIME rollover), depth 0.8; the far ribbons copy it.
+	var shipped: MultiMeshInstance3D = NodeLod.make_ribbon_instance()
+	autofree(shipped)
+	NodeLod.sync_edge_params(cyl, shipped.material_override)
+	var sm := shipped.material_override as ShaderMaterial
+	assert_almost_eq(float(sm.get_shader_parameter("breathe_period")), 36.0, 1e-6)
+	assert_almost_eq(float(sm.get_shader_parameter("breathe_depth")), 0.8, 1e-6)
 	cyl.set_shader_parameter("breathe_period", 40.0)
 	cyl.set_shader_parameter("breathe_depth", 0.3)
 	var ribbons: MultiMeshInstance3D = NodeLod.make_ribbon_instance()
