@@ -175,7 +175,7 @@ Not reachable on the live store (one full `physics` row, written whole by `AppSt
 
 ## Amended by ADR-2169 (2026-11-01)
 
-Item 2 ("applied exactly as stored") does not apply while a node is held or for the 2 s settle window after a release: ADR-2169 floors `global_speed` at 2.0 for that span (owner-accepted 2026-11-01). `damping` is never overridden; the owner dropped the settle-window damping cap on 2026-11-01. `get_layout_status` now reports the GPU actor's iterations, settled flag and kinetic energy. Re-verified at `aba13edc5` for the paths ADR-2169 changed (`force_compute_actor.rs`, `layout_handler.rs`, `execution.rs`) only.
+Item 2 ("applied exactly as stored") does not apply while a node is held or for the 2 s settle window after a release: ADR-2169 floors `global_speed` at 2.0 for that span (owner-accepted 2026-11-01). `damping` is never overridden; the owner dropped the settle-window damping cap on 2026-11-01. `get_layout_status` now reports the GPU actor's iterations, settled flag and kinetic energy. While a node is held the spring term also runs with `spring_k` and `max_force` multiplied by `HOLD_SPRING_GAIN` (20) and the Verlet integrator, and through the settle window Verlet alone; the springs end at release so a dropped node is placed (ADR-2169 items 8 and 9, owner 2026-11-01). The stored document is untouched. Re-verified at `aba13edc5` for the paths ADR-2169 changed (`force_compute_actor.rs`, `layout_handler.rs`, `execution.rs`) only.
 
 ## Re-verification — 2026-10-31 (`f1fa1862c`)
 

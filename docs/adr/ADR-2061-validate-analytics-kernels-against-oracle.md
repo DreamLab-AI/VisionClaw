@@ -271,3 +271,7 @@ edit. **Still holds.**
 Governed-path delta since `f68ad414f`: `docs/GPU-wire-abi.md` wording only. The build-fallback sentence now says both a failure to launch `nvcc` and a non-zero exit reach the pre-compiled fallback (`ptx_policy::NvccOutcome::needs_fallback`), replacing stale `build.rs` line citations, and the ADR-2030 runtime-identity paragraph now states the check is inert in the runtime images. Nothing this record decides is changed; status axes unchanged. Re-run: `git diff f68ad414f..2f8a74118 -- docs/GPU-wire-abi.md`.
 
 Re-verified at `d184e89fb` after ADR-2173 added a section and an invariant to `docs/GPU-wire-abi.md` (the analytics-trust table is untouched): `cargo test -p visionclaw-gpu --test analytics_oracle_conformance -- --ignored` on an RTX 6000 Ada (sm_89), 4 passed (LOF, DBSCAN, Louvain, PageRank).
+
+## Re-stamp — 2026-11-01 (ADR-2169 item 9, `phys/hold-springs`)
+
+**Governed change:** `GPU-wire-abi.md` gains documentation of the overlay kernel parameter; no analytics kernel or oracle changes. Re-stamped from `2f8a74118` to `bfaf6e77c`. Re-run: `git diff --stat 531df5ef7 bfaf6e77c -- docs/GPU-wire-abi.md` → `1 file changed, 12 insertions(+), 1 deletion(-)`.

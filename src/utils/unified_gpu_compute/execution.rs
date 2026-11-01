@@ -711,6 +711,34 @@ impl UnifiedGPUCompute {
             (DevicePointer::<i32>::null(), 0i32, grid_size)
         };
 
+        // ADR-2169 amendment (spring mode while held): when the overlay switches on, capture
+        // every edge's current length on the GPU (one thread per node, no host round-trip), so
+        // the overlay term is exactly zero at the moment of grab. A null pointer switches the
+        // overlay off in the force kernels.
+        let edge_rest_ptr = if self.hold_overlay.springs_active() {
+            if self.hold_overlay.snapshot_due() {
+                let snapshot_kernel = self._module.get_function("snapshot_edge_rest_kernel")?;
+                // SAFETY: positions and the CSR are valid buffers of >= num_nodes / num_edges
+                // entries; `edge_rest_snapshot` is sized to `allocated_edges` (kept in step by
+                // the resize path), and the CSR row ranges bound every write.
+                unsafe {
+                    launch!(
+                        snapshot_kernel<<<grid_size, block_size, 0, stream>>>(
+                        self.pos_in_x.as_device_ptr(),
+                        self.pos_in_y.as_device_ptr(),
+                        self.pos_in_z.as_device_ptr(),
+                        self.edge_row_offsets.as_device_ptr(),
+                        self.edge_col_indices.as_device_ptr(),
+                        self.edge_rest_snapshot.as_device_ptr(),
+                        self.num_nodes as i32
+                    ))?;
+                }
+            }
+            self.edge_rest_snapshot.as_device_ptr()
+        } else {
+            DevicePointer::<f32>::null()
+        };
+
         unsafe {
             if params.stability_threshold > 0.0 {
                 // Force pass with stability checking variant
@@ -748,7 +776,9 @@ impl UnifiedGPUCompute {
                     // PHASE 2: per-node DAG rank for the radial hierarchy bias
                     self.node_rank.as_device_ptr(),
                     // ADR-141 P2: per-node centered plane offset for the stratified-plane bias
-                    self.node_plane.as_device_ptr()
+                    self.node_plane.as_device_ptr(),
+                    // ADR-2169 amendment: elastic-overlay rest lengths (null = overlay off)
+                    edge_rest_ptr
                 ))?;
             } else {
                 launch!(
@@ -789,7 +819,9 @@ impl UnifiedGPUCompute {
                     // PHASE 2: per-node DAG rank for the radial hierarchy bias
                     self.node_rank.as_device_ptr(),
                     // ADR-141 P2: per-node centered plane offset for the stratified-plane bias
-                    self.node_plane.as_device_ptr()
+                    self.node_plane.as_device_ptr(),
+                    // ADR-2169 amendment: elastic-overlay rest lengths (null = overlay off)
+                    edge_rest_ptr
                 ))?;
             }
         }
@@ -1065,6 +1097,30 @@ impl UnifiedGPUCompute {
         Ok(())
     }
 
+    /// Switch the elastic spring overlay (ADR-2169 amendment, "spring mode while held") on or
+    /// off for the next step. Call it every step with "any node held, or inside the settle
+    /// window". The first step after it turns on snapshots every edge length on the GPU.
+    pub fn set_hold_overlay(&mut self, on: bool) {
+        self.hold_overlay.set_active(on);
+    }
+
+    /// Switch the overlay's spring term on or off for the next step: on while a node is held,
+    /// off through the settle window. A release therefore places the node: the snapshot is not
+    /// consulted again, and the next hold takes a fresh one. Needs `set_hold_overlay(true)`.
+    pub fn set_hold_springs(&mut self, on: bool) {
+        self.hold_overlay.set_springs(on);
+    }
+
+    /// Override the held-only spring gain (calibration and tests).
+    pub fn set_hold_spring_gain(&mut self, gain: f32) {
+        self.hold_spring_gain = gain;
+    }
+
+    /// Edge-length snapshots taken so far (diagnostics and tests).
+    pub fn hold_overlay_snapshot_count(&self) -> u64 {
+        self.hold_overlay.snapshot_count()
+    }
+
     pub fn execute_physics_step(
         &mut self,
         params: &crate::models::simulation_params::SimulationParams,
@@ -1100,6 +1156,18 @@ impl UnifiedGPUCompute {
         // never reached the GPU kernel.
         let mut sim_params = params.to_sim_params();
         sim_params.feature_flags = feature_flags;
+        // Spring mode while held: the integrator takes the Verlet path so the pull is not
+        // divided by FA2 swing. The stored `adaptive_speed` setting is untouched and applies
+        // again as soon as the overlay ends.
+        if self.hold_overlay.is_active() {
+            sim_params.adaptive_speed = 0;
+        }
+        // Held-only gain: the spring is `gain` times stronger and its force cap scales with it,
+        // or the cap would still saturate the pull at the stored `max_force / spring_k` stretch.
+        if self.hold_overlay.springs_active() {
+            sim_params.spring_k *= self.hold_spring_gain;
+            sim_params.max_force *= self.hold_spring_gain;
+        }
 
         // When stability_bypass is true, disable the GPU stability check so physics
         // runs unconditionally. This prevents the check_system_stability_kernel from
@@ -3103,5 +3171,700 @@ mod adr_2140_layout_mode_gpu_tests {
         assert_eq!(dev.center_gravity_k, 0.05);
         assert_eq!(dev.sssp_alpha, 0.3);
         assert_eq!((dev.layer_bias_k, dev.layer_spacing), (2.5, 33.0));
+    }
+}
+
+/// ADR-2169 amendment ("spring mode while held", owner-accepted 2026-11-01): the elastic overlay
+/// must make a held node's graph neighbours follow it, with no lurch at the moment of grab.
+///
+/// The fixture is a hub with 12 first-hop neighbours (each with a ring link and 3 leaf nodes,
+/// so each neighbour has 4 other springs) and 36 second-hop leaves. It is settled with the
+/// stored LinLog and adaptive-speed behaviour, then the hub is pinned and dragged along +X
+/// exactly as the actor drags a held node (position rewritten every step, integration skipped).
+///
+/// These tests need a CUDA device. Like the other GPU modules here they print `SKIPPED` without
+/// one; set `VISIONCLAW_GPU_TESTS_REQUIRED=1` to make a missing device or PTX a failure instead
+/// (the GPU CI lane, and the evidence runs for ADR-2169).
+#[cfg(test)]
+mod hold_spring_overlay_gpu_tests {
+    use super::*;
+    use crate::models::simulation_params::SimulationParams;
+
+    /// A hub with `nb` first-hop neighbours, each with `leaves` second-hop leaves and a ring
+    /// link, so every neighbour has `leaves + 1` other springs besides the hub's.
+    #[derive(Clone, Copy)]
+    struct Shape {
+        nb: usize,
+        leaves: usize,
+        /// Edge weight on every link (live median 1.1).
+        weight: f32,
+        /// Node mass (live: `0.5 + 2w`, about 2.7).
+        mass: f32,
+        /// Hop-3 nodes, one hung off each of the first `far` leaves: the "far graph" that a
+        /// placed node must leave undisturbed.
+        far: usize,
+    }
+
+    impl Shape {
+        fn n(self) -> usize {
+            1 + self.nb + self.nb * self.leaves + self.far
+        }
+        fn far_node(self, k: usize) -> usize {
+            1 + self.nb + self.nb * self.leaves + k
+        }
+        fn leaf(self, nb: usize, k: usize) -> usize {
+            1 + self.nb + (nb - 1) * self.leaves + k
+        }
+    }
+
+    /// The spec's small graph: neighbours with a few other springs.
+    const SMALL: Shape = Shape {
+        nb: 12,
+        leaves: 3,
+        weight: 1.0,
+        mass: 1.0,
+        far: 0,
+    };
+    /// Live-like: neighbours carry about 30 other springs (the live graph's typical degree).
+    const DENSE: Shape = Shape {
+        nb: 60,
+        leaves: 30,
+        weight: 1.0,
+        mass: 1.0,
+        far: 0,
+    };
+    /// The live hub probe's shape: a hub of about 1,200 neighbours, each with a ring link and 17
+    /// leaves (live median degree 19), the live median weight 1.1 and mass about 2.7.
+    const PROBE: Shape = Shape {
+        nb: 1200,
+        leaves: 17,
+        weight: 1.1,
+        mass: 2.7,
+        far: 4000,
+    };
+
+    const DRAG: f32 = 60.0;
+    const DRAG_STEPS: usize = 180;
+    const HOLD_STEPS: usize = 120;
+
+    /// Stored live values (`data/settings.yaml`): LinLog and adaptive speed on, springK 12,
+    /// damping 0.9, maxForce 150, maxVelocity 100, dt 0.016. `global_speed` is the held floor.
+    fn stored_params() -> SimulationParams {
+        SimulationParams {
+            lin_log_mode: true,
+            adaptive_speed: true,
+            spring_k: 12.0,
+            repel_k: 120.0,
+            rest_length: 50.0,
+            damping: 0.9,
+            max_force: 150.0,
+            max_velocity: 100.0,
+            dt: 0.016,
+            temperature: 0.0,
+            center_gravity_k: 0.2,
+            gravity: 0.002,
+            warmup_iterations: 100,
+            global_speed: 2.0,
+            cluster_strength: 0.0,
+            ..SimulationParams::default()
+        }
+    }
+
+    fn engine(sh: Shape) -> Option<(cust::context::Context, UnifiedGPUCompute)> {
+        let required = std::env::var("VISIONCLAW_GPU_TESTS_REQUIRED").is_ok_and(|v| v == "1");
+        let fail = |what: String| -> Option<(cust::context::Context, UnifiedGPUCompute)> {
+            if required {
+                panic!("[hold_spring_overlay_gpu_tests] needs a CUDA device: {what}");
+            } else {
+                eprintln!("[hold_spring_overlay_gpu_tests] SKIPPED, {what}");
+                None
+            }
+        };
+        let ctx = match cust::quick_init() {
+            Ok(c) => c,
+            Err(e) => return fail(format!("CUDA init failed: {e}")),
+        };
+        let ptx = match crate::utils::ptx::load_ptx_sync() {
+            Ok(p) => p,
+            Err(e) => return fail(format!("no PTX: {e}")),
+        };
+        let mut g = match UnifiedGPUCompute::new(sh.n(), sh.n() * 8, &ptx) {
+            Ok(g) => g,
+            Err(e) => return fail(format!("no CUDA device: {e}")),
+        };
+
+        // Directed edge list, both directions (CSR rows list every neighbour).
+        let (nbn, leaves, n) = (sh.nb, sh.leaves, sh.n());
+        let mut adj: Vec<Vec<i32>> = vec![Vec::new(); n];
+        let mut link = |a: usize, b: usize| {
+            adj[a].push(b as i32);
+            adj[b].push(a as i32);
+        };
+        for nb in 1..=nbn {
+            link(0, nb);
+            link(nb, if nb == nbn { 1 } else { nb + 1 });
+            for k in 0..leaves {
+                link(nb, sh.leaf(nb, k));
+            }
+        }
+        for k in 0..sh.far {
+            link(sh.leaf(1 + k / leaves, k % leaves), sh.far_node(k));
+        }
+        let mut offsets = vec![0i32];
+        let (mut cols, mut w) = (Vec::new(), Vec::new());
+        for row in &adj {
+            cols.extend_from_slice(row);
+            w.extend(std::iter::repeat_n(sh.weight, row.len()));
+            offsets.push(cols.len() as i32);
+        }
+
+        // Fibonacci-sphere directions: neighbours at the rest length, leaves twice as far.
+        let (mut x, mut y, mut z) = (vec![0f32; n], vec![0f32; n], vec![0f32; n]);
+        let mut lcg = 12345u32;
+        let mut jitter = move || {
+            lcg = lcg.wrapping_mul(1664525).wrapping_add(1013904223);
+            (lcg >> 8) as f32 / (1u32 << 24) as f32 * 2.0 - 1.0
+        };
+        let golden = std::f32::consts::PI * (3.0 - 5.0f32.sqrt());
+        for nb in 1..=nbn {
+            let t = (nb as f32 - 0.5) / nbn as f32;
+            let zz = 1.0 - 2.0 * t;
+            let r = (1.0 - zz * zz).max(0.0).sqrt();
+            let th = golden * nb as f32;
+            let d = (r * th.cos(), r * th.sin(), zz);
+            x[nb] = d.0 * 50.0;
+            y[nb] = d.1 * 50.0;
+            z[nb] = d.2 * 50.0;
+            for k in 0..leaves {
+                let i = sh.leaf(nb, k);
+                x[i] = d.0 * 100.0 + jitter() * 30.0;
+                y[i] = d.1 * 100.0 + jitter() * 30.0;
+                z[i] = d.2 * 100.0 + jitter() * 30.0;
+            }
+        }
+        g.upload_positions(&x, &y, &z).expect("upload positions");
+        g.upload_edges_csr(&offsets, &cols, &w)
+            .expect("upload edges");
+        if sh.mass != 1.0 {
+            g.upload_class_metadata(&vec![0i32; n], &vec![1.0f32; n], &vec![sh.mass; n])
+                .expect("upload masses");
+        }
+        Some((ctx, g))
+    }
+
+    fn step(g: &mut UnifiedGPUCompute, p: &SimulationParams) {
+        g.execute_physics_step_with_bypass(p, true).expect("step");
+    }
+
+    fn pos(g: &mut UnifiedGPUCompute) -> Vec<[f32; 3]> {
+        let (x, y, z) = g.get_node_positions().expect("positions");
+        (0..x.len()).map(|i| [x[i], y[i], z[i]]).collect()
+    }
+
+    /// Settle with the stored behaviour (no hold) until it is quiet and past warmup.
+    fn settle(g: &mut UnifiedGPUCompute, p: &SimulationParams) {
+        for _ in 0..800 {
+            step(g, p);
+        }
+    }
+
+    fn pin_node(g: &mut UnifiedGPUCompute, n: usize, i: usize) {
+        let mut mask = vec![0i32; n];
+        mask[i] = 1;
+        g.upload_pinned_mask(&mask).expect("pin node");
+    }
+
+    fn pin_hub(g: &mut UnifiedGPUCompute, n: usize) {
+        pin_node(g, n, 0);
+    }
+
+    fn set_node(g: &mut UnifiedGPUCompute, i: usize, to: [f32; 3]) {
+        let (mut x, mut y, mut z) = g.get_node_positions().expect("positions");
+        x[i] = to[0];
+        y[i] = to[1];
+        z[i] = to[2];
+        g.upload_positions(&x, &y, &z).expect("move node");
+    }
+
+    fn set_hub(g: &mut UnifiedGPUCompute, to: [f32; 3]) {
+        set_node(g, 0, to);
+    }
+
+    /// Numbers from one run of the drag.
+    #[derive(Debug)]
+    struct Drag {
+        /// Largest displacement of any node over the first `GRAB_STEPS` steps of a zero drag.
+        grab_lurch: f32,
+        /// Mean +X displacement of the first-hop neighbours, as a fraction of `DRAG`, at the end
+        /// of the drag ramp.
+        hop1: f32,
+        hop2: f32,
+        /// The same two, after the extra still-hold steps.
+        hop1_held: f32,
+        #[allow(dead_code)]
+        hop2_held: f32,
+    }
+
+    const GRAB_STEPS: usize = 10;
+
+    fn run(sh: Shape, overlay: bool) -> Option<Drag> {
+        let (_ctx, mut g) = engine(sh)?;
+        let (n, nbn) = (sh.n(), sh.nb);
+        let mut p = stored_params();
+        settle(&mut g, &p);
+        let before = pos(&mut g);
+        pin_hub(&mut g, n);
+        // The actor's held step: speed floor 2.0 (already in `p.global_speed`), overlay per flag.
+        p.global_speed = 2.0;
+        g.set_hold_overlay(overlay);
+        g.set_hold_springs(overlay);
+        g.set_hold_spring_gain(1.0);
+
+        for _ in 0..GRAB_STEPS {
+            step(&mut g, &p);
+        }
+        let after_grab = pos(&mut g);
+        let grab_lurch = (0..n)
+            .map(|i| {
+                (0..3)
+                    .map(|a| (after_grab[i][a] - before[i][a]).powi(2))
+                    .sum::<f32>()
+                    .sqrt()
+            })
+            .fold(0.0, f32::max);
+
+        let follow = |g: &mut UnifiedGPUCompute| {
+            let now = pos(g);
+            let mean = |range: std::ops::Range<usize>| {
+                range.clone().map(|i| now[i][0] - before[i][0]).sum::<f32>() / range.len() as f32
+            };
+            let h1 = mean(1..1 + nbn) / DRAG;
+            let h2 = mean(1 + nbn..n) / DRAG;
+            (h1, h2)
+        };
+
+        let origin = before[0];
+        for s in 1..=DRAG_STEPS {
+            set_hub(
+                &mut g,
+                [
+                    origin[0] + DRAG * s as f32 / DRAG_STEPS as f32,
+                    origin[1],
+                    origin[2],
+                ],
+            );
+            step(&mut g, &p);
+        }
+        let (hop1, hop2) = follow(&mut g);
+        for _ in 0..HOLD_STEPS {
+            set_hub(&mut g, [origin[0] + DRAG, origin[1], origin[2]]);
+            step(&mut g, &p);
+        }
+        let (hop1_held, hop2_held) = follow(&mut g);
+        let d = Drag {
+            grab_lurch,
+            hop1,
+            hop2,
+            hop1_held,
+            hop2_held,
+        };
+        eprintln!(
+            "[hold_spring_overlay] nb={} leaves={} overlay={overlay} {d:?} snapshots={}",
+            sh.nb,
+            sh.leaves,
+            g.hold_overlay_snapshot_count()
+        );
+        Some(d)
+    }
+
+    #[test]
+    fn stored_linlog_and_adaptive_speed_barely_move_neighbours() {
+        // Overlay off is today's behaviour. The dense fixture is the live-like one: neighbours
+        // with about 30 other springs follow the hub by a few percent at most.
+        let Some(d) = run(DENSE, false) else { return };
+        assert!(
+            d.hop1_held < 0.05,
+            "today's behaviour, dense graph: first-hop neighbours follow < 5 % of the drag, got {:.4}",
+            d.hop1_held
+        );
+        // The 12-neighbour hub pulls harder per neighbour than the live 904-neighbour hub, so
+        // its LinLog baseline is higher (measured 0.12) but still well under the overlay's.
+        let Some(d) = run(SMALL, false) else { return };
+        assert!(
+            d.hop1_held < 0.15,
+            "today's behaviour, small graph: got {:.4}",
+            d.hop1_held
+        );
+    }
+
+    fn assert_overlay_follows(sh: Shape, min_hop1: f32) {
+        let Some(base) = run(sh, false) else { return };
+        let Some(d) = run(sh, true) else { return };
+        assert!(
+            d.hop1 >= min_hop1,
+            "overlay on: first-hop neighbours follow >= {min_hop1} of the drag by the end of the \
+             ramp, got {:.4} (off: {:.4})",
+            d.hop1,
+            base.hop1
+        );
+        assert!(
+            d.hop1_held > 2.0 * base.hop1_held,
+            "overlay on must clearly beat the stored behaviour: {:.4} vs {:.4}",
+            d.hop1_held,
+            base.hop1_held
+        );
+        assert!(
+            d.hop2 > 0.0 && d.hop2 < d.hop1 && d.hop2_held < d.hop1_held,
+            "second hop follows less than first, more than zero: hop1 {:.4}/{:.4}, hop2 {:.4}/{:.4}",
+            d.hop1,
+            d.hop1_held,
+            d.hop2,
+            d.hop2_held
+        );
+        assert!(
+            d.grab_lurch <= base.grab_lurch.max(0.5),
+            "no lurch at the moment of grab: the overlay moved a node {:.4} in {GRAB_STEPS} steps \
+             (off: {:.4})",
+            d.grab_lurch,
+            base.grab_lurch
+        );
+    }
+
+    #[test]
+    fn the_overlay_makes_neighbours_follow_hop_by_hop_without_a_lurch() {
+        assert_overlay_follows(SMALL, 0.30);
+    }
+
+    #[test]
+    fn the_overlay_on_a_live_like_dense_graph() {
+        // Each neighbour has about 32 springs, as the live graph's do. A linear spring network
+        // gives roughly 1/(1+k) of the drag at equilibrium, so the bar here is lower.
+        assert_overlay_follows(DENSE, 0.03);
+    }
+
+    /// What one probe-shaped hold and release produced.
+    #[derive(Debug, Default)]
+    struct Probe {
+        /// Median first-hop displacement magnitude over the drag and the hold, as a fraction of
+        /// the drag distance (what `hub-probe.mjs` reports).
+        hop1: f32,
+        hop2: f32,
+        /// Largest speed any node reached, in units per step of 1 (position delta per step).
+        max_speed: f32,
+        finite: bool,
+        /// Hub distance from where it was dropped, at the end of the settle span (2 s).
+        window_from_drop: f32,
+        /// Hub distance from where it was before the grab, at the end of the settle span.
+        window_from_start: f32,
+        /// Hub distance from where it was dropped, after release and settle.
+        hub_from_drop: f32,
+        /// Hub distance from where it was before the grab, after release and settle.
+        hub_from_start: f32,
+        /// Median first-hop displacement from the pre-grab layout, after release and settle,
+        /// as a fraction of the drag.
+        hop1_rest: f32,
+        /// Median hop-3 displacement from the pre-grab layout, after settle, in units.
+        far_rest: f32,
+        /// Largest node speed in the last 5 steps of the Verlet settle span, over the peak speed
+        /// of the hold: below 1 and near 0 means the response decays inside the window.
+        decay: f32,
+    }
+
+    /// One probe run. `Cfg::live(shape, drag)` is the live step rate: 30 drag steps, 20 held and
+    /// a 20-step settle window (2 s at about 10 Hz).
+    #[derive(Clone, Copy)]
+    struct Cfg {
+        shape: Shape,
+        drag: f32,
+        /// `None` keeps the shipped `HOLD_SPRING_GAIN`.
+        gain: Option<f32>,
+        spring_k: f32,
+        /// Keep the springs on through the settle window, as `1a16d43b3` did.
+        keep_springs: bool,
+        /// The node that is held (0 is the hub).
+        held_node: usize,
+        drag_steps: usize,
+        held_steps: usize,
+        settle_steps: usize,
+        rest_steps: usize,
+    }
+
+    impl Cfg {
+        fn live(shape: Shape, drag: f32) -> Self {
+            Cfg {
+                shape,
+                drag,
+                gain: None,
+                spring_k: LIVE_SPRING_K,
+                keep_springs: false,
+                held_node: 0,
+                drag_steps: 30,
+                held_steps: 20,
+                settle_steps: 20,
+                rest_steps: 400,
+            }
+        }
+    }
+
+    /// The `springK` recommended for the stored document alongside `HOLD_SPRING_GAIN`.
+    const LIVE_SPRING_K: f32 = 30.0;
+
+    fn dist3(a: [f32; 3], b: [f32; 3]) -> f32 {
+        (0..3).map(|k| (a[k] - b[k]).powi(2)).sum::<f32>().sqrt()
+    }
+
+    fn median(mut v: Vec<f32>) -> f32 {
+        if v.is_empty() {
+            return 0.0;
+        }
+        v.sort_by(|a, b| a.total_cmp(b));
+        v[v.len() / 2]
+    }
+
+    fn max_speed_now(g: &mut UnifiedGPUCompute) -> f32 {
+        let (vx, vy, vz) = g.get_node_velocities().expect("velocities");
+        (0..vx.len())
+            .map(|i| (vx[i] * vx[i] + vy[i] * vy[i] + vz[i] * vz[i]).sqrt())
+            .fold(0.0, |a, b| {
+                if b.is_nan() {
+                    f32::INFINITY
+                } else {
+                    f32::max(a, b)
+                }
+            })
+    }
+
+    /// Hold the hub of `sh`, drag it `drag` units along X over `c.drag_steps`, hold it still
+    /// for `c.held_steps`, release it, run `c.settle_steps` of the settle span and then
+    /// `c.rest_steps` of the stored behaviour. `gain` and `spring_k` are the values under test.
+    fn probe(c: Cfg) -> Option<Probe> {
+        let Cfg {
+            shape: sh,
+            drag,
+            gain,
+            spring_k,
+            keep_springs,
+            held_node,
+            ..
+        } = c;
+        let (_ctx, mut g) = engine(sh)?;
+        let (n, nbn) = (sh.n(), sh.nb);
+        let mut p = stored_params();
+        p.spring_k = spring_k;
+        settle(&mut g, &p);
+        let before = pos(&mut g);
+        pin_node(&mut g, n, held_node);
+        p.global_speed = 2.0;
+        g.set_hold_overlay(true);
+        g.set_hold_springs(true);
+        if let Some(gain) = gain {
+            g.set_hold_spring_gain(gain);
+        }
+
+        let origin = before[held_node];
+        let mut peak = 0.0f32;
+        let mut finite = true;
+        let mut watch = |g: &mut UnifiedGPUCompute, peak: &mut f32| {
+            let v = max_speed_now(g);
+            finite &= v.is_finite();
+            *peak = peak.max(v);
+        };
+        for s in 1..=c.drag_steps {
+            set_node(
+                &mut g,
+                held_node,
+                [
+                    origin[0] + drag * s as f32 / c.drag_steps as f32,
+                    origin[1],
+                    origin[2],
+                ],
+            );
+            step(&mut g, &p);
+            watch(&mut g, &mut peak);
+        }
+        for _ in 0..c.held_steps {
+            set_node(&mut g, held_node, [origin[0] + drag, origin[1], origin[2]]);
+            step(&mut g, &p);
+            watch(&mut g, &mut peak);
+        }
+        let held = pos(&mut g);
+        let disp = |a: &[[f32; 3]], b: &[[f32; 3]], i: usize| {
+            (0..3)
+                .map(|k| (a[i][k] - b[i][k]).powi(2))
+                .sum::<f32>()
+                .sqrt()
+        };
+        let hop1 = median((1..=nbn).map(|i| disp(&held, &before, i)).collect()) / drag;
+        let hop2 = median(
+            (1 + nbn..1 + nbn + nbn * sh.leaves)
+                .map(|i| disp(&held, &before, i))
+                .collect(),
+        ) / drag;
+        let drop = held[held_node];
+
+        // Release: unpin, springs off, Verlet through the settle span, then the stored behaviour.
+        g.upload_pinned_mask(&vec![0i32; n]).expect("unpin");
+        // `keep_springs` reproduces the release of `1a16d43b3`, where the springs ran through the
+        // settle window and pulled the node back to the shape it had when grabbed.
+        g.set_hold_springs(keep_springs);
+        let (mut tail, mut hold_peak) = (0.0f32, peak.max(1e-9));
+        for s in 0..c.settle_steps {
+            step(&mut g, &p);
+            let v = max_speed_now(&mut g);
+            finite &= v.is_finite();
+            hold_peak = hold_peak.max(v);
+            if s + 5 >= c.settle_steps {
+                tail = tail.max(v);
+            }
+        }
+        let at_window = pos(&mut g);
+        g.set_hold_overlay(false);
+        for _ in 0..c.rest_steps {
+            step(&mut g, &p);
+        }
+        let rest = pos(&mut g);
+        finite &= rest.iter().all(|r| r.iter().all(|c| c.is_finite()));
+        let out = Probe {
+            hop1,
+            hop2,
+            max_speed: peak,
+            finite,
+            window_from_drop: dist3(at_window[held_node], drop),
+            window_from_start: dist3(at_window[held_node], before[held_node]),
+            hub_from_drop: dist3(rest[held_node], drop),
+            hub_from_start: disp(&rest, &before, 0),
+            hop1_rest: median((1..=nbn).map(|i| disp(&rest, &before, i)).collect()) / drag,
+            far_rest: median(
+                (0..sh.far)
+                    .map(|k| disp(&rest, &before, sh.far_node(k)))
+                    .collect(),
+            ),
+            decay: tail / hold_peak,
+        };
+        Some(out)
+    }
+
+    /// The calibration sweep (not a gate): `cargo test --lib hold_spring_overlay_gpu_tests::sweep
+    /// -- --ignored --nocapture` on GPU 1. Prints one row per gain and `springK`.
+    #[test]
+    #[ignore = "calibration sweep, prints a table"]
+    fn sweep_gain_against_spring_k() {
+        for gain in [1.0f32, 20.0] {
+            let r = probe(Cfg {
+                gain: Some(gain),
+                keep_springs: true,
+                ..Cfg::live(PROBE, 183.0)
+            })
+            .expect("gpu");
+            eprintln!(
+                "SWEEP old-release(springs kept) gain={gain} win_from_drop={:.2} win_from_start={:.2} hub_from_start={:.2} hop1={:.4}",
+                r.window_from_drop, r.window_from_start, r.hub_from_start, r.hop1
+            );
+        }
+        let runs: &[(f32, f32, f32)] = &[(183.0, 30.0, 20.0)];
+        for &(drag, k, gain) in runs {
+            {
+                {
+                    let Some(r) = probe(Cfg {
+                        gain: Some(gain),
+                        spring_k: k,
+                        ..Cfg::live(PROBE, drag)
+                    }) else {
+                        return;
+                    };
+                    eprintln!(
+                        "SWEEP drag={drag} k={k} gain={gain} hop1={:.4} hop2={:.4} maxv={:.2} finite={} \
+                         win_from_drop={:.2} win_from_start={:.2} hub_from_drop={:.2} hub_from_start={:.2} hop1_rest={:.4} far_rest={:.4} decay={:.3}",
+                        r.hop1, r.hop2, r.max_speed, r.finite, r.window_from_drop, r.window_from_start, r.hub_from_drop, r.hub_from_start,
+                        r.hop1_rest, r.far_rest, r.decay
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_probe_hub_drag_moves_neighbours_a_lot_and_stays_stable() {
+        // The live hub probe's shape, at the live step rate, with the recommended stored
+        // springK. At gain 1 this measures 0.026; the bar is the owner's "big effect".
+        let Some(r) = probe(Cfg::live(PROBE, 183.0)) else {
+            return;
+        };
+        assert!(r.finite, "no NaN or infinity anywhere: {r:?}");
+        assert!(
+            r.hop1 >= 0.30,
+            "one-hop median follow >= 0.3 of the drag, got {:.4} ({r:?})",
+            r.hop1
+        );
+        assert!(
+            r.hop2 > 0.05 && r.hop2 < r.hop1,
+            "two hops follow less than one, and visibly: {:.4} vs {:.4}",
+            r.hop2,
+            r.hop1
+        );
+        assert!(
+            r.max_speed <= 100.5,
+            "no node outruns max_velocity (100): {:.2}",
+            r.max_speed
+        );
+        assert!(
+            r.decay < 0.5,
+            "the response decays inside the 2 s settle window, tail/peak speed {:.3}",
+            r.decay
+        );
+        assert!(
+            r.far_rest < 0.15 * 183.0,
+            "hop-3 nodes end within 15 % of the drag of where they were (the layout's own \
+             drift is about 11 units), got {:.2}",
+            r.far_rest
+        );
+    }
+
+    #[test]
+    fn a_released_leaf_is_placed_where_it_was_dropped() {
+        // A low-degree node, so the only strong force on it in the settle window is the
+        // snapshot spring: LinLog on one edge is `log1p(183) * 1.1`, about 5.8, far below both
+        // `max_force` 150 and the spring. The cap therefore cannot confound the two arms.
+        // (A 1,200-neighbour hub is the opposite case: LinLog saturates the cap, and the
+        // snapshot makes no measurable difference in the 2 s window, see ADR-2169 item 9.)
+        let leaf = PROBE.leaf(1, 0);
+        let live = Cfg {
+            held_node: leaf,
+            settle_steps: 100,
+            rest_steps: 0,
+            ..Cfg::live(PROBE, 183.0)
+        };
+        let Some(placed) = probe(live) else { return };
+        assert!(placed.finite);
+        assert!(
+            placed.window_from_drop < 5.0,
+            "the leaf stays within 5 units of where it was dropped through the settle window, \
+             moved {:.2}",
+            placed.window_from_drop
+        );
+        assert!(
+            placed.window_from_start > 0.9 * 183.0,
+            "and has not returned towards its pre-grab position: {:.2} of 183 from it",
+            placed.window_from_start
+        );
+        // The release of `1a16d43b3`: springs kept through the window, no gain, stored springK 12.
+        let before = Cfg {
+            keep_springs: true,
+            gain: Some(1.0),
+            spring_k: 12.0,
+            ..live
+        };
+        let Some(pulled) = probe(before) else { return };
+        eprintln!(
+            "[release] placed {:.3} vs springs kept {:.3}",
+            placed.window_from_drop, pulled.window_from_drop
+        );
+        assert!(
+            pulled.window_from_drop > 5.0 * placed.window_from_drop.max(0.5),
+            "control, the release of 1a16d43b3: the kept springs pull the leaf back {:.2} \
+             (placed: {:.2})",
+            pulled.window_from_drop,
+            placed.window_from_drop
+        );
     }
 }

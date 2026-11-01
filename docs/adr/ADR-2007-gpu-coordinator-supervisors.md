@@ -178,3 +178,7 @@ edit. **Still holds.**
 Governed-path delta since `f68ad414f`: `docs/GPU-wire-abi.md` wording only. The build-fallback sentence now says both a failure to launch `nvcc` and a non-zero exit reach the pre-compiled fallback (`ptx_policy::NvccOutcome::needs_fallback`), replacing stale `build.rs` line citations, and the ADR-2030 runtime-identity paragraph now states the check is inert in the runtime images. Nothing this record decides is changed; status axes unchanged. Re-run: `git diff f68ad414f..2f8a74118 -- docs/GPU-wire-abi.md`.
 
 Re-verified at `d184e89fb` after ADR-2173 added a section and an invariant to `docs/GPU-wire-abi.md`: the four supervisors are still spawned in `gpu_manager_actor.rs`, `GPUContextBus` still defines `publish` in `context_bus.rs`, no file under `src/actors/gpu/` changed in that commit, and the doc's "Analytics kernel trust status" section this record cites is unchanged.
+
+## Re-stamp — 2026-11-01 (ADR-2169 item 9, `phys/hold-springs`)
+
+**Governed change:** `GPU-wire-abi.md` gains the elastic hold-spring overlay section and its item 9 note. The GPU supervisors, their messages and the coordinator are unchanged. Re-stamped from `37d1226b1` to `bfaf6e77c`. Re-run: `git diff --stat 531df5ef7 bfaf6e77c -- docs/GPU-wire-abi.md` → `1 file changed, 12 insertions(+), 1 deletion(-)`.

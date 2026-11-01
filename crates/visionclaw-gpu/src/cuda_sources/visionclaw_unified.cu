@@ -436,7 +436,13 @@ __global__ void force_pass_kernel(
     const float* __restrict__ node_rank,
     // ADR-141 P2 stratified planes: per-node centered plane offset (nullptr =
     // no bias). NaN = node not assigned to any plane (no force).
-    const float* __restrict__ node_plane)
+    const float* __restrict__ node_plane,
+    // ADR-2169 amendment (spring mode while held): per-CSR-edge rest length
+    // captured at the moment a hold began. nullptr = overlay OFF (the stored
+    // LinLog behaviour, unchanged). Non-null = ADD a linear spring
+    // spring_k * (dist - rest) * edge_weight * spring_scale on top of the
+    // existing attraction, so the term is exactly zero at the moment of grab.
+    const float* __restrict__ edge_rest_snapshot)  // [num_edges] or nullptr
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (compute_mask != nullptr) {
@@ -596,6 +602,11 @@ __global__ void force_pass_kernel(
                     const float displacement = dist - ideal;
                     // Use FMA for spring force calculation
                     spring_force_mag = c_params.spring_k * displacement * edge_weights[i] * s;
+                }
+
+                // Elastic overlay (ADR-2169 amendment): nullptr outside a hold + its settle window.
+                if (edge_rest_snapshot != nullptr) {
+                    spring_force_mag += c_params.spring_k * (dist - edge_rest_snapshot[i]) * edge_weights[i] * s;
                 }
 
                 const float force_scale = spring_force_mag / dist;
@@ -910,6 +921,32 @@ extern "C" __global__ void cluster_cohesion_kernel(
 }
 
 // =============================================================================
+// Elastic overlay rest-length snapshot (ADR-2169 amendment, spring mode while held)
+// =============================================================================
+// One thread per node walks its CSR row and records the current edge length. Both
+// directions of an undirected edge get the same value because the length is
+// symmetric. Run once when the first hold begins; the force pass then adds
+// spring_k * (dist - rest) so the overlay is exactly zero at the moment of grab.
+__global__ void snapshot_edge_rest_kernel(
+    const float* __restrict__ pos_in_x,
+    const float* __restrict__ pos_in_y,
+    const float* __restrict__ pos_in_z,
+    const int* __restrict__ edge_row_offsets,
+    const int* __restrict__ edge_col_indices,
+    float* __restrict__ edge_rest_snapshot,
+    const int num_nodes)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= num_nodes) return;
+    const float3 my_pos = make_vec3(pos_in_x[idx], pos_in_y[idx], pos_in_z[idx]);
+    for (int i = edge_row_offsets[idx]; i < edge_row_offsets[idx + 1]; ++i) {
+        const int n = edge_col_indices[i];
+        const float3 np = make_vec3(pos_in_x[n], pos_in_y[n], pos_in_z[n]);
+        edge_rest_snapshot[i] = vec3_length(vec3_sub(np, my_pos));
+    }
+}
+
+// =============================================================================
 // Integration Pass Kernel
 // =============================================================================
 
@@ -1028,6 +1065,14 @@ __global__ void integrate_pass_kernel(
         vel.y = fmaf(force.y, dt_over_mass, vel.y) * effective_damping;
         vel.z = fmaf(force.z, dt_over_mass, vel.z) * effective_damping;
         vel = vec3_clamp(vel, c_params.max_velocity);
+        // Verlet never reads prev_force. Clearing it here means the first adaptive step
+        // after the elastic overlay ends starts with no stale swing memory (the same
+        // reset the pinned-node branch above performs on unpin).
+        if (prev_force_x != nullptr) {
+            prev_force_x[idx] = 0.0f;
+            prev_force_y[idx] = 0.0f;
+            prev_force_z[idx] = 0.0f;
+        }
     }
 
     // Simulated-annealing jitter: per-node random velocity perturbation whose
@@ -2261,7 +2306,13 @@ __global__ void force_pass_with_stability_kernel(
     const float* __restrict__ node_rank,
     // ADR-141 P2 stratified planes: per-node centered plane offset (nullptr =
     // no bias). NaN = node not assigned to any plane (no force).
-    const float* __restrict__ node_plane)
+    const float* __restrict__ node_plane,
+    // ADR-2169 amendment (spring mode while held): per-CSR-edge rest length
+    // captured at the moment a hold began. nullptr = overlay OFF (the stored
+    // LinLog behaviour, unchanged). Non-null = ADD a linear spring
+    // spring_k * (dist - rest) * edge_weight * spring_scale on top of the
+    // existing attraction, so the term is exactly zero at the moment of grab.
+    const float* __restrict__ edge_rest_snapshot)  // [num_edges] or nullptr
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (compute_mask != nullptr) {
@@ -2409,6 +2460,9 @@ __global__ void force_pass_with_stability_kernel(
                     }
                     float displacement = dist - ideal;
                     spring_force_mag = c_params.spring_k * displacement * edge_weights[i] * s;
+                }
+                if (edge_rest_snapshot != nullptr) {
+                    spring_force_mag += c_params.spring_k * (dist - edge_rest_snapshot[i]) * edge_weights[i] * s;
                 }
                 total_force = vec3_add(total_force, vec3_scale(diff, spring_force_mag / dist));
             }

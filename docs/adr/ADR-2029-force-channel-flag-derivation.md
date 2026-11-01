@@ -253,3 +253,7 @@ Re-verified at `d184e89fb` after ADR-2173 touched `execution.rs`: `derive_dispat
 
 ## Re-verification — 2026-11-01
 Re-verified at `d5c46cdd8`: `execute_physics_step` is still the single flag authority and `Constraints` is still read-only; the only `execution.rs` changes are the stage marks and the live-shape timing test. `cargo test --lib` 1774 passed, 0 failed.
+
+## Re-stamp — 2026-11-01 (ADR-2169 item 9, `phys/hold-springs`)
+
+**Governed change:** `execution.rs` gains the overlay pointer, the held-only gain (applied to `spring_k` and `max_force` after the feature word is derived) and GPU tests. `derive_dispatch_feature_flags` and `force_channels.rs` are unchanged, so the final feature word is as before; the force-flag tests pass. Re-stamped from `37d1226b1` to `bfaf6e77c`. Re-run: `git diff --stat 531df5ef7 bfaf6e77c -- src/utils/unified_gpu_compute/execution.rs` → `1 file changed, 765 insertions(+), 2 deletions(-)`.

@@ -1921,6 +1921,8 @@ impl Handler<ComputeForces> for ForceComputeActor {
             self.simulation_params.global_speed,
             self.reheat_factor,
         );
+        let elastic_overlay = overrides.elastic_overlay;
+        let hold_springs = overrides.hold_springs;
         let mut sim_params = self.simulation_params.clone();
         sim_params.damping = overrides.damping;
         sim_params.global_speed = overrides.global_speed;
@@ -1991,6 +1993,8 @@ impl Handler<ComputeForces> for ForceComputeActor {
 
                 add_phase(1, mutex_wait);
                 let exec_timer = Instant::now();
+                unified_compute.set_hold_overlay(elastic_overlay);
+                unified_compute.set_hold_springs(hold_springs);
                 let gpu_result = unified_compute.execute_physics_step_with_bypass(&sim_params, stability_bypass);
                 add_phase(2, exec_timer);
                 let execution_duration = step_start.elapsed().as_secs_f64() * 1000.0;
@@ -4346,6 +4350,56 @@ mod hold_physics_tests {
             "a stored speed above the floor is not lowered"
         );
     }
+
+    #[test]
+    fn the_elastic_overlay_is_on_for_a_hold_and_its_settle_window_only() {
+        let t0 = Instant::now();
+        let until = Some(t0 + std::time::Duration::from_secs(2));
+        let ov = |held: bool, settle: Option<Instant>, now: Instant| {
+            step_overrides(0, held, settle, now, 0.9, 0.4, 0.0).elastic_overlay
+        };
+        assert!(
+            !ov(false, None, t0),
+            "idle: stored LinLog and adaptive speed"
+        );
+        assert!(ov(true, None, t0), "held");
+        assert!(
+            ov(true, until, t0),
+            "a re-grab inside the settle window stays on"
+        );
+        assert!(
+            ov(false, until, t0 + std::time::Duration::from_millis(1999)),
+            "settling"
+        );
+        assert!(
+            !ov(false, until, t0 + std::time::Duration::from_secs(2)),
+            "off the moment the window ends"
+        );
+        assert!(
+            !ov(false, None, t0 + std::time::Duration::from_secs(1)),
+            "a cancelled settle window (release_settle_until = None) ends it at once"
+        );
+    }
+
+    #[test]
+    fn the_springs_run_while_held_and_stop_at_release_though_verlet_runs_on() {
+        let t0 = Instant::now();
+        let until = Some(t0 + std::time::Duration::from_secs(2));
+        let o = |held: bool, settle: Option<Instant>| {
+            step_overrides(0, held, settle, t0, 0.9, 0.4, 0.0)
+        };
+        assert!(o(true, None).hold_springs, "held: springs on");
+        assert!(
+            o(true, until).hold_springs,
+            "a re-grab inside the window: springs on"
+        );
+        let released = o(false, until);
+        assert!(
+            released.elastic_overlay && !released.hold_springs,
+            "settling: Verlet runs, nothing pulls the node back to its pre-grab shape"
+        );
+        assert!(!o(false, None).hold_springs, "idle: springs off");
+    }
 }
 
 #[cfg(test)]
@@ -4471,6 +4525,12 @@ pub(crate) struct StepOverrides {
     pub global_speed: f32,
     /// Per-step random velocity noise (the settings reheat).
     pub reheat: f32,
+    /// Spring mode while held (ADR-2169 amendment, owner-accepted 2026-11-01): the GPU adds a
+    /// linear spring overlay and integrates with Verlet. On for a hold and its settle window.
+    pub elastic_overlay: bool,
+    /// The overlay's spring term: a hold only. A release ends it so the node is placed where it
+    /// was dropped; the Verlet integrator still runs through the settle window.
+    pub hold_springs: bool,
 }
 
 /// Decide the stability bypass, damping and reheat for one step.
@@ -4479,6 +4539,8 @@ pub(crate) struct StepOverrides {
 ///   withheld: random per-step noise would fight the hand.
 /// * For `RELEASE_SETTLE_WINDOW` after the last release the GPU still steps every tick at the
 ///   same speed floor. Damping is always the stored value (owner, 2026-11-01).
+/// * The elastic spring overlay is on for exactly the same two spans (a hold, then the settle
+///   window) and off otherwise, so LinLog and adaptive speed return when it ends.
 /// * Otherwise the settings warmup and reheat apply as they always did.
 pub(crate) fn step_overrides(
     warmup_remaining: u32,
@@ -4499,6 +4561,8 @@ pub(crate) fn step_overrides(
         },
         damping: base_damping,
         reheat: if any_held || settling { 0.0 } else { reheat },
+        elastic_overlay: any_held || settling,
+        hold_springs: any_held,
     }
 }
 

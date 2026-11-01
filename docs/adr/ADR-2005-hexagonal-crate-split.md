@@ -361,3 +361,7 @@ layer assessment does not accept or re-test the new physical behaviour.
 
 ## Re-verification — 2026-11-01
 Re-verified at `d5c46cdd8`: the change is `StepTiming` kernel sub-phases in `force_compute_actor.rs` and stage marks in `execution.rs` (root crate only; no workspace edge added). `cargo test -p visionclaw-integration-tests --test layer_direction` passed (2 of 2). Note: root-crate `utils::unified_gpu_compute` now calls `actors::gpu::force_compute_actor::kernel_stage_*`, a module-level edge this crate-level test does not model.
+
+## Re-stamp — 2026-11-01 (ADR-2169 item 9, `phys/hold-springs`)
+
+**Governed change:** `force_compute_actor.rs` gains the `hold_springs` field on `StepOverrides`, one `set_hold_springs` call before the physics step and tests. No crate boundary, member or dependency edge changes; the actor extraction remains partial. Re-stamped from `fcb924be9` to `bfaf6e77c`. Re-run: `git diff --stat 531df5ef7 bfaf6e77c -- src/actors/gpu/force_compute_actor.rs` → `1 file changed, 64 insertions(+)`.
