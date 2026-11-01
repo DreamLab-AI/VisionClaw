@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: ff849f2baa4b0b47fcb1adb6c039a2ef72bbc5e6
 verified_paths: [src/utils/nip98.rs, docs/SECURITY-profiles.md]
 owner: jjohare
 review_trigger: horizontal scaling of the backend (replicas/load balancer), or any change to TOKEN_MAX_AGE_SECONDS
@@ -204,3 +204,7 @@ bounded as before. Solid-proxy URL reconstruction still handles forwarded URI
 separately; shared historical token fixtures remain to be exercised with an
 explicit clock. `/pay` still maps cache-capacity errors to 401 rather than the
 security profile's intended 503. ADR-2111's wallet migration remains proposed.
+
+## Re-verification — 2026-10-31 (`ff849f2ba`)
+
+Re-stamped at the merge of `phys/integrate` and `viz/edge-tracking` (`ff849f2ba`). The governed-path delta since `2107637d6` is the ADR-sprint work recorded in ADR-2169, 2172, 2173, 2174 and the 2026-11-01 consolidation commits. The delta was read from the diff, not re-run against this record's acceptance tests. Re-run: `git diff 2107637d6..ff849f2ba -- $(verified_paths)`.

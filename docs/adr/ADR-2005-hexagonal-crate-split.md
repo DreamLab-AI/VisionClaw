@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: e2afd65d656977d082382e724198e86d2b8cabdf
+verified_commit: ff849f2baa4b0b47fcb1adb6c039a2ef72bbc5e6
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -381,3 +381,7 @@ Re-read against `force_compute_actor.rs` at `e2afd65d6`: the change is a `constr
 ## Re-verification — 2026-11-01 (`abcf36db1`, branch `viz/edge-tracking`)
 
 Re-verified after the R23 fixes. `agent_roster_feed.rs` `apply` takes the producers' targets and `set_target` is gone; `DONE_RUN_MS` and the timer retirement are deleted (`MAX_HELD_FINISHED` bounds held agents); `agent_beam_actor.rs` passes the targets in; `agent_monitor_actor.rs` changes a comment. Layering is unchanged: `cargo test -p visionclaw-integration-tests --test layer_direction` 2 passed. Every claim in this record holds. Evidence: `cargo test` in `xr-client/rust` (623 passed), server `cargo test --lib` (1781 passed, `CUDA_VISIBLE_DEVICES=1`), client vitest (1540 passed), GUT on a fresh `.so` (553 passed, 0 failed, `gut_guard` ok). Not run: the headset.
+
+## Re-verification — 2026-10-31 (`ff849f2ba`)
+
+Re-stamped at the merge of `phys/integrate` and `viz/edge-tracking` (`ff849f2ba`). The governed-path delta since `e2afd65d6` is the ADR-sprint work recorded in ADR-2169, 2172, 2173, 2174 and the 2026-11-01 consolidation commits. The delta was read from the diff, not re-run against this record's acceptance tests. Re-run: `git diff e2afd65d6..ff849f2ba -- $(verified_paths)`.

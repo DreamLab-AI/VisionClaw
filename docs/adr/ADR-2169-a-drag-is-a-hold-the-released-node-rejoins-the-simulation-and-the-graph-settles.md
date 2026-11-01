@@ -9,7 +9,7 @@ supersedes: []
 superseded_by: []
 amends: [ADR-2140]
 relates: [ADR-2141, ADR-2172]
-verified_commit: e2afd65d656977d082382e724198e86d2b8cabdf
+verified_commit: ff849f2baa4b0b47fcb1adb6c039a2ef72bbc5e6
 verified_paths: [src/utils/unified_gpu_compute/hold_overlay.rs, src/utils/unified_gpu_compute/execution.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, src/actors/gpu/hold_registry.rs, src/actors/gpu/force_compute_actor.rs, src/actors/physics_orchestrator_actor.rs, src/handlers/socket_flow_handler/position_updates.rs, src/handlers/socket_flow_handler/types.rs, src/handlers/layout_handler.rs, scripts/drag-physics-acceptance.mjs]
 owner: jjohare
 review_trigger: the first headset session after the server carrying this change is deployed (does the graph answer the hand, does it rest about two seconds after release), or any change to the FA2 integrator or the stored `globalSpeed`.
@@ -79,3 +79,7 @@ Re-verified against two changes to governed paths since `f1fa1862c`. Re-run: `gi
 - `src/actors/gpu/force_compute_actor.rs` (already on `main`, not this branch; `git diff f1fa1862c 531df5ef7 -- src/actors/gpu/force_compute_actor.rs`): the settle window keeps the `HOLD_GLOBAL_SPEED` floor and damping is always the stored value (`RELEASE_SETTLE_DAMPING` deleted). Item 5 and item 6 above already say exactly this, so the record needs no change.
 
 Evidence: `cargo test --lib -- hold_physics_tests hold_registry socket_flow_handler stored_layout_mode`, 57 passed, 0 failed (`CUDA_VISIBLE_DEVICES=1`). Not repeated: the GPU tests on the A6000 and the acceptance script against a mock.
+
+## Re-verification — 2026-10-31 (`ff849f2ba`)
+
+Re-stamped at the merge of `phys/integrate` and `viz/edge-tracking` (`ff849f2ba`). The governed-path delta since `e2afd65d6` is the ADR-sprint work recorded in ADR-2169, 2172, 2173, 2174 and the 2026-11-01 consolidation commits. The delta was read from the diff, not re-run against this record's acceptance tests. Re-run: `git diff e2afd65d6..ff849f2ba -- $(verified_paths)`.
