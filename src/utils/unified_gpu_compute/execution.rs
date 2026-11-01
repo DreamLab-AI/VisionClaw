@@ -2609,7 +2609,7 @@ mod grid_gpu_tests {
 
 /// ADR-2029: the effect of `ENABLE_CONSTRAINTS` on positions, observed on the device.
 ///
-/// The kernel loops `for c < num_constraints`, so with nothing resident the bit is moot;
+/// The kernel walks the per-node constraint index, which is empty with nothing resident, so the bit is moot;
 /// to isolate the *bit* these tests keep the same constraint resident and change only
 /// `feature_flags`, calling `execute` directly. Every other force is zero, so only the
 /// constraint loop can move a node. A further test shows that the physics-step authority

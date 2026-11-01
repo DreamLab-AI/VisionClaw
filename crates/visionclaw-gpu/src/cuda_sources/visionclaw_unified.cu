@@ -944,8 +944,9 @@ extern "C" __global__ void cluster_cohesion_kernel(
 // =============================================================================
 // One thread per node walks its CSR row and records the current edge length. Both
 // directions of an undirected edge get the same value because the length is
-// symmetric. Run once when the first hold begins; the force pass then adds
-// spring_k * (dist - rest) so the overlay is exactly zero at the moment of grab.
+// symmetric. Run each time the hold springs switch on (hold_overlay.rs); the force pass
+// then reads the buffer through g_edge_rest_snapshot and adds spring_k * (dist - rest),
+// so the overlay is exactly zero at the moment of grab.
 __global__ void snapshot_edge_rest_kernel(
     const float* __restrict__ pos_in_x,
     const float* __restrict__ pos_in_y,
