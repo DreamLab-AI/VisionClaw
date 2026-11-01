@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: f1fa1862c00ad627af8f45249d51b94c3a1c238f
+verified_commit: 1385320196d744c474ff8266f664cc95ca6c7c7e
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -347,3 +347,8 @@ in this record's governed paths through `efbd7f6f080df06ecb580254bddabcee59d4fbf
 The manifest feature graph and consumer implementation are unchanged. Registry
 vault/core tests, strict Clippy, the actual local-module tests and the server
 library compile check pass; prior runtime and activation limits remain.
+
+Merged-tree verification: the governed paths at `1385320196d744c474ff8266f664cc95ca6c7c7e` differ from
+`f1fa1862c00ad627af8f45249d51b94c3a1c238f` only in the compiler minimum version.
+The incoming actor changes retain their preceding review and evidence above;
+this patch does not claim a fresh full review of the grab implementation.

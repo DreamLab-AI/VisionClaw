@@ -49,3 +49,10 @@ strict vault Clippy, 13 actual-local-module tests, module Clippy and the default
 server library compile check all passed again against registry 0.6.3.
 The consumer's existing producer does not call Ontomark migration/repair APIs;
 this dependency update does not transfer those features or retire that producer.
+
+The consumer branch then merged incoming main `434afb6b7` at `138532019`.
+Only ADR-2005 verification prose conflicted; both scoped records were retained.
+The shared-layout source and dependencies were unchanged by incoming work.
+A fresh default server library compile check and both dependency-direction tests
+passed on the combined tree. Incoming grab/client behaviour retains its own
+acceptance evidence; this receipt does not re-audit that feature.
