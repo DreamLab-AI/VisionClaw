@@ -42,7 +42,7 @@ timer ends the hold. The closed form and the shared constants are in ADR-2135.
 
 ## Where to look
 
-- `client/src/features/bots/agentMarkerPass.ts`, `agentTargetStore.ts`; `client/src/features/graph/utils/agentNudge.ts`
+- `client/src/features/bots/agentMarkerPass.ts`, `client/src/store/agentTargetStore.ts`; `client/src/features/graph/utils/agentNudge.ts`
 - `xr-client/scripts/agent_choreography.gd`; `xr-client/rust/src/render_store.rs` (`build_beam_buffer`)
 - `src/actors/agent_roster_feed.rs`, `src/actors/agent_beam_actor.rs`
 - Fixture shared by the server, XR and desktop tests: `tests/fixtures/agents/real-agent-frames.v1.json`
