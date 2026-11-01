@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158]
-verified_commit: f1fa1862c00ad627af8f45249d51b94c3a1c238f
+verified_commit: 03ddc61e1970411e149905d2af9f41c4f27cdc0f
 verified_paths: [xr-client/scripts/space_portals.gd, xr-client/scripts/spatial_volume.gd, xr-client/scripts/emulated_volume.gd, xr-client/scripts/volume_arrangement.gd, xr-client/scripts/graph_scene.gd, xr-client/scripts/hud.gd, xr-client/scripts/xr_prefs.gd, xr-client/materials/portal_membrane.gdshader]
 owner: jjohare
 review_trigger: the first headset session with Enter used (stereo membranes, 90 Hz with an entered 6 m room, comfort of the dim); or XE merging FrameBudgetPass.set_volume_weights
@@ -68,3 +68,5 @@ Re-verified 2026-11-01 at `232130a64` (xr/grab-client, ADR-2172 review fixes). T
 ## Re-verification — 2026-10-31 (`f1fa1862c`)
 
 Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (ADR-2172), client/three-0187 and docs/splat-adr, each Opus-reviewed (R15/R16/R17). The governed-path changes are those merges: drag holds and release in the GPU actor and socket handler, the held-only global_speed floor, two-hand grab and the edge breathe in the XR client, and the ADR 2168->2172 comment renames. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1768 passed, 0 failed (GPU 1); vitest 142 files / 1468 (installed three 0.183; the 0.187 run is on client/three-0187); XR GUT 522 passing on 4.6.1 and 4.8 at the grab-client head. Re-run: `git diff 2257ee7fa..f1fa1862c -- <governed path>`.
+
+Re-verified 2026-11-01 at `03ddc61e1` (viz/edge-tracking). The only change to `xr-client/scripts/graph_scene.gd` is one comment in `_physics_process` (the far ribbon tier is now re-transformed every frame, not half per frame). Nothing this record decides changed. Evidence: `git diff 531df5ef7..03ddc61e1 -- xr-client/scripts/graph_scene.gd` (2 lines).

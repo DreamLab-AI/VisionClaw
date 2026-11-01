@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 838e06c13
+verified_commit: 03ddc61e1970411e149905d2af9f41c4f27cdc0f
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -183,4 +183,4 @@ Re-verified 2026-11-01 at `232130a64` (xr/grab-client, ADR-2172 review fixes). T
 
 Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (ADR-2172), client/three-0187 and docs/splat-adr, each Opus-reviewed (R15/R16/R17). The governed-path changes are those merges: drag holds and release in the GPU actor and socket handler, the held-only global_speed floor, two-hand grab and the edge breathe in the XR client, and the ADR 2168->2172 comment renames. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1768 passed, 0 failed (GPU 1); vitest 142 files / 1468 (installed three 0.183; the 0.187 run is on client/three-0187); XR GUT 522 passing on 4.6.1 and 4.8 at the grab-client head. Re-run: `git diff 2257ee7fa..f1fa1862c -- <governed path>`.
 
-Re-verified 2026-11-01 at `838e06c13` (viz/edge-tracking). `xr-client/rust/src/render_store.rs` gains seven edge/node coincidence tests, appended after the last test so no cited line moves, and `render_store_pack.rs` re-transforms the far-tier ribbons every frame instead of half per frame. Nothing this record decides changed. Evidence: `git diff 531df5ef7..838e06c13 -- xr-client/rust/src/render_store.rs xr-client/rust/src/render_store_pack.rs`; xr-client `cargo test` passes (486 library tests).
+Re-verified 2026-11-01 at `03ddc61e1` (viz/edge-tracking). `xr-client/rust/src/render_store.rs` gains seven edge/node coincidence tests, appended after the last test so no cited line moves, and `render_store_pack.rs` and `tests/node_lod.rs` re-transform the far-tier ribbons every frame instead of half per frame. Nothing this record decides changed. Evidence: `git diff 531df5ef7..838e06c13 -- xr-client/rust/src/render_store.rs xr-client/rust/src/render_store_pack.rs`; xr-client `cargo test` passes (486 library tests).
