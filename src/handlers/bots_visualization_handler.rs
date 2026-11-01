@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::{Duration, Instant};
 
+use crate::actors::agent_roster_feed::RosterSource;
 use crate::actors::messages::UpdateBotsGraph;
 use crate::ok_json;
 use crate::services::agent_visualization_protocol::{
@@ -334,7 +335,6 @@ pub struct MockAgentsRequest {
 #[derive(Debug, Serialize)]
 struct MockAgentResult {
     id: String,
-    node_id: u32,
     edges_to: Vec<u32>,
 }
 
@@ -344,16 +344,14 @@ struct MockAgentResult {
 /// angle spiral (radius ~30 units) and connected to 3-5 random knowledge nodes
 /// with relationship edges ("reads", "modifies", "monitors").
 pub async fn inject_mock_agents(
+    _auth: crate::settings::auth_extractor::AuthenticatedUser,
     req: web::Json<MockAgentsRequest>,
     app_state: web::Data<AppState>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let bot_id_offset: u32 = 10_000;
     let agent_count = req.agents.len() as f32;
 
-    let edge_labels = ["reads", "modifies", "monitors"];
-
-    // Gather knowledge node IDs from the existing graph so we can create
-    // cross-edges. We read from graph_service_addr via a GetGraphData message.
+    // Gather knowledge node IDs from the existing graph so each mock agent gets a
+    // real node to work on. Read via a GetGraphData message.
     let knowledge_ids: Vec<u32> = {
         use crate::actors::messages::GetGraphData;
         match app_state.graph_service_addr.send(GetGraphData).await {
@@ -385,7 +383,6 @@ pub async fn inject_mock_agents(
     };
 
     for (i, def) in req.agents.iter().enumerate() {
-        let node_id = bot_id_offset + i as u32;
 
         // Golden angle spiral position at radius ~30
         let golden_angle = std::f64::consts::PI * (3.0 - 5.0_f64.sqrt());
@@ -441,52 +438,25 @@ pub async fn inject_mock_agents(
 
         results.push(MockAgentResult {
             id: def.id.clone(),
-            node_id,
             edges_to: edge_targets,
         });
     }
 
-    // Send UpdateBotsGraph with agent-to-knowledge edges baked in.
-    // The UpdateBotsGraph handler in GraphStateActor already creates inter-agent
-    // edges; we extend it by also sending a separate message for knowledge edges.
-    // However, UpdateBotsGraph only takes agents — knowledge edges are injected
-    // via a custom approach: we store them in agent metadata so the handler
-    // can read them, OR we post-process. For simplicity, we send the agents
-    // now and then inject knowledge edges directly.
-    app_state
-        .graph_service_addr
-        .do_send(UpdateBotsGraph { agents });
-
-    // Inject agent→knowledge edges via AddEdgeBatch if available,
-    // or via individual AddEdge messages. We use the graph_state_actor
-    // approach: send an InjectMockEdges message. Since that message doesn't
-    // exist yet, we create the edges in a follow-up UpdateBotsGraph extension.
-    // For now, the cross-edges are reported in the response and the graph_state_actor
-    // handler already creates inter-agent edges. The knowledge edges are injected
-    // via a dedicated AddEdge call through GraphServiceSupervisor.
-    {
-        use crate::actors::messages::AddEdge;
-        for result in &results {
-            for (j, &target_id) in result.edges_to.iter().enumerate() {
-                let label_idx = j % edge_labels.len();
-                let mut edge =
-                    visionclaw_domain::models::edge::Edge::new(result.node_id, target_id, 0.3);
-                edge.edge_type = Some(edge_labels[label_idx].to_string());
-                let metadata = edge
-                    .metadata
-                    .get_or_insert_with(std::collections::HashMap::new);
-                metadata.insert("mock_agent_edge".to_string(), "true".to_string());
-                metadata.insert(
-                    "interaction".to_string(),
-                    edge_labels[label_idx].to_string(),
-                );
-                app_state.graph_service_addr.do_send(AddEdge { edge });
-            }
-        }
-    }
+    // Mock agents are embodied like every agent (ADR-2142 amendment 2026-11-01): the
+    // real-agent producer sends their `0x23` presence frames, each working on the first
+    // knowledge node picked for it. Nothing touches the graph or Oxigraph.
+    let targets: Vec<(String, u32)> = results
+        .iter()
+        .filter_map(|r| r.edges_to.first().map(|&t| (r.id.clone(), t)))
+        .collect();
+    app_state.graph_service_addr.do_send(UpdateBotsGraph {
+        source: RosterSource::Mock,
+        agents,
+        targets,
+    });
 
     info!(
-        "Injected {} mock agents with knowledge edges into graph",
+        "Injected {} mock agents into the roster",
         results.len()
     );
 
@@ -495,7 +465,6 @@ pub async fn inject_mock_agents(
         "injected": results.len(),
         "agents": results.iter().map(|r| json!({
             "id": r.id,
-            "node_id": r.node_id,
             "edges_to_knowledge": r.edges_to,
         })).collect::<Vec<_>>(),
     }))

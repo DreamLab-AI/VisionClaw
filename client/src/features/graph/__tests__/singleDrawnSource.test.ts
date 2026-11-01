@@ -75,37 +75,56 @@ describe('one drawn-positions source', () => {
   })
 })
 
-// The agent overlay (membrane, nameplate, trail, collaboration edges, payment labels) is drawn from the
-// same array as the gem. It holds no position source and no nudge of its own.
-describe('the bots overlay has no second agent path', () => {
+// ADR-2142 / ADR-2135 (owner rule, 2026-11-01): agents are not graph nodes. Every agent reaches the desktop only as
+// 0x23 frames; the client registry is the one source of embodiment and the marker pass the one position writer.
+describe('agents have ONE position path: the marker map', () => {
   const files = sources(SRC)
-  const OVERLAY = [
+  const read = (rel: string) => readFileSync(join(SRC, rel), 'utf8')
+
+  it.each([
     'features/bots/components/BotsVisualization.tsx',
     'features/bots/components/BotsNode.tsx',
     'features/bots/components/BotsEdges.tsx',
-    'features/bots/components/AgentTrail.tsx',
-    'features/bots/chain/ChainPaymentLabels.tsx',
-    'features/bots/components/BotsShared.tsx',
-  ]
-  const read = (rel: string) => readFileSync(join(SRC, rel), 'utf8')
-
-  it.each(OVERLAY)('%s reads no agent.position, no server position map and no nudge', (rel) => {
-    const src = read(rel)
-    expect(src).not.toMatch(/agent\.position/)
-    expect(src).not.toMatch(/nudgeTargets|targetPositionRef|lerpVector3|positionsRef|useAgentTargetStore|initial_calculation/)
+    'features/bots/agentDrawnPosition.ts',
+  ])('%s is deleted', (rel) => {
+    expect(existsSync(join(SRC, rel))).toBe(false)
   })
 
-  it.each(['features/bots/components/BotsNode.tsx', 'features/bots/components/BotsEdges.tsx', 'features/bots/chain/ChainPaymentLabels.tsx'])(
-    '%s takes agent positions from the drawn array through agentDrawnPosition',
-    (rel) => {
-      expect(read(rel)).toContain('agentDrawnPosition')
-    },
-  )
+  it('the drawn-positions array has no agent pass and no agent slots', () => {
+    const src = read('features/graph/utils/drawnPositions.ts')
+    expect(src).not.toMatch(/applyAgents|AgentSlot|resolveAgentSlots|liveAgentPassDeps|stepAgentOffset/)
+    expect(read('features/graph/components/GraphManager.tsx')).not.toMatch(/applyAgents|agentSlots|resolveAgentSlots|isVirtualAgentId/)
+  })
 
-  it('agentDrawnPosition is the one resolver, and it resolves through resolveNodeWorldPosition', () => {
-    const src = read('features/bots/agentDrawnPosition.ts')
-    expect(src).toContain('resolveNodeWorldPosition')
-    expect(src).toContain('sharedNodePositions')
+  it('stepAgentOffset has one caller: the marker pass', () => {
+    const hits = files.filter(f => /stepAgentOffset\(/.test(readFileSync(f, 'utf8'))).map(f => f.replace(SRC, '')).sort()
+    expect(hits).toEqual(['/features/bots/agentMarkerPass.ts', '/features/graph/utils/agentNudge.ts'])
+  })
+
+  it('GraphManager runs the marker pass once, and resolves beam sources from the marker map only', () => {
+    const gm = read('features/graph/components/GraphManager.tsx')
+    expect(gm.match(/agentMarkers\.step\(/g)).toHaveLength(1)
+    expect(gm).toContain('agentMarkerPosition')
+    expect(gm).not.toMatch(/resolveVirtualAgentPosition/)
+  })
+
+  it('the marker layer draws every registry agent, not the six reserved roles', () => {
+    const src = read('features/visualisation/components/VirtualAgentMarkers.tsx')
+    expect(src).not.toMatch(/VIRTUAL_ROLES\.forEach|resolveVirtualAgentPosition/)
+    expect(src).toContain('agentMarkers')
+  })
+
+  it('no features/bots component reads a position other than the marker map', () => {
+    const bots = files.filter(f => f.includes('/features/bots/') && f.endsWith('.tsx'))
+    for (const f of bots) {
+      const src = readFileSync(f, 'utf8')
+      expect(src, f).not.toMatch(/agent\.position|agentDrawnPosition|sharedNodePositions|resolveNodeWorldPosition|nodePositionsRef/)
+    }
+  })
+
+  it('BotsAgent has no position or velocity, and the context has no binary position handler', () => {
+    expect(read('features/bots/types/BotsTypes.ts')).not.toMatch(/position\?:|velocity\?:|lastPositionUpdate/)
+    expect(read('features/bots/contexts/BotsDataContext.tsx')).not.toMatch(/updateFromBinaryPositions|bots-binary-position-update|parseBinaryFrameData/)
   })
 
   it('nothing else in the client reads agent.position for drawing', () => {

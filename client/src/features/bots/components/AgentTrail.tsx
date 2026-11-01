@@ -2,8 +2,8 @@
  * AgentTrail.tsx
  * A fading motion-trail ribbon behind a single agent body — "watch the swarm move".
  *
- * The trail source is the agent's drawn world position, the one the gem is drawn at
- * (`agentDrawnPosition`, resolved in this layer's own frame so it never lags the body).
+ * The trail source is the agent's marker position, the one the marker is drawn at and its beams start
+ * from (`agentMarkerPosition`, the marker pass's map: ADR-2142 / ADR-2135).
  * This layer is mounted as a SIBLING of the moving agent group, so its
  * vertices live in the same parent (world) space and stay put while the agent flies
  * on — a genuine trail, not a rigid attachment.
@@ -12,16 +12,16 @@
  * agent (displacement < epsilon) grows no trail, and a moving one decays its tail by
  * ring-buffer rotation (the fixed-length buffer overwrites the oldest sample).
  *
- * Rendering follows the repo idioms (cf. TransientBeamsLayer, BotsEdges): a single
+ * Rendering follows the repo idioms (cf. TransientBeamsLayer, AgentCollabEdges): a single
  * THREE.Line whose position + colour attributes are pre-allocated once and mutated in
  * place — zero per-frame allocation. The oldest→newest fade is baked into the vertex
- * colours under additive blending (the bioluminescent idiom shared with BotsNode's
- * nucleus glow), so a fading vertex tends to black = transparent, exactly the
+ * colours under additive blending (the bioluminescent idiom shared with the agent
+ * overlay), so a fading vertex tends to black = transparent, exactly the
  * opacity-envelope shape TransientBeamsLayer uses for its beams.
  */
 import React, { useMemo, useRef, useEffect, useLayoutEffect } from 'react';
 import * as THREE from 'three';
-import { agentDrawnPosition } from '../agentDrawnPosition';
+import { agentMarkerPosition } from '../agentMarkerPass';
 import { useFrame } from '@react-three/fiber';
 
 /* R3F maps three.js props onto JSX host elements (args, position, rotation, intensity...);
@@ -148,12 +148,17 @@ function writeTrailColors(
 // Component
 // ---------------------------------------------------------------------------
 
+/** The point a trail samples for an agent: its marker position, and nothing else. */
+export function trailSamplePoint(wireId: number | string, out: { set(x: number, y: number, z: number): unknown }): boolean {
+  return agentMarkerPosition(wireId, out);
+}
+
 /** Scratch for the per-frame sample; the trail copies out of it, so one is shared. */
 const _sample = new THREE.Vector3();
 
 export interface AgentTrailProps {
-  /** The agent's wire id; its drawn position is sampled each frame (see `agentDrawnPosition`). */
-  agentId: string;
+  /** The agent's wire id; its marker position is sampled each frame (see `trailSamplePoint`). */
+  wireId: number;
   /** Trail colour — the agent's status colour (with swarm tint already applied when enabled). */
   color: string;
   /** Ring capacity (samples retained); clamped to [TRAIL_MIN_LENGTH, TRAIL_MAX_LENGTH]. */
@@ -167,7 +172,7 @@ export interface AgentTrailProps {
 }
 
 export const AgentTrail: React.FC<AgentTrailProps> = ({
-  agentId,
+  wireId,
   color,
   length = TRAIL_DEFAULT_LENGTH,
   sampleIntervalMs = TRAIL_SAMPLE_MS,
@@ -236,7 +241,7 @@ export const AgentTrail: React.FC<AgentTrailProps> = ({
     if (now - lastSampleRef.current < sampleIntervalMs / 1000) return;
 
     const p = _sample;
-    if (!agentDrawnPosition(agentId, p)) return;
+    if (!trailSamplePoint(wireId, p)) return;
     const prev = hasSampleRef.current ? prevSampleRef.current : null;
     // Idle agents grow no trail; only a genuine move seeds/extends the buffer.
     if (!shouldSample(prev, p, epsilon)) return;

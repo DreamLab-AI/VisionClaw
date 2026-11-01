@@ -71,10 +71,6 @@ pub struct GraphStateActor {
 
     node_map: Arc<HashMap<u32, Node>>,
 
-    bots_graph_data: Arc<GraphData>,
-    /// S5: latest sidechain payment projection, re-applied on every roster
-    /// update because bots node ids are reassigned each time.
-    chain_payments: Option<Arc<crate::services::chain_payments::ChainPaymentsSnapshot>>,
 
     next_node_id: std::sync::atomic::AtomicU32,
 
@@ -111,8 +107,6 @@ impl GraphStateActor {
             repository,
             graph_data: Arc::new(GraphData::new()),
             node_map: Arc::new(HashMap::new()),
-            bots_graph_data: Arc::new(GraphData::new()),
-            chain_payments: None,
             next_node_id: std::sync::atomic::AtomicU32::new(1),
             metadata_store: HashMap::new(),
             knowledge_node_ids: HashSet::new(),
@@ -1075,161 +1069,9 @@ impl Handler<UpdateGraphData> for GraphStateActor {
     }
 }
 
-impl Handler<GetBotsGraphData> for GraphStateActor {
-    type Result = Result<Arc<GraphData>, String>;
-
-    fn handle(&mut self, _msg: GetBotsGraphData, _ctx: &mut Context<Self>) -> Self::Result {
-        Ok(Arc::clone(&self.bots_graph_data))
-    }
-}
-
-impl Handler<UpdateBotsGraph> for GraphStateActor {
-    type Result = ();
-
-    fn handle(&mut self, msg: UpdateBotsGraph, _ctx: &mut Context<Self>) -> Self::Result {
-        let mut nodes = vec![];
-        let mut edges = vec![];
-
-        let bot_id_offset = 10000;
-
-        let mut existing_positions: HashMap<
-            String,
-            (crate::types::vec3::Vec3Data, crate::types::vec3::Vec3Data),
-        > = HashMap::new();
-        for node in &self.bots_graph_data.nodes {
-            existing_positions.insert(
-                node.metadata_id.clone(),
-                (node.data.position().into(), node.data.velocity().into()),
-            );
-        }
-
-        for (i, agent) in msg.agents.iter().enumerate() {
-            let node_id = bot_id_offset + i as u32;
-            let mut node = Node::new_with_id(agent.id.clone(), Some(node_id));
-
-            if let Some((saved_position, saved_velocity)) = existing_positions.get(&agent.id) {
-                node.data.x = saved_position.x;
-                node.data.y = saved_position.y;
-                node.data.z = saved_position.z;
-                node.data.vx = saved_velocity.x;
-                node.data.vy = saved_velocity.y;
-                node.data.vz = saved_velocity.z;
-            } else {
-                self.generate_random_position(&mut node);
-            }
-
-            node.color = Some(match agent.agent_type.as_str() {
-                "coordinator" => "#FF6B6B".to_string(),
-                "researcher" => "#4ECDC4".to_string(),
-                "coder" => "#45B7D1".to_string(),
-                "analyst" => "#FFA07A".to_string(),
-                "architect" => "#98D8C8".to_string(),
-                "tester" => "#F7DC6F".to_string(),
-                _ => "#95A5A6".to_string(),
-            });
-
-            node.label = agent.name.clone();
-            node.size = Some(20.0 + (agent.workload * 25.0));
-
-            node.metadata
-                .insert("agent_type".to_string(), agent.agent_type.clone());
-            node.metadata
-                .insert("status".to_string(), agent.status.clone());
-            node.metadata
-                .insert("cpu_usage".to_string(), agent.cpu_usage.to_string());
-            node.metadata
-                .insert("memory_usage".to_string(), agent.memory_usage.to_string());
-            node.metadata
-                .insert("health".to_string(), agent.health.to_string());
-            node.metadata
-                .insert("is_agent".to_string(), "true".to_string());
-
-            // PRD-023 WP-9 M4: carry the agent's validated did:nostr onto the
-            // graph node so it rides `initialGraphLoad` to the Godot XR client
-            // (parse_agent_identities). Absent for agents without a DID.
-            if let Some(did) = &agent.did_nostr {
-                if !did.is_empty() {
-                    node.metadata.insert("did_nostr".to_string(), did.clone());
-                }
-            }
-
-            nodes.push(node);
-        }
-
-        for (i, source_agent) in msg.agents.iter().enumerate() {
-            for (j, target_agent) in msg.agents.iter().enumerate() {
-                if i != j {
-                    let source_node_id = bot_id_offset + i as u32;
-                    let target_node_id = bot_id_offset + j as u32;
-
-                    let communication_intensity = if source_agent.agent_type == "coordinator"
-                        || target_agent.agent_type == "coordinator"
-                    {
-                        0.8
-                    } else if source_agent.status == "active" && target_agent.status == "active" {
-                        0.5
-                    } else {
-                        0.2
-                    };
-
-                    if communication_intensity > 0.1 {
-                        let mut edge =
-                            Edge::new(source_node_id, target_node_id, communication_intensity);
-                        let metadata = edge.metadata.get_or_insert_with(HashMap::new);
-                        metadata.insert(
-                            "communication_type".to_string(),
-                            "agent_collaboration".to_string(),
-                        );
-                        metadata
-                            .insert("intensity".to_string(), communication_intensity.to_string());
-                        edges.push(edge);
-                    }
-                }
-            }
-        }
-
-        let bots_graph_data_mut = Arc::make_mut(&mut self.bots_graph_data);
-        bots_graph_data_mut.nodes = nodes;
-        bots_graph_data_mut.edges = edges;
-        // S5: node ids are reassigned on every roster update, so the sidechain
-        // payment edges are re-resolved by did:nostr against the new nodes.
-        crate::services::chain_payments::apply_to_bots_graph(
-            bots_graph_data_mut,
-            self.chain_payments.as_deref(),
-        );
-
-        // Classify all bots_graph_data nodes as agent nodes so binary protocol
-        // sets bit 31 for them via NodeTypeArrays.
-        for node in &self.bots_graph_data.nodes {
-            self.agent_node_ids.insert(node.id);
-        }
-
-        info!(
-            "Updated bots graph with {} agents and {} edges (agent_node_ids={})",
-            msg.agents.len(),
-            self.bots_graph_data.edges.len(),
-            self.agent_node_ids.len()
-        );
-    }
-}
-
-impl Handler<UpdateChainPayments> for GraphStateActor {
-    type Result = ();
-
-    fn handle(&mut self, msg: UpdateChainPayments, _ctx: &mut Context<Self>) -> Self::Result {
-        self.chain_payments = msg.snapshot;
-        let bots = Arc::make_mut(&mut self.bots_graph_data);
-        crate::services::chain_payments::apply_to_bots_graph(bots, self.chain_payments.as_deref());
-        debug!(
-            "Applied chain payments to bots graph: {} chain_payment edges",
-            bots.edges
-                .iter()
-                .filter(|e| e.edge_type.as_deref()
-                    == Some(visionclaw_domain::models::edge::CHAIN_PAYMENT_EDGE_TYPE))
-                .count()
-        );
-    }
-}
+// Swarm agents are not graph nodes (ADR-2142 amendment 2026-11-01): rosters, the
+// `/bots/data` view and the S5 payment projection belong to the real-agent producer,
+// `AgentBeamActor`. This actor no longer holds a bots graph.
 
 impl Handler<ReloadGraphFromDatabase> for GraphStateActor {
     type Result = ResponseActFuture<Self, Result<(), String>>;

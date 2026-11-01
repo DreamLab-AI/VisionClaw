@@ -62,7 +62,12 @@ use actix::prelude::*;
 use log::{debug, error, info, warn};
 use tokio::sync::broadcast::error::{RecvError, TryRecvError};
 
-use crate::actors::messages::BroadcastAgentActionFrame;
+use std::sync::{Arc, Mutex};
+
+use crate::actors::agent_roster_feed::{wire_clock, RosterFeed};
+use crate::actors::messages::{
+    BroadcastAgentActionFrame, GetBotsGraphData, UpdateBotsGraph, UpdateChainPayments,
+};
 use crate::actors::ClientCoordinatorActor;
 use crate::agent_events;
 use crate::utils::binary_protocol::{encode_agent_actions, AgentActionEvent};
@@ -178,25 +183,133 @@ fn project_action(envelope: &agent_events::schema::AgentActionEnvelope) -> Agent
     event
 }
 
-/// Subscribes to the agent-action hub and broadcasts encoded `0x23` frames.
+/// [`project_action`], then join the action to the roster agent its metadata names
+/// (`taskId`), so a real agent's work and its presence are one registry entry on both
+/// clients, on one timestamp clock (ADR-2142 amendment 2026-11-01).
+fn project_joined(
+    envelope: &agent_events::schema::AgentActionEnvelope,
+    feed: &Mutex<RosterFeed>,
+) -> AgentActionEvent {
+    let mut event = project_action(envelope);
+    if let Ok(mut f) = feed.lock() {
+        f.join(&mut event, &envelope.metadata);
+    }
+    event
+}
+
+/// The real-agent `0x23` producer: subscribes to the agent-action hub and broadcasts
+/// encoded frames, and turns swarm rosters into presence and state frames
+/// ([`RosterFeed`]). The demo director is the only other producer (ADR-2142).
 pub struct AgentBeamActor {
     /// Fan-out target. The coordinator owns the client registry and the binary
     /// `send_binary` dispatch loop; this actor never touches client state.
     coordinator: Addr<ClientCoordinatorActor>,
+    /// The real-agent roster, shared with the hub task for the task-id join.
+    feed: Arc<Mutex<RosterFeed>>,
+    /// S5: latest sidechain payment projection, applied to the roster view.
+    chain_payments: Option<Arc<crate::services::chain_payments::ChainPaymentsSnapshot>>,
 }
 
 impl AgentBeamActor {
     pub fn new(coordinator: Addr<ClientCoordinatorActor>) -> Self {
-        Self { coordinator }
+        Self {
+            coordinator,
+            feed: Arc::new(Mutex::new(RosterFeed::new())),
+            chain_payments: None,
+        }
+    }
+
+    fn broadcast(&self, events: Vec<AgentActionEvent>) {
+        if events.is_empty() {
+            return;
+        }
+        if let Err(e) = self
+            .coordinator
+            .try_send(BroadcastAgentActionFrame(encode_agent_actions(&events)))
+        {
+            warn!("AgentBeamActor: roster frame not sent ({} event(s)): {}", events.len(), e);
+        }
+    }
+}
+
+fn now_wire_ts() -> u32 {
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    wire_clock(ms)
+}
+
+/// Roster keep-alive tick.
+const ROSTER_TICK: Duration = Duration::from_millis(1_000);
+
+impl Handler<UpdateBotsGraph> for AgentBeamActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: UpdateBotsGraph, _ctx: &mut Self::Context) -> Self::Result {
+        let events = match self.feed.lock() {
+            Ok(mut f) => {
+                let events = f.apply(msg.source, &msg.agents, now_wire_ts());
+                for (key, node) in &msg.targets {
+                    f.set_target(key, *node);
+                }
+                info!(
+                    "AgentBeamActor: roster from {:?}: {} live agents, {} frame(s)",
+                    msg.source,
+                    f.len(),
+                    events.len()
+                );
+                events
+            }
+            Err(_) => return,
+        };
+        self.broadcast(events);
+    }
+}
+
+impl Handler<GetBotsGraphData> for AgentBeamActor {
+    type Result = Result<Arc<visionclaw_domain::models::graph::GraphData>, String>;
+
+    /// The `/bots/data` roster view: records keyed by wire id, collaboration and S5
+    /// payment edges between them. Not a position source.
+    fn handle(&mut self, _msg: GetBotsGraphData, _ctx: &mut Self::Context) -> Self::Result {
+        let mut view = self
+            .feed
+            .lock()
+            .map_err(|_| "roster lock poisoned".to_string())?
+            .view();
+        crate::services::chain_payments::apply_to_bots_graph(
+            &mut view,
+            self.chain_payments.as_deref(),
+        );
+        Ok(Arc::new(view))
+    }
+}
+
+impl Handler<UpdateChainPayments> for AgentBeamActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: UpdateChainPayments, _ctx: &mut Self::Context) -> Self::Result {
+        self.chain_payments = msg.snapshot;
     }
 }
 
 impl Actor for AgentBeamActor {
     type Context = Context<Self>;
 
-    fn started(&mut self, _ctx: &mut Self::Context) {
+    fn started(&mut self, ctx: &mut Self::Context) {
         let coordinator = self.coordinator.clone();
         let mut rx = agent_events::hub::subscribe();
+        let feed = Arc::clone(&self.feed);
+
+        // Roster keep-alives: every live agent's state every 5 s, under the clients' TTL.
+        ctx.run_interval(ROSTER_TICK, |act, _ctx| {
+            let events = match act.feed.lock() {
+                Ok(mut f) => f.tick(ROSTER_TICK.as_millis() as u64, now_wire_ts()),
+                Err(_) => return,
+            };
+            act.broadcast(events);
+        });
 
         // Single forwarding task with BOUNDED COALESCING backpressure.
         //
@@ -225,7 +338,7 @@ impl Actor for AgentBeamActor {
                 if coalescer.is_empty() {
                     match rx.recv().await {
                         Ok(env) => {
-                            coalescer.push(project_action(&env));
+                            coalescer.push(project_joined(&env, &feed));
                         }
                         Err(RecvError::Lagged(skipped)) => {
                             warn!(
@@ -241,7 +354,7 @@ impl Actor for AgentBeamActor {
                 } else {
                     match tokio::time::timeout(FLUSH_RETRY_INTERVAL, rx.recv()).await {
                         Ok(Ok(env)) => {
-                            coalescer.push(project_action(&env));
+                            coalescer.push(project_joined(&env, &feed));
                         }
                         Ok(Err(RecvError::Lagged(skipped))) => {
                             warn!(
@@ -263,7 +376,7 @@ impl Actor for AgentBeamActor {
                 while coalescer.len() < MAX_COALESCE_PER_FLUSH {
                     match rx.try_recv() {
                         Ok(env) => {
-                            coalescer.push(project_action(&env));
+                            coalescer.push(project_joined(&env, &feed));
                         }
                         Err(TryRecvError::Empty) => break,
                         Err(TryRecvError::Lagged(skipped)) => {

@@ -1,13 +1,13 @@
 // W3D — agent nameplate LOD. Unit-tests the pure distance→tier classifier that
 // declutters dense swarms: full 3-line nameplate up close, name-only mid-range,
 // hidden far, with ±10% directional hysteresis and a near-field density cap.
-// The function is imported from BotsNode (its sole home) but exercised in
+// The function is imported from nameplateTier but exercised in
 // isolation — no R3F canvas is mounted.
 
 import { describe, it, expect } from 'vitest';
-import { computeNameplateTier, type NameplateTierOpts, type NameplateTier } from '../BotsNode';
+import { computeNameplateTier, type NameplateTierOpts, type NameplateTier } from '../../nameplateTier';
 
-// Defaults mirror BotsNode: D1 = 40, D2 = 40 × 2.25 = 90, h = 0.1.
+// Defaults mirror AgentNameplate: D1 = 40, D2 = 40 × 2.25 = 90, h = 0.1.
 // ⇒ D1 band [36, 44), name band [44, 81), D2 band [81, 99).
 const D1 = 40;
 const D2 = 90;

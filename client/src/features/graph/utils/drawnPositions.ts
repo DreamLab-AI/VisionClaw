@@ -1,85 +1,21 @@
 /**
- * The ONE drawn-positions array of the desktop client.
+ * The ONE drawn-positions array of the desktop client (graph nodes).
  *
- * Each frame GraphManager copies the worker's shared position buffer once into this array and
- * applies the agent drift, the momentum nudge and the drag hand position to the copy once.
- * Everything that needs to know where a node is drawn reads it through `nodePositionsRef`: the
- * gems, the edge fill, inferred edges, beams, the bots overlay (`agentDrawnPosition`), the edge
- * skip gate, labels, picking, fly-to, hulls and rings. No consumer adds an offset of its own, so
- * for any node one frame yields one position.
+ * Each frame GraphManager copies the worker's shared position buffer once into this array and applies the
+ * drag hand position to the copy once. Everything that needs to know where a node is drawn reads it through
+ * `nodePositionsRef`: the gems, the edge fill, inferred edges, beams' target ends, the edge skip gate, labels,
+ * picking, fly-to, hulls and rings. No consumer adds an offset of its own.
+ *
+ * Agents are not graph nodes (ADR-2142 / ADR-2135, owner rule 2026-11-01) and have no slot here: their drawn
+ * position is the marker pass's map (`features/bots/agentMarkerPass.ts`), the one writer of an agent point.
  *
  * The shared buffer is never written here. The worker rewrites it on its own 16 ms timer,
  * so a main-thread `+=` would be applied twice on any frame the worker skipped (and would
  * race the worker); writing the copy cannot.
  */
-import { getAgentWork, type AgentWorkInfo } from '../../bots/agentWorkTargets'
-import { agentDriftFeed } from '../../bots/agentDriftFeed'
-import { agentOffsetsEnabled } from '../../../store/agentOffsetPrefs'
-import { stepAgentOffset, newAgentFinish, type AgentFinish, type SceneEdge } from './agentNudge'
-import type { TriangleFrame } from '../triLayout'
-
-/** One drawn agent: its graph node id (wire id string, flag bit included) and its slot in the buffer. */
-export interface AgentSlot {
-  id: string
-  index: number
-}
-
-/** The separated-layout activity drift (`agentDriftFeed`), as the pass needs it. */
-export interface DriftSource {
-  step(): void
-  offset(agentKey: string, frame: TriangleFrame): readonly [number, number, number]
-}
-
-/** Everything the agent pass reads. Dependencies are injected so tests can drive it. */
-export interface AgentPassInput {
-  agents: readonly AgentSlot[]
-  getWork: (agentId: string) => AgentWorkInfo | null
-  drift: DriftSource | null
-  triFrame: TriangleFrame
-  /** The "agent offsets" preference; off draws an agent at its server position plus drift only. */
-  offsetsEnabled: boolean
-  /** Buffer index of the node being dragged (`applyDrag` places it after this pass), or -1. */
-  dragIndex: number
-  /** Graph node id to buffer index, to find a working agent's target. */
-  nodeIdToIndex: Map<string, number>
-  /** The scene's edge (the sphere the camera frames), where finished agents stop; null if unknown. */
-  edge: SceneEdge | null
-  /** The frame's time in milliseconds (`performance.now()`); finished agents' drift runs on it. */
-  nowMs: number
-}
-
-interface AgentState {
-  off: Float32Array
-  /** When this agent finished (drives its 30 s run to the edge). */
-  finish: AgentFinish
-  seen: number
-}
-
-const _base: [number, number, number] = [0, 0, 0]
-const _target: [number, number, number] = [0, 0, 0]
-
-/**
- * The agents that have a slot in the position buffer. An agent not yet in the map has no slot,
- * so it is not drawn at, or offset into, some other node's slot.
- */
-export function resolveAgentSlots(
-  nodes: ReadonlyArray<{ id: string | number }>,
-  nodeIdToIndex: Map<string, number>,
-): AgentSlot[] {
-  const out: AgentSlot[] = []
-  for (const n of nodes) {
-    const id = String(n.id)
-    const index = nodeIdToIndex.get(id)
-    if (index !== undefined) out.push({ id, index })
-  }
-  return out
-}
 
 export class DrawnPositions {
   private drawn = new Float32Array(0)
-  /** Per-agent nudge offset, keyed by agent id so a reorder or a reused slot cannot cross-wire them. */
-  private agentState = new Map<string, AgentState>()
-  private passNo = 0
 
   /** The drawn positions. Exactly as long as the shared buffer, so every length check stays honest. */
   get positions(): Float32Array {
@@ -94,8 +30,7 @@ export class DrawnPositions {
   }
 
   /**
-   * Draw the dragged node at the hand. The agent pass leaves a dragged agent alone, so this goes
-   * after it. It is the one place the hand position meets the drawn array: the gem, its edges,
+   * Draw the dragged node at the hand. It is the one place the hand position meets the drawn array: the gem, its edges,
    * the label, inferred edges, picking and the rest all read the result, the same frame.
    */
   applyDrag(index: number, hand: { x: number; y: number; z: number }): void {
@@ -105,77 +40,10 @@ export class DrawnPositions {
     this.drawn[i3 + 1] = hand.y
     this.drawn[i3 + 2] = hand.z
   }
-
-  /**
-   * Move each agent to its position + activity drift + nudge, in the copy. Call once a frame,
-   * after `copy` and after any layout-transition LERP: the base and the work target are read
-   * from the copy, so agents move with everything else during a transition. Agents that are gone lose their offset, so the slot is raw again and a new
-   * occupant starts from zero.
-   */
-  applyAgents(input: AgentPassInput): void {
-    const { agents } = input
-    const drawn = this.drawn
-    if (agents.length === 0) {
-      this.agentState.clear()
-      return
-    }
-    const pass = ++this.passNo
-    input.drift?.step()
-    for (let a = 0; a < agents.length; a++) {
-      const { id, index } = agents[a]
-      const i3 = index * 3
-      if (i3 + 2 >= drawn.length) continue
-      let st = this.agentState.get(id)
-      if (st === undefined) {
-        st = { off: new Float32Array(3), finish: newAgentFinish(), seen: pass }
-        this.agentState.set(id, st)
-      }
-      st.seen = pass
-      if (index === input.dragIndex) continue
-
-      let x = drawn[i3], y = drawn[i3 + 1], z = drawn[i3 + 2]
-      // Separated layout (ADR-2135): the agent's home is the triangle centroid plus its
-      // activity drift; the nudge works from there.
-      if (input.drift) {
-        const d = input.drift.offset(id, input.triFrame)
-        x += d[0]; y += d[1]; z += d[2]
-      }
-      const off = st.off
-      if (input.offsetsEnabled) {
-        const work = input.getWork(id)
-        let target: [number, number, number] | null = null
-        if (work && work.state === 'working') {
-          const t3 = (input.nodeIdToIndex.get(work.targetNodeId) ?? -1) * 3
-          if (t3 >= 0 && t3 + 2 < drawn.length) {
-            _target[0] = drawn[t3]; _target[1] = drawn[t3 + 1]; _target[2] = drawn[t3 + 2]
-            target = _target
-          }
-        }
-        _base[0] = x; _base[1] = y; _base[2] = z
-        stepAgentOffset(off, 0, _base, target, work?.state ?? null, input.edge, st.finish, input.nowMs)
-      } else {
-        off[0] = 0; off[1] = 0; off[2] = 0
-        // Offsets off: the 30 s run is paused, not elapsed, so it restarts when they come back.
-        st.finish.since = -1
-      }
-      drawn[i3] = x + off[0]
-      drawn[i3 + 1] = y + off[1]
-      drawn[i3 + 2] = z + off[2]
-    }
-    // Agents that were not in this pass (filtered, replaced, swarm emptied) free their offset.
-    if (this.agentState.size > agents.length) {
-      for (const [id, st] of this.agentState) if (st.seen !== pass) this.agentState.delete(id)
-    }
-  }
 }
 
 /** The shared instance GraphManager drives; tests build their own. */
 export const drawnPositions = new DrawnPositions()
-
-/** The `applyAgents` input GraphManager builds from the live stores (the one place they are read). */
-export function liveAgentPassDeps(): Pick<AgentPassInput, 'getWork' | 'drift' | 'offsetsEnabled'> {
-  return { getWork: getAgentWork, drift: agentDriftFeed(), offsetsEnabled: agentOffsetsEnabled() }
-}
 
 /** Copy the first `count` drawn positions into the label array (`labelPositionsRef`). */
 export function fillLabelPositions(

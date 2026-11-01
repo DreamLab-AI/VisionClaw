@@ -1,7 +1,7 @@
 // Server bots graph → client agents/edges for chain payments (S5).
 import { describe, it, expect } from 'vitest';
 import { transformAgentData, agentChanged, edgeChanged } from '../../hooks/useAgentPolling';
-import { chainPaymentStyle } from '../../components/BotsEdges';
+import { chainPaymentStyle } from '../../components/AgentCollabEdges';
 import { groupChainLabels, MAX_LINES_PER_PAIR } from '../ChainPaymentLabels';
 import { CHAIN_PAYMENT_COLOR } from '../chainPayments';
 import type { AgentSwarmData } from '../../services/AgentPollingService';

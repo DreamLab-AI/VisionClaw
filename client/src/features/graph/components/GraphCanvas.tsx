@@ -16,7 +16,7 @@ const PerfProbe = import.meta.env.DEV ? lazy(() => import('./PerfProbe')) : null
 // Post-processing effects - unified gem post-processing (WebGPU + WebGL bloom)
 import { GemPostProcessing } from '../../../rendering/GemPostProcessing';
 // Bots visualization for agent graph
-import { BotsVisualization } from '../../bots/components';
+import { AgentOverlay } from '../../bots/components';
 // Agent action connections visualization
 // SpacePilot Integration - using simpler version that works with useFrame
 import SpacePilotSimpleIntegration from '../../visualisation/components/SpacePilotSimpleIntegration';
@@ -481,7 +481,7 @@ const GraphCanvas: React.FC = () => {
                 {}
                 
                 {}
-                <BotsVisualization />
+                <AgentOverlay />
 
                 {/* Agent action beams are rendered by TransientBeamsLayer (mounted
                     inside GraphManager) — the sole action renderer since 2026-07-15. */}

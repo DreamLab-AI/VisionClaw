@@ -712,7 +712,9 @@ impl Handler<ProcessAgentStatuses> for AgentMonitorActor {
                 agents_list.len()
             );
             self.graph_service_addr.do_send(UpdateBotsGraph {
+                source: crate::actors::agent_roster_feed::RosterSource::ManagementApi,
                 agents: agents_list,
+                targets: Vec::new(),
             });
         } else {
             debug!(

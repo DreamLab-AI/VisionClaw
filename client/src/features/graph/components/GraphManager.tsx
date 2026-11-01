@@ -15,10 +15,9 @@ import { EdgeSettings } from '../../settings/config/settings'
 import { useAnalyticsStore, useCurrentSSSPResult } from '../../analytics/store/analyticsStore'
 import { TransientBeamsLayer, type BeamPositionResolver } from '../../visualisation/components/TransientBeamsLayer'
 import { VirtualAgentMarkers } from '../../visualisation/components/VirtualAgentMarkers'
-import { isVirtualAgentId, resolveVirtualAgentPosition } from '../../bots/virtualAgents'
-import { useAgentTargetStore } from '../../../store/agentTargetStore'
+import { agentMarkers, agentMarkerPosition, liveMarkerDeps } from '../../bots/agentMarkerPass'
 import { resolveNodeWorldPosition } from '../../visualisation/cameraFocus'
-import { drawnPositions, resolveAgentSlots, liveAgentPassDeps, fillLabelPositions } from '../utils/drawnPositions'
+import { drawnPositions, fillLabelPositions } from '../utils/drawnPositions'
 import { separatedFrame } from '../triLayout'
 import { sceneFitBounds } from '../utils/sceneFitBounds'
 import { cloudFitInput } from '../hooks/useCameraAutoFit'
@@ -138,44 +137,19 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   // buffer with the agent drift and nudge applied once. Every consumer below, and every child
   // handed this ref, reads it; none adds an offset of its own.
   const nodePositionsRef = useRef<Float32Array | null>(null)
-  // The agents that have a slot in the position buffer, for the once-a-frame agent pass.
-  const agentSlots = useMemo(() => resolveAgentSlots(agentNodes, nodeIdToIndexMap), [agentNodes, nodeIdToIndexMap])
   const triFrame = useMemo(() => separatedFrame(), [])
   // The scene's edge, where finished agents stop: the bounding sphere the camera frames, from the
   // SERVER positions (so agents moving cannot grow it), refreshed twice a second.
   const sceneEdgeRef = useRef<SceneEdge | null>(null)
   const sceneEdgeTickRef = useRef(0)
 
-  // === Transient agent-action beams (0x23) — id-space resolution ===
+  // === Transient agent-action beams (0x23): where a beam starts ===
   //
-  // source_agent_id may arrive with the high AGENT_NODE_FLAG bit set; resolveNodeIndex tries the
-  // raw id and then the masked one against nodeIdToIndexMap. The position is read from the drawn
-  // array (the same one the agent's gem, edges and label use), so a beam starts exactly at the
-  // body the user sees. Returns false when unresolvable so the beam is skipped silently.
-  const resolveAgentPosition = useCallback<BeamPositionResolver>((id, out) => {
-    const pos = resolveNodeWorldPosition(id, nodeIdToIndexMap, nodePositionsRef.current)
-    if (pos) {
-      out.set(pos.x, pos.y, pos.z)
-      return true
-    }
-    // The shared demo's agents are not graph nodes: hover beside the node they are working on
-    // (ADR-2142). Real agents always resolve above, so this never changes them.
-    if (isVirtualAgentId(id)) {
-      return resolveVirtualAgentPosition(
-        id,
-        out,
-        useAgentTargetStore.getState(),
-        (nodeId, p) => {
-          const w = resolveNodeWorldPosition(nodeId, nodeIdToIndexMap, nodePositionsRef.current)
-          if (!w) return false
-          p.x = w.x; p.y = w.y; p.z = w.z
-          return true
-        },
-        Date.now(),
-      )
-    }
-    return false
-  }, [nodeIdToIndexMap])
+  // Agents are not graph nodes (ADR-2142 / ADR-2135). A beam's source is the agent's marker, the point the
+  // marker pass wrote this frame (hover beside its target, plus drift, plus the finished-agent run), and
+  // nothing else: no node-first lookup, so an agentbox id that happens to equal a knowledge node id cannot
+  // start a beam from that node. Returns false for an agent without a marker; the beam is then skipped.
+  const resolveAgentPosition = agentMarkerPosition
 
   // Resolve target_node_id → KG node world position from the LIVE position
   // buffer (SAB), via the same nodeIdToIndexMap the edge renderer uses. Tries
@@ -477,19 +451,19 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
         if (b) sceneEdgeRef.current = { centre: b.centre, radius: b.radius }
       }
 
-      // Agent drift and nudge, once, on the copy: from here on `drawn` is where every node is drawn.
-      const dragNodeId = dragDataRef.current.isDragging ? dragDataRef.current.nodeId : null
-      const dragIndex = dragNodeId === null ? -1 : (nodeIdToIndexMap.get(dragNodeId) ?? -1)
-      drawnPositions.applyAgents({
-        agents: agentSlots,
-        ...liveAgentPassDeps(),
+      // The marker pass, once, after the copy: every agent's drawn point (hover beside its target, drift, the
+      // finished-agent run) goes into the marker map, which is the only agent position (ADR-2142 / ADR-2135).
+      agentMarkers.step({
+        ...liveMarkerDeps(),
+        resolveNode: resolveNodePosition,
         triFrame,
-        dragIndex,
-        nodeIdToIndex: nodeIdToIndexMap,
         edge: sceneEdgeRef.current,
         nowMs: performance.now(),
+        wallMs: Date.now(),
       })
-      // The hand position goes into the same array, once, after the agent pass.
+      // The hand position goes into the drawn array, once.
+      const dragNodeId = dragDataRef.current.isDragging ? dragDataRef.current.nodeId : null
+      const dragIndex = dragNodeId === null ? -1 : (nodeIdToIndexMap.get(dragNodeId) ?? -1)
       if (dragIndex >= 0) drawnPositions.applyDrag(dragIndex, dragDataRef.current.currentNodePos3D)
 
       requestCameraFit()
@@ -732,7 +706,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
       {/* Embodied agent-action beams (0x23): agent node → KG node, coloured
           by action type, opacity fades in → holds → out over duration_ms.
           Radius/opacity are control-centre Agents → Behaviour knobs. */}
-      <VirtualAgentMarkers resolveNodePosition={resolveNodePosition} />
+      <VirtualAgentMarkers />
 
       <TransientBeamsLayer
         resolveAgentPosition={resolveAgentPosition}

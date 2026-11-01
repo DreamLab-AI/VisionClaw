@@ -53,15 +53,13 @@ describe('agentWorkTargets', () => {
     expect(getAgentWork('7')).toEqual({ targetNodeId: '200', state: 'working' });
   });
 
-  it('flips to done once the idle threshold elapses', () => {
+  it('R7: idle time no longer means done (done is explicit, from the registry state frame)', () => {
     const now = vi.spyOn(performance, 'now');
     now.mockReturnValue(1_000);
     useTransientBeamStore.getState().pushBeams([event(7, 100)]);
     expect(getAgentWork('7')?.state).toBe('working');
-    now.mockReturnValue(1_000 + 15_001);
-    expect(getAgentWork('7')?.state).toBe('done');
-    // The target is retained through the idle phase so the sprite still knows
-    // where to drift away from.
+    now.mockReturnValue(1_000 + 60_000);
+    expect(getAgentWork('7')?.state).toBe('working');
     expect(getAgentWork('7')?.targetNodeId).toBe('100');
   });
 });

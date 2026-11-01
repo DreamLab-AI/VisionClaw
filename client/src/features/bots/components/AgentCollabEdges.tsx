@@ -1,6 +1,6 @@
 /**
- * BotsEdges.tsx
- * The inter-agent collaboration edge layer, drawn as ONE THREE.LineSegments.
+ * AgentCollabEdges.tsx
+ * (formerly BotsEdges) The inter-agent collaboration edge layer, drawn as ONE THREE.LineSegments.
  *
  * Replaces the previous per-edge BotsEdgeComponent (one THREE.Line — plus
  * secondary/overload SimpleLines and sphere particles — per edge, i.e. 342+ draw
@@ -19,8 +19,8 @@
  *     as faint/transparent, high as a bright thread).
  *   - Opacity pulsing: high-traffic edges (avgTokenRate > 40 || messageCount >
  *     200) pulse via sin(t*5)*0.3+1, folded into the same intensity.
- *   - Live endpoints: both vertices track their agents' drawn positions (the array
- *     the gems are drawn from) every frame.
+ *   - Live endpoints: both vertices track their agents' marker positions (the marker pass's
+ *     map, ADR-2142 / ADR-2135), joined by wire id, every frame.
  *
  * SIMPLIFIED (documented — the brief accepts uniform additive glow):
  *   - Organic curved sway tendril → a straight segment. A curve needs N segments
@@ -37,13 +37,13 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { BotsEdge, BotsAgent } from '../types/BotsTypes';
 import { CHAIN_PAYMENT_COLOR, CHAIN_PAYMENT_EDGE_TYPE } from '../chain/chainPayments';
-import { agentDrawnPosition } from '../agentDrawnPosition';
+import { agentMarkerPosition } from '../agentMarkerPass';
 
 /* R3F maps three.js props onto JSX host elements (args, position, rotation, intensity...);
    these are not DOM properties. react/no-unknown-property is not enforced in this config. */
 
 // ---------------------------------------------------------------------------
-// Pure helpers (unit-tested in __tests__/BotsEdges.test.ts) — byte-identical to
+// Pure helpers (unit-tested in __tests__/AgentCollabEdges.test.ts) — byte-identical to
 // the arithmetic the old per-edge BotsEdgeComponent applied.
 // ---------------------------------------------------------------------------
 
@@ -135,8 +135,8 @@ interface EdgeLayerBuffers {
  * precomputed and the frame loop selects — no string parsing per frame.
  */
 interface EdgeMeta {
-  srcId: string;
-  tgtId: string;
+  srcWire: number;
+  tgtWire: number;
   activeR: number; activeG: number; activeB: number;
   inactiveR: number; inactiveG: number; inactiveB: number;
   activeOpacity: number;
@@ -144,6 +144,25 @@ interface EdgeMeta {
   shouldPulse: boolean;
   lastMessageTime: number;
 }
+
+/**
+ * Both ends of an edge from the marker map, joined by wire id (flagged or masked); false, outputs
+ * untouched, when either agent has no marker (retired, expired, unknown).
+ */
+export function edgeEndpoints(
+  edge: { srcWire: number; tgtWire: number },
+  a: { set(x: number, y: number, z: number): unknown },
+  b: { set(x: number, y: number, z: number): unknown },
+): boolean {
+  if (edge.srcWire < 0 || edge.tgtWire < 0) return false;
+  const ax = _probe; // resolve both before writing either, so a half-resolved edge writes nothing
+  if (!agentMarkerPosition(edge.srcWire, ax) || !agentMarkerPosition(edge.tgtWire, _probeB)) return false;
+  a.set(ax.x, ax.y, ax.z);
+  b.set(_probeB.x, _probeB.y, _probeB.z);
+  return true;
+}
+const _probe = new THREE.Vector3();
+const _probeB = new THREE.Vector3();
 
 /** Module-scope scratch — colour hex → linear rgb, no per-edge allocation. */
 const _edgeColorScratch = new THREE.Color();
@@ -175,7 +194,7 @@ function createEdgeBuffers(capacity: number): EdgeLayerBuffers {
 // Component
 // ---------------------------------------------------------------------------
 
-export interface BotsEdgesProps {
+export interface AgentCollabEdgesProps {
   /** Inter-agent edges keyed by id. */
   edges: Map<string, BotsEdge>;
   /** Agents keyed by id — supplies token rates for activity colouring. */
@@ -184,7 +203,7 @@ export interface BotsEdgesProps {
   color: string;
 }
 
-export const BotsEdges: React.FC<BotsEdgesProps> = ({ edges, agents, color }) => {
+export const AgentCollabEdges: React.FC<AgentCollabEdgesProps> = ({ edges, agents, color }) => {
   // One set of buffers for the lifetime of the layer — the line object identity
   // never changes (growth replaces the geometry's attributes in place), so the
   // <primitive> below is stable.
@@ -192,7 +211,7 @@ export const BotsEdges: React.FC<BotsEdgesProps> = ({ edges, agents, color }) =>
   if (!buffersRef.current) buffersRef.current = createEdgeBuffers(EDGE_INITIAL_CAPACITY);
 
   // Resolve per-edge metadata only when the edge/agent maps or base colour change
-  // (BotsVisualization mints fresh Maps per data update) — never per frame.
+  // (AgentOverlay mints fresh Maps per data update) — never per frame.
   const meta = useMemo<EdgeMeta[]>(() => {
     const out: EdgeMeta[] = [];
     edges.forEach((edge) => {
@@ -205,8 +224,8 @@ export const BotsEdges: React.FC<BotsEdgesProps> = ({ edges, agents, color }) =>
         _edgeColorScratch.set(chain.color);
         const { r, g, b } = _edgeColorScratch;
         out.push({
-          srcId: edge.source,
-          tgtId: edge.target,
+          srcWire: edge.sourceWireId ?? -1,
+          tgtWire: edge.targetWireId ?? -1,
           activeR: r, activeG: g, activeB: b,
           inactiveR: r, inactiveG: g, inactiveB: b,
           activeOpacity: chain.opacity,
@@ -228,8 +247,8 @@ export const BotsEdges: React.FC<BotsEdgesProps> = ({ edges, agents, color }) =>
       const inactiveB = _edgeColorScratch.b;
 
       out.push({
-        srcId: edge.source,
-        tgtId: edge.target,
+        srcWire: edge.sourceWireId ?? -1,
+        tgtWire: edge.targetWireId ?? -1,
         activeR, activeG, activeB,
         inactiveR, inactiveG, inactiveB,
         activeOpacity: computeEdgeOpacity(true, avg),
@@ -286,8 +305,8 @@ export const BotsEdges: React.FC<BotsEdgesProps> = ({ edges, agents, color }) =>
     let w = 0;
     for (let i = 0; i < edgeCount; i++) {
       const m = metaArr[i];
-      // Both ends are read from the drawn array, where the agents' gems are drawn.
-      if (!agentDrawnPosition(m.srcId, _endA) || !agentDrawnPosition(m.tgtId, _endB)) continue;
+      // Both ends are read from the marker map, where the agents' markers are drawn.
+      if (!edgeEndpoints(m, _endA, _endB)) continue;
       const s = _endA;
       const t = _endB;
 
@@ -315,4 +334,4 @@ export const BotsEdges: React.FC<BotsEdgesProps> = ({ edges, agents, color }) =>
   return <primitive object={buffersRef.current.line} />;
 };
 
-export default BotsEdges;
+export default AgentCollabEdges;

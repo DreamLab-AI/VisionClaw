@@ -148,6 +148,25 @@ describe('ADR-2099: agent-action 0x23 frame routing', () => {
     expect(pushTransientBeams).toHaveBeenCalledWith(actions);
   });
 
+  it('ADR-2142: a state frame reaches the registry only: no transcript/heat event, no beam', async () => {
+    const enc = (o: object) => new TextEncoder().encode(JSON.stringify(o));
+    const ev = (payload: object, target = 0) => ({ sourceAgentId: 0x82000009, targetNodeId: target, actionType: 0, timestamp: 1, durationMs: 0, payload: enc(payload) });
+    const state = ev({ intent: 'x', name: 'agent task-9', state: 'working' });
+    const work = ev({ intent: 'edit' }, 5);
+    (binaryProtocol.decodeAgentActions as ReturnType<typeof vi.fn>).mockReturnValue([state]);
+    await processBinaryData(agentActionFrame(64), noopGet, noopSet);
+    expect(emit).not.toHaveBeenCalledWith('agent-action', expect.anything());
+    expect(pushTransientBeams).not.toHaveBeenCalled();
+    const { useAgentTargetStore } = await import('../../agentTargetStore');
+    expect(useAgentTargetStore.getState().agents.get(0x82000009)?.name).toBe('agent task-9');
+
+    (binaryProtocol.decodeAgentActions as ReturnType<typeof vi.fn>).mockReturnValue([state, work]);
+    await processBinaryData(agentActionFrame(64), noopGet, noopSet);
+    expect(emit).toHaveBeenCalledWith('agent-action', [work]);
+    expect(pushTransientBeams).toHaveBeenCalledWith([work]);
+    useAgentTargetStore.getState().clear();
+  });
+
   it('dispatches nothing for a runt frame below the minimum batch size', async () => {
     await processBinaryData(agentActionFrame(17), noopGet, noopSet);
 

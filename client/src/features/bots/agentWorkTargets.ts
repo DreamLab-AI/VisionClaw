@@ -1,14 +1,11 @@
 /**
  * agentWorkTargets.ts — Client-side tracker mapping agent node IDs to their
  * current work-target graph node, derived from 0x23 AGENT_ACTION frames via
- * the transientBeamStore. Drives the momentum-nudge (agents drift toward their
- * target) and fade-to-edge (idle agents fade and drift outward) behaviours in
- * the GemNodes instanced-mesh render loop.
+ * the transientBeamStore. Drives the activity of an agent gem in the GemNodes
+ * render loop. It does not position agents: the marker pass does (agentMarkerPass.ts).
  */
 
 import { useTransientBeamStore, type TransientBeam } from '../../store/transientBeamStore';
-
-const IDLE_THRESHOLD_MS = 15_000;
 
 interface WorkEntry {
   targetNodeId: string;
@@ -78,10 +75,11 @@ export function getAgentWork(agentNodeId: string): AgentWorkInfo | null {
   ensureSubscribed();
   const entry = targets.get(agentNodeId);
   if (!entry) return null;
-  const elapsed = performance.now() - entry.lastBeamStartMs;
   return {
     targetNodeId: entry.targetNodeId,
-    state: entry.done || elapsed >= IDLE_THRESHOLD_MS ? 'done' : 'working',
+    // R7 (ADR-2142 / ADR-2135): idle time no longer means done. `done` is explicit only (the registry's
+    // state frame drives the marker's run to the edge; this tracker's `markAgentDone` is the same idea).
+    state: entry.done ? 'done' : 'working',
   };
 }
 

@@ -1,5 +1,5 @@
 // Bots visualization components
-export { BotsVisualization } from './BotsVisualization';
+export { AgentOverlay } from './AgentOverlay';
 export { BotsDebugInfo } from './BotsVisualizationDebugInfo';
 export { MultiAgentInitializationPrompt } from './MultiAgentInitializationPrompt';
 

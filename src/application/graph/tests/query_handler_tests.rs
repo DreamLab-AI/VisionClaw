@@ -181,10 +181,6 @@ impl GraphRepository for MockGraphRepository {
         Ok(vec![])
     }
 
-    async fn get_bots_graph(&self) -> Result<Arc<GraphData>> {
-        Ok(self.graph_data.clone())
-    }
-
     async fn get_constraints(&self) -> Result<ConstraintSet> {
         Ok(self.constraints.clone())
     }

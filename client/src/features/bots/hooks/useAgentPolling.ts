@@ -35,25 +35,12 @@ export function transformAgentData(data: AgentSwarmData): {
   const agents = agentNodes.map(node => {
     const agentType = node.metadata?.agent_type || node.type || 'specialist';
 
-    const position = node.data?.position || {
-      x: node.data?.x || 0,
-      y: node.data?.y || 0,
-      z: node.data?.z || 0
-    };
-
-    const velocity = node.data?.velocity || {
-      x: node.data?.vx || 0,
-      y: node.data?.vy || 0,
-      z: node.data?.vz || 0
-    };
-
     return {
       id: node.metadataId || String(node.id),
       name: node.label || `Agent-${node.id}`,
       type: agentType as BotsAgent['type'],
       status: (node.metadata?.status || 'active') as BotsAgent['status'],
-      position,
-      velocity,
+      wireId: node.id,
       cpuUsage: parseFloat(node.metadata?.cpu_usage || '0'),
       memoryUsage: parseFloat(node.metadata?.memory_usage || '0'),
       health: parseFloat(node.metadata?.health || '100'),
@@ -79,6 +66,8 @@ export function transformAgentData(data: AgentSwarmData): {
       id: edge.id,
       source: nodeIdToAgentId.get(edge.source) || String(edge.source),
       target: nodeIdToAgentId.get(edge.target) || String(edge.target),
+      sourceWireId: edge.source,
+      targetWireId: edge.target,
       type: edge.edgeType,
       chainPayment: edgeInfoFromWire(edge.edgeType, edge.metadata),
       dataVolume: edge.weight * 1000,
@@ -92,9 +81,7 @@ export function transformAgentData(data: AgentSwarmData): {
 /** Whether a polled agent differs from the cached one in anything drawn. */
 export function agentChanged(prev: BotsAgent, next: BotsAgent): boolean {
   return (
-    prev.position?.x !== next.position?.x ||
-    prev.position?.y !== next.position?.y ||
-    prev.position?.z !== next.position?.z ||
+    prev.wireId !== next.wireId ||
     prev.status !== next.status ||
     prev.health !== next.health ||
     prev.did_nostr !== next.did_nostr ||

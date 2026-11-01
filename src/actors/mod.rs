@@ -10,6 +10,7 @@ pub mod elevation_voice;
 pub mod decision_elevation_actor;
 // ADR-110 — voice → settings-assistant bridge (Control Center configuration agent)
 pub mod agent_monitor_actor;
+pub mod agent_roster_feed;
 pub mod client_coordinator_actor;
 pub mod client_filter;
 pub mod gpu;

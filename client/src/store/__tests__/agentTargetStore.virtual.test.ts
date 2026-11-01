@@ -28,9 +28,9 @@ describe('agentTargetStore presence (ADR-2142)', () => {
   it('removing an agent forgets both its target and its presence', () => {
     const s = useAgentTargetStore.getState();
     s.pushActions([ev(7, 1)]);
-    s.remove(7);
-    expect(useAgentTargetStore.getState().targets.has(7)).toBe(false);
-    expect(useAgentTargetStore.getState().seenAt.has(7)).toBe(false);
+    s.retire(7);
+    expect(useAgentTargetStore.getState().targets.has(0x80000007)).toBe(false);
+    expect(useAgentTargetStore.getState().seenAt.has(0x80000007)).toBe(false);
   });
 
   it('clearVirtual drops the six reserved agents and leaves real agents alone', () => {

@@ -169,40 +169,6 @@ impl QueryHandler<GetAutoBalanceNotifications, Vec<AutoBalanceNotification>>
 }
 
 // ============================================================================
-// GET BOTS GRAPH DATA
-// ============================================================================
-
-#[derive(Debug, Clone)]
-pub struct GetBotsGraphData;
-
-pub struct GetBotsGraphDataHandler {
-    repository: Arc<dyn GraphRepository>,
-}
-
-impl GetBotsGraphDataHandler {
-    pub fn new(repository: Arc<dyn GraphRepository>) -> Self {
-        Self { repository }
-    }
-}
-
-impl QueryHandler<GetBotsGraphData, Arc<GraphData>> for GetBotsGraphDataHandler {
-    fn handle(&self, _query: GetBotsGraphData) -> HexResult<Arc<GraphData>> {
-        log::debug!("Executing GetBotsGraphData query");
-
-        let repository = self.repository.clone();
-
-        tokio::runtime::Handle::current().block_on(async move {
-            repository.get_bots_graph().await.map_err(|e| {
-                Hexserror::adapter(
-                    "E_GRAPH_005",
-                    &format!("Failed to get bots graph data: {}", e),
-                )
-            })
-        })
-    }
-}
-
-// ============================================================================
 // GET CONSTRAINTS
 // ============================================================================
 

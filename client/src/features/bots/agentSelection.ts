@@ -6,6 +6,7 @@
 // mounts `AgentDetailPanel` behind the resolved selection is `AgentOpsSurface`.
 
 import type { BotsAgent } from './types/BotsTypes';
+import { agentWireId } from './virtualAgents';
 
 /**
  * The `visionclaw:node-selected` event detail shape (subset). Agent nodes carry
@@ -93,4 +94,35 @@ export function resolveSelectedAgentId(
   }
 
   return null;
+}
+
+/** The roster's agents by flagged wire id (`BotsAgent.wireId` is the 26-bit id `/bots/data` serves). */
+export function indexAgentsByWire(agents: readonly BotsAgent[] | null | undefined): Map<number, BotsAgent> {
+  const out = new Map<number, BotsAgent>();
+  for (const a of agents ?? []) if (a.wireId !== undefined) out.set(agentWireId(a.wireId), a);
+  return out;
+}
+
+/**
+ * The `visionclaw:node-selected` detail for a clicked agent marker (R5). Agents are not graph nodes, so the
+ * marker raises the event the steering surface already hears (`resolveSelectedAgentId` then finds the roster
+ * record by `metadata_id`); an agent the roster does not know yields a detail that resolves to nothing.
+ */
+export function agentMarkerSelection(
+  wireId: number,
+  record: BotsAgent | undefined,
+  registryName: string | undefined,
+): NodeSelectedDetail {
+  const label = record?.name || registryName || `agent 0x${(wireId >>> 0).toString(16)}`;
+  return {
+    nodeId: String(wireId),
+    label,
+    metadata: {
+      node_type: 'agent',
+      agent_type: record?.type ?? 'agent',
+      ...(record ? { metadata_id: record.id } : {}),
+      name: label,
+      ...(record?.did_nostr ? { did_nostr: record.did_nostr } : {}),
+    },
+  };
 }

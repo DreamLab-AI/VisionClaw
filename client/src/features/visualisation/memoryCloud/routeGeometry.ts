@@ -2,7 +2,7 @@
  * Buffer writers for the trajectory meshes. The route ribbon and comet tail
  * are tubes rather than drei `Line` / `Line2`: Line2's instanced geometry
  * issues drawIndexed(Infinity) under the WebGPU renderer and kills the render
- * pass (see BotsNode.tsx), while a plain indexed mesh with vertex colours
+ * pass (as the retired BotsNode did), while a plain indexed mesh with vertex colours
  * renders on both backends and feeds the bloom pass like any other bright
  * surface.
  *

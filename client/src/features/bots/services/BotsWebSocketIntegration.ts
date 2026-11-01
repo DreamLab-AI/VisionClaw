@@ -107,18 +107,6 @@ export class BotsWebSocketIntegration {
 
       this.emit('knowledge-binary-update', data);
     });
-
-    
-    webSocketService.on('bots-position-update', (data: unknown) => {
-      if (!(data instanceof ArrayBuffer)) return;
-      logger.debug(`Received bots binary position update: ${data.byteLength} bytes`);
-
-      
-      agentTelemetry.logWebSocketMessage('bots_binary_position_update', 'incoming', undefined, data.byteLength);
-
-      
-      this.emit('bots-binary-position-update', data);
-    });
   }
 
   private processBotsUpdate(data: any) {

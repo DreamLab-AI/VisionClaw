@@ -9,9 +9,9 @@
  * `visualisation.rendering.agentColors.*` — typed both sides (client
  * AgentColorsSettings ↔ server AgentColorsDTO) and consumed by
  * BotsShared.getVisionClawColors. `graphTypeVisuals.agent.*` are client-typed
- * behaviour knobs (consumed by GemNodes / BotsNode), mirroring the existing
+ * behaviour knobs (consumed by GemNodes / AgentOverlay), mirroring the existing
  * `look` group's graphTypeVisuals.{knowledgeGraph,ontology} precedent; `swarmTint`
- * is a client-only toggle read by BotsVisualization → BotsNode.
+ * is a client-only toggle read by AgentOverlay.
  *
  * These paths POST-DATE the frozen WP5 baseline, so registry.test.ts asserts them
  * separately from the legacy zero-drift fixture (see test (c)/(c2)).
@@ -78,7 +78,7 @@ const fields: RegistryField[] = [
   { key: 'agentShowHealthBar', subgroup: 'Behaviour', label: 'Show Health Bar', type: 'toggle', path: `${A}showHealthBar`, description: 'Draw the per-agent health bar beneath each node' },
   { key: 'agentBeamRadius', subgroup: 'Behaviour', label: 'Action Beam Radius', type: 'slider', min: 0.05, max: 1.5, step: 0.05, path: `${A}beamRadius`, description: 'Cylinder radius of embodied agent-action beams (0x23)' },
   { key: 'agentBeamOpacity', subgroup: 'Behaviour', label: 'Action Beam Opacity', type: 'slider', min: 0, max: 1, step: 0.05, path: `${A}beamOpacity`, description: 'Peak opacity of agent-action beams during their hold phase' },
-  // Nameplate LOD — declutter dense swarms (client-typed graphTypeVisuals.agent; consumed by BotsNode).
+  // Nameplate LOD — declutter dense swarms (client-typed graphTypeVisuals.agent; consumed by AgentNameplate).
   { key: 'agentNameplateLod', subgroup: 'Behaviour', label: 'Nameplate LOD', type: 'toggle', path: `${A}nameplateLod`, description: 'Declutter dense swarms: show the full agent nameplate only when the camera is close (or the agent is hovered/selected/queen), collapse to a name-only line mid-range, and hide it far away' },
   { key: 'agentNameplateFullDistance', subgroup: 'Behaviour', label: 'Nameplate Full Distance', type: 'slider', min: 10, max: 120, step: 5, path: `${A}nameplateFullDistance`, description: 'Camera distance (world units) under which an agent shows its full 3-line nameplate; the name-only band extends to ~2.25× this before hiding' },
   // Attention heat — agent 0x23 actions heat knowledge/ontology nodes (client-typed

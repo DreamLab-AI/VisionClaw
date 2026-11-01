@@ -483,6 +483,9 @@ pub struct AgentRec {
     pub expired: bool,
     /// Current task line from the JSON `state` channel (empty until it arrives).
     pub task: String,
+    /// Display name from a `0x23` state frame (ADR-2142 amendment: real agents have
+    /// no graph node to take a label from). Empty until one arrives.
+    pub name: String,
 }
 
 impl AgentRec {
@@ -1164,6 +1167,41 @@ impl RenderStore {
         self.agent_anchors.get(&(agent_id & NODE_ID_MASK)).copied()
     }
 
+    /// Apply a `0x23` **state frame** (ADR-2142 amendment 2026-11-01): presence and state
+    /// of a registry agent, from the server's real-agent producer. Unlike
+    /// [`record_agent_action`](Self::record_agent_action) it is not work evidence: it adds
+    /// no heat and no drift credit. `working`/`done` go through the timestamped state
+    /// channel ([`set_agent_state_at`](Self::set_agent_state_at)); a non-zero target
+    /// becomes the agent's work node; `name` labels it; `retired` removes it outright.
+    /// Returns whether anything was applied.
+    pub fn apply_agent_state_frame(
+        &mut self,
+        agent_id: u32,
+        target_node_id: u32,
+        state: &str,
+        task: &str,
+        name: &str,
+        timestamp: u32,
+    ) -> bool {
+        if state == "retired" {
+            return self.retire_agents(&[agent_id]) > 0;
+        }
+        if !self.set_agent_state_at(agent_id, state, task, timestamp) {
+            return false;
+        }
+        let rec = self
+            .agent_registry
+            .entry(agent_id & NODE_ID_MASK)
+            .or_default();
+        if target_node_id != 0 {
+            rec.target_node_id = target_node_id & NODE_ID_MASK;
+        }
+        if !name.is_empty() {
+            rec.name = name.to_owned();
+        }
+        true
+    }
+
     /// Remove agents from the registry outright (record + anchor). This is the
     /// explicit lifecycle end for agents that will not come back — the demo
     /// director retires its synthetic ids on Stop — as opposed to
@@ -1533,11 +1571,15 @@ impl RenderStore {
         );
     }
 
-    /// Primary label for a node (empty string if unknown).
+    /// Primary label for a node (empty string if unknown). An agent with no graph node
+    /// (every swarm agent, ADR-2142) answers with the name its state frames carry.
     pub fn label_of(&self, node_id: u32) -> String {
-        self.meta
-            .get(&node_id)
-            .map(|m| m.label.clone())
+        if let Some(m) = self.meta.get(&node_id) {
+            return m.label.clone();
+        }
+        self.agent_registry
+            .get(&(node_id & NODE_ID_MASK))
+            .map(|r| r.name.clone())
             .unwrap_or_default()
     }
 

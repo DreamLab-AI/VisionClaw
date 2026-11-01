@@ -8,9 +8,9 @@ import {
   computePulse,
   growEdgeCapacity,
   EDGE_INITIAL_CAPACITY,
-} from '../BotsEdges';
+} from '../AgentCollabEdges';
 
-describe('BotsEdges — computeAvgTokenRate', () => {
+describe('AgentCollabEdges — computeAvgTokenRate', () => {
   it('averages two rates', () => {
     expect(computeAvgTokenRate(10, 30)).toBe(20);
   });
@@ -22,7 +22,7 @@ describe('BotsEdges — computeAvgTokenRate', () => {
   });
 });
 
-describe('BotsEdges — computeEdgeOpacity', () => {
+describe('AgentCollabEdges — computeEdgeOpacity', () => {
   it('idle base is 0.3, active base is 0.8 (no token boost below threshold)', () => {
     expect(computeEdgeOpacity(false, 0)).toBe(0.3);
     expect(computeEdgeOpacity(true, 0)).toBe(0.8);
@@ -43,7 +43,7 @@ describe('BotsEdges — computeEdgeOpacity', () => {
   });
 });
 
-describe('BotsEdges — computeEdgeColor', () => {
+describe('AgentCollabEdges — computeEdgeColor', () => {
   it('idle edges use the base colour', () => {
     expect(computeEdgeColor(false, 999, '#123456')).toBe('#123456');
   });
@@ -60,7 +60,7 @@ describe('BotsEdges — computeEdgeColor', () => {
   });
 });
 
-describe('BotsEdges — isEdgeActive', () => {
+describe('AgentCollabEdges — isEdgeActive', () => {
   it('is active within the 5 s window, inactive at/after it', () => {
     const now = 100_000;
     expect(isEdgeActive(now - 4999, now)).toBe(true);
@@ -70,7 +70,7 @@ describe('BotsEdges — isEdgeActive', () => {
   });
 });
 
-describe('BotsEdges — shouldEdgePulse', () => {
+describe('AgentCollabEdges — shouldEdgePulse', () => {
   it('pulses on high token rate OR high message count', () => {
     expect(shouldEdgePulse(41, 0)).toBe(true);   // rate > 40
     expect(shouldEdgePulse(0, 201)).toBe(true);  // count > 200
@@ -79,7 +79,7 @@ describe('BotsEdges — shouldEdgePulse', () => {
   });
 });
 
-describe('BotsEdges — computePulse', () => {
+describe('AgentCollabEdges — computePulse', () => {
   it('returns 1 when not pulsing, regardless of time', () => {
     expect(computePulse(false, 0)).toBe(1);
     expect(computePulse(false, 12.34)).toBe(1);
@@ -95,7 +95,7 @@ describe('BotsEdges — computePulse', () => {
   });
 });
 
-describe('BotsEdges — growEdgeCapacity', () => {
+describe('AgentCollabEdges — growEdgeCapacity', () => {
   it('returns current when already sufficient', () => {
     expect(growEdgeCapacity(256, 100)).toBe(256);
     expect(growEdgeCapacity(256, 256)).toBe(256);

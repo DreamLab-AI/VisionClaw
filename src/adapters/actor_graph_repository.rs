@@ -116,14 +116,6 @@ impl GraphRepository for ActorGraphRepository {
         Ok(positions)
     }
 
-    async fn get_bots_graph(&self) -> Result<Arc<GraphData>> {
-        self.actor_addr
-            .send(actor_msgs::GetBotsGraphData)
-            .await
-            .map_err(|e| GraphRepositoryError::AccessError(format!("Mailbox error: {}", e)))?
-            .map_err(GraphRepositoryError::AccessError)
-    }
-
     async fn get_constraints(&self) -> Result<ConstraintSet> {
         // GraphStateActor doesn't handle physics operations
         // Return empty constraint set

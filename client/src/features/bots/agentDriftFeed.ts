@@ -2,9 +2,8 @@
  * agentDriftFeed.ts — feeds the separated-layout agent drift (ADR-2135) on
  * the desktop.
  *
- * Every agent the desktop draws is positioned client-side (demo agents are
- * injected into the graph, live swarm agents come from the bots graph), so
- * the drift that moves agents between the knowledge, ontology and memory
+ * Every agent the desktop draws is positioned client-side by the marker pass
+ * (agents are not graph nodes, ADR-2142), so the drift that moves agents between the knowledge, ontology and memory
  * vertices is applied here, with the rule shared with the XR client
  * (`agentDrift.ts`, a port of `crates/visionclaw-tri-layout`):
  *
@@ -13,8 +12,8 @@
  * - a `memory_flash` credits memory: the agent named by its optional `agentId`,
  *   or every agent present equally.
  *
- * Agents are keyed exactly as agentWorkTargets keys them (`String(wire id)`,
- * flag bit included), so GemNodes looks both up with `String(node.id)`.
+ * Agents are keyed by `String(wire id)`, flag bit included (`agentWireId`), the
+ * same key the marker pass looks the drift up by.
  */
 
 import { DriftField } from '../graph/agentDrift';
@@ -23,6 +22,8 @@ import { useTransientBeamStore, type TransientBeam } from '../../store/transient
 import { useWebSocketStore } from '../../store/websocketStore';
 import { graphDataManager } from '../graph/managers/graphDataManager';
 import { AGENT_NODE_FLAG } from '../../types/binaryProtocol';
+import { useAgentTargetStore } from '../../store/agentTargetStore';
+import { agentWireId } from './virtualAgents';
 
 const NODE_ID_MASK = 0x03ffffff;
 
@@ -83,7 +84,7 @@ export class AgentDriftFeed {
       const node = this.deps.lookupNode(raw) ?? this.deps.lookupNode(String(b.targetNodeId & NODE_ID_MASK));
       const v = populationVertex(node);
       if (v === null) continue;
-      this.field.recordAction(String(b.sourceAgentId), v, this.deps.nowS());
+      this.field.recordAction(String(agentWireId(b.sourceAgentId)), v, this.deps.nowS());
     }
   }
 
@@ -117,14 +118,9 @@ export class AgentDriftFeed {
 
 // ── the app's feed ──
 
-function graphAgentKeys(): string[] {
-  const nodes = graphDataManager.getLastGraphData()?.nodes ?? [];
-  const out: string[] = [];
-  for (const n of nodes) {
-    const t = (n.metadata?.type as string | undefined) ?? (n as unknown as NodeLike).type;
-    if (t === 'agent' || t === 'bot') out.push(String(n.id));
-  }
-  return out;
+/** Every registry agent (ADR-2142): agents are not graph nodes. */
+function registryAgentKeys(): string[] {
+  return [...useAgentTargetStore.getState().seenAt.keys()].map(String);
 }
 
 function graphLookup(id: string): NodeLike | undefined {
@@ -151,7 +147,7 @@ export function agentDriftFeed(): AgentDriftFeed {
   if (shared) return shared;
   const feed = new AgentDriftFeed({
     lookupNode: graphLookup,
-    agentKeys: graphAgentKeys,
+    agentKeys: registryAgentKeys,
     nowS: () => performance.now() / 1000,
   });
   shared = feed;

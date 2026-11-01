@@ -105,13 +105,13 @@ agentPollingService.configure(POLLING_PRESETS.performance);
 The polling system provides smooth real-time updates to the Three.js visualization:
 
 1. **Position Updates**: Agent positions from GPU force-directed graph
-2. **Drawn position**: Agents are drawn at the position in the drawn-positions array (`agentDrawnPosition`); the worker already tweens, so the overlay does no smoothing of its own
+2. **Drawn position**: `/bots/data` positions are meaningless and ignored. Agents are drawn only at their marker (`agentMarkerPass`, ADR-2142 / ADR-2135); `nodes[].id` is the agent's wire id masked to 26 bits (`BotsAgent.wireId`) and `metadataId` the agent key (`BotsAgent.id`)
 3. **Metadata Updates**: Health, status, CPU usage, etc.
 4. **Edge Updates**: Communication patterns between agents
 
 ### Agent position
 
-The bots overlay keeps no position of its own. `BotsNode`, `AgentTrail`, `BotsEdges` and `ChainPaymentLabels` each call `agentDrawnPosition(agent.id, out)` in their frame, which reads the same drawn-positions array the agent's gem is drawn from.
+The bots overlay keeps no position of its own. `AgentNameplate`, `AgentTrail`, `AgentCollabEdges` and `ChainPaymentLabels` each read the marker map (`agentMarkerPosition(wireId, out)`) in their frame, joined to `/bots/data` by wire id.
 
 ## Performance Considerations
 

@@ -1,6 +1,6 @@
 /**
  * Desktop agent momentum nudge: a per-agent visual offset added to the
- * server position, once per frame, by `DrawnPositions.applyAgents`.
+ * marker's hover point, once per frame, by the marker pass (`features/bots/agentMarkerPass.ts`, ADR-2142 / ADR-2135).
  *
  * - **Working** (a 0x23 beam in the last 15 s): the offset converges on the
  *   target node, so the agent visibly goes to the node it acts on.
