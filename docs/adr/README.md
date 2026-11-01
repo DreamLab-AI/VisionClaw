@@ -40,7 +40,7 @@ The [historical closeout routing note](../adr-history-closeout.md) points each f
 
 The [estate status/evidence contract](../../../VisionFlow/docs/architecture/adr-status-contract.md) defines the independent decision, implementation and activation axes and distinguishes lineage from supersession (2026-09-07).
 
-_145 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
+_146 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 
 | ID | Title | Domain | Date | Decision | Impl | Activation | Supersedes | Superseded by | Owner | Repo |
 |----|-------|--------|------|----------|------|------------|------------|---------------|-------|------|
@@ -189,3 +189,4 @@ _145 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2170](ADR-2170-gaussian-splat-scenes-are-their-own-volume-on-both-clients.md) | Gaussian splat scenes are their own volume, rendered by a per-backend library on the desktop and a CPU-sorted quad layer in the headset | XR-client | 2026-11-01 | proposed | none | inactive | — | — | jjohare | visionclaw |
 | [ADR-2171](ADR-2171-desktop-catches-up-on-webgpurenderer-not-meshlets.md) | The desktop client catches up on WebGPURenderer's own facilities and does not adopt the meshlet drawing pipeline | BASELINE-architecture | 2026-11-01 | proposed | none | inactive | — | — | jjohare | visionclaw |
 | [ADR-2172](ADR-2172-a-node-is-grabbed-with-either-hand-in-any-visionclaw-volume.md) | A node is grabbed with either hand, up to two at once, in any VisionClaw volume | XR-client | 2026-11-01 | accepted | partial | inactive | — | — | jjohare | visionclaw |
+| [ADR-2173](ADR-2173-force-pass-reads-a-per-node-constraint-index.md) | The force pass reads a per-node constraint index, not every constraint | — | 2026-11-01 | accepted | complete | staged | — | — | jjohare | visionclaw |
