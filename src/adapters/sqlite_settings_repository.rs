@@ -693,9 +693,19 @@ impl SettingsRepository for SqliteSettingsRepository {
             .into_iter()
             .map(|(k, (_is_user, v))| (k, v))
             .collect();
-        let mut root = unflatten_pairs(pairs);
-        fill_layout_mode(&mut root);
-        let settings: AppFullSettings = serde_json::from_value(root).map_err(map_json_err)?;
+        let root = unflatten_pairs(pairs);
+        let mut settings: AppFullSettings = serde_json::from_value(root).map_err(map_json_err)?;
+        // The rows are read by key, not from the unflattened tree: a legacy `physics.*` leaf
+        // would otherwise be merged into the `physics` document itself.
+        let physics_row = match self.get_setting("physics").await {
+            Ok(Some(SettingValue::Json(json))) => Some(json),
+            _ => None,
+        };
+        let quality_gates = match self.get_setting("quality_gates").await {
+            Ok(Some(SettingValue::Json(json))) => Some(json),
+            _ => None,
+        };
+        seed_physics_from_blob(physics_row, quality_gates.as_ref(), &mut settings);
         Ok(Some(settings))
     }
 
@@ -1028,32 +1038,27 @@ fn stage_row_entry(entry: &serde_json::Value) -> RepoResult<(String, Option<Stri
     Ok((value_json, None))
 }
 
-/// ADR-2140: give the settings actor's physics snapshot a layout mode when its flattened leaves
-/// predate `layoutMode`. The source is the stored `physics` document (the row the boot migration
-/// writes back, and the one `apply_physics_patch` persists), then the legacy
-/// `quality_gates.layoutMode` string. Without this the actor would say `forceDirected` for a
-/// migrated document, and the first physics write merged onto that snapshot would revert the
-/// mode. A value already present in the leaves wins; an unusable one is left for the lenient
-/// loader to default.
-fn fill_layout_mode(root: &mut serde_json::Value) {
-    use visionclaw_domain::types::layout::LayoutMode;
-    let physics_path = "/visualisation/graphs/knowledge/physics";
-    let has_leaf = root
-        .pointer(physics_path)
-        .is_some_and(|p| p.get("layoutMode").is_some());
-    if has_leaf {
+/// ADR-2140 decision 1: the stored `physics` document is the single source of truth, so it is
+/// the settings actor's snapshot. The live store holds only that row (the flattened
+/// `visualisation.graphs.knowledge.physics.*` leaves are frozen or absent, because
+/// `UpdateSettings` persists nothing and `save_all_settings` has no live caller). The row
+/// replaces the snapshot's physics wholesale, with its layout mode migrated from the legacy
+/// `quality_gates.layoutMode` string when it predates the field, so the merge base of
+/// `apply_physics_patch` is the store and a frozen leaf can never win over it. A row that does
+/// not load as physics is logged and leaves the snapshot as it was, so the load never fails
+/// because of it.
+fn seed_physics_from_blob(
+    row: Option<serde_json::Value>,
+    quality_gates: Option<&serde_json::Value>,
+    settings: &mut crate::config::AppFullSettings,
+) {
+    let Some(mut blob) = row.filter(|p| p.is_object()) else {
         return;
-    }
-    let value = root.pointer("/physics/layoutMode").cloned().or_else(|| {
-        root.pointer("/quality_gates/layoutMode")
-            .and_then(|v| v.as_str())
-            .and_then(LayoutMode::from_quality_gate_str)
-            .and_then(|m| serde_json::to_value(m).ok())
-    });
-    if let (Some(value), Some(physics)) = (value, root.pointer_mut(physics_path)) {
-        if let Some(doc) = physics.as_object_mut() {
-            doc.insert("layoutMode".into(), value);
-        }
+    };
+    crate::actors::gpu::physics_restore::migrate_layout_mode(&mut blob, quality_gates);
+    match serde_json::from_value::<crate::config::PhysicsSettings>(blob) {
+        Ok(physics) => settings.visualisation.graphs.knowledge.physics = physics,
+        Err(e) => log::warn!("stored physics document is unusable as the settings snapshot ({e})"),
     }
 }
 
@@ -1146,97 +1151,99 @@ mod user_filter_persistence_tests {
 
 #[cfg(test)]
 mod layout_mode_snapshot_tests {
-    use super::fill_layout_mode;
+    //! ADR-2140 decision 1: the `physics` row seeds the settings actor's snapshot.
+    use super::seed_physics_from_blob;
+    use crate::config::{AppFullSettings, PhysicsSettings};
     use serde_json::json;
+    use visionclaw_domain::types::layout::LayoutMode;
 
-    fn root(leaves: serde_json::Value) -> serde_json::Value {
-        json!({ "visualisation": { "graphs": { "knowledge": { "physics": leaves } } } })
+    fn document(mode: &str, repel_k: f64) -> serde_json::Value {
+        let mut doc = serde_json::to_value(PhysicsSettings::default()).unwrap();
+        doc["layoutMode"] = json!(mode);
+        doc["repelK"] = json!(repel_k);
+        doc
+    }
+
+    fn defaults() -> AppFullSettings {
+        AppFullSettings::new().expect("default settings")
     }
 
     #[test]
-    fn the_stored_physics_document_supplies_a_mode_the_leaves_lack() {
-        let mut r = root(json!({ "repelK": 1.0 }));
-        r["physics"] = json!({ "layoutMode": "dagLeftRight" });
-        fill_layout_mode(&mut r);
+    fn the_row_replaces_the_snapshot_physics() {
+        let mut s = defaults();
+        seed_physics_from_blob(Some(document("radial", 321.0)), None, &mut s);
+        let p = &s.visualisation.graphs.knowledge.physics;
+        assert_eq!((p.layout_mode, p.repel_k), (LayoutMode::Radial, 321.0));
+    }
+
+    #[test]
+    fn the_legacy_quality_gate_string_migrates_a_row_that_predates_the_field() {
+        let mut row = document("radial", 5.0);
+        row.as_object_mut().unwrap().remove("layoutMode");
+        let mut s = defaults();
+        let gates = json!({ "layoutMode": "dag-topdown" });
+        seed_physics_from_blob(Some(row), Some(&gates), &mut s);
         assert_eq!(
-            r["visualisation"]["graphs"]["knowledge"]["physics"]["layoutMode"],
-            "dagLeftRight"
+            s.visualisation.graphs.knowledge.physics.layout_mode,
+            LayoutMode::Hierarchical
         );
     }
 
     #[test]
-    fn the_legacy_quality_gate_string_is_the_fallback() {
-        let mut r = root(json!({ "repelK": 1.0 }));
-        r["quality_gates"] = json!({ "layoutMode": "dag-topdown" });
-        fill_layout_mode(&mut r);
+    fn an_unusable_or_absent_row_leaves_the_snapshot_alone() {
+        let mut s = defaults();
+        seed_physics_from_blob(Some(json!({ "repelK": "not a number" })), None, &mut s);
+        seed_physics_from_blob(Some(json!("not an object")), None, &mut s);
+        seed_physics_from_blob(None, None, &mut s);
         assert_eq!(
-            r["visualisation"]["graphs"]["knowledge"]["physics"]["layoutMode"],
-            "hierarchical"
+            s.visualisation.graphs.knowledge.physics.repel_k,
+            PhysicsSettings::default().repel_k
         );
     }
 
-    #[test]
-    fn a_mode_already_in_the_leaves_is_never_replaced_and_an_unknown_string_adds_nothing() {
-        let mut r = root(json!({ "layoutMode": "radial" }));
-        r["physics"] = json!({ "layoutMode": "hierarchical" });
-        fill_layout_mode(&mut r);
-        assert_eq!(
-            r["visualisation"]["graphs"]["knowledge"]["physics"]["layoutMode"],
-            "radial"
-        );
-        let mut r = root(json!({ "repelK": 1.0 }));
-        r["quality_gates"] = json!({ "layoutMode": "spiral" });
-        fill_layout_mode(&mut r);
-        assert!(r["visualisation"]["graphs"]["knowledge"]["physics"]
-            .get("layoutMode")
-            .is_none());
-    }
-
-    /// The whole chain on a real in-memory repository: a store whose flattened leaves predate
-    /// `layoutMode`, a `physics` document that carries it, and the actor's own loader.
+    /// The real load path against a store shaped like the live one: the `physics` row and
+    /// nothing else (R13 F2). The actor loads this at startup.
     #[tokio::test]
-    async fn the_actor_load_sees_the_mode_a_migrated_store_holds() {
+    async fn the_actor_load_of_a_blob_only_store_sees_the_blob() {
         use super::{SettingValue, SettingsRepository, SqliteSettingsRepository};
-        use crate::config::AppFullSettings;
-        use visionclaw_domain::types::layout::LayoutMode;
         let repo = SqliteSettingsRepository::open(std::path::Path::new(":memory:"))
             .await
             .expect("open in-memory repo");
-        repo.save_all_settings(&AppFullSettings::new().expect("default settings"))
-            .await
-            .expect("save leaves");
-        repo.conn
-            .call(|c| {
-                c.execute(
-                    "DELETE FROM settings WHERE key LIKE '%physics.layoutMode'",
-                    [],
-                )?;
-                Ok(())
-            })
-            .await
-            .expect("make every leaf predate layoutMode");
-        let before = repo.load_all_settings().await.unwrap().unwrap();
-        assert_eq!(
-            before.visualisation.graphs.knowledge.physics.layout_mode,
-            LayoutMode::ForceDirected
-        );
-        let mut stored = serde_json::to_value(crate::config::PhysicsSettings::default()).unwrap();
-        stored["layoutMode"] = json!("dagLeftRight");
-        repo.set_setting("physics", SettingValue::Json(stored), Some("test"))
-            .await
-            .unwrap();
-        let after = repo.load_all_settings().await.unwrap().unwrap();
-        assert_eq!(
-            after.visualisation.graphs.knowledge.physics.layout_mode,
-            LayoutMode::DagLeftRight,
-            "the actor's snapshot carries the stored mode, so a later patch merges onto it"
-        );
+        repo.set_setting(
+            "physics",
+            SettingValue::Json(document("radial", 321.0)),
+            Some("test"),
+        )
+        .await
+        .unwrap();
+        let loaded = repo.load_all_settings().await.unwrap().unwrap();
+        let p = loaded.visualisation.graphs.knowledge.physics;
+        assert_eq!((p.layout_mode, p.repel_k), (LayoutMode::Radial, 321.0));
     }
 
-    #[test]
-    fn no_physics_leaves_means_nothing_to_fill() {
-        let mut r = json!({ "physics": { "layoutMode": "radial" } });
-        fill_layout_mode(&mut r);
-        assert!(r.pointer("/visualisation").is_none());
+    /// A store that also holds frozen leaves (an older install): the row still wins.
+    #[tokio::test]
+    async fn a_frozen_leaf_never_wins_over_the_row() {
+        use super::{SettingValue, SettingsRepository, SqliteSettingsRepository};
+        let repo = SqliteSettingsRepository::open(std::path::Path::new(":memory:"))
+            .await
+            .expect("open in-memory repo");
+        let mut frozen = defaults();
+        frozen.visualisation.graphs.knowledge.physics.layout_mode = LayoutMode::Radial;
+        frozen.visualisation.graphs.knowledge.physics.repel_k = 1.0;
+        repo.save_all_settings(&frozen).await.expect("save leaves");
+        repo.set_setting(
+            "physics",
+            SettingValue::Json(document("hierarchical", 321.0)),
+            Some("test"),
+        )
+        .await
+        .unwrap();
+        let loaded = repo.load_all_settings().await.unwrap().unwrap();
+        let p = loaded.visualisation.graphs.knowledge.physics;
+        assert_eq!(
+            (p.layout_mode, p.repel_k),
+            (LayoutMode::Hierarchical, 321.0)
+        );
     }
 }

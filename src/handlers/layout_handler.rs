@@ -78,8 +78,10 @@ pub async fn set_layout_mode(
     // sessions or resume a settled simulation. CPU one-shot placement below still runs.
     // This skip is only safe while nothing changes the device mode without the store: every
     // sender of `UpdateSimulationParams` now carries the stored mode (`reset_layout` keeps
-    // it; the `ActixPhysicsAdapter` senders that build params from `Default` have no caller
-    // outside tests, since `UpdatePhysicsParamsHandler` is never instantiated).
+    // it). The `ActixPhysicsAdapter` senders that build params from `Default` are reachable
+    // (`/api/physics/start`, `/parameters`) but harmless: they feed a private
+    // `PhysicsOrchestratorActor` created with `gpu_compute_addr = None`, so nothing they send
+    // reaches the device.
     let mut persisted: std::result::Result<(), String> = Ok(());
     if stored_physics(&data).await.map(|p| p.layout_mode) == Some(mode) {
         log::debug!(

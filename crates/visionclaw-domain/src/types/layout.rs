@@ -66,6 +66,11 @@ impl LayoutMode {
     /// Stable discriminant uploaded to the GPU-aligned `SimParams.layout_mode`
     /// field (ADR-141 P1). The kernel branches on this to select per-mode force
     /// terms. The mapping is frozen — never renumber; append new modes only.
+    ///
+    /// `DagLeftRight` (6) and `TypeClustering` (7) are new with ADR-2140; before it both rode
+    /// on 1 and 0. The kernel only declares the field today, so nothing branches on it, but
+    /// any future kernel branch on `layout_mode == 1` (hierarchical) or `== 0` (force-directed)
+    /// must also take 6 and 7 respectively, or those two modes silently lose the behaviour.
     pub fn as_gpu_u32(self) -> u32 {
         match self {
             LayoutMode::ForceDirected => 0,

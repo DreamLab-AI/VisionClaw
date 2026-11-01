@@ -148,7 +148,11 @@ export const updateQualityGates = async (
 ): Promise<AxiosResponse<void>> => {
   const current = await axios.get(`${API_BASE}/api/settings/quality-gates`);
   const currentData = current.data?.data ?? current.data ?? {};
-  const merged = { ...currentData, ...settings };
+  // `layoutMode` is a deprecated read-only echo of `physics.layoutMode` (ADR-2140): sending it
+  // back would name a mode this call never meant to change. A caller that really wants a mode
+  // passes it in `settings`, and that value is kept.
+  const { layoutMode: _echo, ...currentGates } = currentData;
+  const merged = { ...currentGates, ...settings };
   const result = await axios.put(`${API_BASE}/api/settings/quality-gates`, merged);
 
   if ('ontologyPhysics' in settings) {
