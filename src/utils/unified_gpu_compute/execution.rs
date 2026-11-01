@@ -2740,8 +2740,9 @@ mod adr_2140_layout_mode_gpu_tests {
 /// stored LinLog and adaptive-speed behaviour, then the hub is pinned and dragged along +X
 /// exactly as the actor drags a held node (position rewritten every step, integration skipped).
 ///
-/// These tests need a CUDA device. They fail loudly without one; set
-/// `VISIONCLAW_GPU_TESTS_OPTIONAL=1` to skip instead (CPU-only CI).
+/// These tests need a CUDA device. Like the other GPU modules here they print `SKIPPED` without
+/// one; set `VISIONCLAW_GPU_TESTS_REQUIRED=1` to make a missing device or PTX a failure instead
+/// (the GPU CI lane, and the evidence runs for ADR-2169).
 #[cfg(test)]
 mod hold_spring_overlay_gpu_tests {
     use super::*;
@@ -2797,13 +2798,13 @@ mod hold_spring_overlay_gpu_tests {
     }
 
     fn engine(sh: Shape) -> Option<(cust::context::Context, UnifiedGPUCompute)> {
-        let optional = std::env::var("VISIONCLAW_GPU_TESTS_OPTIONAL").is_ok_and(|v| v == "1");
+        let required = std::env::var("VISIONCLAW_GPU_TESTS_REQUIRED").is_ok_and(|v| v == "1");
         let fail = |what: String| -> Option<(cust::context::Context, UnifiedGPUCompute)> {
-            if optional {
+            if required {
+                panic!("[hold_spring_overlay_gpu_tests] needs a CUDA device: {what}");
+            } else {
                 eprintln!("[hold_spring_overlay_gpu_tests] SKIPPED, {what}");
                 None
-            } else {
-                panic!("[hold_spring_overlay_gpu_tests] needs a CUDA device: {what}");
             }
         };
         let ctx = match cust::quick_init() {
