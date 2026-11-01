@@ -269,6 +269,12 @@ owning ADR (the Protocol Registry becomes its owner).
   (`src/actors/presence_actor.rs:380`).
 - **React/web**: Vite client (`client/`) served through nginx, consuming the
   binary WebSocket position stream and the `/api` REST surface.
+  three.js is pinned at **0.187.0** (`client/package.json`, with `@types/three`
+  0.187.0 and the `overrides.three` pin), bumped from 0.183.0 on 2026-11-01 with
+  owner approval, per ADR-2170 decision 2 (a separate change that lands before
+  any splat work). `postprocessing` stays at 6.38.2: no release of it allows
+  three 0.187 (6.39.5 caps at `< 0.187.0`), and `@react-three/postprocessing`
+  is not imported by `client/src`, so the peer-range breach is dormant.
 
 ### Trust boundaries
 

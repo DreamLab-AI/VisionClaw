@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 2026-11-01: three.js 0.183.0 → 0.187.0 (ADR-2170 decision 2)
+
+Owner-approved ("we can bump to 187"); no splat code. `three` and `@types/three` to 0.187.0 (`client/package.json`, `overrides.three`, lockfile).
+
+- `GlassEdgeMaterial`: `iridescenceThicknessRange` → `iridescenceThicknessMinimum`/`Maximum` (deprecated r187).
+- `PerfProbe`: `navigator.gpu` typed locally; `@types/three` no longer depends on `@webgpu/types`.
+- `GemPostProcessing`, `cloudSprites`: type-only casts for the stricter TSL node generics. No runtime change.
+- `postprocessing` held at 6.38.2 (no release allows three 0.187; unused by `client/src`).
+
 ### 2026-10-18: Codescape section (ADR-2143)
 
 Codescape, a separate section for human and agent voice collaboration over a live 3D code graph,

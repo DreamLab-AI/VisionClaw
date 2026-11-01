@@ -76,7 +76,9 @@ export function createGlassEdgeMaterial(baseColor?: string | THREE.Color): Glass
     // renderers present the same glassy edge response (WebGL parity, task #49).
     iridescence: 0.2,
     iridescenceIOR: 1.3,
-    iridescenceThicknessRange: [100, 250] as [number, number],
+    // three r187 deprecated iridescenceThicknessRange in favour of Minimum/Maximum.
+    iridescenceThicknessMinimum: 100,
+    iridescenceThicknessMaximum: 250,
     sheen: 0.3,
     sheenRoughness: 0.1,
     // Neutral sheen/specular — let the instanceColor define edge hue.
