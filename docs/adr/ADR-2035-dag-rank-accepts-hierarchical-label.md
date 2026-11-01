@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 93302275ecab90dfa73284405d331d56a3cd9840
+verified_commit: aba13edc5eeaa1f325d6560113375a1a5e8300c8
 verified_paths: [src/actors/gpu/force_compute_actor.rs, crates/visionclaw-domain/src/models/edge.rs, src/services/github_sync_service.rs, src/services/inferred_edge_materialiser.rs, src/services/semantic_type_registry.rs]
 owner: jjohare
 review_trigger: a producer that writes a 'hierarchical' subclass edge without rdfs:subClassOf in owl_property_iri (it would silently stop ranking), a store path that drops vc:owlProperty, or a new producer of explicit subclass_of labels

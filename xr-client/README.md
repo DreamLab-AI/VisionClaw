@@ -348,8 +348,10 @@ vocabulary. Provenance and licence governance for the mined features:
 
 **Pinning semantics.** A pin is an operator assertion that survives layout
 resettles: the integrator early-outs the pinned node's *position* update but keeps
-it in the force calculation, so its neighbours still respond to it. Pins are set on
-drag-end, released on explicit `nodeUnpin` (button, drag-timeout, or disconnect),
+it in the force calculation, so its neighbours still respond to it. A drag is a
+hold, not a pin: releasing the node returns it to the simulation (ADR-2169), and a
+drag-timeout or disconnect also releases it. Pins are set and cleared only by explicit
+`nodePin`/`nodeUnpin`,
 and are **per-view** on the wire but server-authoritative in effect. The fold
 ladder honours pins — a pinned node is never folded away; it is promoted to its
 group's representative.

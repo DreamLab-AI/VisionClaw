@@ -263,19 +263,41 @@ pub async fn set_radial_layout(
     }
 }
 
+/// Fold the GPU actor's settlement telemetry into the layout status. `None` (no GPU actor, or it
+/// did not answer) leaves the honest zeros: not converged, no steps, no energy.
+pub(crate) fn layout_run_state(
+    snapshot: Option<&crate::actors::messages::SettlementSnapshot>,
+) -> (u64, bool, f64) {
+    match snapshot {
+        Some(s) => (s.iterations, s.is_settled, s.kinetic_energy),
+        None => (0, false, 0.0),
+    }
+}
+
 pub async fn get_layout_status(data: web::Data<AppState>) -> Result<HttpResponse> {
     // See `LIVE_LAYOUT_MODES` above for why `Clustered` is not advertised.
     let current_mode = stored_physics(&data)
         .await
         .map(|p| p.layout_mode)
         .unwrap_or_default();
+    // The step counter, settled flag and kinetic energy used to be hard-coded zeros, so the
+    // endpoint read "0 iterations, not converged" while positions moved.
+    let snapshot = match data.get_gpu_compute_addr().await {
+        Some(gpu) => gpu
+            .send(crate::actors::messages::GetSettlementState)
+            .await
+            .ok()
+            .and_then(Result::ok),
+        None => None,
+    };
+    let (iterations, converged, kinetic_energy) = layout_run_state(snapshot.as_ref());
     ok_json!(LayoutStatus {
         current_mode,
         transitioning: false,
         transition_progress: 1.0,
-        iterations: 0,
-        converged: false,
-        kinetic_energy: 0.0,
+        iterations,
+        converged,
+        kinetic_energy,
         available_modes: vec![
             LayoutMode::ForceDirected,
             LayoutMode::Hierarchical,
@@ -354,4 +376,27 @@ pub fn configure_layout_routes(cfg: &mut web::ServiceConfig) {
             .route("/zones", web::get().to(get_zones))
             .route("/reset", web::post().to(reset_layout)),
     );
+}
+
+#[cfg(test)]
+mod layout_run_state_tests {
+    use super::*;
+    use crate::actors::messages::SettlementSnapshot;
+
+    #[test]
+    fn live_telemetry_reaches_the_layout_status() {
+        let snap = SettlementSnapshot {
+            is_settled: true,
+            stable_frame_count: 90,
+            kinetic_energy: 0.25,
+            physics_running: true,
+            iterations: 28_440,
+        };
+        assert_eq!(layout_run_state(Some(&snap)), (28_440, true, 0.25));
+    }
+
+    #[test]
+    fn without_telemetry_the_status_reports_zeros() {
+        assert_eq!(layout_run_state(None), (0, false, 0.0));
+    }
 }

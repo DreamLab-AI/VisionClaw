@@ -1,10 +1,11 @@
 ---
 title: Protocol Registry — Wire Frames, Endpoints & Version Policy
 doc_id: VC-PROTOCOL
-version: 0.1.13
+version: 0.1.14
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.14 (2026-11-01): ADR-2169 — /wss node hold and pin text frames: nodeDragStart/Update/End are holds owned by the connection (the released node rejoins the simulation; two holds per connection; last write wins across connections), new nodePin frame with nodePinAck, nodeUnpin unchanged; drag timeout 2 s; no binary frame change"
   - "0.1.13 (2026-10-30): PROPOSED only, nothing implemented. ADR-2157 and ADR-2161 add a Proposed section: presence text-frame table (room_meta, room_kicked) a pointer for Nostr kinds, and the initial-load `urn` field with the server-side federated-read connection mode (audit round 2: `rev`/`proj` tag conventions, D = 90 s kick bound, selector ∩ visibility ∩ acl). No binary opcode is allocated. Current-state tables and Invariants untouched. Drafted against e74bcddc7."
   - "0.1.12 (2026-10-19): ADR-2133 re-verified at b4a175412 — the /api/memory-cloud rows now state that every endpoint, health included, is PowerUser in the handler (the health row wrongly said the central read policy), that VISIONCLAW_DEV_MODE admits every caller as a power user in debug/dev-auth builds only, and that rows past metadata.expires_at are hidden from counts, samples, searches and the recall probe (estate ER-11); citation refresh to memory_cloud_handler.rs:65"
   - "0.1.11 (2026-10-17): ADR-2143: Codescape recorded as a second producer of V3/V5 on :4100 (no new tags or flag bits, field mapping, 0x23 mapping, 404 list); citation refresh: routes main.rs:1093-1123, 0x23 :1792/:1561/:1571/:1534-1541, batch framing stated"
@@ -188,6 +189,26 @@ Relay rules:
 
 A session authenticated at the upgrade now reports its pubkey to the coordinator on `SetClientId`, so pubkey scoping covers it.
 
+### `/wss` JSON text frames — node hold and pin (ADR-2169)
+
+Client→server frames from an **authenticated** session (an unauthenticated one is ignored with a warning).
+`nodeId` is a `u32`; `position` is `{x,y,z}` in display space, finite and within ±10,000, else the frame is
+rejected. Handlers: `position_updates.rs` (`handle_node_drag_*`, `handle_node_pin`, `handle_node_unpin`).
+
+| `type` | Fields | Effect | Reply |
+|--------|--------|--------|-------|
+| `nodeDragStart` | `nodeId`, `position` | the connection takes **hold** of the node at `position`; the GPU keeps it there and the graph springs around it | `nodeDragStartAck` |
+| `nodeDragUpdate` | `nodeId`, `position`, `timestamp` (ignored) | moves the hold; more than one per 16 ms per node is coalesced (newest kept, applied by a trailing timer), not dropped; an update with no start is an implicit start | none |
+| `nodeDragEnd` | `nodeId` | applies the newest coalesced position, then **releases** the hold: the node rejoins the simulation and the graph settles | `nodeDragEndAck` |
+| `nodePin` | `nodeId`, `position` | **explicit pin**: anchors the node until `nodeUnpin`; survives any drag before, during or after it | `nodePinAck` |
+| `nodeUnpin` | `nodeId` | clears the explicit pin; a node still held stays held until its hand lets go | `nodeUnpinAck` |
+
+Rules:
+- a connection holds at most **2** nodes at once (one per hand); a third `nodeDragStart` is refused with a warning;
+- any number of connections may hold different nodes at once; if two hold the **same** node the last write wins, and a release counts only from the node's current owner;
+- a hold ends on `nodeDragEnd`, after 2 s without an update (drag timeout), or when the connection closes; the node then rejoins the simulation. An explicit pin on it is untouched;
+- while any node is held, by any connection, the GPU steps every tick (no stability skip, no equilibrium pause) and the stored `globalSpeed` is floored at 2.0 (owner-accepted 2026-11-01). For 2 s after the last release the GPU keeps stepping at the stored speed. Every client receives the result in the ordinary position stream (V3/V5, paced per client by the ack protocol, ADR-2141); the drag path broadcasts nothing itself.
+
 ### Second producer: Codescape (`:4100`, ADR-2143)
 
 Codescape is a second, independent producer of the frozen contract above, in its own Cargo
@@ -366,6 +387,7 @@ This registry tabulates binary tags, not Nostr kinds. Kinds used by the estate a
 - `NODE_ID_MASK = 0x03FF_FFFF`; flag bits 26-31 are stripped before analytics/SSSP map lookups.
 - All multi-byte fields are little-endian.
 - Tag allocation happens only in this registry, scoped per socket.
+- A drag is a hold owned by the connection and ends with it: only an explicit `nodePin` outlives a `nodeDragEnd`, the timeout or a disconnect (ADR-2169).
 - `beatClock` / `memoryRoute` are delivered only to other sessions holding the sender's exact
   authenticated pubkey, and only as re-serialised validated fields (ADR-2134).
 - The visibility filter default is fail-closed (ON).

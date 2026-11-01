@@ -547,6 +547,9 @@ pub struct SettlementSnapshot {
     /// stub that always answers default (not running).
     #[serde(default)]
     pub physics_running: bool,
+    /// GPU steps executed since the graph was loaded.
+    #[serde(default)]
+    pub iterations: u64,
 }
 
 /// Latch/unlatch the settlement telemetry when the physics loop pauses at
@@ -584,6 +587,38 @@ pub struct PinNodePositions {
     /// settled graph has energy to visibly react to the grab. Set on drag-start
     /// only, not on every per-frame update.
     pub reheat: bool,
+}
+
+/// A connection takes hold of nodes, or moves nodes it already holds.
+///
+/// Unlike [`PinNodePositions`] (an explicit, lasting pin), a hold belongs to one `holder` and
+/// ends with it: the node rejoins the simulation on [`ReleaseNodes`], [`ReleaseHolder`] or a
+/// drag timeout. The last write wins when two holders touch the same node.
+#[derive(Message, Debug, Clone)]
+#[rtype(result = "()")]
+pub struct HoldNodes {
+    /// Connection identity. Only this holder's release frees these nodes.
+    pub holder: u64,
+    /// `(node_id, [x, y, z])` display-space positions the hand is at.
+    pub holds: Vec<(u32, [f32; 3])>,
+}
+
+/// A connection lets go of nodes. Honoured only for nodes `holder` still owns.
+#[derive(Message, Debug, Clone)]
+#[rtype(result = "()")]
+pub struct ReleaseNodes {
+    /// Connection identity.
+    pub holder: u64,
+    /// Nodes released.
+    pub nodes: Vec<u32>,
+}
+
+/// A connection is gone: release everything it held.
+#[derive(Message, Debug, Clone)]
+#[rtype(result = "()")]
+pub struct ReleaseHolder {
+    /// Connection identity.
+    pub holder: u64,
 }
 
 /// Axis-aligned bounding box.
