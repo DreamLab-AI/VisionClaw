@@ -321,7 +321,7 @@ They are in different languages and cannot share code, so the pin is a test: `te
 
 **What the owner should know.**
 - The headset run also stops at the head-exclusion sphere (1 m) if the user's head is on its outward ray, found once at the start of the run (ADR-2109 amendment); the desktop has no head.
-- The headset edge is the box's *circumscribed* sphere (half the diagonal), matching the desktop's bounding sphere; on a box face a finished agent can stand outside the drawn box. The inscribed sphere (half the smallest extent) would keep it inside; this is a one-line change in `SpatialVolume.edge_radius`.
+- The headset edge is the box's *inscribed* sphere (half its smallest extent), so a finished agent always stops inside the drawn knowledge-volume box. This is the owner's choice (2026-11-01) over the circumscribed sphere, which could leave an agent standing outside a box face.
 - The headset edge is the knowledge (overlay) volume's box, not the whole arrangement of three volumes: the agents' centre is that volume's origin, and an edge about a different centre would not be reached along the agent's outward line.
 - Not measured on the headset.
 

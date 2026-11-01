@@ -170,7 +170,7 @@ scene edge in 30 s at 0.3 alpha and hold (stopping at the 1 m head-exclusion sph
 head is on its way) → re-task; a lapsed work record relaxes onto
 the rest slot instead). The done run is the desktop's rule, one definition in ADR-2135:
 radius r0 + (edge − r0)·easeOutCubic(elapsed / 30 s) from the volume origin, with
-`SpatialVolume.edge_radius` (half the knowledge volume's `bounds` diagonal, world
+`SpatialVolume.edge_radius` (half the knowledge volume's smallest `bounds` extent, world
 metres) as the edge; `tests/unit/test_agent_edge_run.gd` pins its 30 s to the desktop's. The body is a faceted 0.14 m core inside a
 procedural role frame (`scripts/agent_role.gd`: Architect cage, Analyst ring,
 Coder chevrons, Reviewer diamond, Tester fins, Optimizer hoops, generic hoop;

@@ -290,10 +290,15 @@ func test_ease_out_cubic_endpoints_and_monotonic() -> void:
 
 # --- the edge value: one existing extent, no new constant ----------------------
 
-func test_the_edge_radius_is_half_the_volume_box_diagonal_in_world_metres() -> void:
-	assert_almost_eq(SpatialVolume.edge_radius(Vector3(1, 1, 1), 1.0), sqrt(3.0) * 0.5, 1.0e-6)
-	assert_almost_eq(SpatialVolume.edge_radius(Vector3(0.6, 0.8, 0.0), 1.0), 0.5, 1.0e-6, "3-4-5: half the diagonal")
-	assert_almost_eq(SpatialVolume.edge_radius(Vector3(1, 1, 1), 2.0), sqrt(3.0), 1.0e-6, "the arrangement scale applies")
+func test_the_edge_radius_is_the_inscribed_sphere_of_the_volume_box_in_world_metres() -> void:
+	assert_almost_eq(SpatialVolume.edge_radius(Vector3(1, 1, 1), 1.0), 0.5, 1.0e-6, "a cube: half the side")
+	assert_almost_eq(SpatialVolume.edge_radius(Vector3(2.0, 0.8, 1.5), 1.0), 0.4, 1.0e-6, "half the smallest extent, so inside every face")
+	assert_almost_eq(SpatialVolume.edge_radius(Vector3(1, 1, 1), 2.0), 1.0, 1.0e-6, "the arrangement scale applies")
+	assert_eq(SpatialVolume.edge_radius(Vector3(0.6, 0.8, 0.0), 1.0), 0.0, "a flat box has no inscribed sphere, so no edge")
+	var box := Vector3(2.0, 0.8, 1.5)
+	var r := SpatialVolume.edge_radius(box, 1.0)
+	for axis in [Vector3.RIGHT, Vector3.UP, Vector3.BACK]:
+		assert_true(r <= 0.5 * absf((box * axis).length()) + 1.0e-6, "the edge sphere never crosses a face")
 	assert_eq(SpatialVolume.edge_radius(Vector3(1, 1, 1), 0.0), 0.0, "no scale, no edge")
 	assert_eq(SpatialVolume.edge_radius(Vector3(NAN, 1, 1), 1.0), 0.0, "non-finite bounds give no edge")
 
