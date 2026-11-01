@@ -3273,9 +3273,15 @@ func _entered_volume() -> StringName:
 	return _portals.entered_id() if _portals != null else &""
 
 
-# A room transition dims and snaps the content: no grab starts through one.
+# A room transition dims and snaps the content, and an arrangement ease (the first
+# entry from the ring eases the boxes over EASE_SEC with no dim, a bring-to-front
+# eases two) scales or moves a Content transform under the hand: no grab starts
+# through either, because the grab depth is measured at the old transform and each
+# drive would slide the node across server space (ADR-2168 F4).
 func _grab_locked() -> bool:
-	return _portals != null and _portals.is_transitioning()
+	if _portals != null and _portals.is_transitioning():
+		return true
+	return _arrangement != null and _arrangement.is_easing()
 
 
 # The volumes the hand's current trigger press may start a grab in. A press
