@@ -9,7 +9,7 @@ supersedes: []
 superseded_by: []
 amends: [ADR-2140]
 relates: [ADR-2141, ADR-2172]
-verified_commit: d5c46cdd86cda5cf376fb95ee0901158be0f97e2
+verified_commit: 8f796ad8645a6dca5303150273b36de677e1ab70
 verified_paths: [src/utils/unified_gpu_compute/hold_overlay.rs, src/utils/unified_gpu_compute/execution.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, src/actors/gpu/hold_registry.rs, src/actors/gpu/force_compute_actor.rs, src/actors/physics_orchestrator_actor.rs, src/handlers/socket_flow_handler/position_updates.rs, src/handlers/socket_flow_handler/types.rs, src/handlers/layout_handler.rs, scripts/drag-physics-acceptance.mjs]
 owner: jjohare
 review_trigger: the first headset session after the server carrying this change is deployed (does the graph answer the hand, does it rest about two seconds after release), or any change to the FA2 integrator or the stored `globalSpeed`.
@@ -57,3 +57,7 @@ Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (
 
 ## Re-verification — 2026-11-01 (`d5c46cdd8`)
 Governed-path change since `f1fa1862c`: `d6c091f0f` (speed floor through the settle window, settle damping cap dropped), already reflected in items 5 and 6, plus ADR-2173's `StepTiming` kernel sub-phases (logging only, no behaviour). Re-read against the code: `HOLD_GLOBAL_SPEED = 2.0` and `base_global_speed.max(HOLD_GLOBAL_SPEED)` in `force_compute_actor.rs`, no settle-window damping cap constant, `begin_release_settle` unchanged; `cargo test --lib hold` 39 passed. Claims unchanged.
+
+## Re-stamp — 2026-11-01 (integration of `phys/tick-rate` and `phys/hold-springs`, `8f796ad86`)
+
+Re-read against the merged code: the hold overlay's rest lengths reach the force kernels through `g_edge_rest_snapshot` (item 8 now says so; the earlier trailing kernel parameter is gone), the held-only gain and `max_force` scaling (item 9) are unchanged, and the settle window still runs the Verlet switch without springs. `cargo test --lib hold_` with `VISIONCLAW_GPU_TESTS_REQUIRED=1`: 43 passed, 1 ignored; full `cargo test --lib`: 1791 passed, 0 failed, 11 ignored. Bit-identity of the shared `edge_spring_scale` function against the two kernels it replaced: 6,144 of 6,144 output words equal over {plain, stability gate} x {LinLog, Hooke} x {SSSP off, on} x {overlay off, on} x {constraints, none}. Re-run: `git diff --stat 531df5ef7 8f796ad86 -- src/utils/unified_gpu_compute/hold_overlay.rs src/utils/unified_gpu_compute/execution.rs crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu src/actors/gpu/hold_registry.rs src/actors/gpu/force_compute_actor.rs src/actors/physics_orchestrator_actor.rs src/handlers/socket_flow_handler/position_updates.rs src/handlers/socket_flow_handler/types.rs src/handlers/layout_handler.rs scripts/drag-physics-acceptance.mjs` → `4 files changed, 1859 insertions(+), 168 deletions(-)`.

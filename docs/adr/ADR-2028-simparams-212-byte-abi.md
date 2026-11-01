@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: d184e89fbda250a6682b774b48a5c1f25b275e4a
+verified_commit: 8f796ad8645a6dca5303150273b36de677e1ab70
 verified_paths: [src/models/simulation_params.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu]
 owner: jjohare
 review_trigger: any new SimParams field, or a driver/toolkit change altering the 212-byte size
@@ -203,3 +203,7 @@ Re-verified at `d184e89fb` after ADR-2173 added two `__device__` pointer globals
 ## Re-stamp — 2026-11-01 (ADR-2169 item 9, `phys/hold-springs`)
 
 **Governed change:** the `.cu` file gains `snapshot_edge_rest_kernel` and a trailing nullable `edge_rest_snapshot` parameter on the two force kernels. `SimParams` (212 bytes), its field offsets and the feature word are untouched; the ABI digest tests pass in the full `cargo test --lib` run. Re-stamped from `93302275e` to `bfaf6e77c`. Re-run: `git diff --stat 531df5ef7 bfaf6e77c -- crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu` → `1 file changed, 56 insertions(+), 2 deletions(-)`.
+
+## Re-stamp — 2026-11-01 (integration of `phys/tick-rate` and `phys/hold-springs`, `8f796ad86`)
+
+`static_assert(sizeof(SimParams) == 212)` (`visionclaw_unified.cu:118`) and the Rust `== 212` assertion (`simulation_params.rs:231`) are present and in lockstep. The `.cu` file now declares the `ConstraintIndexView` struct, the `g_constraint_index` and `g_edge_rest_snapshot` device globals and the `edge_spring_scale` device function, gains `snapshot_edge_rest_kernel`, and loses `blend_semantic_physics_forces`; no `c_params` field, no `SimParams` offset and no kernel signature changed (`codescape_abi_tests` reads the built PTX: `force_pass_kernel` 30, `force_pass_with_stability_kernel` 29, `c_params[212]`). The ABI digest tests pass in the full `cargo test --lib` run. Re-run: `git diff --stat 531df5ef7 8f796ad86 -- src/models/simulation_params.rs crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu` → `1 file changed, 121 insertions(+), 119 deletions(-)`.

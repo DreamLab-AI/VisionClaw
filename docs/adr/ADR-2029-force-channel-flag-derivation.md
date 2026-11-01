@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: d5c46cdd86cda5cf376fb95ee0901158be0f97e2
+verified_commit: 8f796ad8645a6dca5303150273b36de677e1ab70
 verified_paths: [src/models/force_channels.rs, src/utils/unified_gpu_compute/execution.rs, src/models/simulation_params.rs]
 owner: jjohare
 review_trigger: array-backed force-term refactor (deferred step 2), or any new host→GPU conversion path
@@ -257,3 +257,7 @@ Re-verified at `d5c46cdd8`: `execute_physics_step` is still the single flag auth
 ## Re-stamp — 2026-11-01 (ADR-2169 item 9, `phys/hold-springs`)
 
 **Governed change:** `execution.rs` gains the overlay pointer, the held-only gain (applied to `spring_k` and `max_force` after the feature word is derived) and GPU tests. `derive_dispatch_feature_flags` and `force_channels.rs` are unchanged, so the final feature word is as before; the force-flag tests pass. Re-stamped from `37d1226b1` to `bfaf6e77c`. Re-run: `git diff --stat 531df5ef7 bfaf6e77c -- src/utils/unified_gpu_compute/execution.rs` → `1 file changed, 765 insertions(+), 2 deletions(-)`.
+
+## Re-stamp — 2026-11-01 (integration of `phys/tick-rate` and `phys/hold-springs`, `8f796ad86`)
+
+`derive_dispatch_feature_flags` is still the single flag authority (call at `execution.rs:1141`) and `Constraints` is still read-only. The `execution.rs` changes are the stage marks, the overlay-pointer binding (`bind_edge_rest`), the held-only gain applied after the word is derived, and tests. The four existing `adr_2029_constraint_gpu_tests` pass on a real device, now beside the oracle-index equality test (both kernels, nodes in motion), `an_unbound_index_means_no_constraints` and two pointer-state tests. A resident constraint with an unbound index now acts as no constraints, which does not change the flag derivation. Re-run: `git diff --stat 531df5ef7 8f796ad86 -- src/models/force_channels.rs src/utils/unified_gpu_compute/execution.rs src/models/simulation_params.rs` → `1 file changed, 1445 insertions(+), 47 deletions(-)`.

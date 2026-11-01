@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: d184e89fbda250a6682b774b48a5c1f25b275e4a
+verified_commit: 8f796ad8645a6dca5303150273b36de677e1ab70
 verified_paths: [crates/visionclaw-gpu/src/cuda_sources/gpu_clustering_kernels.cu, crates/visionclaw-gpu/tests/analytics_oracle_conformance.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: Before any claim that Louvain, PageRank or DBSCAN output is trustworthy, or before a release that surfaces community/centrality/cluster values to users; activates when a rebuilt running backend serves Louvain/PageRank/DBSCAN output that is checked against the CPU oracle
@@ -275,3 +275,7 @@ Re-verified at `d184e89fb` after ADR-2173 added a section and an invariant to `d
 ## Re-stamp — 2026-11-01 (ADR-2169 item 9, `phys/hold-springs`)
 
 **Governed change:** `GPU-wire-abi.md` gains documentation of the overlay kernel parameter; no analytics kernel or oracle changes. Re-stamped from `2f8a74118` to `bfaf6e77c`. Re-run: `git diff --stat 531df5ef7 bfaf6e77c -- docs/GPU-wire-abi.md` → `1 file changed, 12 insertions(+), 1 deletion(-)`.
+
+## Re-stamp — 2026-11-01 (integration of `phys/tick-rate` and `phys/hold-springs`, `8f796ad86`)
+
+`GPU-wire-abi.md` gained the constraint-index and hold-overlay documentation; the analytics-trust table this record cites is untouched. `cargo test -p visionclaw-gpu --test analytics_oracle_conformance -- --ignored` on an RTX 6000 Ada (sm_89, GPU 1): 4 passed (LOF, DBSCAN, Louvain, PageRank). Re-run: `git diff --stat 531df5ef7 8f796ad86 -- crates/visionclaw-gpu/src/cuda_sources/gpu_clustering_kernels.cu crates/visionclaw-gpu/tests/analytics_oracle_conformance.rs docs/GPU-wire-abi.md` → `1 file changed, 32 insertions(+), 1 deletion(-)`.
