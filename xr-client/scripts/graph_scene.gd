@@ -417,7 +417,9 @@ func apply_trigger(kind: String, node: Dictionary, link: Dictionary, frame: Dict
 				return
 			var ends: Array = [link.get("from", {}), link.get("to", {})]
 			select_volume_node(StringName(far["volume"]), StringName(far["conn"]), int(far["node_id"]), ends)
-			if _arrangement != null:
+			# Never while a node is in hand: the ease moves the held node's volume under
+			# it and the node slides across server space (ADR-2168 F8).
+			if _arrangement != null and _any_grab_id() == -1:
 				_arrangement.bring_to_front(StringName(far["volume"]))
 		"frame":
 			_focus_volume(StringName(frame["volume"]))
@@ -635,6 +637,9 @@ func begin_box_grip(ctrl: Node3D, hit: Dictionary) -> void:
 	var vid := StringName(hit["volume"])
 	var v: Node3D = _volumes.get(vid, null)
 	if v == null or not v.visible_state:
+		return
+	# A box that holds a node does not move or resize under it (ADR-2168 F8).
+	if not _held_ids(vid).is_empty():
 		return
 	_focus_volume(vid)
 	if resolve_grip(false, hit, false) == "handle":
@@ -1905,7 +1910,7 @@ func _on_volume_action(action: String) -> void:
 	elif action.begins_with("volume_front:"):
 		# Feature 5: the box eases to the 0° slot; the one there takes its slot.
 		var front := StringName(action.substr(13))
-		if _arrangement != null and _volumes.has(front):
+		if _arrangement != null and _volumes.has(front) and _any_grab_id() == -1:
 			if _box_grab_vid == front:
 				_end_box_grip()
 			_arrangement.bring_to_front(front)
