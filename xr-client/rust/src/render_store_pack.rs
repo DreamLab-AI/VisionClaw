@@ -411,7 +411,6 @@ impl RenderStore {
             }
         }
         let changed = sc.inst_near != self.edge_plan.near;
-        self.edge_frame = self.edge_frame.wrapping_add(1);
         let rebuild_far = fresh || changed || sc.ribbon_stale;
         sc.ribbon_stale = false;
         sc.edge_near_buf.clear();

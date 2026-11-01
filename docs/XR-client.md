@@ -979,7 +979,7 @@ The operator accepted these on 2026-10-30 for implementation. Nothing below exis
 
   A selection is one node in one box. It clears when its connection starts a new generation or drops, or when its box is hidden. There is no non-XR mouse pick path: the flat camera is a diagnostic view, and its only mouse events are those synthesised for the HUD. Desktop mouse picking is therefore not built.
 - **Cross-volume links (ADR-2158 D6, ADR-2164).**
-  - **What is drawn.** One link layer draws knowledge↔ontology bridges and code→concept links, and later federated data-space links.
+  - **What is drawn.** One link layer draws knowledge↔ontology bridges and code→concept links, and later federated data-space links. Its endpoints are rebuilt every frame (`tick`), after the volumes move and the packs run, so a link ends where its node is drawn that frame; there is no refresh timer.
   - **The switch.** Links are drawn only while `xr.cross_volume_links` is on. It is **on in debug builds (`OS.is_debug_build()`) and off in release**, toggled at runtime from the XR menu, and stored per device in `user://xr_prefs.cfg` under a key per build type (`cross_volume_links_debug` or `cross_volume_links_release`), so a dev-build choice never carries into release. Turning it off removes the geometry at once, and the switch never changes what any server sends.
   - **Budget.** One draw call, at most 512 links and at most 6 144 triangles.
 - **Code links (ADR-2164).**

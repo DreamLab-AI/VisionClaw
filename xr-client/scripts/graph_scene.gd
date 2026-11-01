@@ -727,8 +727,8 @@ func _on_link_counts(drawn: int, unresolved: int, overflow: int) -> void:
 		hud.set_link_counts(drawn, unresolved, overflow)
 
 
-# §7.4/§7.5: refresh endpoints every frame (the layer throttles itself to
-# REFRESH_HZ) and rebuild the records when their inputs moved.
+# §7.4/§7.5: the layer rebuilds its endpoints on every tick, after the volumes and packs
+# have moved this frame; the records are rebuilt when their inputs moved.
 func _tick_links(delta: float) -> void:
 	if _link_layer == null:
 		return

@@ -32,13 +32,8 @@ import { isWebGPURenderer } from '../../../rendering/rendererFactory';
 import { getTypeColor, getDomainColor } from '../hooks/useGraphNodeColors';
 import { agentStatusActivity } from '../../bots/agentVisualConstants';
 import { getAgentWork, AGENT_DONE_ACTIVITY } from '../../bots/agentWorkTargets';
-import { stepAgentOffset } from '../utils/agentNudge';
-import { agentOffsetsEnabled } from '../../../store/agentOffsetPrefs';
-import { agentDriftFeed } from '../../bots/agentDriftFeed';
-import { separatedFrame, type TriangleFrame } from '../triLayout';
 import { attentionHeat } from '../../visualisation/attentionHeat';
 import { heatBrightenFactor } from '../../visualisation/heatColor';
-import { drawnOffsets } from '../utils/drawnOffsets';
 
 /** Minimal hierarchy node shape compatible with HierarchyNode from hierarchyDetector */
 interface HierarchyNodeLike {
@@ -112,14 +107,6 @@ const METADATA_TEX_WIDTH = 2048;
 // ~2Hz. The DataTexture upload is the real cost; heat decays continuously but
 // the eye cannot resolve a faster emissive fade, so we sample it on this cadence.
 const HEAT_UPLOAD_INTERVAL_MS = 500;
-
-// Agent momentum-nudge: see utils/agentNudge.ts (working agents converge on
-// their target; done agents drift outward when merged, or relax back to their
-// server position — the separated layout's centre plus activity drift).
-// Scratch tuples for the per-agent step, reused so the render loop never allocates.
-const _nudgeBase: [number, number, number] = [0, 0, 0];
-const _nudgeTarget: [number, number, number] = [0, 0, 0];
-const _nudgeCentre: [number, number, number] = [0, 0, 0];
 
 // Node scaling delegated to shared computeNodeScale (../utils/nodeScaling.ts)
 
@@ -202,9 +189,6 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
   const lastHeatUploadRef = useRef(0);
   const heatBucketRef = useRef(0);
   const heatWasActiveRef = useRef(false);
-  // Agent momentum-nudge: per-instance visual offset accumulated frame-over-
-  // frame. Working agents converge on their target; done agents drift outward.
-  const agentOffsetsRef = useRef<Float32Array | null>(null);
   // Attention-heat → instanceColor (WebGL-visible per-instance heat). The base
   // (unheated) RGB is cached on each colour repaint so the 2Hz heat pass can
   // rescale it in place — brightening touched gems and letting them fade — without
@@ -238,11 +222,6 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
   const colorScheme = useSettingsStore(s => s.get<string>('visualisation.graphs.knowledge.nodes.colorScheme')) ?? 'type';
   // 'cycles' scheme: directed-cycle members, computed only while it is active.
   const cyclicIds = useCyclicNodeIds(colorScheme === 'cycles', props.nodes.length, props.edges.length);
-  // The layout is always separated (ADR-2135): idle agents relax back to the
-  // centre, and drift from the triangle's centroid towards the graphs they
-  // work on (agentDriftFeed).
-  const separatedRef = useRef(true);
-  const triFrameRef = useRef<TriangleFrame>(separatedFrame());
   // Per-node analytics data from binary protocol V3 (refreshed periodically).
   // Stride 5 (ADR-031 D2): [clusterId, anomalyScore, communityId, centrality, ssspDistance].
   const analyticsRef = useRef<Float32Array | null>(null);
@@ -949,27 +928,6 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
     // Keep the picking refs current (raycast reads them when GPU transform on).
     xformBufRef.current = xformBuf ?? null;
     visibleCountRef.current = visCount;
-    // --- Agent momentum-nudge: graph centre + offset buffer setup ---
-    let graphCX = 0, graphCY = 0, graphCZ = 0;
-    if (isAgent && positions) {
-      let sn = 0;
-      for (let s = 0; s < positions.length - 2; s += 150) {
-        graphCX += positions[s]; graphCY += positions[s + 1]; graphCZ += positions[s + 2];
-        sn++;
-      }
-      if (sn > 0) { graphCX /= sn; graphCY /= sn; graphCZ /= sn; }
-      if (!agentOffsetsRef.current || agentOffsetsRef.current.length < visCount * 3) {
-        const old = agentOffsetsRef.current;
-        // eslint-disable-next-line no-restricted-syntax -- grow-only cache
-        agentOffsetsRef.current = new Float32Array(cacheLen * 3);
-        if (old) agentOffsetsRef.current.set(old.subarray(0, Math.min(old.length, visCount * 3)));
-      }
-    }
-    const agentOff = isAgent ? agentOffsetsRef.current : null;
-    const drift = isAgent && separatedRef.current ? agentDriftFeed() : null;
-    drift?.step();
-    const triFrame = triFrameRef.current;
-    if (isAgent) drawnOffsets.beginFrame();
     for (let i = 0; i < visCount; i++) {
       let s = scaleCache[i];
       if (i === selectedLocalIdx) {
@@ -993,43 +951,6 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
         x = p?.x ?? 0; y = p?.y ?? 0; z = p?.z ?? 0;
       }
 
-      // Agent momentum-nudge (utils/agentNudge.ts): toward the work target while
-      // working; when done, outward (merged) or home (separated). Dragged nodes skip.
-      const rawX = x, rawY = y, rawZ = z;
-      if (agentOff && i !== dragLocalIdx) {
-        const o3 = i * 3;
-        // separated layout: the agent's home is the triangle centroid plus its
-        // activity drift (ADR-2135); the nudge then works from there
-        if (drift) {
-          const d = drift.offset(String(currentNodes[i].id), triFrame);
-          x += d[0]; y += d[1]; z += d[2];
-        }
-        const work = getAgentWork(String(currentNodes[i].id));
-        let hasTarget = false;
-        if (work && work.state === 'working' && positions) {
-          const tIdx = props.nodeIdToIndexMap.get(work.targetNodeId);
-          if (tIdx !== undefined && tIdx * 3 + 2 < positions.length) {
-            const t3 = tIdx * 3;
-            _nudgeTarget[0] = positions[t3]; _nudgeTarget[1] = positions[t3 + 1]; _nudgeTarget[2] = positions[t3 + 2];
-            hasTarget = true;
-          }
-        }
-        _nudgeBase[0] = x; _nudgeBase[1] = y; _nudgeBase[2] = z;
-        _nudgeCentre[0] = graphCX; _nudgeCentre[1] = graphCY; _nudgeCentre[2] = graphCZ;
-        if (agentOffsetsEnabled()) {
-          stepAgentOffset(agentOff, o3, _nudgeBase, hasTarget ? _nudgeTarget : null, work?.state ?? null,
-            _nudgeCentre, separatedRef.current);
-        } else {
-          // Offsets off: draw the agent exactly at the server position.
-          agentOff[o3] = 0; agentOff[o3 + 1] = 0; agentOff[o3 + 2] = 0;
-        }
-        x += agentOff[o3];
-        y += agentOff[o3 + 1];
-        z += agentOff[o3 + 2];
-      }
-      // Publish where this agent is DRAWN relative to its server position, so edges end on it.
-      if (isAgent) drawnOffsets.set(posIdxCache[i], x - rawX, y - rawY, z - rawZ);
-
       if (xformBuf) {
         const t4 = i * 4;
         xformBuf[t4] = x; xformBuf[t4 + 1] = y; xformBuf[t4 + 2] = z; xformBuf[t4 + 3] = s;
@@ -1039,8 +960,6 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
         inst.setMatrixAt(i, _mat);
       }
     }
-    // Agents that stopped being drawn (filtered, reindexed, replaced) go back to zero offset.
-    if (isAgent) drawnOffsets.endFrame();
     inst.count = visCount;
     if (xformBuf) {
       if (xformTexRef.current) xformTexRef.current.needsUpdate = true;

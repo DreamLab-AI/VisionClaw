@@ -79,24 +79,6 @@ export function resolveNodeWorldPosition(
 }
 
 /**
- * Where a node is DRAWN: the SAB position plus the client draw offset GemNodes publishes
- * (agent drift and nudge). Beams and edges that start or end on an agent use this so they
- * meet the body the user sees.
- */
-export function resolveDrawnNodePosition(
-  id: number,
-  nodeIdToIndexMap: Map<string, number>,
-  positions: Float32Array | null | undefined,
-  drawnOffsets: Float32Array,
-): { x: number; y: number; z: number } | null {
-  const raw = resolveNodeWorldPosition(id, nodeIdToIndexMap, positions);
-  if (!raw) return null;
-  const i3 = (resolveNodeIndex(id, nodeIdToIndexMap) as number) * 3;
-  if (i3 + 2 >= drawnOffsets.length) return raw;
-  return { x: raw.x + drawnOffsets[i3], y: raw.y + drawnOffsets[i3 + 1], z: raw.z + drawnOffsets[i3 + 2] };
-}
-
-/**
  * Fly the camera to a node and highlight it, by wire id.
  *
  * Masks the id to its base form and dispatches the established focus event so

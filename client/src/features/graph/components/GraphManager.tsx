@@ -17,9 +17,9 @@ import { TransientBeamsLayer, type BeamPositionResolver } from '../../visualisat
 import { VirtualAgentMarkers } from '../../visualisation/components/VirtualAgentMarkers'
 import { isVirtualAgentId, resolveVirtualAgentPosition } from '../../bots/virtualAgents'
 import { useAgentTargetStore } from '../../../store/agentTargetStore'
-import { resolveNodeWorldPosition, resolveDrawnNodePosition } from '../../visualisation/cameraFocus'
-import { drawnOffsets } from '../utils/drawnOffsets'
-import { useBotsData } from '../../bots/contexts/BotsDataContext'
+import { resolveNodeWorldPosition } from '../../visualisation/cameraFocus'
+import { drawnPositions, resolveAgentSlots, liveAgentPassDeps, fillLabelPositions } from '../utils/drawnPositions'
+import { separatedFrame } from '../triLayout'
 import { useGraphVisualState, type GraphVisualMode } from '../hooks/useGraphVisualState'
 import { useGraphFiltering } from '../hooks/useGraphFiltering'
 import { useFpsMonitor } from '../hooks/useFpsMonitor'
@@ -129,50 +129,24 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   // clusters actually live. Reuse `typeFilteredNodes` so hulls cover exactly the
   // node set the meshes and edges render (one source of truth via renderedNodeIds).
 
-  // BotsDataContext is the single agent state source (its useAgentPolling owns the
-  // `/api/bots/agents` poll and reconciles binary SAB positions). GraphManager reads
-  // it only for the beam anchor map below — the agent bodies are rendered by the
-  // instanced capsules (agentGemRef) plus the BotsNode overlay (BotsVisualization).
-  const { botsData } = useBotsData()
   useFpsMonitor()
 
+  // THE drawn-positions array (utils/drawnPositions.ts): this frame's copy of the worker's shared
+  // buffer with the agent drift and nudge applied once. Every consumer below, and every child
+  // handed this ref, reads it; none adds an offset of its own.
   const nodePositionsRef = useRef<Float32Array | null>(null)
+  // The agents that have a slot in the position buffer, for the once-a-frame agent pass.
+  const agentSlots = useMemo(() => resolveAgentSlots(agentNodes, nodeIdToIndexMap), [agentNodes, nodeIdToIndexMap])
+  const triFrame = useMemo(() => separatedFrame(), [])
 
   // === Transient agent-action beams (0x23) — id-space resolution ===
   //
-  // BotsDataContext keys each agent by the MASKED numeric node id as a string
-  // (`String(getActualNodeId(nodeId))`) — that is how its binary-position
-  // reconciliation attaches SAB positions to agents. We build a lookup from that
-  // key to the agent's live world position so source_agent_id (which may arrive
-  // with the high AGENT_NODE_FLAG bit set) resolves consistently via
-  // getActualNodeId below. Sourcing from the context (rather than a second poll)
-  // makes the anchor track live physics instead of a ≤5s telemetry snapshot.
-  const botsAgents = botsData?.agents
-  const agentPositionByMaskedId = useMemo(() => {
-    const map = new Map<string, { x: number; y: number; z: number }>()
-    for (const agent of botsAgents ?? []) {
-      if (agent.position) map.set(String(agent.id), agent.position)
-    }
-    return map
-  }, [botsAgents])
-  const agentPositionMapRef = useRef(agentPositionByMaskedId)
-  agentPositionMapRef.current = agentPositionByMaskedId
-
-  // Resolve source_agent_id → agent world position. Mask the AGENT_NODE_FLAG
-  // (and any other high flag bits) via getActualNodeId, then look up by the
-  // masked string key; fall back to the raw id for safety. Returns false when
-  // unresolvable so the beam is skipped silently.
+  // source_agent_id may arrive with the high AGENT_NODE_FLAG bit set; resolveNodeIndex tries the
+  // raw id and then the masked one against nodeIdToIndexMap. The position is read from the drawn
+  // array (the same one the agent's gem, edges and label use), so a beam starts exactly at the
+  // body the user sees. Returns false when unresolvable so the beam is skipped silently.
   const resolveAgentPosition = useCallback<BeamPositionResolver>((id, out) => {
-    const map = agentPositionMapRef.current
-    const masked = getActualNodeId(id)
-    // The agent's body is drawn at SAB position + client offset (GemNodes), the same point
-    // its edges end at; prefer that over the React-state copy, which updates at a lower rate.
-    const drawn = resolveDrawnNodePosition(id, nodeIdToIndexMap, nodePositionsRef.current, drawnOffsets.data)
-    if (drawn) {
-      out.set(drawn.x, drawn.y, drawn.z)
-      return true
-    }
-    const pos = map.get(String(masked)) ?? map.get(String(id))
+    const pos = resolveNodeWorldPosition(id, nodeIdToIndexMap, nodePositionsRef.current)
     if (pos) {
       out.set(pos.x, pos.y, pos.z)
       return true
@@ -277,7 +251,9 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
 
   // ===  Layout mode transition helpers ===
   const startLayoutTransition = useCallback((targetPositions: LayoutPosition[], durationMs: number) => {
-    const positions = nodePositionsRef.current
+    // The raw shared buffer, not the drawn array: the transition's start must not include the
+    // agent offsets, which the agent pass adds again on top of the interpolated positions.
+    const positions = graphWorkerProxy.getPositionsSync()
     const nodeCount = graphData.nodes.length
     if (!positions || nodeCount === 0) return
 
@@ -459,8 +435,11 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
         }
         if (!hasNonZero && checkLen > 0) return
       }
-      nodePositionsRef.current = positions
-      setSharedNodePositions(positions)
+      // One copy of the shared buffer per frame; everything below writes the copy, never the buffer
+      // (the worker rewrites it every 16 ms).
+      const drawn = drawnPositions.copy(positions)
+      nodePositionsRef.current = drawn
+      setSharedNodePositions(drawn)
 
       // Layout mode transition: mass-aware LERP
       if (transitionRef.current?.active) {
@@ -473,20 +452,31 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
         const nodeCount = graphData.nodes.length
         for (let i = 0; i < nodeCount; i++) {
           const idx = i * 3
-          if (idx + 2 >= positions.length) break
+          if (idx + 2 >= drawn.length) break
           const cc = connectionCountMap.get(String(i)) || 0
           const massFactor = 1.0 / (1.0 + Math.sqrt(cc) * 0.3)
           const np = Math.min(progress / massFactor, 1.0)
-          positions[idx]     = t.startPositions[idx]     + (t.targetPositions[idx]     - t.startPositions[idx])     * np
-          positions[idx + 1] = t.startPositions[idx + 1] + (t.targetPositions[idx + 1] - t.startPositions[idx + 1]) * np
-          positions[idx + 2] = t.startPositions[idx + 2] + (t.targetPositions[idx + 2] - t.startPositions[idx + 2]) * np
+          drawn[idx]     = t.startPositions[idx]     + (t.targetPositions[idx]     - t.startPositions[idx])     * np
+          drawn[idx + 1] = t.startPositions[idx + 1] + (t.targetPositions[idx + 1] - t.startPositions[idx + 1]) * np
+          drawn[idx + 2] = t.startPositions[idx + 2] + (t.targetPositions[idx + 2] - t.startPositions[idx + 2]) * np
         }
         if (rawProgress >= 1.0) { transitionRef.current.active = false; setLayoutTransitioning(false) }
       }
 
+      // Agent drift and nudge, once, on the copy: from here on `drawn` is where every node is drawn.
+      const dragNodeId = dragDataRef.current.isDragging ? dragDataRef.current.nodeId : null
+      drawnPositions.applyAgents({
+        sab: positions,
+        agents: agentSlots,
+        ...liveAgentPassDeps(),
+        triFrame,
+        dragIndex: dragNodeId === null ? -1 : (nodeIdToIndexMap.get(dragNodeId) ?? -1),
+        nodeIdToIndex: nodeIdToIndexMap,
+      })
+
       requestCameraFit()
 
-      const positionsValid = positions.length >= graphData.nodes.length * 3
+      const positionsValid = drawn.length >= graphData.nodes.length * 3
 
       if (positionsValid) {
         // Update label positions ref every frame (fast, no re-render)
@@ -496,12 +486,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
           labelArr = new Array(labelCount)
           for (let i = 0; i < labelCount; i++) labelArr[i] = { x: 0, y: 0, z: 0 }
         }
-        for (let i = 0; i < labelCount; i++) {
-          const i3 = i * 3
-          labelArr[i].x = positions[i3]
-          labelArr[i].y = positions[i3 + 1]
-          labelArr[i].z = positions[i3 + 2]
-        }
+        fillLabelPositions(drawn, labelCount, labelArr)
         labelPositionsRef.current = labelArr
         prevLabelPositionsLengthRef.current = labelCount
       }

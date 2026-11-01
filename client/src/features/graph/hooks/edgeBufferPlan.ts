@@ -141,7 +141,6 @@ const tmpTgtOff = new THREE.Vector3()
  */
 function offsetEndpoints(
   plan: EdgePlan, i: number, positions: Float32Array, dragIdx: number, dragPos: THREE.Vector3,
-  drawnOffsets: Float32Array | null = null,
 ): boolean {
   const s = plan.srcIdx[i]
   const t = plan.tgtIdx[i]
@@ -150,20 +149,9 @@ function offsetEndpoints(
   if (i3s + 2 >= positions.length || i3t + 2 >= positions.length) return false
 
   if (dragIdx === s) tmpSrc.set(dragPos.x, dragPos.y, dragPos.z)
-  else {
-    tmpSrc.set(positions[i3s], positions[i3s + 1], positions[i3s + 2])
-    // Client-side draw offset (agent drift/nudge): the node is drawn there, so the edge ends there.
-    if (drawnOffsets !== null && i3s + 2 < drawnOffsets.length) {
-      tmpSrc.x += drawnOffsets[i3s]; tmpSrc.y += drawnOffsets[i3s + 1]; tmpSrc.z += drawnOffsets[i3s + 2]
-    }
-  }
+  else tmpSrc.set(positions[i3s], positions[i3s + 1], positions[i3s + 2])
   if (dragIdx === t) tmpTgt.set(dragPos.x, dragPos.y, dragPos.z)
-  else {
-    tmpTgt.set(positions[i3t], positions[i3t + 1], positions[i3t + 2])
-    if (drawnOffsets !== null && i3t + 2 < drawnOffsets.length) {
-      tmpTgt.x += drawnOffsets[i3t]; tmpTgt.y += drawnOffsets[i3t + 1]; tmpTgt.z += drawnOffsets[i3t + 2]
-    }
-  }
+  else tmpTgt.set(positions[i3t], positions[i3t + 1], positions[i3t + 2])
 
   tmpDir.subVectors(tmpTgt, tmpSrc)
   if (tmpDir.length() <= 0.001) return false
@@ -178,13 +166,10 @@ function offsetEndpoints(
  * Fill the edge point, colour and weight buffers for this frame.
  *
  * @param dragIdx Node index of the dragged node, or -1.
- * @param drawnOffsets Optional per-node draw offsets (3 floats per node index) added to the
- *   server position, so an edge ends where its node is drawn. Omitted: server positions.
  * @returns The number of edges emitted (points hold 6 numbers per edge).
  */
 export function fillEdgeFrame(
   plan: EdgePlan, positions: Float32Array, dragIdx: number, dragPos: THREE.Vector3, out: EdgeFrameBuffers,
-  drawnOffsets: Float32Array | null = null,
 ): number {
   const n = plan.count
   if (out.points.length < n * 6) out.points = new Array<number>(n * 6)
@@ -198,7 +183,7 @@ export function fillEdgeFrame(
 
   let emitted = 0
   for (let i = 0; i < n; i++) {
-    if (!offsetEndpoints(plan, i, positions, dragIdx, dragPos, drawnOffsets)) continue
+    if (!offsetEndpoints(plan, i, positions, dragIdx, dragPos)) continue
     if (tmpSrcOff.distanceTo(tmpTgtOff) > 0.1) {
       const p = emitted * 6
       pts[p] = tmpSrcOff.x
@@ -226,7 +211,6 @@ export function fillEdgeFrame(
  */
 export function fillHighlightFrame(
   plan: EdgePlan, positions: Float32Array, selIdx: number, dragIdx: number, dragPos: THREE.Vector3, out: EdgeFrameBuffers,
-  drawnOffsets: Float32Array | null = null,
 ): number {
   if (selIdx < 0) return 0
   const n = plan.count
@@ -235,7 +219,7 @@ export function fillHighlightFrame(
   let emitted = 0
   for (let i = 0; i < n; i++) {
     if (plan.srcIdx[i] !== selIdx && plan.tgtIdx[i] !== selIdx) continue
-    if (!offsetEndpoints(plan, i, positions, dragIdx, dragPos, drawnOffsets)) continue
+    if (!offsetEndpoints(plan, i, positions, dragIdx, dragPos)) continue
     if (tmpSrcOff.distanceTo(tmpTgtOff) > 0.2) {
       const p = emitted * 6
       hl[p] = tmpSrcOff.x
@@ -292,8 +276,6 @@ export interface EdgeFrameState {
   highlightHandle: object | null
   selectedNodeId: string | null
   dragging: boolean
-  /** `DrawnOffsets.version`: draw offsets move nodes without touching the position buffer. */
-  offsetsVersion?: number
 }
 
 /**
@@ -312,7 +294,6 @@ export class EdgeFrameGate {
   private highlightHandle: object | null = null
   private selectedNodeId: string | null = null
   private wasDragging = false
-  private offsetsVersion = 0
 
   shouldSkip(f: EdgeFrameState): boolean {
     if (f.dragging || this.wasDragging) return false
@@ -322,7 +303,6 @@ export class EdgeFrameGate {
       f.edgeHandle === this.edgeHandle &&
       f.highlightHandle === this.highlightHandle &&
       f.selectedNodeId === this.selectedNodeId &&
-      (f.offsetsVersion ?? 0) === this.offsetsVersion &&
       this.snapshot.matches(f.positions)
     )
   }
@@ -333,7 +313,6 @@ export class EdgeFrameGate {
     this.highlightHandle = f.highlightHandle
     this.selectedNodeId = f.selectedNodeId
     this.wasDragging = f.dragging
-    this.offsetsVersion = f.offsetsVersion ?? 0
     this.snapshot.record(f.positions)
   }
 }

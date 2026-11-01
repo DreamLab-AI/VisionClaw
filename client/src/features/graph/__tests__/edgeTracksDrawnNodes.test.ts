@@ -13,8 +13,6 @@ import {
   buildEdgePlan, fillEdgeFrame, fillHighlightFrame, createEdgeFrameBuffers, EdgeFrameGate,
   type EdgePlanInputs,
 } from '../hooks/edgeBufferPlan'
-import { DrawnOffsets } from '../utils/drawnOffsets'
-import { resolveDrawnNodePosition } from '../../visualisation/cameraFocus'
 
 /** Radius 1 at every node, so an endpoint sits exactly 1 unit from its node centre. */
 const R = 1
@@ -88,83 +86,5 @@ describe('desktop edges meet the drawn (chased) node positions', () => {
     close(out.points.slice(6, 12), surface(hand, v(pos, 2)))
     expect(fillHighlightFrame(plan, pos, 1, 1, hand, out)).toBe(2)
     close(out.highlight.slice(0, 6), surface(v(pos, 0), hand))
-  })
-})
-
-describe('agent nodes are drawn at raw position + client offset; edges must use the same', () => {
-  it('fillEdgeFrame and fillHighlightFrame add the drawn offset to both endpoints', () => {
-    const { plan } = chain(3)
-    const pos = new Float32Array([0, 0, 0, 20, 0, 0, 40, 0, 0])
-    const off = new DrawnOffsets()
-    off.set(1, 0, 6, 2) // node 1 hovers 6 up, 2 forward of its server position
-    const drawn = new Float32Array([0, 0, 0, 20, 6, 2, 40, 0, 0])
-    const out = createEdgeFrameBuffers()
-    fillEdgeFrame(plan, pos, -1, dragPos, out, off.data)
-    close(out.points.slice(0, 6), surface(v(drawn, 0), v(drawn, 1)))
-    close(out.points.slice(6, 12), surface(v(drawn, 1), v(drawn, 2)))
-    expect(fillHighlightFrame(plan, pos, 1, -1, dragPos, out, off.data)).toBe(2)
-    close(out.highlight.slice(0, 6), surface(v(drawn, 0), v(drawn, 1)))
-  })
-
-  it('a changed offset defeats the skip gate even when the raw positions are bit-identical', () => {
-    const { plan } = chain(3)
-    const pos = new Float32Array([0, 0, 0, 20, 0, 0, 40, 0, 0])
-    const off = new DrawnOffsets()
-    const gate = new EdgeFrameGate()
-    const h = {}, hh = {}
-    const state = () => ({ plan, positions: pos, edgeHandle: h, highlightHandle: hh, selectedNodeId: null, dragging: false, offsetsVersion: off.version })
-    gate.commit(state())
-    expect(gate.shouldSkip(state())).toBe(true)
-    off.set(1, 0, 0.5, 0)
-    expect(gate.shouldSkip(state())).toBe(false)
-  })
-
-  it('DrawnOffsets bumps its version only on a real change and grows on demand', () => {
-    const off = new DrawnOffsets()
-    const v0 = off.version
-    off.set(4, 1, 2, 3)
-    expect(off.data.length).toBeGreaterThanOrEqual(15)
-    const v1 = off.version
-    expect(v1).toBeGreaterThan(v0)
-    off.set(4, 1, 2, 3)
-    expect(off.version).toBe(v1)
-    off.set(4, 1, 2, 3.5)
-    expect(off.version).toBeGreaterThan(v1)
-  })
-})
-
-describe('draw offsets do not outlive the agent that owned them', () => {
-  it('a slot not written this pass returns to its raw position, and the gate sees it', () => {
-    const { plan } = chain(3)
-    const pos = new Float32Array([0, 0, 0, 20, 0, 0, 40, 0, 0])
-    const off = new DrawnOffsets()
-    off.beginFrame(); off.set(1, 0, 6, 2); off.endFrame()
-    const before = off.version
-    off.beginFrame(); off.endFrame() // the agent left slot 1 (filtered out, reindexed, replaced by a KG node)
-    expect(off.version).toBeGreaterThan(before)
-    expect(Array.from(off.data.slice(3, 6))).toEqual([0, 0, 0])
-    const out = createEdgeFrameBuffers()
-    fillEdgeFrame(plan, pos, -1, dragPos, out, off.data)
-    close(out.points.slice(0, 6), surface(v(pos, 0), v(pos, 1)))
-  })
-
-  it('a slot written in consecutive passes keeps its offset and does not bump the version', () => {
-    const off = new DrawnOffsets()
-    off.beginFrame(); off.set(2, 1, 1, 1); off.endFrame()
-    const ver = off.version
-    off.beginFrame(); off.set(2, 1, 1, 1); off.endFrame()
-    expect(off.version).toBe(ver)
-    expect(Array.from(off.data.slice(6, 9))).toEqual([1, 1, 1])
-  })
-})
-
-describe('desktop beam source meets the drawn agent', () => {
-  it('resolveDrawnNodePosition returns SAB position plus the draw offset, masked ids included', () => {
-    const map = new Map([['7', 1]])
-    const pos = new Float32Array([0, 0, 0, 10, 20, 30])
-    const off = new DrawnOffsets()
-    off.set(1, 1, 2, 3)
-    expect(resolveDrawnNodePosition(7, map, pos, off.data)).toEqual({ x: 11, y: 22, z: 33 })
-    expect(resolveDrawnNodePosition(99, map, pos, off.data)).toBeNull()
   })
 })

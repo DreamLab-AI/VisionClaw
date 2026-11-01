@@ -9,8 +9,9 @@ extends Node3D
 ## knowledge ↔ ontology `bridge`, later `dataspace`) is drawn here, in world
 ## space, by ONE MultiMeshInstance3D: one draw call, at most MAX_LINKS
 ## instances of a TRIS_PER_LINK-triangle segment, with the edge stride of 16
-## floats (12 transform + 4 custom data, Invariant 3). Endpoints are refreshed
-## at REFRESH_HZ, not every frame.
+## floats (12 transform + 4 custom data, Invariant 3). Endpoints are rebuilt on
+## every `tick`, from the same node positions the volumes draw that frame, so a
+## link never trails the node it ends on.
 ##
 ## Records are client render state only (ADR-2164 D5): Dictionaries shaped
 ## `{source: {volume, conn, key, id}, target: {…}, kind, provenance: {…,
@@ -28,10 +29,9 @@ extends Node3D
 ## of the same MultiMesh, so the layer stays one draw call; `triangle_count()`
 ## charges links and markers, while `drawn_count()` and `counts_changed` stay
 ## links only. `drawn_segments()` exposes the last refresh's segments in world
-## space for the link picker.
+## space for the link picker (rebuilt every tick, so they are this frame's).
 
 const MAX_LINKS := 512
-const REFRESH_HZ := 10.0
 const TRIS_PER_LINK := 12
 const STRIDE := 16
 const SIDES := 6  # open hexagonal prism: 6 quads = 12 triangles
@@ -66,17 +66,29 @@ var _enabled := false
 var _records := {}          # kind (String) → Array of record Dictionaries
 var _external_unresolved := {}  # kind → int, from the producer (e.g. the join)
 var _ordered: Array = []    # drawable order, capped at MAX_LINKS
+# Per drawable record, in `_ordered` order: [src volume, dst volume, src conn, dst conn, src id,
+# dst id, base colour]. Strings and ids are read from the record once, here, not every tick.
+var _ends: Array = []
 var _overflow := 0
 var _drawn := 0
 var _unresolved := 0
-var _accum := 0.0
-var _dirty := true
 var _last_volumes := {}
 var _last_conns := {}
 var _emitted := Vector3i(-1, -1, -1)
 var _highlight := {}        # "conn|node_id" → true
 var _markers := 0
-var _segments: Array = []   # last refresh, world space (see drawn_segments)
+# Last tick's segments, world space, in draw order, as parallel arrays so a tick allocates no
+# per-link Dictionary; `drawn_segments()` builds the Dictionaries on demand (the picker, tests).
+var _seg_a := PackedVector3Array()
+var _seg_b := PackedVector3Array()
+var _seg_rec: Array = []
+var _seg_lit := PackedByteArray()
+var _segments_cache: Array = []
+var _segments_cache_valid := false
+# Record validity depends only on connection generations and on the records themselves, so the
+# purge runs when either changed, not on every tick.
+var _gen_sig := {}
+var _purge_pending := true
 
 
 func _init() -> void:
@@ -107,12 +119,11 @@ func set_enabled(on: bool) -> void:
 	_enabled = on
 	if on:
 		visible = true
-		_dirty = true
 		return
 	multimesh_instance.multimesh.instance_count = 0
 	visible = false
 	_markers = 0
-	_segments = []
+	_clear_segments()
 	_set_counts(0, _unresolved, _overflow)
 
 
@@ -123,6 +134,7 @@ func is_enabled() -> bool:
 ## Replace every record of `kind`.
 func set_records(kind: String, records: Array) -> void:
 	_records[kind] = records.duplicate()
+	_purge_pending = true
 	_reorder()
 
 
@@ -130,7 +142,6 @@ func set_records(kind: String, records: Array) -> void:
 ## that found no node); added to the layer's own count in `counts_changed`.
 func set_unresolved(kind: String, n: int) -> void:
 	_external_unresolved[kind] = maxi(n, 0)
-	_dirty = true
 
 
 ## Drop every record naming `conn_id` on either end (offline or reconnect),
@@ -145,21 +156,18 @@ func drop_connection(conn_id: StringName) -> void:
 		_records[kind] = kept
 		if kept.is_empty():
 			_external_unresolved.erase(kind)
+	_purge_pending = true
 	_reorder()
 	_refresh(_last_volumes, _last_conns)
 
 
-## Per frame. Refreshes endpoints at REFRESH_HZ (or at once after a change):
-## each end is `volume.world_from_content(conn.node_position(id))`.
-func tick(delta: float, volumes: Dictionary, conns: Dictionary) -> void:
+## Per frame. Rebuilds every segment: each end is
+## `volume.world_from_content(conn.node_position(id))`, read this frame.
+func tick(_delta: float, volumes: Dictionary, conns: Dictionary) -> void:
 	_last_volumes = volumes
 	_last_conns = conns
 	if not _enabled:
 		return
-	_accum += delta
-	if not _dirty and _accum < 1.0 / REFRESH_HZ:
-		return
-	_accum = 0.0
 	_refresh(volumes, conns)
 
 
@@ -179,9 +187,22 @@ func marker_count() -> int:
 ## The segments drawn by the last refresh, in world space, in draw order:
 ## `[{a, b, record, from: {volume, conn, node_id}, to: {…}, highlighted}]`,
 ## `from` being the record's source end. Empty while the layer is off.
-## Endpoints are as of the last refresh (REFRESH_HZ), not this frame.
+## Endpoints are as of the last tick.
 func drawn_segments() -> Array:
-	return _segments if _enabled else []
+	if not _enabled:
+		return []
+	if not _segments_cache_valid:
+		var out: Array = []
+		for i: int in _seg_rec.size():
+			var r: Dictionary = _seg_rec[i]
+			out.append({
+				"a": _seg_a[i], "b": _seg_b[i], "record": r,
+				"from": _end_ref(r, "source"), "to": _end_ref(r, "target"),
+				"highlighted": _seg_lit[i] == 1,
+			})
+		_segments_cache = out
+		_segments_cache_valid = true
+	return _segments_cache
 
 
 ## Highlight every link touching any of `keys` (`[{conn, node_id}]`); `[]`
@@ -194,7 +215,6 @@ func set_highlight(keys: Array) -> void:
 	if next == _highlight:
 		return
 	_highlight = next
-	_dirty = true
 	if _enabled:
 		_refresh(_last_volumes, _last_conns)
 
@@ -315,7 +335,16 @@ func _reorder() -> void:
 	all.sort_custom(_before)
 	_overflow = maxi(all.size() - MAX_LINKS, 0)
 	_ordered = all.slice(0, MAX_LINKS)
-	_dirty = true
+	_ends.clear()
+	for r: Dictionary in _ordered:
+		var se: Dictionary = r.get("source", {})
+		var te: Dictionary = r.get("target", {})
+		_ends.append([
+			String(se.get("volume", "")), String(te.get("volume", "")),
+			String(se.get("conn", "")), String(te.get("conn", "")),
+			int(se.get("id", -1)), int(te.get("id", -1)),
+			KIND_COLOURS.get(String(r.get("kind", "")), Color.WHITE),
+		])
 
 
 ## Drop records whose generations no longer match their connections. A
@@ -364,36 +393,65 @@ static func _drawable(v: Object) -> bool:
 	return v.get("visible_state") != false
 
 
-## Whether either end sits in a volume that exists but is hidden or closed:
-## such a link is not drawn and not counted as unresolved.
-static func _hidden(r: Dictionary, volumes: Dictionary) -> bool:
-	for end: String in ["source", "target"]:
-		var e: Dictionary = r.get(end, {})
-		var v := _volume_lookup(volumes, String(e.get("volume", "")))
-		if v != null and v.has_method("world_from_content") and not _drawable(v):
-			return true
+const VOL_UNMAPPED := 0  # absent, or cannot map content: its links count as unresolved
+const VOL_HIDDEN := 1    # exists but hidden or closed: its links are skipped, not counted
+const VOL_DRAWABLE := 2
+
+
+## A volume's state for this tick, memoised in `cache` ([object, state] per volume id) so the
+## per-link loop does two Dictionary reads instead of a lookup and three property reads.
+func _volume_state(volumes: Dictionary, vid: String, cache: Dictionary) -> Array:
+	var hit: Variant = cache.get(vid)
+	if hit != null:
+		return hit
+	var v := _volume_lookup(volumes, vid)
+	var state := VOL_UNMAPPED
+	if v != null and v.has_method("world_from_content"):
+		state = VOL_DRAWABLE if _drawable(v) else VOL_HIDDEN
+	var entry := [v, state]
+	cache[vid] = entry
+	return entry
+
+
+## A connection usable as an endpoint source this tick, or null (absent, no `node_position`,
+## offline); memoised in `cache` by connection id.
+func _usable_conn(conns: Dictionary, cid: String, cache: Dictionary) -> Object:
+	if cache.has(cid):
+		return cache[cid]
+	var c := _conn_lookup(conns, cid)
+	if c != null and (not c.has_method("node_position") \
+			or (c.has_method("is_connected_now") and not c.is_connected_now())):
+		c = null
+	cache[cid] = c
+	return c
+
+
+func _clear_segments() -> void:
+	_seg_a.resize(0)
+	_seg_b.resize(0)
+	_seg_rec.clear()
+	_seg_lit.resize(0)
+	_segments_cache = []
+	_segments_cache_valid = false
+
+
+## Whether the records could have gone stale: a record changed, or a connection's generation did.
+func _needs_purge(conns: Dictionary) -> bool:
+	var sig := {}
+	for k: Variant in conns:
+		var c: Object = conns[k] as Object
+		if c != null:
+			sig[k] = int(c.get("generation"))
+	if _purge_pending or sig != _gen_sig:
+		_gen_sig = sig
+		_purge_pending = false
+		return true
 	return false
 
 
-## World position of one end, or null when its volume or connection is
-## missing, its connection is offline, or the volume cannot map content.
-func _endpoint(r: Dictionary, end: String, volumes: Dictionary, conns: Dictionary) -> Variant:
-	var e: Dictionary = r.get(end, {})
-	var v := _volume_lookup(volumes, String(e.get("volume", "")))
-	var c := _conn_lookup(conns, String(e.get("conn", "")))
-	if not _drawable(v) or c == null or not c.has_method("node_position"):
-		return null
-	if c.has_method("is_connected_now") and not c.is_connected_now():
-		return null
-	var p: Vector3 = c.node_position(int(e.get("id", -1)))
-	return v.world_from_content(p)
-
-
 func _refresh(volumes: Dictionary, conns: Dictionary) -> void:
-	_dirty = false
-	if _purge_stale(conns):
+	if _needs_purge(conns) and _purge_stale(conns):
 		_reorder()
-		_dirty = false
 	var mm := multimesh_instance.multimesh
 	var unresolved := 0
 	for kind: String in _external_unresolved:
@@ -401,40 +459,48 @@ func _refresh(volumes: Dictionary, conns: Dictionary) -> void:
 	if not _enabled:
 		mm.instance_count = 0
 		_markers = 0
-		_segments = []
+		_clear_segments()
 		_set_counts(0, unresolved, _overflow)
 		return
 	var inv: Transform3D = global_transform.affine_inverse() if is_inside_tree() else Transform3D.IDENTITY
 	var buf := PackedFloat32Array()
 	buf.resize(_ordered.size() * STRIDE)
 	var n := 0
-	var segments: Array = []
+	_clear_segments()
+	var vcache := {}
+	var ccache := {}
 	var marks := {}  # "conn|id" → local position, one ring per highlighted end
-	for r: Dictionary in _ordered:
-		if _hidden(r, volumes):
+	var any_lit := not _highlight.is_empty()
+	for ri: int in _ordered.size():
+		var r: Dictionary = _ordered[ri]
+		var e: Array = _ends[ri]
+		var sv := _volume_state(volumes, e[0], vcache)
+		var tv := _volume_state(volumes, e[1], vcache)
+		if sv[1] == VOL_HIDDEN or tv[1] == VOL_HIDDEN:
 			continue
-		var a: Variant = _endpoint(r, "source", volumes, conns)
-		var b: Variant = _endpoint(r, "target", volumes, conns)
-		if a == null or b == null:
+		var sc := _usable_conn(conns, e[2], ccache)
+		var tc := _usable_conn(conns, e[3], ccache)
+		if sv[1] != VOL_DRAWABLE or tv[1] != VOL_DRAWABLE or sc == null or tc == null:
 			unresolved += 1
 			continue
-		var pa: Vector3 = inv * (a as Vector3)
-		var pb: Vector3 = inv * (b as Vector3)
+		var a: Vector3 = (sv[0] as Object).world_from_content(sc.node_position(e[4]))
+		var b: Vector3 = (tv[0] as Object).world_from_content(tc.node_position(e[5]))
+		var pa: Vector3 = inv * a
+		var pb: Vector3 = inv * b
 		var d := pb - pa
 		if d.length() < MIN_LENGTH_M:
 			continue
-		var colour: Color = KIND_COLOURS.get(String(r.get("kind", "")), Color.WHITE)
-		var lit := _is_highlighted(r)
+		var colour: Color = e[6]
+		var lit := any_lit and _is_highlighted(r)
 		if lit:
 			colour = colour.lerp(Color.WHITE, HIGHLIGHT_LIFT)
 			marks[_end_key(r, "source")] = pa
 			marks[_end_key(r, "target")] = pb
 		_pack(buf, n, pa, pb, colour, RADIUS_M * (HIGHLIGHT_RADIUS_SCALE if lit else 1.0))
-		segments.append({
-			"a": a, "b": b, "record": r,
-			"from": _end_ref(r, "source"), "to": _end_ref(r, "target"),
-			"highlighted": lit,
-		})
+		_seg_a.append(a)
+		_seg_b.append(b)
+		_seg_rec.append(r)
+		_seg_lit.append(1 if lit else 0)
 		n += 1
 	var links := n
 	buf.resize((n + marks.size()) * STRIDE)
@@ -449,7 +515,6 @@ func _refresh(volumes: Dictionary, conns: Dictionary) -> void:
 	if n > 0:
 		mm.buffer = buf
 	_markers = n - links
-	_segments = segments
 	_set_counts(links, unresolved, _overflow)
 
 
@@ -465,10 +530,22 @@ static func _pack(buf: PackedFloat32Array, i: int, a: Vector3, b: Vector3, colou
 	var o := (a + b) * 0.5
 	var k := i * STRIDE
 	# MultiMesh 3D layout: rows of the basis with the origin in the 4th column.
-	var row := [x.x, y.x, z.x, o.x, x.y, y.y, z.y, o.y, x.z, y.z, z.z, o.z,
-		colour.r, colour.g, colour.b, colour.a]
-	for j: int in STRIDE:
-		buf[k + j] = row[j]
+	buf[k] = x.x
+	buf[k + 1] = y.x
+	buf[k + 2] = z.x
+	buf[k + 3] = o.x
+	buf[k + 4] = x.y
+	buf[k + 5] = y.y
+	buf[k + 6] = z.y
+	buf[k + 7] = o.y
+	buf[k + 8] = x.z
+	buf[k + 9] = y.z
+	buf[k + 10] = z.z
+	buf[k + 11] = o.z
+	buf[k + 12] = colour.r
+	buf[k + 13] = colour.g
+	buf[k + 14] = colour.b
+	buf[k + 15] = colour.a
 
 
 func _set_counts(drawn: int, unresolved: int, overflow: int) -> void:

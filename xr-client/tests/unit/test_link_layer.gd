@@ -143,7 +143,7 @@ func test_switching_off_empties_in_the_same_frame() -> void:
 	assert_false(layer.visible)
 	assert_eq(layer.draw_calls(), 0)
 	assert_eq(layer.triangle_count(), 0)
-	# Back on: drawn again at the next tick, whatever the refresh phase.
+	# Back on: drawn again at the next tick.
 	layer.set_enabled(true)
 	layer.tick(0.0, volumes, conns)
 	assert_eq(_mm().instance_count, 2)
@@ -195,7 +195,7 @@ func test_reconnect_drops_the_old_generation_before_drawing() -> void:
 	assert_eq(_mm().instance_count, 1)
 	# Codescape reconnects: its generation moves on and nobody called drop yet.
 	conns[&"codescape"].generation = 2
-	layer.tick(LinkLayer.REFRESH_HZ, volumes, conns)
+	layer.tick(0.0, volumes, conns)
 	assert_eq(_mm().instance_count, 0, "stale record never drawn")
 	assert_eq(layer.record_count(), 0, "and discarded")
 	# The fresh join arrives with the new generation and draws.
@@ -234,16 +234,30 @@ func test_hidden_volume_hides_its_links_without_counting_them() -> void:
 	assert_eq(_mm().instance_count, 0)
 
 
-func test_endpoints_refresh_at_10_hz() -> void:
+func test_endpoints_follow_the_node_in_the_same_frame() -> void:
 	layer.set_enabled(true)
 	layer.set_records("annotates", [_rec(1, 5)])
 	layer.tick(0.0, volumes, conns)
 	var before: Vector3 = _xf(0).origin
 	conns[&"visionclaw"].positions[5] = Vector3(50, 0, 0)
-	layer.tick(0.03, volumes, conns)
-	assert_eq(_xf(0).origin, before, "not yet")
-	layer.tick(0.08, volumes, conns)
-	assert_ne(_xf(0).origin, before, "after 1/10 s")
+	# One tick, a sliver of a frame later: the end is already on the moved node.
+	layer.tick(0.001, volumes, conns)
+	assert_ne(_xf(0).origin, before, "moved the same frame")
+	var seg: Dictionary = layer.drawn_segments()[0]
+	assert_eq(seg["b"], volumes[&"ontology"].world_from_content(Vector3(50, 0, 0)), "bridge end = drawn node")
+	# And again, with nothing else changed: every tick re-reads the node.
+	conns[&"visionclaw"].positions[5] = Vector3(50, 7, 0)
+	layer.tick(0.001, volumes, conns)
+	assert_eq(layer.drawn_segments()[0]["b"], volumes[&"ontology"].world_from_content(Vector3(50, 7, 0)))
+
+
+func test_bridge_link_tracks_a_moved_volume_in_the_same_frame() -> void:
+	layer.set_enabled(true)
+	layer.set_records("bridge", [_rec(3, 7, "bridge")])
+	layer.tick(0.0, volumes, conns)
+	volumes[&"knowledge"].offset = Vector3(-2, 4, 0)  # the volume is carried
+	layer.tick(0.001, volumes, conns)
+	assert_eq(layer.drawn_segments()[0]["a"], volumes[&"knowledge"].world_from_content(Vector3(3, 0, 0)))
 
 
 func test_external_unresolved_is_reported() -> void:

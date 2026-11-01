@@ -648,8 +648,6 @@ pub struct RenderStore {
     node_plan: pack::NodePlan,
     edge_plan: pack::EdgePlan,
     scratch: pack::PackScratch,
-    // Edge LOD frame counter: the far ribbon tier is repacked on even frames.
-    edge_frame: u64,
     // Pack slots (ADR-2159 D4, XR phase-1 §7.7): two volumes fed by one connection pack
     // different id lists every frame. Each slot keeps its own plans and last-pack outputs so
     // they never invalidate each other; the fields above always hold the active slot's state
@@ -674,7 +672,6 @@ struct PackSlot {
     node_plan: pack::NodePlan,
     edge_plan: pack::EdgePlan,
     scratch: pack::PackScratch,
-    edge_frame: u64,
 }
 
 /// Distinct query-variable palette colours before they cycle — matches the client
@@ -807,7 +804,6 @@ impl RenderStore {
         swap(&mut self.node_plan, &mut other.node_plan);
         swap(&mut self.edge_plan, &mut other.edge_plan);
         swap(&mut self.scratch, &mut other.scratch);
-        swap(&mut self.edge_frame, &mut other.edge_frame);
     }
 
     /// Record a node's `file_size` (bytes) for the metadata size formula. Merges
