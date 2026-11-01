@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158]
-verified_commit: 0df96bc52459cd19b08683a96912e85c45c08f41
+verified_commit: e99c16d31f2b4dac8757348963404228aa42c612
 verified_paths: [xr-client/scripts/space_portals.gd, xr-client/scripts/spatial_volume.gd, xr-client/scripts/emulated_volume.gd, xr-client/scripts/volume_arrangement.gd, xr-client/scripts/graph_scene.gd, xr-client/scripts/hud.gd, xr-client/scripts/xr_prefs.gd, xr-client/materials/portal_membrane.gdshader]
 owner: jjohare
 review_trigger: the first headset session with Enter used (stereo membranes, 90 Hz with an entered 6 m room, comfort of the dim); or XE merging FrameBudgetPass.set_volume_weights
@@ -74,3 +74,7 @@ Re-verified 2026-11-01 at `03ddc61e1` (viz/edge-tracking). The only change to `x
 ## Re-verification — 2026-11-01 (`0df96bc52`)
 
 `xr-client/scripts/graph_scene.gd` changes one comment above `_tick_links`. The enter/portal behaviour this record governs is untouched.
+
+## Re-verification — 2026-11-01 (`e99c16d31`)
+
+`xr-client/scripts/spatial_volume.gd` gained `content_to_world() -> Transform3D`, and `world_from_content(p)` now returns `content_to_world() * p`. A pure refactor: both run `_ensure_built()` and `_content_world()` exactly as before, so entering a volume and the portals are unchanged. The link layer reads the transform once per volume per frame. Evidence: the full GUT suite, 49 scripts, 536 tests, 0 failing; `tests/gut_guard.sh` exit 0.

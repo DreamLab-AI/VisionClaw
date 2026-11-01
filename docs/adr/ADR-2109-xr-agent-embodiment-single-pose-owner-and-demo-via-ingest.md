@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 0df96bc52459cd19b08683a96912e85c45c08f41
+verified_commit: e99c16d31f2b4dac8757348963404228aa42c612
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -188,3 +188,7 @@ Re-verified 2026-11-01 at `03ddc61e1` (viz/edge-tracking). `xr-client/rust/src/r
 ## Re-verification — 2026-11-01 (`0df96bc52`)
 
 `render_store.rs` loses the dead `edge_frame` counter (the field, its `PackSlot` twin, the swap and the increment; it was never read, so no behaviour changes) and `graph_scene.gd` gains a comment edit only. The agent pose, anchor and beam claims are untouched; `cargo test` (xr-client/rust): 610 passed, 0 failed.
+
+## Re-verification — 2026-11-01 (`e99c16d31`)
+
+`RenderStore::position_of` and the gdext `node_position` now return the drawn position through the fold-aware resolver (`drawn_position_of`, the `edge_endpoint` remap); the fold animation reads a private `raw_position_of`. The answer differs from before only for a node that is fully folded into a representative, which is not drawn. The choreography stays the only pose writer; an agent node is placed by its pose slot and the fold plan is a knowledge-graph plan applied by id, so nothing in the pose rules changes. Not verified: that the server never puts an agent id in a fold group; if it did, the agent would already be drawn at its representative by the edge and node packs. Evidence: `cargo test` 618 passed, 0 failed.
