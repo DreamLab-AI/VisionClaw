@@ -203,6 +203,49 @@ describe('a finished agent reaches the scene edge in about 30 s and stops there 
     })
   }
 
+  it('with two agents finishing 10 s apart, the edge gate never skips while the second is still moving and skips every frame once both have arrived', () => {
+    const ids = ['10', '11', '12', '4194307', '4194308']
+    const nodes = ids.map(id => ({ id, label: id, position: { x: 0, y: 0, z: 0 }, metadata: {} }))
+    const edges = [['10', '11'], ['11', '12'], ['4194307', '12'], ['4194308', '11']].map(([s, t], i) => ({ id: `e${i}`, source: s, target: t }))
+    const map = new Map(ids.map((id, i) => [id, i]))
+    const plan = buildEdgePlan({
+      nodes: nodes as any, edges: edges as any, nodeIdToIndexMap: map,
+      connectionCountMap: new Map(), perNodeVisualModeMap: new Map(), hierarchyMap: new Map(),
+      graphMode: 'knowledge_graph', visibleNodeIds: new Set(ids), graphTypeVisuals: undefined, nodeSize: 1,
+    }, () => R)
+    const sab = new Float32Array([0, 0, 0, 10, 0, 0, 20, 0, 0, 5, 30, 0, -5, -30, 0])
+    const agents = resolveAgentSlots([{ id: ids[3] }, { id: ids[4] }], map)
+    const dp = new DrawnPositions()
+    const gate = new EdgeFrameGate()
+    const handle = {}
+    const fps = 60
+    const secondFinishes = 10 // s; the first agent is finished from the start
+    let last = new Float32Array(0)
+    let movedInWindow = 0
+    let skippedWhileMoving = 0
+    let framesAfterBoth = 0
+    let skippedAfterBoth = 0
+    for (let f = 0; f <= fps * 45; f++) {
+      const t = f / fps
+      const getWork = (id: string): AgentWorkInfo | null =>
+        id === ids[3] ? work('done') : work(t < secondFinishes ? 'working' : 'done')
+      const drawn = frame(dp, pass({ sab, agents, edge: EDGE, nowMs: 1000 + t * 1000, getWork }))
+      const same = last.length === drawn.length && last.every((x, k) => x === drawn[k])
+      last = Float32Array.from(drawn)
+      const state = { plan, positions: drawn, edgeHandle: handle, highlightHandle: handle, selectedNodeId: null, dragging: false }
+      const skip = gate.shouldSkip(state)
+      if (!skip) gate.commit(state)
+      if (skip) expect(same).toBe(true) // the gate never skips a frame in which something moved
+      // the first agent arrived at 30 s, the second is still on its way until 40 s
+      if (t > 31 && t < 39) { if (!same) movedInWindow++; if (skip && !same) skippedWhileMoving++ }
+      if (t > 40.5) { framesAfterBoth++; if (skip) skippedAfterBoth++ }
+    }
+    expect(movedInWindow).toBeGreaterThan(fps * 5) // the second agent really was still moving
+    expect(skippedWhileMoving).toBe(0)
+    expect(framesAfterBoth).toBeGreaterThan(fps * 4)
+    expect(skippedAfterBoth).toBe(framesAfterBoth)
+  })
+
   it('an agent that is not done is not sent to the edge, and one with no work relaxes home', () => {
     const { sab, map, ids } = scene()
     const agents = resolveAgentSlots([{ id: ids[3] }], map)

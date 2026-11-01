@@ -4900,11 +4900,11 @@ mod tests {
     }
 
     /// Cost of one `pack_links` at the 512-link cap, against the 2.6 ms the per-frame GDScript
-    /// rebuild cost (`f15-report.md`, Godot 4.6.1 x86_64 headless, fake endpoints). Run with
-    /// `cargo test --lib link_pack_cost -- --ignored --nocapture`; the dev profile is opt-level 2,
-    /// the same codegen the headset loads.
+    /// rebuild cost (`f15-report.md`, Godot 4.6.1 x86_64 headless, fake endpoints). Measured here
+    /// at 0.07 ms median; the bound is 1 ms, so a loaded host does not flake it. Run with
+    /// `cargo test --lib link_pack_cost -- --nocapture` to see the numbers; the dev profile is
+    /// opt-level 2, the same codegen the headset loads.
     #[test]
-    #[ignore]
     fn link_pack_cost_at_512_links() {
         let mut a = RenderStore::new();
         let mut b = RenderStore::new();
