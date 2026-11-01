@@ -38,6 +38,7 @@ import { agentDriftFeed } from '../../bots/agentDriftFeed';
 import { separatedFrame, type TriangleFrame } from '../triLayout';
 import { attentionHeat } from '../../visualisation/attentionHeat';
 import { heatBrightenFactor } from '../../visualisation/heatColor';
+import { drawnOffsets } from '../utils/drawnOffsets';
 
 /** Minimal hierarchy node shape compatible with HierarchyNode from hierarchyDetector */
 interface HierarchyNodeLike {
@@ -993,6 +994,7 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
 
       // Agent momentum-nudge (utils/agentNudge.ts): toward the work target while
       // working; when done, outward (merged) or home (separated). Dragged nodes skip.
+      const rawX = x, rawY = y, rawZ = z;
       if (agentOff && i !== dragLocalIdx) {
         const o3 = i * 3;
         // separated layout: the agent's home is the triangle centroid plus its
@@ -1024,6 +1026,8 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
         y += agentOff[o3 + 1];
         z += agentOff[o3 + 2];
       }
+      // Publish where this agent is DRAWN relative to its server position, so edges end on it.
+      if (isAgent) drawnOffsets.set(posIdxCache[i], x - rawX, y - rawY, z - rawZ);
 
       if (xformBuf) {
         const t4 = i * 4;

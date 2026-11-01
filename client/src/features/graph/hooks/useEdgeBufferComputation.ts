@@ -18,6 +18,7 @@ import {
   buildEdgePlan, createEdgeFrameBuffers, fillEdgeFrame, fillHighlightFrame,
   EdgeFrameGate, type EdgeFrameBuffers,
 } from './edgeBufferPlan'
+import { drawnOffsets } from '../utils/drawnOffsets'
 import { createLogger } from '../../../utils/loggerConfig'
 
 const logger = createLogger('useEdgeBufferComputation')
@@ -101,6 +102,7 @@ export function useEdgeBufferComputation(opts: EdgeBufferComputationOptions) {
       highlightHandle: highlightEdgeFlowRef.current,
       selectedNodeId,
       dragging: isDragging,
+      offsetsVersion: drawnOffsets.version,
     }
     // Nothing that feeds the edge buffers changed since the last frame (the
     // settled steady state): the meshes already hold this exact output.
@@ -112,13 +114,13 @@ export function useEdgeBufferComputation(opts: EdgeBufferComputationOptions) {
     const dragIdx   = dragNodeId === null ? -1 : (nodeIdToIndexMap.get(dragNodeId) ?? -1)
     const dragPos   = dragDataRef.current.currentNodePos3D
 
-    const emitted = fillEdgeFrame(plan, positions, dragIdx, dragPos, buffers)
+    const emitted = fillEdgeFrame(plan, positions, dragIdx, dragPos, buffers, drawnOffsets.data)
     const edgePointIdx = emitted * 6
 
     // Highlight edges for selected node
     if (selectedNodeId) {
       const selIdx = nodeIdToIndexMap.get(selectedNodeId) ?? -1
-      const hlCount = fillHighlightFrame(plan, positions, selIdx, dragIdx, dragPos, buffers)
+      const hlCount = fillHighlightFrame(plan, positions, selIdx, dragIdx, dragPos, buffers, drawnOffsets.data)
       const hlIdx = hlCount * 6
       if (highlightEdgeFlowRef.current) {
         highlightEdgeFlowRef.current.updatePoints(buffers.highlight, hlIdx)
@@ -179,5 +181,7 @@ export function useEdgeBufferComputation(opts: EdgeBufferComputationOptions) {
         hasEdgeFlowRef: !!edgeFlowRef.current,
       })
     }
-  }, -2)
+  // After GemNodes (-1), which publishes this frame's agent draw offsets, and before
+  // InstancedLabels (0); positions are written by the worker, so -2 was not needed.
+  }, -0.5)
 }

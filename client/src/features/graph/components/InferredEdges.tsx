@@ -15,6 +15,7 @@
  * node, indexed by the node's render index via `nodeIdToIndexMap`.
  */
 
+import { drawnOffsets } from '../utils/drawnOffsets';
 import React, { useMemo, useRef, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -98,17 +99,21 @@ export const InferredEdges: React.FC<InferredEdgesProps> = ({
 
     const attr = geometry.getAttribute('position') as THREE.BufferAttribute;
     const arr = attr.array as Float32Array;
+    // Agent nodes are drawn at server position + client offset (GemNodes publishes it).
+    const off = drawnOffsets.data;
     let w = 0;
     for (let i = 0; i < resolved.length; i++) {
       const [si, ti] = resolved[i];
       const so = si * 3;
       const to = ti * 3;
-      arr[w++] = positions[so];
-      arr[w++] = positions[so + 1];
-      arr[w++] = positions[so + 2];
-      arr[w++] = positions[to];
-      arr[w++] = positions[to + 1];
-      arr[w++] = positions[to + 2];
+      const sOn = so + 2 < off.length;
+      const tOn = to + 2 < off.length;
+      arr[w++] = positions[so] + (sOn ? off[so] : 0);
+      arr[w++] = positions[so + 1] + (sOn ? off[so + 1] : 0);
+      arr[w++] = positions[so + 2] + (sOn ? off[so + 2] : 0);
+      arr[w++] = positions[to] + (tOn ? off[to] : 0);
+      arr[w++] = positions[to + 1] + (tOn ? off[to + 1] : 0);
+      arr[w++] = positions[to + 2] + (tOn ? off[to + 2] : 0);
     }
     attr.needsUpdate = true;
     geometry.setDrawRange(0, resolved.length * 2);
