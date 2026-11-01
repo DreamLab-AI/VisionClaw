@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.25
+version: 0.1.26
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.26 (2026-11-01): ADR-2170 (proposed, none, inactive; source evidence only): Gaussian splat scenes as their own volume; a Compatibility-safe CPU-sorted quad layer with a separate splat account (owner decision pending). New proposed section only; Current State, Invariants and verified_commit untouched. Version skips 0.1.25, which xr/grab-client (ADR-2168) uses."
   - "0.1.25 (2026-11-01): ADR-2172 (partial, inactive, headless-GUT evidence only): a node can be grabbed with either hand, up to two at once, in any VisionClaw volume (knowledge or ontology), in the ring and inside an entered room; Codescape still refuses (E9); a portal never grabs; a drag release is no longer recorded for Unpin All (so the Unpin All count and the fold's `?pinned=` stay empty until a client-side Pin exists); a held node never refits its own volume (R15 F1); the gold-edge breathe is 36 s at depth 0.8 and swells brightness as well as alpha (its true trough is about 0.04 of peak). Volumes section only; Current State, Invariants and verified_commit untouched."
   - "0.1.24 (2026-10-31): ADR-2166 (partial, inactive, headless-GUT evidence only): a volume can be entered (room-scale bounds, centred on the user) and the others become portals on a ring outside it, with a one-draw-call membrane; Enter/Leave on the HUD; reduced-motion dim-and-snap, 0.5 s ease otherwise for Enter and for re-laying the portals (Leave and swap always dim); refused while the native arm is active. Volumes section only; Current State, Invariants and verified_commit untouched."
   - "0.1.23 (2026-10-30): Godot 4.8-beta2 target (ADR-2165). The unchanged gdext library (godot 0.2.4, API 4.3) loads under 4.8.beta2.official.cafc17a19; headless load and GUT match 4.6.1 exactly (33/33 scripts, 257/257 tests); desktop GL (XR off) fixture is pixel-identical and the benchmark about 2.6 % slower; no API break in our code (PR #116424 only breaks XRInterfaceExtension implementations, which we have none of). Invariant 1 gains an explicit clause that an engine minor-version bump re-opens it (renderer rule itself unchanged); its 4.8 on-headset re-test is recorded under Engine and renderer and is partial (FOCUSED at 90 FPS with the graph visible in the left eye; the second eye awaits the operator). Hard cutover by operator decision: the live headset client runs 4.8-beta2, and 4.6.1 stays installed as the rollback."
@@ -1262,3 +1263,32 @@ open owner decision (ADR-2167).
 
 **Unverified.** Stereo (both eyes), the headset and fill rate in both eyes; the sky shader's behaviour under
 multiview; whether the GPU timer exists on the XR viewport. The numbers above are mono desktop.
+
+## Proposed (ADR-2170, 2026-11-01, not built): Gaussian splat scenes
+
+Nothing below exists in `xr-client/`; this section describes a proposal, not the client. The Current State and Invariants above are unchanged.
+
+- **Placement.** A splat scene is its own `splat` volume under the ADR-2158 contract and can be entered (ADR-2166), so that it becomes the environment while the graph volumes become portals. A node may link to a splat asset, but it never parents one: splat roots are never under `GraphRoot`. Transparent objects sort per object, not per fragment, so an un-entered splat volume's box never intersects a graph volume's box and shares the graph's transparent `render_priority`. An entered splat volume is a backdrop at a lower priority than every graph layer and portal, fitted to room scale (ADR-2166); splat content between the user and a portal is overdrawn by the portal (a named artefact). A 1:1 metric view needs its own amendment.
+- **Renderer.** The splat layer is built to stay within Invariants 1 and 2:
+  - **Geometry and blending:** one MultiMesh of camera-facing quads per splat volume, `blend_mix`, `depth_draw_never`, at the priority set by the placement rule.
+  - **Data:** static splat data lives in a data texture. Each sort uploads only a sorted index texture (4 B a splat), read with `texelFetch` by `INSTANCE_ID`. That this works under Compatibility multiview is unverified.
+  - **Sorting:** a CPU radix sort in gdext on a worker thread.
+  - **Overdraw and comfort guards:** a screen-radius cap and a 0.3 m near fade.
+  - **Shader rules:** no compute, post-process, `SCREEN_TEXTURE`, depth-texture read or `SubViewport`.
+- **Sort cadence.** One head-pose sort serves both eyes. A sort is triggered by 5 cm or 2° of head motion, at no more than 30 Hz, and is dropped if late.
+- **Budget (owner decision pending).** At 2 triangles a quad, splats cannot fit inside `TRI_LIMIT`, which the graph already fills (about 94.5k of 95k). The proposal is a separate splat account in `frame_budget.rs`, outside `TRI_LIMIT`:
+  - its draw calls count against the 48;
+  - its tiers are 0, 25k, 50k and 100k splats at SH 0;
+  - the tier is stepped by the ADR-2167 governor thresholds, with frame time as the fallback (ceiling tier 2).
+
+  This amends PRD-008 and ADR-2167, and needs the owner's decision. Without it, headset splats stay off.
+- **Comfort.** Splat scenes are world-locked and static. Under reduced motion (the default), entering and tier changes use dim-and-snap. `XR_VISUAL_QUALITY=low` removes splats in the same frame.
+- **Assets.** Assets are never committed. A manifest records the URL, SHA-256, author, licence and attribution. Assets are cached by `sha256-12` under `user://splat-cache/`, and attribution plus "modified" appear on the HUD credits line. Only licences that allow redistribution and adaptation are admitted.
+- **Acceptance (targets).** On the VIVE Pro with ISS `xr-3` entered:
+  - 90 Hz for 60 s with no more than 1 dropped frame, and p99 ≤ 11.1 ms;
+  - GPU p95 ≤ 8 ms;
+  - CPU sort of 100k ≤ 4 ms p95;
+  - draw calls ≤ 48;
+  - both eyes render.
+
+  Measurements need the lead's approval and never run while the owner is in the headset.

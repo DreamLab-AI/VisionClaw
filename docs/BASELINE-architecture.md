@@ -1,7 +1,7 @@
 ---
 title: VisionClaw Current Architecture Baseline
 doc_id: VC-BASELINE
-version: 0.4.0
+version: 0.4.1
 status: draft-for-ratification
 verified_commit: 
 date: 2026-08-31
@@ -21,6 +21,7 @@ sources:
   - crates/visionclaw-protocol/src/protocols/binary_settings_protocol.rs
   - src/utils/binary_protocol.rs
 changelog:
+  - "0.4.1 (2026-11-01): ADR-2170 (proposed, not built): Gaussian splat rendering note under XR + React clients. No invariant changed."
   - "0.4.0 (2026-10-18): ADR-2143 A4/A5: Codescape served as its own compose service behind the dev nginx at /codescape/ on 3001; the frozen wire record extracted to crates/visionclaw-wire (re-exported by visionclaw-protocol); Codescape's only estate dependency is that crate and its CUDA PTX is a runtime artefact. Minor bump: subsystem paragraph and crate census updated; the one Codescape invariant is unchanged in kind"
   - "0.3.0 (2026-10-17): ADR-2143: Codescape section (separate workspace and lock, ports 4100/4101, tested build-graph isolation) and one invariant; citation refresh in Processes and ports (compose :8/:26,215/:48-49/:70-71/:204/:304, HttpServer::new at main.rs:959). Minor bump: new subsystem and one additive invariant; no existing invariant changed"
   - "0.2.1 (2026-09-06): Remediation — 2026-09-05 section: Wave 3 ADRs (2094–2101, 2061, 2071, 2085; proposed 2102–2105) and the ledger/diagram re-verification landed in 2cf222406 — re-verified at "
@@ -275,6 +276,16 @@ owning ADR (the Protocol Registry becomes its owner).
   any splat work). `postprocessing` stays at 6.38.2: no release of it allows
   three 0.187 (6.39.5 caps at `< 0.187.0`), and `@react-three/postprocessing`
   is not imported by `client/src`, so the peer-range breach is dormant.
+- **Splats (proposed, ADR-2170, not built).** No splat library covers both of the
+  web client's renderer paths. `rendererFactory.ts` picks `WebGPURenderer` or a
+  clean `WebGLRenderer` and never WebGPURenderer's WebGL2 backend
+  (`client/src/rendering/rendererFactory.ts:38-40,141-147`).
+  - **Proposed backends:** the three `GaussianSplat` addon (`three/addons`, r186 or later, WebGPURenderer-only;
+    three is now at 0.187.0, see above) on the WebGPU path;
+    Spark 2.4 (`@sparkjsdev/spark`, WebGL2-only) on the WebGL path.
+  - **Shared rules:** both serve offline-converted SPZ LOD variants from a
+    content-addressed cache. A splat scene is a scene-level volume or environment,
+    never per-node geometry.
 
 ### Trust boundaries
 
