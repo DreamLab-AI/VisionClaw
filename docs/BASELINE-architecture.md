@@ -350,6 +350,9 @@ read-only guard defaults off (`public_demo.rs:29-33`, `unwrap_or(false)`).
 - Position broadcast path: GPU → `ForceComputeActor` → `PhysicsOrchestratorActor`
   → `ClientCoordinatorActor` → WebSocket. The live `ClientCoordinatorActor` must
   be the one clients register with (registry not empty).
+- The physics step must not scale with nodes x constraints: the force kernels read a per-node
+  constraint index (ADR-2173, `docs/GPU-wire-abi.md`). The `step timing` log line in
+  `ForceComputeActor` is the first place to look when the stream rate drops.
 - Backend on `4000`, nginx `3001`, Vite `5173`, all inside `visionclaw_container`.
 - Codescape (ADR-2143) is a separate Cargo workspace and lock in the `codescape/` submodule, on ports
   `4100`/`4101`, and its build graph contains no knowledge-work crate (ontology, memory-cloud,

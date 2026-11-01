@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 2f8a74118cee7a2b3ab7f600f850bc1fe8b10722
+verified_commit: d184e89fbda250a6682b774b48a5c1f25b275e4a
 verified_paths: [crates/visionclaw-gpu/src/cuda_sources/gpu_clustering_kernels.cu, crates/visionclaw-gpu/tests/analytics_oracle_conformance.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: Before any claim that Louvain, PageRank or DBSCAN output is trustworthy, or before a release that surfaces community/centrality/cluster values to users; activates when a rebuilt running backend serves Louvain/PageRank/DBSCAN output that is checked against the CPU oracle
@@ -269,3 +269,5 @@ edit. **Still holds.**
 ## Re-verification — 2026-10-31 (`2f8a74118`)
 
 Governed-path delta since `f68ad414f`: `docs/GPU-wire-abi.md` wording only. The build-fallback sentence now says both a failure to launch `nvcc` and a non-zero exit reach the pre-compiled fallback (`ptx_policy::NvccOutcome::needs_fallback`), replacing stale `build.rs` line citations, and the ADR-2030 runtime-identity paragraph now states the check is inert in the runtime images. Nothing this record decides is changed; status axes unchanged. Re-run: `git diff f68ad414f..2f8a74118 -- docs/GPU-wire-abi.md`.
+
+Re-verified at `d184e89fb` after ADR-2173 added a section and an invariant to `docs/GPU-wire-abi.md` (the analytics-trust table is untouched): `cargo test -p visionclaw-gpu --test analytics_oracle_conformance -- --ignored` on an RTX 6000 Ada (sm_89), 4 passed (LOF, DBSCAN, Louvain, PageRank).

@@ -577,6 +577,10 @@ impl UnifiedGPUCompute {
             "Successfully resized GPU buffers to {}/{} allocated nodes/edges",
             actual_new_nodes, actual_new_edges
         );
+        // The index is sized by node capacity, which just changed.
+        if !self.constraints_host.is_empty() {
+            self.rebind_constraint_index();
+        }
         Ok(())
     }
 
@@ -626,6 +630,8 @@ impl UnifiedGPUCompute {
         }
 
         self.num_constraints = constraints.len();
+        self.constraints_host = constraints;
+        self.rebind_constraint_index();
         debug!(
             "Updated GPU constraints: {} active constraints with progressive activation support",
             self.num_constraints
@@ -633,8 +639,79 @@ impl UnifiedGPUCompute {
         Ok(())
     }
 
+    /// Rebuild the per-node constraint index from `constraints_host` and bind it to the force
+    /// kernels through the `g_constraint_node_offsets` / `g_constraint_node_ids` device globals.
+    ///
+    /// The kernels fall back to scanning every constraint when either global is null, so every
+    /// failure path here unbinds and logs instead of returning an error: the physics stays correct,
+    /// only slower. Globals rather than kernel parameters keep both kernel signatures (and the
+    /// arity guard downstream consumers of the PTX enforce) unchanged.
+    pub(crate) fn rebind_constraint_index(&mut self) {
+        if self.constraints_host.is_empty() {
+            self.bind_constraint_index_pointers(0, 0);
+            return;
+        }
+        let index = super::constraint_index::build_constraint_index(
+            &self.constraints_host,
+            self.allocated_nodes,
+        );
+        let (entries, longest, p99) = index.list_stats();
+        info!(
+            "constraint index: {} constraints -> {} entries over {} node slots; longest node list {} (p99 {})",
+            self.constraints_host.len(),
+            entries,
+            self.allocated_nodes,
+            longest,
+            p99
+        );
+        let uploaded = DeviceBuffer::from_slice(&index.offsets)
+            .and_then(|offsets| DeviceBuffer::from_slice(&index.ids).map(|ids| (offsets, ids)));
+        match uploaded {
+            Ok((offsets, ids)) => {
+                self.constraint_node_offsets = offsets;
+                self.constraint_node_ids = ids;
+                // An empty `ids` buffer (constraints that touch no valid node) is never read, but
+                // its pointer may be null, which the kernel would take as "unbound".
+                let ids_ptr = if index.ids.is_empty() {
+                    self.constraint_node_offsets.as_device_ptr().as_raw()
+                } else {
+                    self.constraint_node_ids.as_device_ptr().as_raw()
+                };
+                let offsets_ptr = self.constraint_node_offsets.as_device_ptr().as_raw();
+                self.bind_constraint_index_pointers(offsets_ptr, ids_ptr);
+            }
+            Err(e) => {
+                warn!("constraint index upload failed ({}); force pass falls back to the full scan", e);
+                self.bind_constraint_index_pointers(0, 0);
+            }
+        }
+    }
+
+    /// Write the two device-pointer globals; `0, 0` unbinds (kernel scans every constraint).
+    pub(crate) fn bind_constraint_index_pointers(&mut self, offsets: u64, ids: u64) {
+        for (name, value) in [
+            (c"g_constraint_node_offsets", offsets),
+            (c"g_constraint_node_ids", ids),
+        ] {
+            match self._module.get_global::<u64>(name) {
+                Ok(mut global) => {
+                    if let Err(e) = global.copy_from(&value) {
+                        warn!("could not write {:?}: {}", name, e);
+                    }
+                }
+                Err(e) => {
+                    // A PTX without the symbol predates the index: it scans, which is correct but
+                    // slow, so say so where an operator will see it.
+                    warn!("PTX has no {:?} ({}); constraint index not in use, force pass scans every constraint", name, e);
+                }
+            }
+        }
+    }
+
     pub fn clear_constraints(&mut self) -> Result<()> {
         self.num_constraints = 0;
+        self.constraints_host.clear();
+        self.rebind_constraint_index();
 
         let empty_constraints = vec![ConstraintData::default(); self.constraint_data.len()];
         checked_copy_from(

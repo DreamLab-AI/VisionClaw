@@ -174,6 +174,7 @@ impl UnifiedGPUCompute {
         let _thread_context =
             Context::new(self.device).map_err(|e| anyhow!("Failed to set CUDA context: {}", e))?;
 
+        crate::actors::gpu::force_compute_actor::kernel_stage_begin();
         params.iteration = self.iteration;
         let block_size = Self::kernel_block_size();
         let grid_size = (self.num_nodes as u32).div_ceil(block_size);
@@ -300,6 +301,8 @@ impl UnifiedGPUCompute {
             }
         }
 
+        crate::actors::gpu::force_compute_actor::kernel_stage_mark(&self.stream, 0);
+
         crate::utils::gpu_diagnostics::validate_kernel_launch(
             "unified_gpu_execute",
             grid_size,
@@ -337,6 +340,7 @@ impl UnifiedGPUCompute {
             &mut block_results,
             "aabb_block_results read",
         )?;
+        crate::actors::gpu::force_compute_actor::kernel_stage_mark(&self.stream, 1);
 
         let mut aabb = Aabb {
             min: [f32::MAX; 3],
@@ -578,6 +582,8 @@ impl UnifiedGPUCompute {
             ))?;
         }
 
+        crate::actors::gpu::force_compute_actor::kernel_stage_mark(&self.stream, 2);
+
         // Persistent grid-sort output buffers (allocated once in new()/resize_buffers,
         // reused every frame). `sort_keys_out` receives the sorted cell keys;
         // `sort_values_out` receives the sorted node indices and is ping-ponged with
@@ -613,6 +619,7 @@ impl UnifiedGPUCompute {
         // Sorted node indices now live in sort_values_out; swap them into
         // sorted_node_indices for downstream kernels (ping-pong, no allocation).
         std::mem::swap(&mut self.sorted_node_indices, &mut self.sort_values_out);
+        crate::actors::gpu::force_compute_actor::kernel_stage_mark(&self.stream, 3);
 
         if self.cell_start.len() != self.zero_buffer.len() {
             return Err(anyhow!(
@@ -648,6 +655,8 @@ impl UnifiedGPUCompute {
                 num_grid_cells as i32
             ))?;
         }
+
+        crate::actors::gpu::force_compute_actor::kernel_stage_mark(&self.stream, 4);
 
         let force_kernel_name = if params.stability_threshold > 0.0 {
             "force_pass_with_stability_kernel"
@@ -788,6 +797,8 @@ impl UnifiedGPUCompute {
         // Cluster cohesion: gentle attraction toward cluster centroids.
         // cluster_strength IS the raw kernel coefficient — no magic scale; clamp
         // to the valid contract range [0, 0.02]. The slider has full authority.
+        crate::actors::gpu::force_compute_actor::kernel_stage_mark(&self.stream, 5);
+
         let cohesion_strength = params.cluster_strength.clamp(0.0, 0.02);
         if cohesion_strength > 0.0001 {
             // Community-driven cohesion (Leiden default / Louvain). Communities are
@@ -869,6 +880,8 @@ impl UnifiedGPUCompute {
         // Degree-weighted gravity correction: replaces uniform centering with
         // degree-aware gravity for connected nodes and peripheral shell force
         // for isolated nodes. Only runs when degree weights have been uploaded.
+        crate::actors::gpu::force_compute_actor::kernel_stage_mark(&self.stream, 6);
+
         if self.degree_weights_available && params.center_gravity_k > 0.0 {
             if let Ok(dw_gravity_kernel) =
                 self._module.get_function("degree_weighted_gravity_kernel")
@@ -916,6 +929,8 @@ impl UnifiedGPUCompute {
         // Semantic forces: add the ontology-derived forces to the live force buffers before
         // integration, exactly as configured in the central settings store. Present only after
         // `enable_semantic`; `semantic_active` is false when every force is switched off.
+        crate::actors::gpu::force_compute_actor::kernel_stage_mark(&self.stream, 7);
+
         if self.semantic_active {
             if let Some(sem) = &self.semantic {
                 if sem.num_nodes() == self.num_nodes {
@@ -939,6 +954,8 @@ impl UnifiedGPUCompute {
                 }
             }
         }
+
+        crate::actors::gpu::force_compute_actor::kernel_stage_mark(&self.stream, 8);
 
         let integrate_pass_kernel = self._module.get_function(self.integrate_pass_kernel_name)?;
         let stream = &self.stream;
@@ -981,6 +998,8 @@ impl UnifiedGPUCompute {
                 self.pinned_mask.as_device_ptr()
             ))?;
         }
+
+        crate::actors::gpu::force_compute_actor::kernel_stage_mark(&self.stream, 9);
 
         let completion_event = cust::event::Event::new(cust::event::EventFlags::DEFAULT)?;
         completion_event.record(&self.stream)?;
@@ -1797,61 +1816,345 @@ mod grid_gpu_tests {
         }
     }
 
-    /// Measurement: where one physics step's time goes at the live graph size. Run with
-    /// `--ignored --nocapture`.
+    const LIVE_NODES: usize = 9_688;
+    const LIVE_EDGES: usize = 147_048;
+    /// Live constraint count (OWL mapper: 96,742 = 20,000 sibling-alignment + the rest
+    /// DISTANCE / SEPARATION). Override with `TICK_CONSTRAINTS` (0 disables).
+    const LIVE_CONSTRAINTS: usize = 96_742;
+    /// ASSUMPTION: the ontology nodes the constraints touch are a skewed subset of the graph.
+    const CONSTRAINT_NODE_POOL: usize = 3_000;
+
+    /// xorshift64*: deterministic, so before/after runs see the same graph.
+    struct BenchRng(u64);
+    impl BenchRng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 >> 12;
+            self.0 ^= self.0 << 25;
+            self.0 ^= self.0 >> 27;
+            self.0.wrapping_mul(0x2545_F491_4F6C_DD1D)
+        }
+        fn unit(&mut self) -> f32 {
+            (self.next() >> 40) as f32 / (1u64 << 24) as f32
+        }
+    }
+
+    /// Barabasi-Albert preferential attachment, then trimmed/padded to exactly `LIVE_EDGES` edges.
+    fn synthetic_edges(rng: &mut BenchRng) -> Vec<(usize, usize)> {
+        let m = LIVE_EDGES / LIVE_NODES; // 15
+        let mut targets: Vec<usize> = (0..=m).collect(); // repeated-endpoint urn
+        let mut edges = Vec::with_capacity(LIVE_EDGES + LIVE_NODES);
+        for a in 0..=m {
+            for b in (a + 1)..=m {
+                edges.push((a, b));
+            }
+        }
+        for v in (m + 1)..LIVE_NODES {
+            let mut picked = Vec::with_capacity(m);
+            while picked.len() < m {
+                let t = targets[(rng.next() as usize) % targets.len()];
+                if t != v && !picked.contains(&t) {
+                    picked.push(t);
+                }
+            }
+            for t in picked {
+                edges.push((v, t));
+                targets.push(v);
+                targets.push(t);
+            }
+        }
+        while edges.len() < LIVE_EDGES {
+            let a = (rng.next() as usize) % LIVE_NODES;
+            let b = (rng.next() as usize) % LIVE_NODES;
+            if a != b {
+                edges.push((a, b));
+            }
+        }
+        edges.truncate(LIVE_EDGES);
+        edges
+    }
+
+    /// Live-sized constraint set: 20,000 ALIGNMENT (7, params[0] = axis), then alternating
+    /// DISTANCE (0) / SEPARATION (6). Endpoints are drawn from a squared-uniform skew over the
+    /// first `CONSTRAINT_NODE_POOL` nodes, so a few class nodes are hubs.
+    fn synthetic_constraints(
+        rng: &mut BenchRng,
+        n: usize,
+    ) -> Vec<crate::models::constraints::ConstraintData> {
+        let pick = |rng: &mut BenchRng| {
+            let u = rng.unit();
+            ((u * u * CONSTRAINT_NODE_POOL as f32) as i32).min(CONSTRAINT_NODE_POOL as i32 - 1)
+        };
+        (0..n)
+            .map(|i| {
+                let (a, mut b) = (pick(rng), pick(rng));
+                if a == b {
+                    b = (a + 1) % CONSTRAINT_NODE_POOL as i32;
+                }
+                let mut c = crate::models::constraints::ConstraintData {
+                    count: 2,
+                    node_idx: [a, b, 0, 0],
+                    weight: 0.5,
+                    ..crate::models::constraints::ConstraintData::default()
+                };
+                if i < 20_000 {
+                    c.kind = 7;
+                    c.params[0] = (i % 3) as f32;
+                } else if i % 2 == 0 {
+                    c.kind = 0;
+                    c.params[0] = 30.0;
+                } else {
+                    c.kind = 6;
+                    c.params[0] = 60.0;
+                }
+                c
+            })
+            .collect()
+    }
+
+    /// `TICK_HUB=n` appends n DISTANCE constraints to node 0, a class node with n children. With the
+    /// per-node index a node's thread walks its own list serially, so the longest list bounds the step.
+    fn with_hub(
+        mut v: Vec<crate::models::constraints::ConstraintData>,
+    ) -> Vec<crate::models::constraints::ConstraintData> {
+        let hub: usize = std::env::var("TICK_HUB")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(0);
+        let mut rng = BenchRng(99);
+        for _ in 0..hub {
+            let b = 1 + (rng.next() as usize % (CONSTRAINT_NODE_POOL - 1)) as i32;
+            v.push(crate::models::constraints::ConstraintData {
+                kind: 0,
+                count: 2,
+                node_idx: [0, b, -1, -1],
+                params: [30.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                weight: 0.5,
+                ..crate::models::constraints::ConstraintData::default()
+            });
+        }
+        v
+    }
+
+    /// `(longest per-node list, its node, p99 list length)` over nodes with at least one entry.
+    fn list_stats(v: &[crate::models::constraints::ConstraintData]) -> (usize, usize, usize) {
+        let mut per = vec![0usize; LIVE_NODES];
+        for c in v {
+            let mut seen = [-1i32; 4];
+            for (k, &n) in c
+                .node_idx
+                .iter()
+                .take(c.count.clamp(0, 4) as usize)
+                .enumerate()
+            {
+                if n >= 0 && (n as usize) < LIVE_NODES && !seen[..k].contains(&n) {
+                    seen[k] = n;
+                    per[n as usize] += 1;
+                }
+            }
+        }
+        let (node, &max) = per.iter().enumerate().max_by_key(|(_, &l)| l).unwrap();
+        let mut lens: Vec<usize> = per.into_iter().filter(|&l| l > 0).collect();
+        lens.sort_unstable();
+        (max, node, lens[(lens.len() - 1) * 99 / 100])
+    }
+
+    fn live_shape_graph() -> UnifiedGPUCompute {
+        let ptx = crate::utils::ptx::load_ptx_sync().expect("unified PTX");
+        let mut rng = BenchRng(0x9E37_79B9_7F4A_7C15);
+        let edges = synthetic_edges(&mut rng);
+
+        let mut adj: Vec<Vec<(i32, f32)>> = vec![Vec::new(); LIVE_NODES];
+        for &(a, b) in &edges {
+            adj[a].push((b as i32, 1.0));
+            adj[b].push((a as i32, 1.0));
+        }
+        let mut row = vec![0i32; LIVE_NODES + 1];
+        let (mut col, mut w) = (Vec::new(), Vec::new());
+        for (i, l) in adj.iter().enumerate() {
+            for &(t, wt) in l {
+                col.push(t);
+                w.push(wt);
+            }
+            row[i + 1] = col.len() as i32;
+        }
+
+        // Random points in a ball: the same start the live graph is seeded from.
+        let (mut px, mut py, mut pz) = (
+            vec![0f32; LIVE_NODES],
+            vec![0f32; LIVE_NODES],
+            vec![0f32; LIVE_NODES],
+        );
+        for i in 0..LIVE_NODES {
+            loop {
+                let (x, y, z) = (
+                    rng.unit() * 2.0 - 1.0,
+                    rng.unit() * 2.0 - 1.0,
+                    rng.unit() * 2.0 - 1.0,
+                );
+                if x * x + y * y + z * z <= 1.0 {
+                    (px[i], py[i], pz[i]) = (x * 400.0, y * 400.0, z * 400.0);
+                    break;
+                }
+            }
+        }
+
+        let mut gpu =
+            UnifiedGPUCompute::new(LIVE_NODES, col.len(), &ptx).expect("GPU compute on device 0");
+        gpu.initialize_graph(&row, &col, &w, [&px, &py, &pz], LIVE_NODES, col.len())
+            .expect("graph upload");
+        // Same degree weighting the actor uploads (log(1+deg), median-normalised).
+        let dw: Vec<f32> = (0..LIVE_NODES)
+            .map(|i| (1.0 + (row[i + 1] - row[i]) as f32).ln())
+            .collect();
+        let mut sorted: Vec<f32> = dw.iter().copied().filter(|&x| x > 1e-6).collect();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let norm = 1.0 / sorted[sorted.len() / 2];
+        let dw: Vec<f32> = dw.iter().map(|&x| x * norm).collect();
+        gpu.upload_degree_weights(&dw).expect("degree weights");
+        gpu
+    }
+
+    /// The settings the live backend logs on its first step.
+    fn live_params() -> crate::models::simulation_params::SimulationParams {
+        let mut p = crate::models::simulation_params::SimulationParams::new();
+        p.dt = 0.016;
+        p.damping = 0.9;
+        p.repel_k = 343.98535;
+        p.spring_k = 12.0;
+        p.center_gravity_k = 0.2;
+        // Attribution knobs for the remaining force-pass cost: TICK_REPEL_K=0 / TICK_SPRING_K=0.
+        if let Some(v) = std::env::var("TICK_REPEL_K")
+            .ok()
+            .and_then(|v| v.parse().ok())
+        {
+            p.repel_k = v;
+        }
+        if let Some(v) = std::env::var("TICK_SPRING_K")
+            .ok()
+            .and_then(|v| v.parse().ok())
+        {
+            p.spring_k = v;
+        }
+        p
+    }
+
+    fn timed_steps(
+        gpu: &mut UnifiedGPUCompute,
+        p: &crate::models::simulation_params::SimulationParams,
+        bypass: bool,
+        steps: usize,
+    ) -> f64 {
+        let t = std::time::Instant::now();
+        for _ in 0..steps {
+            gpu.execute_physics_step_with_bypass(p, bypass)
+                .expect("step");
+        }
+        t.elapsed().as_secs_f64() * 1000.0 / steps as f64
+    }
+
+    fn repeated(
+        gpu: &mut UnifiedGPUCompute,
+        p: &crate::models::simulation_params::SimulationParams,
+        bypass: bool,
+        label: &str,
+    ) -> f64 {
+        let v: Vec<f64> = (0..3).map(|_| timed_steps(gpu, p, bypass, 150)).collect();
+        let (lo, hi) = (
+            v.iter().cloned().fold(f64::MAX, f64::min),
+            v.iter().cloned().fold(f64::MIN, f64::max),
+        );
+        let mean = v.iter().sum::<f64>() / 3.0;
+        println!(
+            "{label:<34} {mean:7.2} ms/step = {:6.1} Hz   (3 reps x150, min {lo:.2} max {hi:.2})",
+            1000.0 / mean
+        );
+        mean
+    }
+
+    /// Measurement: where one physics step's time goes on a graph with the live dev shape
+    /// (9,688 nodes, 147,048 undirected edges with a preferential-attachment degree distribution,
+    /// 96,742 ontology constraints). Reports held / idle ms per step and Hz, the readback, then the
+    /// per-stage breakdown from `StepTiming`'s kernel sub-phases (synchronised at each boundary, so
+    /// reported separately from the plain timing). `TICK_HUB=n` adds n constraints on node 0 to
+    /// find the hub-list slope; `TICK_CONSTRAINTS=0` runs without constraints; `TICK_MIN_HZ` turns
+    /// the report into an assertion. Run with `--ignored --nocapture`, on a spare device.
     #[test]
     #[ignore = "timing measurement; run explicitly with --ignored --nocapture"]
     fn step_stage_timings_at_the_live_graph_size() {
-        const M: usize = 9478;
-        let _ctx = cust::quick_init().expect("cuda");
-        let ptx = crate::utils::ptx::load_ptx_sync().expect("ptx");
-        let mut g = UnifiedGPUCompute::new(M, M * 2, &ptx).expect("gpu");
-        let mut seed = 5u64;
-        let (mut x, mut y, mut z) = (vec![0f32; M], vec![0f32; M], vec![0f32; M]);
-        for i in 0..M {
-            x[i] = (lcg(&mut seed) - 0.5) * 600.0;
-            y[i] = (lcg(&mut seed) - 0.5) * 400.0;
-            z[i] = (lcg(&mut seed) - 0.5) * 400.0;
-        }
-        g.upload_positions(&x, &y, &z).unwrap();
-        let n = M as i32;
-        let offsets: Vec<i32> = (0..=n).map(|i| i * 2).collect();
-        let mut cols = Vec::new();
-        for i in 0..n {
-            cols.push((i + n - 1) % n);
-            cols.push((i + 1) % n);
-        }
-        g.upload_edges_csr(&offsets, &cols, &vec![1.0; M * 2])
-            .unwrap();
-        let mut p = SimParams::new();
-        p.stability_threshold = 0.0;
-        p.repulsion_cutoff = 400.0;
-        let time = |label: &str, reps: u32, f: &mut dyn FnMut()| {
-            let t0 = std::time::Instant::now();
-            for _ in 0..reps {
-                f();
-            }
-            println!(
-                "STEP_TIMING {label:<28} {:8.2} ms",
-                t0.elapsed().as_secs_f64() * 1000.0 / reps as f64
-            );
+        use crate::actors::gpu::force_compute_actor::{
+            set_kernel_stage_profiling, take_kernel_stage_us, KERNEL_STAGE_NAMES,
         };
-        for _ in 0..3 {
-            g.execute(p).unwrap();
+        let env = |k: &str| std::env::var(k).ok().and_then(|v| v.parse::<f64>().ok());
+        let n_constraints = env("TICK_CONSTRAINTS").map_or(LIVE_CONSTRAINTS, |v| v as usize);
+        let _ctx = cust::quick_init().expect("cuda");
+        let mut gpu = live_shape_graph();
+        let mut p = live_params();
+        p.cluster_strength = 0.0; // keep the Louvain refresh out of the steady-state numbers
+        println!("nodes={LIVE_NODES} undirected_edges={LIVE_EDGES} constraints={n_constraints}");
+
+        // Let the layout leave its random-ball start so the grid density is realistic.
+        timed_steps(&mut gpu, &p, true, 400);
+        println!("-- WITHOUT constraints");
+        let (mut held, mut idle) = (
+            repeated(&mut gpu, &p, true, "HELD (stability bypass)"),
+            repeated(&mut gpu, &p, false, "IDLE (stability gate)"),
+        );
+        if n_constraints > 0 {
+            let cs = with_hub(synthetic_constraints(&mut BenchRng(7), n_constraints));
+            let (longest, node, p99) = list_stats(&cs);
+            gpu.set_constraints(cs).unwrap();
+            timed_steps(&mut gpu, &p, true, 100);
+            println!("-- WITH {n_constraints} constraints (+TICK_HUB): longest node list {longest} (node {node}), p99 {p99}");
+            held = repeated(&mut gpu, &p, true, "HELD (stability bypass)");
+            idle = repeated(&mut gpu, &p, false, "IDLE (stability gate)");
         }
-        time("execute (kernels, no sync)", 20, &mut || {
-            g.execute(p).unwrap();
-        });
-        time("execute + stream sync", 20, &mut || {
-            g.execute(p).unwrap();
-            g.stream.synchronize().unwrap();
-        });
-        time("get_node_positions (D2H)", 20, &mut || {
-            let _ = g.get_node_positions().unwrap();
-        });
-        time("update_positions_only (H2D)", 20, &mut || {
-            g.update_positions_only(&x, &y, &z).unwrap();
-        });
+
+        // Idle must actually integrate: a stability skip would return early and flatter the number.
+        let before = gpu.get_node_positions().unwrap().0;
+        timed_steps(&mut gpu, &p, false, 5);
+        let after = gpu.get_node_positions().unwrap().0;
+        let moved = before.iter().zip(&after).filter(|(a, b)| a != b).count();
+        println!(
+            "IDLE integrates: {moved}/{} nodes moved in 5 steps",
+            before.len()
+        );
+        assert!(
+            moved > 0,
+            "the idle run integrated nothing; its timing is a skip, not a step"
+        );
+
+        let t = std::time::Instant::now();
+        for _ in 0..50 {
+            gpu.get_node_positions().unwrap();
+            gpu.get_node_velocities().unwrap();
+        }
+        println!(
+            "READBACK pos+vel: {:.2} ms",
+            t.elapsed().as_secs_f64() * 1000.0 / 50.0
+        );
+
+        set_kernel_stage_profiling(true);
+        let _ = take_kernel_stage_us();
+        let prof_steps = 100;
+        let prof = timed_steps(&mut gpu, &p, true, prof_steps);
+        set_kernel_stage_profiling(false);
+        let us = take_kernel_stage_us();
+        println!("STAGES (held, synchronised at each boundary; total {prof:.2} ms/step):");
+        for (name, u) in KERNEL_STAGE_NAMES.iter().zip(us.iter()) {
+            println!(
+                "  {name:<16} {:8.3} ms",
+                *u as f64 / 1000.0 / prof_steps as f64
+            );
+        }
+
+        if let Some(min_hz) = env("TICK_MIN_HZ").filter(|&v| v > 0.0) {
+            assert!(
+                1000.0 / held >= min_hz && 1000.0 / idle >= min_hz,
+                "tick rate below {min_hz} Hz: held {:.1} Hz, idle {:.1} Hz",
+                1000.0 / held,
+                1000.0 / idle
+            );
+        }
     }
 
     /// A pinned node must DRAG its graph neighbours: the spring between a held node and its
@@ -2477,6 +2780,127 @@ mod adr_2029_constraint_gpu_tests {
                 .expect("step");
         }
         assert_eq!(positions(&mut cleared), baseline);
+    }
+
+    /// A mixed constraint set over most of the 64 nodes: hubs in several constraints, a node in two
+    /// slots of one constraint, a padded slot beyond `count`, and all of DISTANCE, SEPARATION and
+    /// ALIGNMENT, so every branch of the per-node loop is exercised.
+    fn mixed_constraints() -> Vec<ConstraintData> {
+        let mut out = Vec::new();
+        for i in 0..N as i32 {
+            let j = (i * 7 + 3) % N as i32;
+            let k = (i * 13 + 5) % N as i32;
+            out.push(ConstraintData {
+                kind: 0,
+                count: 2,
+                node_idx: [i, j, -1, -1],
+                params: [TARGET_GAP, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                weight: 0.5,
+                activation_frame: 0,
+            });
+            out.push(ConstraintData {
+                kind: 6,
+                count: 2,
+                node_idx: [i, k, -1, -1],
+                params: [90.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                weight: 0.5,
+                activation_frame: 0,
+            });
+            out.push(ConstraintData {
+                kind: 7,
+                count: 2,
+                node_idx: [j, k, -1, -1],
+                params: [(i % 3) as f32, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                weight: 0.5,
+                activation_frame: 0,
+            });
+        }
+        // Node 4 in two slots of one constraint; node 9 only in a padded slot (count 1).
+        out.push(ConstraintData {
+            kind: 0,
+            count: 3,
+            node_idx: [4, 4, 11, -1],
+            params: [TARGET_GAP, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            weight: 0.5,
+            activation_frame: 0,
+        });
+        out.push(ConstraintData {
+            kind: 1,
+            count: 1,
+            node_idx: [20, 9, -1, -1],
+            params: [10.0, 10.0, 10.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            weight: 0.5,
+            activation_frame: 0,
+        });
+        out
+    }
+
+    /// The per-node constraint index is an optimisation: the full forces, with the index bound and
+    /// with it unbound (the kernel scans every constraint), must agree bit for bit, under both the
+    /// stability-gated kernel and the plain one.
+    #[test]
+    fn the_constraint_index_changes_no_bit_of_the_result() {
+        for stability in [true, false] {
+            let Some((_c1, mut indexed)) = engine() else {
+                return;
+            };
+            let Some((_c2, mut scanned)) = engine() else {
+                return;
+            };
+            let Some((_c3, mut none)) = engine() else {
+                return;
+            };
+            indexed
+                .upload_constraints(&mixed_constraints())
+                .expect("constraints");
+            scanned
+                .upload_constraints(&mixed_constraints())
+                .expect("constraints");
+            scanned.bind_constraint_index_pointers(0, 0); // force the legacy full scan
+
+            // Not vacuous: read the two device globals back. Bound on one engine, null on the other.
+            let bound = |g: &UnifiedGPUCompute| -> [u64; 2] {
+                let mut out = [0u64; 2];
+                for (slot, name) in [c"g_constraint_node_offsets", c"g_constraint_node_ids"]
+                    .into_iter()
+                    .enumerate()
+                {
+                    let sym = g
+                        ._module
+                        .get_global::<u64>(name)
+                        .expect("index symbol in PTX");
+                    sym.copy_to(&mut out[slot]).expect("read global");
+                }
+                out
+            };
+            let b = bound(&indexed);
+            assert!(
+                b[0] != 0 && b[1] != 0,
+                "the index is bound on the indexed engine"
+            );
+            assert_eq!(bound(&scanned), [0, 0], "and unbound on the scanning one");
+
+            let settings = SimulationParams {
+                constraint_ramp_frames: 0,
+                ..Default::default()
+            };
+            for _ in 0..FRAMES {
+                for g in [&mut indexed, &mut scanned, &mut none] {
+                    g.execute_physics_step_with_bypass(&settings, !stability)
+                        .expect("step");
+                }
+            }
+            let (a, b, c) = (
+                positions(&mut indexed),
+                positions(&mut scanned),
+                positions(&mut none),
+            );
+            assert_eq!(a, b, "index vs scan (stability gate {stability})");
+            if !stability {
+                // With the gate on, rest at the start may legitimately skip the step.
+                assert_ne!(a, c, "the constraints must have moved something");
+            }
+        }
     }
 }
 
