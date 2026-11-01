@@ -1256,9 +1256,9 @@ multiview; whether the GPU timer exists on the XR viewport. The numbers above ar
 
 Nothing below exists in `xr-client/`; this section describes a proposal, not the client. The Current State and Invariants above are unchanged.
 
-- **Placement.** A splat scene is its own `splat` volume under the ADR-2158 contract and can be entered (ADR-2166), so that it becomes the environment while the graph volumes become portals. A node may link to a splat asset, but it never parents one: splat roots are never under `GraphRoot`. A splat volume's box never intersects a graph volume's box, because transparent objects sort per object, not per fragment.
+- **Placement.** A splat scene is its own `splat` volume under the ADR-2158 contract and can be entered (ADR-2166), so that it becomes the environment while the graph volumes become portals. A node may link to a splat asset, but it never parents one: splat roots are never under `GraphRoot`. Transparent objects sort per object, not per fragment, so an un-entered splat volume's box never intersects a graph volume's box and shares the graph's transparent `render_priority`. An entered splat volume is a backdrop at a lower priority than every graph layer and portal, fitted to room scale (ADR-2166); splat content between the user and a portal is overdrawn by the portal (a named artefact). A 1:1 metric view needs its own amendment.
 - **Renderer.** The splat layer is built to stay within Invariants 1 and 2:
-  - **Geometry and blending:** one MultiMesh of camera-facing quads per splat volume, `blend_mix`, `depth_draw_never`, drawn before the ribbons and hulls.
+  - **Geometry and blending:** one MultiMesh of camera-facing quads per splat volume, `blend_mix`, `depth_draw_never`, at the priority set by the placement rule.
   - **Data:** static splat data lives in a data texture. Each sort uploads only a sorted index texture (4 B a splat), read with `texelFetch` by `INSTANCE_ID`. That this works under Compatibility multiview is unverified.
   - **Sorting:** a CPU radix sort in gdext on a worker thread.
   - **Overdraw and comfort guards:** a screen-radius cap and a 0.3 m near fade.
