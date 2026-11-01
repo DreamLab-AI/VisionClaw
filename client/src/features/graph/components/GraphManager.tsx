@@ -134,8 +134,9 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   useFpsMonitor()
 
   // THE drawn-positions array (utils/drawnPositions.ts): this frame's copy of the worker's shared
-  // buffer with the agent drift and nudge applied once. Every consumer below, and every child
-  // handed this ref, reads it; none adds an offset of its own.
+  // buffer with the dragged node's hand position applied (agents are not in it: they are drawn from
+  // the marker map). Every consumer below, and every child handed this ref, reads it; none adds
+  // an offset of its own.
   const nodePositionsRef = useRef<Float32Array | null>(null)
   const triFrame = useMemo(() => separatedFrame(), [])
   // The scene's edge, where finished agents stop: the bounding sphere the camera frames, from the
@@ -232,8 +233,8 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
 
   // ===  Layout mode transition helpers ===
   const startLayoutTransition = useCallback((targetPositions: LayoutPosition[], durationMs: number) => {
-    // The raw shared buffer, not the drawn array: the transition's start must not include the
-    // agent offsets, which the agent pass adds again on top of the interpolated positions.
+    // The raw shared buffer: the transition interpolates server positions, and the drawn array is
+    // re-derived from the buffer every frame.
     const positions = graphWorkerProxy.getPositionsSync()
     const nodeCount = graphData.nodes.length
     if (!positions || nodeCount === 0) return

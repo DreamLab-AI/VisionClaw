@@ -144,7 +144,7 @@ struct BotsEmitDecision {
 ///
 /// An empty agentbox task list means "this poll learned nothing", NOT "every
 /// agent died" — the live MCP population (`BotsClient`) can still be non-zero.
-/// Emitting an empty graph on every such poll clobbers `bots_graph_data` to 0 and
+/// Emitting an empty graph on every such poll empties the roster feed's view and
 /// blinks the client roster (19→0→19). So emit iff:
 ///   * the poll has ≥1 agent (a populated roster is always authoritative), OR
 ///   * the previous emit was non-empty AND emptiness is confirmed on

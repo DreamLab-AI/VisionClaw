@@ -3778,7 +3778,7 @@ func _graph_centre_world() -> Vector3:
 
 
 ## The overlay volume's box (metres, its own frame) and its global scale: the scene
-## edge a finished agent runs out to is half the box diagonal in world metres
+## edge a finished agent runs out to is half the box's smallest extent (the inscribed sphere) in world metres
 ## (SpatialVolume.edge_radius). Zeros when the volume is not in the tree, which the
 ## choreography reads as "edge unknown".
 func _overlay_box() -> Vector3:

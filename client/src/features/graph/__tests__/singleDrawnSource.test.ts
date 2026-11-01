@@ -85,6 +85,14 @@ describe('agents have ONE state registry: agentTargetStore', () => {
       .map(f => f.replace(SRC, ''))
     expect(hits).toEqual([])
   })
+
+  it('the retired Bots* renderer leaves no file or re-export behind', () => {
+    expect(existsSync(join(SRC, 'features/bots/components/BotsVisualizationDebugInfo.tsx'))).toBe(false)
+    const hits = sources(SRC)
+      .filter(f => /BotsVisualizationDebugInfo|BotsDebugInfo/.test(readFileSync(f, 'utf8')))
+      .map(f => f.replace(SRC, ''))
+    expect(hits).toEqual([])
+  })
 })
 
 describe('agents have ONE position path: the marker map', () => {
