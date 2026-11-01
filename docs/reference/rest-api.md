@@ -1295,7 +1295,9 @@ Configured in `bots_handler.rs`.
 | POST | `/api/bots/register` | Yes | Register new bot |
 | PUT | `/api/bots/:id` | Yes | Update bot config |
 | DELETE | `/api/bots/:id` | Yes | Unregister bot |
-| POST | `/api/bots/update` | Yes | Push bot telemetry (triggers agent pipeline) |
+| POST | `/api/bots/update` (also `POST /api/bots/data`) | Yes | REST agent roster: the agents are embodied on both clients through `0x23` presence frames (ADR-2142 amendment); replies with the roster view |
+| GET | `/api/bots/data` | No | The live agent roster keyed by `0x23` wire id (masked), the collaboration and payment edges between agents, and the S5 `chain` view. Data only, not a position source |
+| POST | `/api/bots/mock-agents` | Yes | Inject mock agents into the roster, each working on a real knowledge node |
 
 **Example: Register a bot**:
 

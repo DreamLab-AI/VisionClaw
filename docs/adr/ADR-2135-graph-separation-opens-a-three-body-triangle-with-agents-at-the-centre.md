@@ -7,8 +7,8 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 8958d5237162287ae3fb4dc381763fc68c53133e
-verified_paths: [xr-client/rust/src/memory_route.rs, crates/visionclaw-tri-layout/src, crates/visionclaw-tri-layout/fixtures, src/actors/gpu/display_projection.rs, src/handlers/memory_flash_handler.rs, client/src/features/graph/triLayout.ts, client/src/features/graph/agentDrift.ts, client/src/features/bots/agentDriftFeed.ts, client/src/features/graph/utils/agentNudge.ts, client/src/features/graph/utils/drawnPositions.ts, client/src/features/bots/agentDrawnPosition.ts, client/src/features/visualisation/memoryCloud/cloudFrame.ts, client/src/features/graph/utils/sceneFitBounds.ts, client/src/features/visualisation/memoryCloud/cloudSprites.ts, xr-client/rust/src/cloud_frame.rs]
+verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
+verified_paths: [xr-client/rust/src/memory_route.rs, crates/visionclaw-tri-layout/src, crates/visionclaw-tri-layout/fixtures, src/actors/gpu/display_projection.rs, src/handlers/memory_flash_handler.rs, client/src/features/graph/triLayout.ts, client/src/features/graph/agentDrift.ts, client/src/features/bots/agentDriftFeed.ts, client/src/features/graph/utils/agentNudge.ts, client/src/features/graph/utils/drawnPositions.ts, client/src/features/bots/agentMarkerPass.ts, client/src/features/visualisation/memoryCloud/cloudFrame.ts, client/src/features/graph/utils/sceneFitBounds.ts, client/src/features/visualisation/memoryCloud/cloudSprites.ts, xr-client/rust/src/cloud_frame.rs]
 owner: jjohare
 review_trigger: "Activation (staged → live): the operator seeing the triangle live on a backend built from main. Review: a change of the default camera direction; a fourth body joining the separated layout; agent nodes leaving the GPU graph; the XR work-layer pose rules (ADR-2109) changing; the live graph's p99 radius passing LIVE_GRAPH_RADIUS (152)"
 repo: visionclaw
@@ -57,7 +57,8 @@ back lets ~56k knowledge↔ontology cross-links (rest length ~30) pull the popul
   beads, bursts and camera rig live in the cloud's groups and follow it.
 - **Agent drift is one rule, run where agents are drawn.** Every agent body is positioned
   client-side. Desktop demo agents are injected into the client graph, live swarm agents come
-  from the separate bots graph, and XR avatars are placed by `agent_choreography.gd`. None of
+  from the separate bots graph (*superseded 2026-11-01: every agent, demo or real, reaches both
+  clients only as `0x23` frames and is drawn on the ADR-2142 marker or registry path*), and XR avatars are placed by `agent_choreography.gd`. None of
   them passes through the GPU projection, so the server keeps GPU-graph agent nodes at the
   centroid and leaves the drift to the clients. Both clients run `DriftField` from the shared
   crate: XR links it in the render store; the desktop uses `agentDrift.ts`, which replays the
@@ -73,11 +74,14 @@ back lets ~56k knowledge↔ontology cross-links (rest length ~30) pull the popul
   added to the agent's position once a frame by `DrawnPositions.applyAgents` (the one drawn-positions
   array every desktop consumer reads; 2026-11-01). That includes the bots overlay: each agent's
   membrane, nameplate, trail, collaboration edges and payment labels ask `agentDrawnPosition` for the
-  position in their own frame, and the overlay keeps no position, smoothing or nudge of its own. In XR it moves the slot a work agent rests at
+  position in their own frame, and the overlay keeps no position, smoothing or nudge of its own.
+  *Superseded 2026-11-01 (ADR-2142 amendment):* `applyAgents` and `agentDrawnPosition` are deleted; the
+  offset is added by the one marker pass (`agentMarkerPass.ts`), which every agent visual reads. In XR it moves the slot a work agent rests at
   (centroid plus drift, on an 0.18 m ring), and a new avatar materialises at the centroid.
   The choreography stays the only pose writer (Invariant 8).
-- **Desktop nudge.** Working agents converge on their target node, so they visit the graph they
-  act on. **A finished agent reaches the edge of the scene in about 30 seconds and stops there
+- **Desktop nudge.** ~~Working agents converge on their target node, so they visit the graph they
+  act on.~~ *Amended 2026-11-01:* a working agent hovers beside its target on the marker pass, with no
+  convergence; only the done run and the idle relax below act on it. **A finished agent reaches the edge of the scene in about 30 seconds and stops there
   (owner decisions, 2026-11-01).** The edge is the bounding sphere the camera already frames
   (`sceneFitBounds`, `sceneFitBounds.ts:57`, taken from the server positions and refreshed twice a
   second by GraphManager), not a constant of its own. The motion runs on time, not frames: from the
@@ -283,3 +287,21 @@ Re-verified 2026-11-01 at `46c77c465` (three.js 0.183 → 0.187.0, owner-approve
 ## Re-verification — 2026-11-01 (one drawn position for the bots overlay)
 
 R20 found the bots overlay (`BotsVisualization`, `BotsNode`, `BotsEdges`, `ChainPaymentLabels`, `AgentTrail`) drawing agents from the server position with its own 0.35 nudge and 0.15 smoothing, so a finished agent's body and its gem could end a scene radius apart. The overlay now resolves every agent through `agentDrawnPosition` (`client/src/features/bots/agentDrawnPosition.ts`, which calls `resolveNodeWorldPosition` on the drawn array); the nudge plumbing and the smoothing are deleted. An agent with no slot in the drawn array is hidden, not drawn elsewhere. The same change moved the drag override into the drawn array (`DrawnPositions.applyDrag`, called by GraphManager after the agent pass), so the gem, its edges, labels and inferred edges agree during a drag, and made the agent pass read its base and target from the drawn copy. Tests: `singleDrawnSource.test.ts` (no `agent.position`, `nudgeTargets` or `lerpVector3` in the overlay) and `drawnPositions.test.ts` (D1 to D3, D5).
+
+## Amendment — 2026-11-01: the drift and the done run live on the one agent path
+
+Agents are not graph nodes (ADR-2142 amendment, 2026-11-01).
+
+**What moves.** The desktop agent offset no longer runs in `DrawnPositions.applyAgents` over graph-node agent slots. That pass is deleted, along with the bots overlay's `agentDrawnPosition`. One marker pass per frame computes each registry agent's position, and every agent visual reads it:
+- the base is the hover point beside its target or, with no target, a slot on an id-hashed ring around the scene centre (at the exact centre a done agent would have no outward direction);
+- plus the `DriftField` offset (`agentDriftFeed`, unchanged);
+- plus the done run (`stepAgentOffset`, unchanged: 30 s to the scene edge, then stop).
+
+**What changes in meaning.**
+- `done` is the agent's explicit `done` state from the registry. For a real agent that comes from the server's state frame on a `Completed` or `Failed` roster status.
+- A 15 s idle no longer counts as done: resting demo agents (18–26 s rests) would otherwise run for the edge.
+- A working agent's marker is not pulled into its target node: only the done-run and relax branches of `stepAgentOffset` act on the marker.
+
+The headset keeps ADR-2109's park on done. The rule and constants are unchanged.
+
+**Evidence moved.** The arrival-at-the-edge pins at 60 and 120 fps, previously in `drawnPositions.test.ts`, are now in `client/src/features/bots/__tests__/agentMarkerPass.test.ts`. That file also pins the run-then-hold for a real `task-1` agent decoded from `tests/fixtures/agents/real-agent-frames.v1.json`. `singleDrawnSource.test.ts` pins the single path: no bots component reads a position other than the marker map, and `applyAgents` and `agentDrawnPosition.ts` do not exist. The "Re-verification" paragraphs above cite the old files and are history.

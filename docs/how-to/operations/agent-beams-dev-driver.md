@@ -33,9 +33,15 @@ node scripts/dev/agent-beams-driver.cjs 15        # minutes to stream
 | 2. Register agents | `POST /api/bots/update` `{nodes:[Agent…], edges:[]}` | session realm: headers `X-Nostr-Pubkey` + `X-Nostr-Token: <token>` |
 | 3. Stream actions | WebSocket `/wss/agent-events?token=<token>` sending `notifications/agent_action` JSON-RPC | session token (query or header) |
 
-Agent node ids are assigned `1000 + index` in posting order and are visible at
-`GET /api/bots/data` (not under `/api/graph/data?graph_type=agent`). Each
-notification's `event.source_agent_id` must be one of those ids and
+Posted agents are not graph nodes (ADR-2142 amendment, 2026-11-01). The server's
+real-agent producer gives each one a stable wire id in the real-agent band
+(`0x8200_0000 | hash`) and embodies it on both clients through `0x23` presence frames.
+The id is visible as `nodes[].id` (masked) in `GET /api/bots/data`. The REST roster
+owns its agents: a later post that omits one finishes it. The agent goes `done`, runs 30 s to the scene edge, and is then retired. A notification joins a
+posted agent only when its `event.metadata.taskId` equals that agent's `id`.
+Otherwise its `source_agent_id` (the driver sends `1000 + index`) is a separate
+registry agent that hovers beside its target. Each
+notification's `event.source_agent_id` must be an agent id and
 `event.target_node_id` a raw graph node id; `action_type` 0–5 = query, update,
 create, delete, link, transform. `params.message_type` is `35` (`0x23`) and
 `params.protocol_version` is `2`.

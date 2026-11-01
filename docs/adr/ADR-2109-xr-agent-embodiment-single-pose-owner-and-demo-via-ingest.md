@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: e99c16d31f2b4dac8757348963404228aa42c612
+verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -192,3 +192,22 @@ Re-verified 2026-11-01 at `03ddc61e1` (viz/edge-tracking). `xr-client/rust/src/r
 ## Re-verification — 2026-11-01 (`e99c16d31`)
 
 `RenderStore::position_of` and the gdext `node_position` now return the drawn position through the fold-aware resolver (`drawn_position_of`, the `edge_endpoint` remap); the fold animation reads a private `raw_position_of`. The answer differs from before only for a node that is fully folded into a representative, which is not drawn. The choreography stays the only pose writer; an agent node is placed by its pose slot and the fold plan is a knowledge-graph plan applied by id, so nothing in the pose rules changes. Not verified: that the server never puts an agent id in a fold group; if it did, the agent would already be drawn at its representative by the edge and node packs. Evidence: `cargo test` 618 passed, 0 failed.
+
+## Amendment — 2026-11-01: state frames and real roster agents (ADR-2142 amendment)
+
+**Governed change:**
+- `binary_protocol.rs`: `0x23` decoding reads a payload `state` and `name` (`extract_action_state`). One pure ingest function, `apply_agent_actions`, applies a batch for demo, real and hub agents alike.
+- `render_store.rs`: `apply_agent_state_frame`. `working`/`done` go through the timestamped state channel (`set_agent_state_at`), a non-zero target becomes the work node, `name` labels the agent, and `retired` calls `retire_agents`. `label_of` falls back to the registry name for an agent with no graph node.
+
+**Decision kept, and extended.**
+- D3 (the registry is the source of embodiment) now covers real swarm agents. The server's real-agent producer sends their presence, `done` and `retired` as `0x23` state frames, so `status == done` drives the completion beat and park for a real agent too.
+- A retired agent leaves the registry at once, as the demo's ids do on Stop.
+- State frames add no heat and no drift credit; only actions do.
+- D2 holds: the choreography is still the only pose writer, and no GDScript changed.
+- D5 holds: the demo producer is unchanged.
+
+**Verification.** `cargo test` in `xr-client/rust`:
+- `a_real_roster_agent_is_embodied_on_the_registry_path_and_retired` decodes the shared fixture written by the server's `RosterFeed`;
+- `a_state_frame_is_presence_not_work` covers the no-heat rule.
+
+Before the change both fail to compile (no state path: `ag-xr-fail-before.txt` in the change record).
