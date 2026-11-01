@@ -166,7 +166,8 @@ unit-scale `AgentsRoot` (never under `GraphRoot`, so avatars keep physical size
 while the graph is fitted). Exactly one writer owns a work-layer avatar's
 position and alpha: `scripts/agent_choreography.gd` (materialise at a rim slot →
 travel at ~0.32 m/s → work 0.32 m off the node → explicit done → ease out to the
-scene edge in 30 s at 0.3 alpha and hold → re-task; a lapsed work record relaxes onto
+scene edge in 30 s at 0.3 alpha and hold (stopping at the 1 m head-exclusion sphere if the
+head is on its way) → re-task; a lapsed work record relaxes onto
 the rest slot instead). The done run is the desktop's rule, one definition in ADR-2135:
 radius r0 + (edge − r0)·easeOutCubic(elapsed / 30 s) from the volume origin, with
 `SpatialVolume.edge_radius` (half the knowledge volume's `bounds` diagonal, world

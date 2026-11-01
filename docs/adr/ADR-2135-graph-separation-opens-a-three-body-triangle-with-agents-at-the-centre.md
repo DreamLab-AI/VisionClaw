@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: ef021a41d438d930559d9724006de56500388260
+verified_commit: b9aed414334b9d7898e49ff399962b36ff38e084
 verified_paths: [xr-client/rust/src/memory_route.rs, crates/visionclaw-tri-layout/src, crates/visionclaw-tri-layout/fixtures, src/actors/gpu/display_projection.rs, src/handlers/memory_flash_handler.rs, client/src/features/graph/triLayout.ts, client/src/features/graph/agentDrift.ts, client/src/features/bots/agentDriftFeed.ts, client/src/features/graph/utils/agentNudge.ts, client/src/features/graph/utils/drawnPositions.ts, client/src/features/bots/agentMarkerPass.ts, client/src/features/visualisation/memoryCloud/cloudFrame.ts, client/src/features/graph/utils/sceneFitBounds.ts, client/src/features/visualisation/memoryCloud/cloudSprites.ts, xr-client/rust/src/cloud_frame.rs, xr-client/scripts/spatial_volume.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): the operator seeing the triangle live on a backend built from main. Review: a change of the default camera direction; a fourth body joining the separated layout; agent nodes leaving the GPU graph; the XR work-layer pose rules (ADR-2109) changing; the live graph's p99 radius passing LIVE_GRAPH_RADIUS (152)"
@@ -320,8 +320,9 @@ They are in different languages and cannot share code, so the pin is a test: `te
 **Governed change.** `agent_choreography.gd`, `spatial_volume.gd`, `graph_scene.gd`, `agentNudge.ts` (comment only). ADR-2109's park beat is deleted outright (see its amendment for the list and the verification).
 
 **What the owner should know.**
+- The headset run also stops at the head-exclusion sphere (1 m) if the user's head is on its outward ray, found once at the start of the run (ADR-2109 amendment); the desktop has no head.
 - The headset edge is the box's *circumscribed* sphere (half the diagonal), matching the desktop's bounding sphere; on a box face a finished agent can stand outside the drawn box. The inscribed sphere (half the smallest extent) would keep it inside; this is a one-line change in `SpatialVolume.edge_radius`.
 - The headset edge is the knowledge (overlay) volume's box, not the whole arrangement of three volumes: the agents' centre is that volume's origin, and an edge about a different centre would not be reached along the agent's outward line.
 - Not measured on the headset.
 
-**Re-verified at ef021a41d438d930559d9724006de56500388260** (the code commit for this amendment): the claims above were read against the final code, and the tests named in the Verification paragraph pass there.
+**Re-verified at b9aed414334b9d7898e49ff399962b36ff38e084.** What ran: `cargo test` in `xr-client/rust` (620 passed, 0 failed); the full GUT suite on x86 headless Godot 4.6.1 (50 scripts, 555 tests, 545 passing, 7 failing, all in `test_memory_search.gd` and the same seven as on the parent commit in the same harness; `tests/gut_guard.sh` exit 0), including all of `test_agent_edge_run.gd` (19) and `test_agent_choreography.gd` (9); `adr-index-gen --check` (only the four baseline stale records) and the ratchet. Not repeated: the HP-Desktop VIVE run and the `--all-features` build named in the original Verification paragraph; nothing was measured in the headset.
