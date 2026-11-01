@@ -4765,11 +4765,11 @@ mod tests {
                 "step {step}: not where the gem is"
             );
             let edges = a.build_edge_buffer(&pairs, 0.1);
-            assert!(edges
-                .as_chunks::<16>()
-                .0
-                .iter()
-                .any(|e| joins(e, out.segments[0].a, a.position_of(4))));
+            assert!(edges.as_chunks::<16>().0.iter().any(|e| joins(
+                e,
+                out.segments[0].a,
+                a.position_of(4)
+            )));
         }
         // A held node follows the hand the same frame.
         a.hunt_grabs(0.3, &[(3, [5.0, 6.0, 7.0])]);
