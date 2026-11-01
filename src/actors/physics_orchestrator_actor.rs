@@ -19,7 +19,7 @@ use crate::errors::VisionClawError;
 
 use crate::actors::gpu::force_compute_actor::ForceComputeActor;
 use crate::actors::gpu::force_compute_actor::PhysicsStats;
-use crate::actors::messages::{InitializeGPU, UpdateGPUGraphData};
+use crate::actors::messages::{InitializeGPU, NodeInteractionType, UpdateGPUGraphData};
 // GraphStateActor will be implemented separately - using direct graph data access
 use crate::actors::messages::{
     ApplyOntologyConstraints, ConstraintMergeMode, ConstraintStats, ForceResumePhysics,
@@ -111,6 +111,10 @@ pub struct PhysicsOrchestratorActor {
     /// Target interval for the physics pipeline.  In Continuous mode this is 16ms
     /// (~60 fps).  In FastSettle mode it is 0 (fire as fast as GPU can compute).
     pipeline_target_interval: Duration,
+
+    /// Nodes any client currently holds (`Dragged` adds, `Released` removes). While non-empty
+    /// the pipeline does not sleep between steps and no equilibrium auto-pause can latch.
+    held_nodes: std::collections::HashSet<u32>,
 
     /// Whether the CPU fallback warning has been logged (log at most once).
     cpu_fallback_warned: bool,
@@ -227,6 +231,7 @@ impl PhysicsOrchestratorActor {
             pipeline_step_pending: false,
             pipeline_step_pending_since: None,
             pipeline_target_interval: Duration::from_millis(16),
+            held_nodes: std::collections::HashSet::new(),
             cpu_fallback_warned: false,
             gpu_init_started_at: None,
             consecutive_gpu_failures: 0,
@@ -300,6 +305,16 @@ impl PhysicsOrchestratorActor {
         });
     }
 
+    /// The sleep between steps. A held node removes the Continuous 16 ms pause so the step rate
+    /// is bounded only by the GPU; the configured cadence returns on release.
+    fn effective_interval(&self) -> Duration {
+        if self.held_nodes.is_empty() {
+            self.pipeline_target_interval
+        } else {
+            Duration::ZERO
+        }
+    }
+
     fn stop_simulation(&mut self) {
         self.simulation_running.store(false, Ordering::SeqCst);
         info!("Physics simulation stopped");
@@ -368,7 +383,7 @@ impl PhysicsOrchestratorActor {
             // CPU fallback: no PhysicsStepCompleted will come back, so
             // re-schedule the next step directly.
             self.execute_cpu_physics_step(ctx);
-            self.schedule_next_pipeline_step(ctx, self.pipeline_target_interval);
+            self.schedule_next_pipeline_step(ctx, self.effective_interval());
         }
 
         let step_time = start_time.elapsed();
@@ -650,6 +665,13 @@ impl PhysicsOrchestratorActor {
             .unwrap_or(0);
 
         if !self.simulation_params.auto_pause_config.enabled || node_count == 0 {
+            return;
+        }
+
+        // A held node is motion the user is making: the graph is not at rest, however still the
+        // energy reads, and pausing here would freeze the hand's neighbours mid-drag.
+        if !self.held_nodes.is_empty() {
+            self.simulation_params.equilibrium_stability_counter = 0;
             return;
         }
 
@@ -1163,6 +1185,16 @@ impl Handler<NodeInteractionMessage> for PhysicsOrchestratorActor {
 
     fn handle(&mut self, msg: NodeInteractionMessage, ctx: &mut Self::Context) -> Self::Result {
         info!("Node interaction detected: {:?}", msg.interaction_type);
+
+        match msg.interaction_type {
+            NodeInteractionType::Dragged => {
+                self.held_nodes.insert(msg.node_id);
+            }
+            NodeInteractionType::Released => {
+                self.held_nodes.remove(&msg.node_id);
+            }
+            NodeInteractionType::Selected => {}
+        }
 
         if self
             .simulation_params
@@ -1853,7 +1885,7 @@ impl Handler<crate::actors::messages::PhysicsStepCompleted> for PhysicsOrchestra
 
         // Compute remaining time in the target interval.
         // If the step took longer than the target, proceed immediately (Duration::ZERO).
-        let delay = self.pipeline_target_interval.saturating_sub(step_duration);
+        let delay = self.effective_interval().saturating_sub(step_duration);
 
         self.schedule_next_pipeline_step(ctx, delay);
     }
@@ -1898,6 +1930,79 @@ mod tests {
     /// Helper: construct an orchestrator with default params, no GPU, no graph.
     fn make_orchestrator() -> PhysicsOrchestratorActor {
         PhysicsOrchestratorActor::new(SimulationParams::default(), None, None)
+    }
+
+    // ------------------------------------------------------------------
+    // Held nodes: no sleep between steps, no equilibrium latch
+    // ------------------------------------------------------------------
+    fn held_actor() -> PhysicsOrchestratorActor {
+        let mut actor = PhysicsOrchestratorActor::new(SimulationParams::default(), None, None);
+        actor.pipeline_target_interval = Duration::from_millis(16);
+        actor
+    }
+
+    #[tokio::test]
+    async fn a_held_node_removes_the_continuous_step_pause_and_a_release_restores_it() {
+        let mut actor = held_actor();
+        assert_eq!(actor.effective_interval(), Duration::from_millis(16));
+        actor.held_nodes.insert(7);
+        assert_eq!(actor.effective_interval(), Duration::ZERO);
+        // A second hand, then one let go: still held.
+        actor.held_nodes.insert(8);
+        actor.held_nodes.remove(&7);
+        assert_eq!(actor.effective_interval(), Duration::ZERO);
+        actor.held_nodes.remove(&8);
+        assert_eq!(actor.effective_interval(), Duration::from_millis(16));
+    }
+
+    #[tokio::test]
+    async fn a_held_node_blocks_the_equilibrium_auto_pause() {
+        let mut actor = held_actor();
+        actor.simulation_params.auto_pause_config.enabled = true;
+        actor
+            .simulation_params
+            .auto_pause_config
+            .pause_on_equilibrium = true;
+        actor
+            .simulation_params
+            .auto_pause_config
+            .equilibrium_check_frames = 1;
+        actor.simulation_params.equilibrium_stability_counter = 99;
+        actor.graph_data_ref = Some(std::sync::Arc::new(crate::models::graph::GraphData {
+            nodes: vec![crate::models::node::Node::new_with_id("a".into(), Some(1))],
+            ..Default::default()
+        }));
+        // Energy reads as perfect rest, so without a hold this would latch the pause.
+        actor.physics_stats = Some(PhysicsStats {
+            iteration_count: 100,
+            gpu_failure_count: 0,
+            current_params: SimulationParams::default(),
+            compute_mode: crate::utils::unified_gpu_compute::ComputeMode::Basic,
+            nodes_count: 1,
+            edges_count: 0,
+            average_velocity: 0.0,
+            kinetic_energy: 0.0,
+            total_forces: 0.0,
+            last_step_duration_ms: 1.0,
+            fps: 60.0,
+            num_edges: 0,
+            total_force_calculations: 0,
+        });
+        actor.simulation_params.equilibrium_stability_counter = 99;
+        actor.check_equilibrium_and_auto_pause();
+        assert!(
+            actor.simulation_params.is_physics_paused,
+            "control: with nothing held, rest latches the pause"
+        );
+        actor.simulation_params.is_physics_paused = false;
+        actor.simulation_params.equilibrium_stability_counter = 99;
+        actor.held_nodes.insert(1);
+        actor.check_equilibrium_and_auto_pause();
+        assert!(
+            !actor.simulation_params.is_physics_paused,
+            "the graph must not pause while a hand holds a node"
+        );
+        assert_eq!(actor.simulation_params.equilibrium_stability_counter, 0);
     }
 
     /// Helper: construct params in FastSettle mode with given thresholds.

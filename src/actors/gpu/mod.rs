@@ -42,12 +42,13 @@ pub mod clustering_actor;
 pub mod connected_components_actor;
 pub mod constraint_actor;
 pub mod context_bus;
-pub mod domain_charge;
 pub mod cuda_stream_wrapper;
 pub(crate) mod display_projection;
+pub mod domain_charge;
 pub mod force_compute_actor;
 pub mod gpu_manager_actor;
 pub mod gpu_resource_actor;
+pub mod hold_registry;
 pub mod ontology_constraint_actor;
 pub mod pagerank_actor;
 /// Single source of truth for physics validation bounds (T4 fix, 2026-06-03).

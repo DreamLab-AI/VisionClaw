@@ -1938,6 +1938,209 @@ mod grid_gpu_tests {
             "neighbours of a held node must move more than in the unheld control: held {held:?}, control {control:?}");
     }
 
+    /// The live-parameter ring used by the hold/release tests below: a ring of `N` nodes at its
+    /// rest length, with the stored force values. Returns the uploaded start positions.
+    fn hold_ring(g: &mut UnifiedGPUCompute) -> (SimParams, Vec<f32>, Vec<f32>, Vec<f32>) {
+        let n = N as i32;
+        let offsets: Vec<i32> = (0..=n).map(|i| i * 2).collect();
+        let mut cols = Vec::new();
+        for i in 0..n {
+            cols.push((i + n - 1) % n);
+            cols.push((i + 1) % n);
+        }
+        g.upload_edges_csr(&offsets, &cols, &vec![1.0; N * 2])
+            .expect("edges");
+        let r = 50.0 * N as f32 / (2.0 * std::f32::consts::PI);
+        let (mut x, mut y, z) = (vec![0f32; N], vec![0f32; N], vec![0f32; N]);
+        for i in 0..N {
+            let a = 2.0 * std::f32::consts::PI * i as f32 / N as f32;
+            x[i] = r * a.cos();
+            y[i] = r * a.sin();
+        }
+        g.upload_positions(&x, &y, &z).expect("positions");
+        let mut p = params();
+        p.spring_k = 12.0;
+        p.repel_k = 120.0;
+        p.rest_length = 50.0;
+        p.damping = 0.9;
+        p.max_force = 150.0;
+        p.max_velocity = 100.0;
+        p.dt = 0.016;
+        p.global_speed = 0.4;
+        p.center_gravity_k = 0.0;
+        p.gravity = 0.0;
+        p.viewport_bounds = 1.0e9;
+        p.temperature = 0.0;
+        p.repulsion_cutoff = 400.0;
+        // The live kernel mode: FA2 adaptive speed (velocity set from force; `damping` is unused
+        // there), and no warmup ramp. The warmup scales every force by iteration/warmup, so a
+        // test inside it (the device counts iterations across tests) measures the ramp.
+        p.adaptive_speed = 1;
+        p.warmup_iterations = 0;
+        (p, x, y, z)
+    }
+
+    /// One server tick of a held node: rewrite the pin, step, read back (what
+    /// `ForceComputeActor` does), leaving the held node where the hand put it.
+    fn held_tick(
+        g: &mut UnifiedGPUCompute,
+        p: SimParams,
+        x: &mut [f32],
+        y: &mut [f32],
+        z: &mut [f32],
+        hold: Option<(usize, f32, f32)>,
+    ) {
+        if let Some((i, hx, hy)) = hold {
+            x[i] = hx;
+            y[i] = hy;
+            g.update_positions_only(x, y, z).expect("pin");
+        }
+        g.execute(p).expect("step");
+        g.stream.synchronize().expect("sync");
+        let (px, py, pz) = g.get_node_positions().expect("read");
+        for i in 0..N {
+            if hold.map(|h| h.0) != Some(i) {
+                x[i] = px[i];
+                y[i] = py[i];
+                z[i] = pz[i];
+            }
+        }
+    }
+
+    fn kinetic_energy(g: &mut UnifiedGPUCompute) -> f64 {
+        let (vx, vy, vz) = g.get_node_velocities().expect("velocities");
+        (0..N)
+            .map(|i| {
+                0.5 * (f64::from(vx[i]).powi(2)
+                    + f64::from(vy[i]).powi(2)
+                    + f64::from(vz[i]).powi(2))
+            })
+            .sum::<f64>()
+            / N as f64
+    }
+
+    /// The hand's displacement must reach the neighbours within a few ticks, not after the
+    /// graph has relaxed: with the live stored values, node 0 held 300 units out moves a
+    /// neighbour measurably within 5 steps, and the unheld control ring does not move at all.
+    #[test]
+    fn a_neighbour_of_a_held_node_moves_within_five_steps() {
+        let Some((_ctx, mut g)) = gpu() else { return };
+        let (p, mut x, mut y, mut z) = hold_ring(&mut g);
+        let (hx, hy) = (x[0] + 300.0, y[0]);
+        let start1 = (x[1], y[1]);
+        for _ in 0..5 {
+            held_tick(&mut g, p, &mut x, &mut y, &mut z, Some((0, hx, hy)));
+        }
+        let moved = (x[1] - start1.0).hypot(y[1] - start1.1);
+        println!("HOLD_RESPONSE neighbour of the held node moved {moved:.3} units in 5 steps");
+        assert!(
+            moved > 0.05,
+            "a neighbour moved only {moved} units in 5 steps"
+        );
+    }
+
+    /// Residual mean kinetic energy `steps` free steps after a 60-step hold, for one setting.
+    fn residual_after_release(
+        g: &mut UnifiedGPUCompute,
+        tweak: impl Fn(&mut SimParams),
+        steps: usize,
+    ) -> f64 {
+        let (mut p, mut x, mut y, mut z) = hold_ring(g);
+        let (hx, hy) = (x[0] + 300.0, y[0]);
+        for _ in 0..60 {
+            held_tick(g, p, &mut x, &mut y, &mut z, Some((0, hx, hy)));
+        }
+        tweak(&mut p);
+        for _ in 0..steps {
+            held_tick(g, p, &mut x, &mut y, &mut z, None);
+        }
+        kinetic_energy(g)
+    }
+
+    /// Verlet mode (`adaptive_speed` off): damping is the settle lever, and the release-settle
+    /// value 0.6 leaves a fraction of the energy the stored 0.9 does. Under the live FA2
+    /// integrator damping is inert (see `release_settle_by_parameter`).
+    #[test]
+    fn under_verlet_the_release_settle_damping_leaves_less_energy() {
+        let Some((_ctx, mut g)) = gpu() else { return };
+        let stored = residual_after_release(&mut g, |p| p.adaptive_speed = 0, 20);
+        let settled = residual_after_release(
+            &mut g,
+            |p| {
+                p.adaptive_speed = 0;
+                p.damping = 0.6;
+            },
+            20,
+        );
+        println!("VERLET_SETTLE mean KE after 20 free steps: damping 0.9 {stored:.3e}, damping 0.6 {settled:.3e}");
+        assert!(
+            settled < stored * 0.1,
+            "damping 0.6 left {settled} against {stored} at 0.9"
+        );
+    }
+
+    /// FA2 mode (the live one): the neighbour response rises with `global_speed`, which is why
+    /// the hold floor raises it. Damping has no effect there, so it cannot be the settle lever.
+    #[test]
+    fn under_fa2_global_speed_not_damping_sets_the_response() {
+        let Some((_ctx, mut g)) = gpu() else { return };
+        let moved = |g: &mut UnifiedGPUCompute, tweak: &dyn Fn(&mut SimParams)| {
+            let (mut p, mut x, mut y, mut z) = hold_ring(g);
+            tweak(&mut p);
+            let (hx, hy) = (x[0] + 300.0, y[0]);
+            let s1 = (x[1], y[1]);
+            for _ in 0..20 {
+                held_tick(g, p, &mut x, &mut y, &mut z, Some((0, hx, hy)));
+            }
+            (x[1] - s1.0).hypot(y[1] - s1.1)
+        };
+        let stored = moved(&mut g, &|_| {});
+        let damped = moved(&mut g, &|p| p.damping = 0.6);
+        let fast = moved(&mut g, &|p| p.global_speed = 2.0);
+        println!("FA2_RESPONSE 20 steps: stored {stored:.3}, damping 0.6 {damped:.3}, global_speed 2.0 {fast:.3}");
+        // Run-to-run float noise is a few percent; the effect under test is a factor of five.
+        assert!(
+            (damped - stored).abs() < 0.15 * stored,
+            "damping must be inert under FA2: {damped} vs {stored}"
+        );
+        assert!(
+            fast > stored * 3.0,
+            "global_speed 2.0 must answer the hand much faster: {fast} vs {stored}"
+        );
+    }
+
+    #[test]
+    #[ignore = "measurement; run with --ignored --nocapture"]
+    fn release_settle_by_parameter() {
+        let Some((_ctx, mut g)) = gpu() else { return };
+        for (name, f) in [
+            (
+                "stored (damping 0.9, speed 0.4)",
+                Box::new(|_: &mut SimParams| {}) as Box<dyn Fn(&mut SimParams)>,
+            ),
+            ("damping 0.6", Box::new(|p| p.damping = 0.6)),
+            ("global_speed 1.0", Box::new(|p| p.global_speed = 1.0)),
+            ("global_speed 2.0", Box::new(|p| p.global_speed = 2.0)),
+            ("global_speed 4.0", Box::new(|p| p.global_speed = 4.0)),
+            (
+                "adaptive_speed off, damping 0.9",
+                Box::new(|p| p.adaptive_speed = 0),
+            ),
+            (
+                "adaptive_speed off, damping 0.6",
+                Box::new(|p| {
+                    p.adaptive_speed = 0;
+                    p.damping = 0.6
+                }),
+            ),
+        ] {
+            for steps in [10usize, 20, 40] {
+                let ke = residual_after_release(&mut g, &*f, steps);
+                println!("SETTLE {name:<36} after {steps:>2} free steps: mean KE {ke:.4e}");
+            }
+        }
+    }
+
     /// Measurement: which stored parameter limits how fast a held node's neighbours follow.
     #[test]
     #[ignore = "measurement; run with --ignored --nocapture"]
@@ -1966,6 +2169,9 @@ mod grid_gpu_tests {
         base.gravity = 0.0;
         base.temperature = 0.0;
         base.viewport_bounds = 1.0e9;
+        // Live kernel mode (FA2) and no warmup ramp, as in `hold_ring`.
+        base.adaptive_speed = 1;
+        base.warmup_iterations = 0;
         let run = |g: &mut UnifiedGPUCompute, p: SimParams| -> f32 {
             let (mut x, mut y, mut z) = (vec![0f32; N], vec![0f32; N], vec![0f32; N]);
             for i in 0..N {
@@ -2001,6 +2207,8 @@ mod grid_gpu_tests {
                 Box::new(|p: &mut SimParams| p.global_speed = 1.0) as Box<dyn Fn(&mut SimParams)>,
             ),
             ("global_speed 2.0", Box::new(|p| p.global_speed = 2.0)),
+            ("global_speed 4.0", Box::new(|p| p.global_speed = 4.0)),
+            ("global_speed 8.0", Box::new(|p| p.global_speed = 8.0)),
             ("damping 0.7", Box::new(|p| p.damping = 0.7)),
             ("max_force 1500", Box::new(|p| p.max_force = 1500.0)),
             ("max_velocity 1000", Box::new(|p| p.max_velocity = 1000.0)),
