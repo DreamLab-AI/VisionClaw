@@ -4414,4 +4414,202 @@ mod tests {
         };
         assert_eq!(find(&web, "responseMs:"), find(&xr, "const CHASE_MS"), "web responseMs vs XR CHASE_MS");
     }
+
+    // --- Edge/node coincidence (viz/edge-tracking) --------------------------------
+    //
+    // Invariant: every drawn edge endpoint equals its node's DRAWN (chased) position in
+    // the same frame, never the raw server target. These use the real pack functions and
+    // decode the 12-float transform back to endpoints, so a lagging path shows as a gap.
+
+    /// Endpoints `(a, b)` of one packed edge instance (`edge_transform12` layout:
+    /// origin = midpoint, local-Y column = span vector).
+    fn edge_ends(inst: &[f32]) -> ([f32; 3], [f32; 3]) {
+        let o = [inst[3], inst[7], inst[11]];
+        let h = [inst[1] * 0.5, inst[5] * 0.5, inst[9] * 0.5];
+        ([o[0] - h[0], o[1] - h[1], o[2] - h[2]], [o[0] + h[0], o[1] + h[1], o[2] + h[2]])
+    }
+
+    fn v_eq(a: [f32; 3], b: [f32; 3]) -> bool {
+        (0..3).all(|k| (a[k] - b[k]).abs() < 1e-3)
+    }
+
+    /// Whether the edge instance joins `p` and `q` (either direction).
+    fn joins(inst: &[f32], p: [f32; 3], q: [f32; 3]) -> bool {
+        let (a, b) = edge_ends(inst);
+        (v_eq(a, p) && v_eq(b, q)) || (v_eq(a, q) && v_eq(b, p))
+    }
+
+    /// Whether any node instance in `bufs` is drawn at `p`.
+    fn node_drawn_at(bufs: &[&[f32]], p: [f32; 3]) -> bool {
+        bufs.iter()
+            .any(|b| b.chunks_exact(NODE_STRIDE).any(|n| v_eq([n[3], n[7], n[11]], p)))
+    }
+
+    /// Well-separated chain 1-2-3-4-5-6 along +X, edges between neighbours.
+    fn chain_store() -> (RenderStore, Vec<i32>, Vec<i32>) {
+        let mut s = RenderStore::new();
+        for id in 1u32..=6 {
+            s.upsert(id, [id as f32 * 10.0, 0.0, 0.0], 0, 0.0, 0.0);
+        }
+        let ids: Vec<i32> = (1..=6).collect();
+        let pairs = vec![1, 2, 2, 3, 3, 4, 4, 5, 5, 6];
+        (s, ids, pairs)
+    }
+
+    #[test]
+    fn edge_follows_the_eased_position_not_the_server_target() {
+        let (mut s, ids, pairs) = chain_store();
+        s.upsert(3, [30.0, 50.0, 0.0], 0, 0.0, 0.0); // server moves node 3; it has not arrived
+        s.hunt(0.3, None, [0.0; 3]);
+        let drawn3 = s.position_of(3);
+        assert!(drawn3[1] > 1.0 && drawn3[1] < 49.0, "node 3 is mid-ease: {drawn3:?}");
+        let nodes = s.build_node_buffer(&ids, 1.0, 0.7, 1.9);
+        assert!(node_drawn_at(&[&nodes], drawn3));
+        let edges = s.build_edge_buffer(&pairs, 0.1);
+        let (p2, p4) = (s.position_of(2), s.position_of(4));
+        assert!(joins(&edges[16..32], p2, drawn3), "edge 2-3 ends at the eased node 3");
+        assert!(joins(&edges[32..48], drawn3, p4), "edge 3-4 ends at the eased node 3");
+    }
+
+    #[test]
+    fn edges_follow_two_held_nodes_in_the_same_frame() {
+        let (mut s, ids, pairs) = chain_store();
+        let hands = [(2u32, [20.0, 7.0, 3.0]), (5u32, [50.0, -9.0, 4.0])];
+        s.hunt_grabs(0.3, &hands);
+        let nodes = s.build_node_buffer(&ids, 1.0, 0.7, 1.9);
+        let edges = s.build_edge_buffer(&pairs, 0.1);
+        for (id, p) in hands {
+            assert!(node_drawn_at(&[&nodes], p), "held node {id} drawn at the hand");
+        }
+        assert!(joins(&edges[0..16], s.position_of(1), hands[0].1));
+        assert!(joins(&edges[16..32], hands[0].1, s.position_of(3)));
+        assert!(joins(&edges[48..64], s.position_of(4), hands[1].1));
+        assert!(joins(&edges[64..80], hands[1].1, s.position_of(6)));
+    }
+
+    #[test]
+    fn edge_to_a_member_folding_in_ends_at_the_member_itself() {
+        let (mut s, ids, pairs) = chain_store();
+        s.set_fold_plan(&[], &[3], &[1]); // 3 folds into 1
+        s.hunt(0.2, None, [0.0; 3]);
+        let m = s.position_of(3);
+        assert!(m[0] > 10.0 && m[0] < 30.0, "member is in transit: {m:?}");
+        let nodes = s.build_node_buffer(&ids, 1.0, 0.7, 1.9);
+        assert!(node_drawn_at(&[&nodes], m), "member drawn at its eased position");
+        let edges = s.build_edge_buffer(&pairs, 0.1);
+        let hit = edges.chunks_exact(16).any(|e| joins(e, s.position_of(4), m));
+        assert!(hit, "edge 3-4 ends at the in-transit member, not the representative");
+    }
+
+    #[test]
+    fn edge_to_a_fully_folded_member_ends_at_the_drawn_representative() {
+        let (mut s, ids, pairs) = chain_store();
+        s.set_fold_plan(&[], &[3], &[1]);
+        for _ in 0..200 {
+            s.hunt(0.5, None, [0.0; 3]);
+        }
+        let rep = s.position_of(1);
+        let nodes = s.build_node_buffer(&ids, 1.0, 0.7, 1.9);
+        assert!(!node_drawn_at(&[&nodes], s.position_of(3)) || v_eq(s.position_of(3), rep));
+        assert!(node_drawn_at(&[&nodes], rep));
+        let edges = s.build_edge_buffer(&pairs, 0.1);
+        assert!(edges.chunks_exact(16).any(|e| joins(e, rep, s.position_of(4))), "3-4 remaps to 1-4");
+        // The LOD (fold-active) path agrees.
+        let mut l = s;
+        let _ = l.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, [0.0; 3], 100, f32::INFINITY);
+        let lod = l.build_edge_buffer_lod(&pairs, 0.1, [0.0; 3], 100, f32::INFINITY).to_vec();
+        assert!(lod.chunks_exact(16).any(|e| joins(e, rep, l.position_of(4))));
+    }
+
+    /// Far-tier ribbons are re-transformed half per frame (`pack_edges_lod`), so after the
+    /// nodes move with tiers unchanged some ribbons would still show last frame's endpoints.
+    #[test]
+    fn ribbons_track_moving_nodes_every_frame() {
+        let (mut s, ids, pairs) = chain_store();
+        let cam = [0.0; 3];
+        let _ = s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, f32::INFINITY);
+        let _ = s.build_edge_buffer_lod(&pairs, 0.1, cam, 0, f32::INFINITY);
+        for frame in 0..6 {
+            for id in 1u32..=6 {
+                let y = (frame + 1) as f32 * 3.0 * if id % 2 == 0 { 1.0 } else { -1.0 };
+                s.upsert(id, [id as f32 * 10.0, y, 0.0], 0, 0.0, 0.0);
+            }
+            s.hunt(0.5, None, [0.0; 3]);
+            let _ = s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, f32::INFINITY);
+            let near = s.build_edge_buffer_lod(&pairs, 0.1, cam, 0, f32::INFINITY).len();
+            assert_eq!(near, 0, "every edge is in the ribbon tier");
+            let ribbons = s.ribbon_edge_buffer().to_vec();
+            assert_eq!(ribbons.len(), 5 * 16);
+            for (i, r) in ribbons.chunks_exact(16).enumerate() {
+                let (a, b) = (s.position_of(i as u32 + 1), s.position_of(i as u32 + 2));
+                assert!(joins(r, a, b), "frame {frame}: ribbon {i} lags its nodes");
+            }
+        }
+    }
+
+    /// Two volumes (pack slots) each keep their own ribbon refresh phase.
+    #[test]
+    fn ribbons_track_in_both_pack_slots() {
+        let (mut s, ids, pairs) = chain_store();
+        let cam = [0.0; 3];
+        for slot in [1i64, 2] {
+            s.select_pack_slot(slot);
+            let _ = s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, f32::INFINITY);
+            let _ = s.build_edge_buffer_lod(&pairs, 0.1, cam, 0, f32::INFINITY);
+        }
+        for frame in 0..5 {
+            for id in 1u32..=6 {
+                s.upsert(id, [id as f32 * 10.0, (frame + 1) as f32 * 2.0 * id as f32, 0.0], 0, 0.0, 0.0);
+            }
+            s.hunt(0.5, None, [0.0; 3]);
+            for slot in [1i64, 2] {
+                s.select_pack_slot(slot);
+                let _ = s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, f32::INFINITY);
+                let _ = s.build_edge_buffer_lod(&pairs, 0.1, cam, 0, f32::INFINITY);
+                for (i, r) in s.ribbon_edge_buffer().chunks_exact(16).enumerate() {
+                    let (a, b) = (s.position_of(i as u32 + 1), s.position_of(i as u32 + 2));
+                    assert!(joins(r, a, b), "slot {slot} frame {frame}: ribbon {i} lags");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn plane_edges_coincide_with_plane_nodes() {
+        let (s, _ids, _pairs) = chain_store();
+        let ids = [2, 3, 4];
+        let nodes = s.build_plane_node_buffer(&ids, 100.0, 1.0, 0.7, 1.9);
+        let edges = s.build_plane_edge_buffer(&[2, 3, 3, 4], 100.0, 0.1);
+        let lift = |id: u32| {
+            let mut p = s.position_of(id);
+            p[1] += 100.0;
+            p
+        };
+        assert!(node_drawn_at(&[&nodes], lift(3)));
+        assert!(joins(&edges[0..12], lift(2), lift(3)));
+        assert!(joins(&edges[12..24], lift(3), lift(4)));
+    }
+
+    /// Cost probe (not a gate): `cargo test --release -- --ignored --nocapture ribbon_refresh_cost`.
+    #[test]
+    #[ignore = "timing probe, run by hand"]
+    fn ribbon_refresh_cost_at_production_density() {
+        use crate::perf_fixture::production_store;
+        let mut f = production_store(5_000, 20_000, 7);
+        let ids = f.ids.clone();
+        let pairs = f.pairs.clone();
+        let cam = [0.0f32; 3];
+        let mut ms = Vec::new();
+        for frame in 0..130 {
+            f.advance(frame);
+            let _ = f.store.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 400, f32::INFINITY);
+            let t = std::time::Instant::now();
+            let _ = f.store.build_edge_buffer_lod(&pairs, 1.0, cam, 100, f32::INFINITY);
+            if frame >= 30 {
+                ms.push(t.elapsed().as_secs_f64() * 1e3);
+            }
+        }
+        ms.sort_by(|a, b| a.total_cmp(b));
+        println!("edge pack ms: median {:.3} p95 {:.3} ribbons {}", ms[50], ms[95], f.store.ribbon_edge_buffer().len() / 16);
+    }
 }

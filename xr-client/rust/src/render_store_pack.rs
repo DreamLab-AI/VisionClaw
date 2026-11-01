@@ -338,9 +338,9 @@ impl RenderStore {
     ///
     /// With a valid plan the tier choice uses only edge midpoints (cheap), the
     /// near cylinders are transformed every frame, and the far ribbons — about
-    /// 19 900 of 20 000 at production density — are re-transformed half per
-    /// frame (alternating instance parity, in place), so each is at most one frame
-    /// old and the frame cost is flat. Any change of tier membership rebuilds the
+    /// 19 900 of 20 000 at production density — are re-transformed in
+    /// place every frame, so every endpoint is the node's drawn position of THIS
+    /// frame (a half-per-frame parity was tried and left half a frame behind). Any change of tier membership rebuilds the
     /// far tier at once, so the tiers always partition the drawn set (no edge
     /// drawn twice or dropped).
     pub(super) fn pack_edges_lod(
@@ -443,12 +443,11 @@ impl RenderStore {
             }
         }
         if !rebuild_far {
-            // Interleaved: this frame's parity of ribbon instances, in place, so
-            // every ribbon is at most one frame old and the cost is flat.
-            let parity = (self.edge_frame % 2) as usize;
-            let mut j = parity;
-            while j < sc.ribbon_entry.len() {
-                let e = self.edge_plan.entries[sc.ribbon_entry[j] as usize];
+            // Every ribbon is re-transformed in place every frame, so an edge's far-tier
+            // endpoints are the same chased positions its nodes are drawn at in this frame
+            // (the previous half-per-frame parity left half the ribbons a frame behind).
+            for (j, &ei) in sc.ribbon_entry.iter().enumerate() {
+                let e = self.edge_plan.entries[ei as usize];
                 match edge_transform12(
                     self.positions[e.s as usize],
                     self.positions[e.t as usize],
@@ -459,7 +458,6 @@ impl RenderStore {
                     // Collapsed this frame: keep the old transform, rebuild next frame.
                     None => sc.ribbon_stale = true,
                 }
-                j += 2;
             }
         }
         self.edge_plan.near.clone_from(&sc.inst_near);
