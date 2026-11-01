@@ -17,13 +17,16 @@
 //! - **State frames.** Presence and state ride ordinary `0x23` events whose JSON payload has
 //!   a `state` key (`working` | `done` | `retired`) plus `intent` and `name`. Clients draw no
 //!   beam for them. A frame on spawn and on every state change, a keep-alive every 5 s (under
-//!   the clients' 30 s evidence TTL), and one `retired` when a departed agent's done run
-//!   ends.
+//!   the clients' 30 s evidence TTL), and one `retired` when an agent leaves the roster.
 //! - **Finish.** Live agentbox lists only running tasks (`getActiveTasks` in
 //!   `management-api/utils/process-manager.js`), so a finished task just leaves the roster.
 //!   Leaving is the finish: `done` at once (unless a `Completed`/`Failed` status already
-//!   said so), embodied with `done` keep-alives for [`DONE_RUN_MS`] while the clients run it
-//!   to the scene edge, then `retired`. An agent named again during its run is working again.
+//!   said so). A finished agent stays embodied on `done` keep-alives while the clients run it
+//!   to the scene edge (30 s, ADR-2135) and then hold it there: **the server has no timer for
+//!   that run and no copy of its 30 s.** `retired` is sent only on a departure: an agent whose
+//!   producer stops naming it after it reported itself done, or the oldest finished agent once
+//!   more than [`MAX_HELD_FINISHED`] are held (a bound on memory, not a lifetime). An agent
+//!   named again while held is working again.
 //! - **Join.** A hub action whose metadata names a roster task (`taskId` / `task_id`) is
 //!   re-sourced to that agent's wire id ([`RosterFeed::join`]), and its target becomes the
 //!   agent's work node. Every frame for one agent, from either producer path, passes one
@@ -46,9 +49,9 @@ pub const REAL_AGENT_BASE: u32 = 0x0200_0000;
 pub const REAL_AGENT_SPAN: u32 = 0x01FF_FFFF;
 /// Keep-alive period, under the clients' 30 s evidence TTL (as the demo's).
 pub const KEEPALIVE_MS: u64 = 5_000;
-/// How long a finished agent stays embodied before its `retired` frame: the clients' done
-/// run (F16: 30 s out to the scene edge, then stop; `agentNudge.ts` `AGENT_DONE_RUN_MS`).
-pub const DONE_RUN_MS: u64 = 30_000;
+/// How many finished agents that left their roster the feed holds at the scene edge. Past this
+/// the oldest is retired, so a long session cannot grow the roster without bound.
+pub const MAX_HELD_FINISHED: usize = 64;
 /// `state` payload values.
 pub const STATE_WORKING: &str = "working";
 pub const STATE_DONE: &str = "done";
@@ -241,8 +244,9 @@ impl RosterFeed {
             }
         }
 
-        // An agent its producer no longer names has finished (live agentbox lists only
-        // running tasks): `done` now if it was working, then embodied for the done run.
+        // An agent its producer no longer names has left. One that had not reported itself done
+        // has finished (live agentbox lists only running tasks): `done` now, and it is held at
+        // the edge. One that had already reported itself done is gone for good: `retired`.
         let mut gone: Vec<String> = self
             .agents
             .iter()
@@ -250,10 +254,13 @@ impl RosterFeed {
             .map(|(k, _)| k.clone())
             .collect();
         gone.sort();
+        let mut departed = Vec::new();
         for k in gone {
             let l = self.agents.get_mut(&k).expect("listed");
             l.left = true;
-            if !l.done {
+            if l.done {
+                departed.push(k);
+            } else {
                 l.done = true;
                 l.done_at = now_ts;
                 if let Some(ev) = self.state_event(&k, STATE_DONE, now_ts) {
@@ -261,7 +268,8 @@ impl RosterFeed {
                 }
             }
         }
-        out.extend(self.retire_finished(now_ts));
+        out.extend(self.retire(departed, now_ts));
+        out.extend(self.retire_overflow(now_ts));
 
         for a in named {
             let done = is_finished_status(&a.status);
@@ -311,9 +319,9 @@ impl RosterFeed {
 
     /// Advance the keep-alive clock. Every `KEEPALIVE_MS` it returns every live agent's
     /// current state, so a late client learns the roster and a finished agent stays.
-    /// Also retires every departed agent whose done run has ended, on every call.
+    /// Retires nothing: only a roster departure (or the held-finished bound) does.
     pub fn tick(&mut self, dt_ms: u64, now_ts: u32) -> Vec<AgentActionEvent> {
-        let mut out = self.retire_finished(now_ts);
+        let mut out = Vec::new();
         self.since_keepalive += dt_ms;
         if self.since_keepalive < KEEPALIVE_MS {
             return out;
@@ -328,19 +336,28 @@ impl RosterFeed {
         out
     }
 
-    /// One `retired` frame for each departed agent whose done run has ended; frees its id.
-    fn retire_finished(&mut self, now_ts: u32) -> Vec<AgentActionEvent> {
-        let mut over: Vec<String> = self
+    /// Retire the oldest held finished agents beyond [`MAX_HELD_FINISHED`].
+    fn retire_overflow(&mut self, now_ts: u32) -> Vec<AgentActionEvent> {
+        let mut held: Vec<(u32, String)> = self
             .agents
             .iter()
-            .filter(|(_, l)| {
-                l.left && l.done && u64::from(now_ts.wrapping_sub(l.done_at)) >= DONE_RUN_MS
-            })
-            .map(|(k, _)| k.clone())
+            .filter(|(_, l)| l.left && l.done)
+            .map(|(k, l)| (l.done_at, k.clone()))
             .collect();
-        over.sort();
-        let mut out = Vec::with_capacity(over.len());
-        for k in over {
+        if held.len() <= MAX_HELD_FINISHED {
+            return Vec::new();
+        }
+        held.sort();
+        let excess = held.len() - MAX_HELD_FINISHED;
+        let keys = held.into_iter().take(excess).map(|(_, k)| k).collect();
+        self.retire(keys, now_ts)
+    }
+
+    /// One `retired` frame for each of `keys`; frees the ids.
+    fn retire(&mut self, mut keys: Vec<String>, now_ts: u32) -> Vec<AgentActionEvent> {
+        keys.sort();
+        let mut out = Vec::with_capacity(keys.len());
+        for k in keys {
             if let Some(ev) = self.state_event(&k, STATE_RETIRED, now_ts) {
                 out.push(ev);
             }
@@ -555,12 +572,11 @@ mod tests {
         assert!(f.apply(RosterSource::ManagementApi, &[agent("task-1", "Completed")], &[], 60_000).is_empty());
     }
 
-    /// Live agentbox lists only `running` tasks (`management-api/utils/process-manager.js`
-    /// `getActiveTasks`), so a finishing task simply vanishes from the roster. Leaving the
-    /// roster is finishing: `done` at once, present for the whole 30 s run, then one
-    /// `retired`, and the id is freed.
+    /// Owner decision 2026-11-01 (F2): leaving the roster is finishing, and a finished agent is
+    /// held at the scene edge until it actually leaves. The feed has no timer: `done` at once,
+    /// `done` keep-alives for as long as it is held, and no `retired` however long that is.
     #[test]
-    fn leaving_the_roster_is_done_for_the_run_then_one_retired_frame_frees_the_id() {
+    fn a_finished_agent_is_held_with_no_timer_and_never_retired_by_time() {
         let mut f = RosterFeed::new();
         f.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], &[], 1_000);
         let id = f.wire_id("task-1").unwrap();
@@ -569,39 +585,69 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].source_agent_id, id);
         assert_eq!(state_of(&out[0]), STATE_DONE);
-        assert_eq!(f.wire_id("task-1"), Some(id), "present for the done run");
+        assert_eq!(f.wire_id("task-1"), Some(id), "present once done");
 
-        // Keep-alives during the run carry `done`, so the clients' TTL never drops it.
-        let ka = f.tick(KEEPALIVE_MS, 7_000);
-        assert_eq!(ka.len(), 1);
-        assert_eq!(state_of(&ka[0]), STATE_DONE);
-        // Still-absent rosters during the run send nothing new.
-        assert!(f.apply(RosterSource::ManagementApi, &[], &[], 20_000).is_empty());
-        assert!(f.tick(1, 31_999).is_empty(), "not before the run ends");
+        // Many frames later (an hour of keep-alives, and rosters that still omit it) it is
+        // still embodied on `done`, and nothing retired it.
+        let mut now = 2_000u32;
+        for _ in 0..720 {
+            now += KEEPALIVE_MS as u32;
+            let ka = f.tick(KEEPALIVE_MS, now);
+            assert_eq!(ka.len(), 1);
+            assert_eq!(ka[0].source_agent_id, id);
+            assert_eq!(state_of(&ka[0]), STATE_DONE);
+            assert!(f.apply(RosterSource::ManagementApi, &[], &[], now).is_empty());
+        }
+        assert_eq!(f.wire_id("task-1"), Some(id));
+    }
 
-        let end = f.tick(1, 2_000 + DONE_RUN_MS as u32);
+    /// An agent that reported itself done and is then no longer named has left the roster: one
+    /// `retired`, and the id is freed. The only retirement by departure.
+    #[test]
+    fn a_done_agent_that_leaves_the_roster_is_retired_once_and_frees_its_id() {
+        let mut f = RosterFeed::new();
+        f.apply(RosterSource::Rest, &[agent("dev-1", "active")], &[], 1_000);
+        let id = f.wire_id("dev-1").unwrap();
+        let out = f.apply(RosterSource::Rest, &[agent("dev-1", "Completed")], &[], 3_000);
+        assert_eq!(state_of(&out[0]), STATE_DONE);
+        // Still listed, still done: held, however long.
+        assert!(f.apply(RosterSource::Rest, &[agent("dev-1", "Completed")], &[], 900_000).is_empty());
+        assert_eq!(f.wire_id("dev-1"), Some(id));
+        // It leaves.
+        let end = f.apply(RosterSource::Rest, &[], &[], 901_000);
         assert_eq!(end.len(), 1);
         assert_eq!(end[0].source_agent_id, id);
         assert_eq!(state_of(&end[0]), STATE_RETIRED);
-        assert_eq!(f.wire_id("task-1"), None);
-        assert!(f.tick(KEEPALIVE_MS, 40_000).is_empty());
+        assert_eq!(f.wire_id("dev-1"), None);
+        assert!(f.tick(KEEPALIVE_MS, 910_000).is_empty());
+        assert!(f.apply(RosterSource::Rest, &[], &[], 911_000).is_empty());
     }
 
-    /// A roster that reports the finish itself (`Completed`) runs the same course once the
-    /// agent leaves: the run is timed from the `done`, not from the removal.
+    /// The memory bound: past `MAX_HELD_FINISHED` the oldest held agent is retired, one frame each.
     #[test]
-    fn a_completed_agent_that_then_leaves_retires_when_its_run_ends() {
+    fn held_finished_agents_are_bounded_and_the_oldest_goes_first() {
         let mut f = RosterFeed::new();
-        f.apply(RosterSource::Rest, &[agent("dev-1", "active")], &[], 1_000);
-        let out = f.apply(RosterSource::Rest, &[agent("dev-1", "Completed")], &[], 3_000);
-        assert_eq!(state_of(&out[0]), STATE_DONE);
-        assert!(f.apply(RosterSource::Rest, &[], &[], 4_000).is_empty(), "already done");
-        assert!(f.tick(1, 32_999).is_empty());
-        let end = f.tick(1, 3_000 + DONE_RUN_MS as u32);
-        assert_eq!(state_of(&end[0]), STATE_RETIRED);
+        let mut now = 1_000u32;
+        for n in 0..=MAX_HELD_FINISHED {
+            let key = format!("t{n}");
+            f.apply(RosterSource::ManagementApi, &[agent(&key, "Running")], &[], now);
+            now += 10;
+            let out = f.apply(RosterSource::ManagementApi, &[], &[], now);
+            now += 10;
+            let states: Vec<String> = out.iter().map(state_of).collect();
+            if n < MAX_HELD_FINISHED {
+                assert_eq!(states, vec![STATE_DONE], "agent {n} is held");
+            } else {
+                // the 65th finish pushes the oldest (t0) out
+                assert_eq!(states, vec![STATE_DONE.to_string(), STATE_RETIRED.to_string()]);
+            }
+        }
+        assert_eq!(f.wire_id("t0"), None, "the oldest was retired");
+        assert!(f.wire_id("t1").is_some());
+        assert_eq!(f.len(), MAX_HELD_FINISHED);
     }
 
-    /// A task that reappears during its run is working again and is not retired.
+    /// A task that reappears while held is working again and is not retired.
     #[test]
     fn an_agent_back_in_the_roster_during_its_run_is_working_again() {
         let mut f = RosterFeed::new();
@@ -612,7 +658,7 @@ mod tests {
         assert_eq!(back.len(), 1);
         assert_eq!(state_of(&back[0]), STATE_WORKING);
         assert_eq!(f.wire_id("task-1"), Some(id));
-        assert!(f.tick(1, 40_000).iter().all(|e| state_of(e) != STATE_RETIRED));
+        assert!(f.tick(KEEPALIVE_MS, 40_000).iter().all(|e| state_of(e) != STATE_RETIRED));
     }
 
     #[test]
@@ -628,11 +674,11 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].source_agent_id, task);
         assert_eq!(state_of(&out[0]), STATE_DONE);
-        let end = f.tick(1, 3 + DONE_RUN_MS as u32);
-        assert_eq!(end.len(), 1, "only the ManagementApi agent retires");
-        assert_eq!(state_of(&end[0]), STATE_RETIRED);
+        // Nothing retires by time; and an empty ManagementApi roster never touches dev-1.
+        assert!(f.tick(1, 3_000_000).is_empty());
+        assert!(f.apply(RosterSource::ManagementApi, &[], &[], 3_000_001).is_empty());
         assert!(f.wire_id("dev-1").is_some());
-        assert!(f.wire_id("task-1").is_none());
+        assert!(f.wire_id("task-1").is_some(), "held at the edge until it leaves");
     }
 
     #[test]
@@ -685,9 +731,9 @@ mod tests {
         let frames: Vec<(&str, Vec<AgentActionEvent>)> = vec![
             ("spawn", f.apply(RosterSource::ManagementApi, &[agent("task-1", "Running")], &[], 1_000)),
             ("keepalive", f.tick(KEEPALIVE_MS, 6_000)),
-            // Live agentbox drops a finished task from its list: leaving is the finish.
-            ("done", f.apply(RosterSource::ManagementApi, &[], &[], 7_000)),
-            ("retired", f.tick(1, 7_000 + DONE_RUN_MS as u32)),
+            ("done", f.apply(RosterSource::ManagementApi, &[agent("task-1", "Completed")], &[], 7_000)),
+            // The agent leaves the roster: the one `retired`.
+            ("retired", f.apply(RosterSource::ManagementApi, &[], &[], 9_000)),
         ];
         let json_frames: Vec<serde_json::Value> = frames
             .iter()
