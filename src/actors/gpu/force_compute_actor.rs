@@ -4356,9 +4356,15 @@ mod hold_physics_tests {
         let ov = |held: bool, settle: Option<Instant>, now: Instant| {
             step_overrides(0, held, settle, now, 0.9, 0.4, 0.0).elastic_overlay
         };
-        assert!(!ov(false, None, t0), "idle: stored LinLog and adaptive speed");
+        assert!(
+            !ov(false, None, t0),
+            "idle: stored LinLog and adaptive speed"
+        );
         assert!(ov(true, None, t0), "held");
-        assert!(ov(true, until, t0), "a re-grab inside the settle window stays on");
+        assert!(
+            ov(true, until, t0),
+            "a re-grab inside the settle window stays on"
+        );
         assert!(
             ov(false, until, t0 + std::time::Duration::from_millis(1999)),
             "settling"

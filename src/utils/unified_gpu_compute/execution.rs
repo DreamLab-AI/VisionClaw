@@ -1128,7 +1128,7 @@ impl UnifiedGPUCompute {
         // Spring mode while held: the integrator takes the Verlet path so the pull is not
         // divided by FA2 swing. The stored `adaptive_speed` setting is untouched and applies
         // again as soon as the overlay ends.
-        if false && self.hold_overlay.is_active() {
+        if self.hold_overlay.is_active() {
             sim_params.adaptive_speed = 0;
         }
 
@@ -2776,23 +2776,24 @@ mod hold_spring_overlay_gpu_tests {
     /// Stored live values (`data/settings.yaml`): LinLog and adaptive speed on, springK 12,
     /// damping 0.9, maxForce 150, maxVelocity 100, dt 0.016. `global_speed` is the held floor.
     fn stored_params() -> SimulationParams {
-        let mut p = SimulationParams::default();
-        p.lin_log_mode = true;
-        p.adaptive_speed = true;
-        p.spring_k = 12.0;
-        p.repel_k = 120.0;
-        p.rest_length = 50.0;
-        p.damping = 0.9;
-        p.max_force = 150.0;
-        p.max_velocity = 100.0;
-        p.dt = 0.016;
-        p.temperature = 0.0;
-        p.center_gravity_k = 0.2;
-        p.gravity = 0.002;
-        p.warmup_iterations = 100;
-        p.global_speed = 2.0;
-        p.cluster_strength = 0.0;
-        p
+        SimulationParams {
+            lin_log_mode: true,
+            adaptive_speed: true,
+            spring_k: 12.0,
+            repel_k: 120.0,
+            rest_length: 50.0,
+            damping: 0.9,
+            max_force: 150.0,
+            max_velocity: 100.0,
+            dt: 0.016,
+            temperature: 0.0,
+            center_gravity_k: 0.2,
+            gravity: 0.002,
+            warmup_iterations: 100,
+            global_speed: 2.0,
+            cluster_strength: 0.0,
+            ..SimulationParams::default()
+        }
     }
 
     fn engine(sh: Shape) -> Option<(cust::context::Context, UnifiedGPUCompute)> {
@@ -2865,7 +2866,8 @@ mod hold_spring_overlay_gpu_tests {
             }
         }
         g.upload_positions(&x, &y, &z).expect("upload positions");
-        g.upload_edges_csr(&offsets, &cols, &w).expect("upload edges");
+        g.upload_edges_csr(&offsets, &cols, &w)
+            .expect("upload edges");
         Some((ctx, g))
     }
 
@@ -2952,7 +2954,14 @@ mod hold_spring_overlay_gpu_tests {
 
         let origin = before[0];
         for s in 1..=DRAG_STEPS {
-            set_hub(&mut g, [origin[0] + DRAG * s as f32 / DRAG_STEPS as f32, origin[1], origin[2]]);
+            set_hub(
+                &mut g,
+                [
+                    origin[0] + DRAG * s as f32 / DRAG_STEPS as f32,
+                    origin[1],
+                    origin[2],
+                ],
+            );
             step(&mut g, &p);
         }
         let (hop1, hop2) = follow(&mut g);
@@ -2961,7 +2970,13 @@ mod hold_spring_overlay_gpu_tests {
             step(&mut g, &p);
         }
         let (hop1_held, hop2_held) = follow(&mut g);
-        let d = Drag { grab_lurch, hop1, hop2, hop1_held, hop2_held };
+        let d = Drag {
+            grab_lurch,
+            hop1,
+            hop2,
+            hop1_held,
+            hop2_held,
+        };
         eprintln!(
             "[hold_spring_overlay] nb={} leaves={} overlay={overlay} {d:?} snapshots={}",
             sh.nb,

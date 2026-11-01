@@ -1,10 +1,11 @@
 ---
 title: GPU & Wire ABI
 doc_id: VC-GPU-ABI
-version: 0.1.6
+version: 0.1.7
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.7 (2026-11-01): ADR-2169 amendment (spring mode while held) — new trailing `const float* edge_rest_snapshot` parameter on `force_pass_kernel` and `force_pass_with_stability_kernel` (null = overlay off), new `edge_rest_snapshot` device buffer (one float per CSR edge slot, sized to `allocated_edges`, re-sized with it), new `snapshot_edge_rest_kernel`. `SimParams` (212 B), the feature word and its 7 bits are unchanged"
   - "0.1.6 (2026-10-31): ADR-2030 runtime PTX identity (build-baked content tag verified at load, fail loud); ADR-2029 GPU-tick evidence that bit 4 alone gates the constraint loop and the physics-step authority sets it"
   - "0.1.5 (2026-09-06): Remediation — 2026-09-05 section: Wave 3 ADRs (2094–2101, 2061, 2071, 2085; proposed 2102–2105) and the ledger/diagram re-verification landed in 2cf222406 — re-verified at "
   - "0.1.4: 2026-09-05 ADR-2061 landed — the analytics kernel trust status is now a measured test result (crates/visionclaw-gpu/tests/analytics_oracle_conformance.rs) rather than an assertion: PageRank, DBSCAN and Louvain TRUSTED; LOF recorded BROKEN at max |delta| 0.702 against a 1e-3 bar"
@@ -279,6 +280,15 @@ declarations, bump both size assertions if the size moves, update this doc's Cur
 State and Invariants, and bump `version`. Fixing a broken analytics kernel moves it out
 of the Known-BROKEN list with a code citation. Cite legacy ADRs (e.g. legacy ADR-031,
 ADR-098, ADR-141) as evidence only; live code is ground truth.
+
+## Elastic hold-spring overlay — 2026-11-01 (ADR-2169 amendment)
+
+While a node is held, and through the settle window, the force pass adds `spring_k * (dist - edge_rest_snapshot[i]) * edge_weight * spring_scale` per CSR edge entry on top of the stored attraction. This changes kernel parameters and a buffer, not `SimParams`:
+
+- `force_pass_kernel` and `force_pass_with_stability_kernel` take a trailing `const float* edge_rest_snapshot`. A null pointer is the overlay-off state, which is what every non-held step passes; it is not a feature bit, so the 7-bit word and the ABI digest are untouched.
+- `edge_rest_snapshot` is a `DeviceBuffer<f32>` of `allocated_edges` entries (`construction.rs`, re-allocated by `resize_buffers` in `memory.rs`; a CSR upload or resize invalidates it).
+- `snapshot_edge_rest_kernel(pos_x, pos_y, pos_z, edge_row_offsets, edge_col_indices, edge_rest_snapshot, num_nodes)` writes each edge's current length, one thread per node, once per overlay activation (`hold_overlay.rs`).
+- The integrator switch rides the existing `adaptive_speed` field: `execute_physics_step_with_bypass` sends 0 while the overlay is on, and the Verlet branch of `integrate_pass_kernel` clears `prev_force`.
 
 ## Layout and force closeout — 2026-09-04
 

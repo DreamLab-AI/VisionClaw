@@ -597,7 +597,7 @@ __global__ void force_pass_kernel(
                 }
 
                 // Elastic overlay (ADR-2169 amendment): nullptr outside a hold + its settle window.
-                if (false && edge_rest_snapshot != nullptr) {
+                if (edge_rest_snapshot != nullptr) {
                     spring_force_mag += c_params.spring_k * (dist - edge_rest_snapshot[i]) * edge_weights[i] * s;
                 }
 
@@ -2447,7 +2447,7 @@ __global__ void force_pass_with_stability_kernel(
                     float displacement = dist - ideal;
                     spring_force_mag = c_params.spring_k * displacement * edge_weights[i] * s;
                 }
-                if (false && edge_rest_snapshot != nullptr) {
+                if (edge_rest_snapshot != nullptr) {
                     spring_force_mag += c_params.spring_k * (dist - edge_rest_snapshot[i]) * edge_weights[i] * s;
                 }
                 total_force = vec3_add(total_force, vec3_scale(diff, spring_force_mag / dist));
