@@ -135,6 +135,9 @@ pub struct UnifiedGPUCompute {
     /// Host copy of the resident constraints, kept so the per-node index can be rebuilt when the
     /// node capacity changes (`resize_buffers`).
     pub(crate) constraints_host: Vec<ConstraintData>,
+    /// How many times `set_constraints` has committed a set to the device. Tests read it to prove
+    /// the actor uploads on change only.
+    pub(crate) constraint_uploads: u64,
     /// Per-node constraint index (CSR) the force kernels read through the
     /// `g_constraint_index` device global; see `constraint_index.rs`.
     pub(crate) constraint_node_offsets: DeviceBuffer<i32>,
@@ -509,6 +512,7 @@ impl UnifiedGPUCompute {
             constraint_data: DeviceBuffer::from_slice(&[])?,
             num_constraints: 0,
             constraints_host: Vec::new(),
+            constraint_uploads: 0,
             constraint_node_offsets: DeviceBuffer::from_slice(&[])?,
             constraint_node_ids: DeviceBuffer::from_slice(&[])?,
             sssp_available: false,

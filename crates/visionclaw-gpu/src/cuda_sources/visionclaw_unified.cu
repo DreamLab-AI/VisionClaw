@@ -401,6 +401,20 @@ __global__ void compute_cell_bounds_kernel(
 // Force Pass Kernel
 // =============================================================================
 
+// Linear ramp-in of a constraint after the set was uploaded: 0 at the upload frame, 1 after
+// `constraint_ramp_frames`. Shared by both force kernels so a constraint acts the same on a
+// stability-gated step and on a bypass step. `activation_frame` is stamped once, when the set
+// is uploaded (the host uploads on change only), so the ramp runs once per upload.
+__device__ __forceinline__ float constraint_ramp_multiplier(const ConstraintData& constraint) {
+    if (c_params.constraint_ramp_frames > 0) {
+        const int frames_since_activation = c_params.iteration - constraint.activation_frame;
+        if (frames_since_activation >= 0 && frames_since_activation < c_params.constraint_ramp_frames) {
+            return fminf((float)frames_since_activation / (float)c_params.constraint_ramp_frames, 1.0f);
+        }
+    }
+    return 1.0f;
+}
+
 // One edge's attraction, shared by force_pass_kernel and force_pass_with_stability_kernel so the
 // stored behaviour (LinLog or Hooke with the optional SSSP rest length) and the ADR-2169 hold overlay
 // are written once. Returns the factor to multiply (neighbour - self) by.
@@ -674,17 +688,8 @@ __global__ void force_pass_kernel(
             
             float3 constraint_force = make_vec3(0.0f, 0.0f, 0.0f);
             
-            // Calculate progressive activation multiplier
-            float progressive_multiplier = 1.0f;
-            if (c_params.constraint_ramp_frames > 0) {
-                int frames_since_activation = c_params.iteration - constraint.activation_frame;
-                if (frames_since_activation >= 0 && frames_since_activation < c_params.constraint_ramp_frames) {
-                    // Linear ramp from 0 to 1 over constraint_ramp_frames
-                    progressive_multiplier = (float)frames_since_activation / (float)c_params.constraint_ramp_frames;
-                    progressive_multiplier = fminf(progressive_multiplier, 1.0f);
-                }
-            }
-            
+            const float progressive_multiplier = constraint_ramp_multiplier(constraint);
+
             // Process constraint based on type
             if (constraint.kind == ConstraintKind::DISTANCE && constraint.count >= 2) {
                 // Distance constraint: maintain distance between two nodes
@@ -2432,8 +2437,9 @@ __global__ void force_pass_with_stability_kernel(
             if (!is_involved) continue;
 
             float3 constraint_force = make_vec3(0.0f, 0.0f, 0.0f);
+            const float progressive_multiplier = constraint_ramp_multiplier(constraint);
 
-            // Apply constraint forces (simplified for stability example)
+            // Mirror of the main-pass constraint kinds, each at its ramped weight.
             if (constraint.kind == ConstraintKind::DISTANCE && constraint.count >= 2) {
                 int other_idx = (node_role == 0) ? constraint.node_idx[1] : constraint.node_idx[0];
                 if (other_idx >= 0 && other_idx < num_nodes) {
@@ -2446,12 +2452,27 @@ __global__ void force_pass_with_stability_kernel(
 
                     if (current_dist > 1e-6f && isfinite(current_dist) && target_dist > 0.0f) {
                         float error = current_dist - target_dist;
-                        float force_magnitude = -constraint.weight * error;
+                        float force_magnitude = -constraint.weight * progressive_multiplier * error;
                         force_magnitude = fmaxf(-c_params.constraint_max_force_per_node,
                                               fminf(c_params.constraint_max_force_per_node, force_magnitude));
 
                         constraint_force = vec3_scale(diff, force_magnitude / current_dist);
                     }
+                }
+            }
+            else if (constraint.kind == ConstraintKind::POSITION && constraint.count >= 1) {
+                // Mirror of the main-pass position pull: attract the node to its target. This
+                // branch was missing here, so a POSITION constraint never acted on a stability-gated step.
+                float3 target_pos = make_vec3(constraint.params[0], constraint.params[1], constraint.params[2]);
+                float3 diff = vec3_sub(target_pos, my_pos);
+                float distance = vec3_length(diff);
+
+                if (distance > 1e-6f && isfinite(distance)) {
+                    float force_magnitude = constraint.weight * progressive_multiplier * distance *
+                                            c_params.position_constraint_attraction;
+                    force_magnitude = fminf(force_magnitude, c_params.constraint_max_force_per_node);
+
+                    constraint_force = vec3_scale(diff, force_magnitude / distance);
                 }
             }
             else if (constraint.kind == ConstraintKind::SEPARATION && constraint.count >= 2) {
@@ -2468,7 +2489,7 @@ __global__ void force_pass_with_stability_kernel(
 
                     if (current_dist > 1e-6f && isfinite(current_dist) && current_dist < min_dist) {
                         float penetration = min_dist - current_dist;
-                        float force_magnitude = constraint.weight * penetration;
+                        float force_magnitude = constraint.weight * progressive_multiplier * penetration;
                         force_magnitude = fminf(force_magnitude, c_params.constraint_max_force_per_node);
 
                         constraint_force = vec3_scale(diff, force_magnitude / current_dist);
@@ -2487,7 +2508,7 @@ __global__ void force_pass_with_stability_kernel(
                     float my_a = (axis == 0) ? my_pos.x : (axis == 1) ? my_pos.y : my_pos.z;
                     float other_a = (axis == 0) ? other_pos.x : (axis == 1) ? other_pos.y : other_pos.z;
                     float err = (other_a - my_a) * 0.5f;
-                    float fmag = err * constraint.weight * c_params.alignment_strength;
+                    float fmag = err * constraint.weight * progressive_multiplier * c_params.alignment_strength;
                     fmag = fmaxf(-c_params.constraint_max_force_per_node,
                                  fminf(c_params.constraint_max_force_per_node, fmag));
 

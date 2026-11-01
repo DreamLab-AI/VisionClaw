@@ -646,6 +646,7 @@ impl UnifiedGPUCompute {
         self.constraint_data = staged_data;
         self.num_constraints = constraints.len();
         self.constraints_host = constraints;
+        self.constraint_uploads += 1;
         debug!(
             "Updated GPU constraints: {} active constraints with progressive activation support",
             self.num_constraints

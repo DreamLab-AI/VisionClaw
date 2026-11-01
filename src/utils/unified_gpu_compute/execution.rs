@@ -2082,12 +2082,15 @@ mod grid_gpu_tests {
 
     fn timed_steps(
         gpu: &mut UnifiedGPUCompute,
+        actor: &mut crate::actors::gpu::force_compute_actor::ForceComputeActor,
         p: &crate::models::simulation_params::SimulationParams,
         bypass: bool,
         steps: usize,
     ) -> f64 {
         let t = std::time::Instant::now();
         for _ in 0..steps {
+            // The live per-step path: the actor decides whether the engine needs the set.
+            actor.sync_constraints(gpu).expect("sync constraints");
             gpu.execute_physics_step_with_bypass(p, bypass)
                 .expect("step");
         }
@@ -2096,11 +2099,14 @@ mod grid_gpu_tests {
 
     fn repeated(
         gpu: &mut UnifiedGPUCompute,
+        actor: &mut crate::actors::gpu::force_compute_actor::ForceComputeActor,
         p: &crate::models::simulation_params::SimulationParams,
         bypass: bool,
         label: &str,
     ) -> f64 {
-        let v: Vec<f64> = (0..3).map(|_| timed_steps(gpu, p, bypass, 150)).collect();
+        let v: Vec<f64> = (0..3)
+            .map(|_| timed_steps(gpu, actor, p, bypass, 150))
+            .collect();
         let (lo, hi) = (
             v.iter().cloned().fold(f64::MAX, f64::min),
             v.iter().cloned().fold(f64::MIN, f64::max),
@@ -2119,7 +2125,9 @@ mod grid_gpu_tests {
     /// per-stage breakdown from `StepTiming`'s kernel sub-phases (synchronised at each boundary, so
     /// reported separately from the plain timing). `TICK_HUB=n` adds n constraints on node 0 to
     /// find the hub-list slope; `TICK_CONSTRAINTS=0` runs without constraints; `TICK_MIN_HZ` turns
-    /// the report into an assertion. Run with `--ignored --nocapture`, on a spare device.
+    /// the report into an assertion. Every step makes the actor's upload decision before it
+    /// steps (`sync_constraints`), as the live tick does, and the test fails if the steady state
+    /// uploads the unchanged set. Run with `--ignored --nocapture`, on a spare device.
     #[test]
     #[ignore = "timing measurement; run explicitly with --ignored --nocapture"]
     fn step_stage_timings_at_the_live_graph_size() {
@@ -2130,32 +2138,48 @@ mod grid_gpu_tests {
         let n_constraints = env("TICK_CONSTRAINTS").map_or(LIVE_CONSTRAINTS, |v| v as usize);
         let _ctx = cust::quick_init().expect("cuda");
         let mut gpu = live_shape_graph();
+        let mut actor = crate::actors::gpu::force_compute_actor::ForceComputeActor::headless();
         let mut p = live_params();
         p.cluster_strength = 0.0; // keep the Louvain refresh out of the steady-state numbers
         println!("nodes={LIVE_NODES} undirected_edges={LIVE_EDGES} constraints={n_constraints}");
 
         // Let the layout leave its random-ball start so the grid density is realistic.
-        timed_steps(&mut gpu, &p, true, 400);
+        timed_steps(&mut gpu, &mut actor, &p, true, 400);
         println!("-- WITHOUT constraints");
         let (mut held, mut idle) = (
-            repeated(&mut gpu, &p, true, "HELD (stability bypass)"),
-            repeated(&mut gpu, &p, false, "IDLE (stability gate)"),
+            repeated(&mut gpu, &mut actor, &p, true, "HELD (stability bypass)"),
+            repeated(&mut gpu, &mut actor, &p, false, "IDLE (stability gate)"),
         );
         if n_constraints > 0 {
             let cs = with_hub(synthetic_constraints(&mut BenchRng(7), n_constraints));
             let (_, longest, p99) =
                 super::super::constraint_index::build_constraint_index(&cs, LIVE_NODES)
                     .list_stats();
-            gpu.set_constraints(cs).unwrap();
-            timed_steps(&mut gpu, &p, true, 100);
+            actor.replace_constraint_cache(cs);
+            // The first step uploads the set; every step after it must find it resident.
+            timed_steps(&mut gpu, &mut actor, &p, true, 100);
+            let uploads_before = gpu.constraint_uploads;
             println!("-- WITH {n_constraints} constraints (+TICK_HUB): longest node list {longest}, p99 {p99}");
-            held = repeated(&mut gpu, &p, true, "HELD (stability bypass)");
-            idle = repeated(&mut gpu, &p, false, "IDLE (stability gate)");
+            held = repeated(&mut gpu, &mut actor, &p, true, "HELD (stability bypass)");
+            idle = repeated(&mut gpu, &mut actor, &p, false, "IDLE (stability gate)");
+            println!(
+                "UPLOADS in the steady state: {} (set uploaded once at warm-up: {})",
+                gpu.constraint_uploads - uploads_before,
+                uploads_before
+            );
+            assert_eq!(
+                gpu.constraint_uploads, uploads_before,
+                "the steady state re-uploaded an unchanged constraint set"
+            );
+            assert_eq!(
+                uploads_before, 1,
+                "the set must reach the device exactly once"
+            );
         }
 
         // Idle must actually integrate: a stability skip would return early and flatter the number.
         let before = gpu.get_node_positions().unwrap().0;
-        timed_steps(&mut gpu, &p, false, 5);
+        timed_steps(&mut gpu, &mut actor, &p, false, 5);
         let after = gpu.get_node_positions().unwrap().0;
         let moved = before.iter().zip(&after).filter(|(a, b)| a != b).count();
         println!(
@@ -2180,7 +2204,7 @@ mod grid_gpu_tests {
         set_kernel_stage_profiling(true);
         let _ = take_kernel_stage_us();
         let prof_steps = 100;
-        let prof = timed_steps(&mut gpu, &p, true, prof_steps);
+        let prof = timed_steps(&mut gpu, &mut actor, &p, true, prof_steps);
         set_kernel_stage_profiling(false);
         let us = take_kernel_stage_us();
         println!("STAGES (held, synchronised at each boundary; total {prof:.2} ms/step):");
