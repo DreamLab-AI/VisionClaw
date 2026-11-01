@@ -2,7 +2,8 @@
 title: VAULT — authored corpus format (Obsidian vault)
 version: 3.0.0
 status: living
-verified_commit:
+verified_commit: 6775a789cbbf3b56d645bcee7dc08815fbe18548
+verification_scope: ADR-2168 shared filesystem checks in V1; other sections retain their existing evidence
 owner: jjohare
 domain: VAULT-corpus-format
 ledger: [ADR-2112, ADR-2113, ADR-2114, ADR-2115, ADR-2116, ADR-2117, ADR-2118, ADR-2124, ADR-2125, ADR-2128, ADR-2168]
