@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 772039bd172027af034d64befacca1ebcf0bbc04
+verified_commit: 974daf5d22d2d0ea709140777eae58d60ddb2c36
 verified_paths: [src/handlers/ontology_agent_handler.rs, tests/rec1_route_guard.rs, crates/vault/src/main.rs, crates/vault/src/propose.rs]
 owner: jjohare
 review_trigger: "the first caller reported still POSTing to /api/ontology-agent/propose; any change to the 410 body, or any new HTTP ontology write route"
@@ -75,3 +75,12 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
   `ontology_agent_handler.rs:242`.
 - `GET /api/ontology-agent/status` lists `ontology_discover, ontology_read, ontology_query, ontology_traverse,
   ontology_validate, ontology_check, ontology_check_relation` and no `ontology_propose` (decision 5).
+
+## Scoped re-verification — 2026-11-01, ADR-2168
+
+The CLI changes repository discovery and layout refusal before dispatch; one proposal call is rustfmt reflow only. Proposal construction, Nostr transport, HTTP retirement and route capability code are unchanged. The real propose CLI test passes in the package suite; no new signed forum transaction or HTTP deployment was exercised.
+
+All governed paths were byte-identical between the previous verification pin and
+the pre-change baseline `5e1bd90a4`. The reviewed delta is the shared-layout change
+through `974daf5d22d2d0ea709140777eae58d60ddb2c36`. Existing activation and acceptance limits
+remain in force; this stamp does not repeat historical runtime measurements.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 772039bd172027af034d64befacca1ebcf0bbc04
+verified_commit: 974daf5d22d2d0ea709140777eae58d60ddb2c36
 verified_paths: [crates/vault/src/main.rs, crates/vault-core/Cargo.toml]
 owner: jjohare
 review_trigger: "any reintroduction of a corpus-format converter, a JSON-LD fence reader or migration mapping types; a second supported authored format"
@@ -61,3 +61,12 @@ Verification applies to the working tree; no commit or deployment is claimed.
 **Activation.** This record's trigger was the installation of the updated binary. The installed binary
 (`/nix/store/83ilg82h5ar8vvnqqzysamvxc08iycxq-vault-0.1.0/bin/vault`) answers
 `vault migrate --fences-to-properties` with `error: unrecognized subcommand 'migrate'`.
+
+## Scoped re-verification — 2026-11-01, ADR-2168
+
+The CLI adds shared discovery/layout checks, without restoring the retired migrate command or migration feature. The package suite retains the retired-command refusal test. Ontomark migration commands belong to the separate owner and do not reintroduce this retired VisionClaw converter.
+
+All governed paths were byte-identical between the previous verification pin and
+the pre-change baseline `5e1bd90a4`. The reviewed delta is the shared-layout change
+through `974daf5d22d2d0ea709140777eae58d60ddb2c36`. Existing activation and acceptance limits
+remain in force; this stamp does not repeat historical runtime measurements.

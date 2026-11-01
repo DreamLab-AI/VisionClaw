@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 93302275ecab90dfa73284405d331d56a3cd9840
+verified_commit: 974daf5d22d2d0ea709140777eae58d60ddb2c36
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -326,3 +326,12 @@ Re-verified 2026-10-31 at db37a3313: governed change since 8775359e3 is `layer_d
 ## Re-stamp — 2026-10-31 (ADR-2140 item 1)
 
 **Governed change:** ADR-2140 item 1 removes the `SetLayoutMode` message and handler and the actor's mode override, and adds `migrate_layout_mode` to `physics_restore.rs`. All of it is actor-layer code in the root crate, which already held these modules; `Cargo.toml` and `crates/visionclaw-actors/src` are unchanged (`git diff --stat` over them is empty), no crate was added and nothing crossed a boundary. **Decision holds.** Line citations in this record that name `force_compute_actor.rs` have moved; the functions they name are unchanged. Re-run: `git diff --stat 75b72416b 93302275e -- src/actors/gpu/force_compute_actor.rs src/actors/gpu/physics_restore.rs src/actors/messages/mod.rs src/actors/messages/physics_messages.rs`. Checked by reading that diff against this record's claims; server `cargo test --lib` 1721 passed, 0 failed, 9 ignored, `cargo test -p visionclaw-domain` 317 passed at `93302275e`.
+
+## Scoped re-verification — 2026-11-01, ADR-2168
+
+The manifest adds a registry compiler dependency and its default feature. Workspace members, exclusions and existing layer dependencies are unchanged; this does not close the broader extraction boundary.
+
+All governed paths were byte-identical between the previous verification pin and
+the pre-change baseline `5e1bd90a4`. The reviewed delta is the shared-layout change
+through `974daf5d22d2d0ea709140777eae58d60ddb2c36`. Existing activation and acceptance limits
+remain in force; this stamp does not repeat historical runtime measurements.

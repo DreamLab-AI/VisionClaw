@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 772039bd172027af034d64befacca1ebcf0bbc04
+verified_commit: 974daf5d22d2d0ea709140777eae58d60ddb2c36
 verified_paths: [Cargo.toml, scripts/rust-backend-wrapper.sh, build.rs]
 owner: jjohare
 review_trigger: a runtime-performance regression traced to the dev-runtime profile, or a move to pre-baked dev binaries (ADR-2008)
@@ -56,3 +56,12 @@ condition the record was written against: a fat-LTO single-core pass of more tha
 No command was typed: the container's wrapper started this rebuild on boot, so the log above is the whole invocation
 record. The single-file timing in Verification has not been run; `live` here means the profile is the one serving, not
 that the measurement passed (qualified after the 2026-10-30 cross-vendor audit).
+
+## Scoped re-verification — 2026-11-01, ADR-2168
+
+The manifest adds only the shared compiler dependency/default feature. Dev-runtime/release profile tables, wrapper retry behaviour and build.rs are unchanged. No runtime rebuild timing or deployment was repeated.
+
+All governed paths were byte-identical between the previous verification pin and
+the pre-change baseline `5e1bd90a4`. The reviewed delta is the shared-layout change
+through `974daf5d22d2d0ea709140777eae58d60ddb2c36`. Existing activation and acceptance limits
+remain in force; this stamp does not repeat historical runtime measurements.

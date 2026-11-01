@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: [ADR-2096]
 superseded_by: []
-verified_commit: 772039bd172027af034d64befacca1ebcf0bbc04
+verified_commit: 974daf5d22d2d0ea709140777eae58d60ddb2c36
 verified_paths: [src/services/page_parser.rs, src/services/corpus_source/mod.rs, src/services/corpus_source/local.rs, crates/visionclaw-domain/src/vault/mod.rs]
 owner: jjohare
 review_trigger: "a second CorpusSource becoming the default; any change to services::page_parser::parse_page delegating to vault_core::page::parse_page; a request to read `key:: value` metadata again"
@@ -112,3 +112,12 @@ never overrides a fence.
   and `Processing 0 changed files (10375 unchanged)`.
 - That boot loaded 9,244 classes into Whelk. `GET /api/graph/data` serves 9,688 nodes.
 - The corpus carries no `key::` lines (ADR-2112 close-out).
+
+## Scoped re-verification — 2026-11-01, ADR-2168
+
+ADR-2168 amends local ingestion: default-enabled shared root checks refuse aliases, overlap and escapes; prefixes/fetches are bounded and child links skipped. The port, source selection, page markers, downstream parser and GitHub source are unchanged. The current flat defaults remain knowledge,working. Thirteen actual-module tests and the server compile check pass; this is not a fresh live-sync or deployment receipt.
+
+All governed paths were byte-identical between the previous verification pin and
+the pre-change baseline `5e1bd90a4`. The reviewed delta is the shared-layout change
+through `974daf5d22d2d0ea709140777eae58d60ddb2c36`. Existing activation and acceptance limits
+remain in force; this stamp does not repeat historical runtime measurements.

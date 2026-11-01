@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: [ADR-2014]
 superseded_by: [ADR-2112]
-verified_commit: 8775359e37a394d1558bb8b5317d37a92973288e
+verified_commit: 974daf5d22d2d0ea709140777eae58d60ddb2c36
 verified_paths: [crates/visionclaw-domain/src/vault/mod.rs, crates/visionclaw-domain/src/vault/link.rs, src/services/file_service.rs, src/services/github_sync_service.rs, src/services/parsers/knowledge_graph_parser.rs, src/services/github/content_enhanced.rs, src/services/ontology_mutation_service.rs, src/services/decision_elevation.rs, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: "the first GitHub sync run after the corpus repo is converted in place, or 2026-12-01, whichever is earlier — at which point the Logseq `key:: value` tolerance is removed"
@@ -198,3 +198,12 @@ Re-verified 2026-10-30 at c75004696: `src/services/github_sync_service.rs` gains
 ## Re-verified 2026-10-31 at 8775359e3
 
 `github_sync_service.rs` changed only in how the domain-root `owl_class_iri` and test-fixture edge IRIs are minted (ADR-2021, byte-identical output); the frontmatter gate is untouched. Decision holds; no re-run of this record's own tests.
+
+## Scoped re-verification — 2026-11-01, ADR-2168
+
+This superseded record remains historical. The governing document adds ADR-2168 filesystem checks and a scoped verification field; it does not restore the old inclusion gate, legacy tolerance or page naming rules.
+
+All governed paths were byte-identical between the previous verification pin and
+the pre-change baseline `5e1bd90a4`. The reviewed delta is the shared-layout change
+through `974daf5d22d2d0ea709140777eae58d60ddb2c36`. Existing activation and acceptance limits
+remain in force; this stamp does not repeat historical runtime measurements.

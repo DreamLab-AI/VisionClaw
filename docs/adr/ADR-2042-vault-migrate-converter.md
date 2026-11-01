@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: [ADR-2113]
-verified_commit: 17e3cdda0c51ad84d942c469c77814d915753313
+verified_commit: 974daf5d22d2d0ea709140777eae58d60ddb2c36
 verified_paths: [crates/vault-migrate, Cargo.toml, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: the in-place conversion of the corpus repo is committed, after which the crate is kept only as the round-trip/no-op checker
@@ -179,3 +179,12 @@ Governed changes since 2107637d6: `Cargo.toml` solid-pod-rs bump (db7ea58de) and
 Re-verified 2026-10-30 at c75004696: `Cargo.toml` adds the member and dependency `visionclaw-jev`. This record stays superseded by ADR-2113; `crates/vault-migrate` is still absent and `docs/VAULT-corpus-format.md` is untouched. Nothing to re-decide.
 
 Re-verified 2026-10-30 at 17e3cdda0: `Cargo.toml` changed only in `[profile.dev-runtime]` (ADR-2156); vault-migrate converter wiring unchanged, claim holds.
+
+## Scoped re-verification — 2026-11-01, ADR-2168
+
+This superseded converter decision remains historical. The manifest adds shared checks, and the governing document records their rejection boundary. No migration binary, old authored format or in-place conversion path is restored.
+
+All governed paths were byte-identical between the previous verification pin and
+the pre-change baseline `5e1bd90a4`. The reviewed delta is the shared-layout change
+through `974daf5d22d2d0ea709140777eae58d60ddb2c36`. Existing activation and acceptance limits
+remain in force; this stamp does not repeat historical runtime measurements.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 93302275ecab90dfa73284405d331d56a3cd9840
+verified_commit: 974daf5d22d2d0ea709140777eae58d60ddb2c36
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -256,3 +256,12 @@ Re-verified 2026-10-30 at 17e3cdda0: `Cargo.toml` changed only in `[profile.dev-
 ## Re-stamp — 2026-10-31 (ADR-2140 item 1)
 
 **Governed change:** `src/app_state.rs` gains the layout-mode migration at the physics load (it reads the stored `quality_gates` row and writes the migrated `physics` row back once, ADR-2140 item 1). No Oxigraph handle, repository constructor, `DATA_DIR` or `.sqlite3` path changed, so the substrate this record decides is untouched. **Decision unaffected.** Re-run: `git diff --stat 75b72416b 93302275e -- src/app_state.rs`. Checked by reading that diff against this record's claims; server `cargo test --lib` 1721 passed, 0 failed, 9 ignored, `cargo test -p visionclaw-domain` 317 passed at `93302275e`.
+
+## Scoped re-verification — 2026-11-01, ADR-2168
+
+The manifest adds only the optional shared compiler dependency and its default feature. Oxigraph/SQLite dependencies, persistence features and AppState store wiring are unchanged.
+
+All governed paths were byte-identical between the previous verification pin and
+the pre-change baseline `5e1bd90a4`. The reviewed delta is the shared-layout change
+through `974daf5d22d2d0ea709140777eae58d60ddb2c36`. Existing activation and acceptance limits
+remain in force; this stamp does not repeat historical runtime measurements.

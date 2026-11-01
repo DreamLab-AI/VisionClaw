@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: c750046962749715a4efb1b6056c7f40d9865110
+verified_commit: 974daf5d22d2d0ea709140777eae58d60ddb2c36
 verified_paths: [crates/vault/Cargo.toml, crates/vault-core/Cargo.toml, crates/vault/src/certificate.rs, crates/vault/src/propose.rs, crates/vault/src/main.rs, crates/vault-core/src/proposal.rs, crates/vault/tests/certificate_oo_cert.rs, crates/visionclaw-ontology/shapes/ontology-class.shacl.ttl, crates/visionclaw-ontology/src/services/jsonld_validator/shacl.rs]
 owner: jjohare
 review_trigger: "Activation (staged → live): the `vault certify` step of ontology-publish.yml exiting 0 on a published generation. Review: the emitter putting a restriction or an equivalence on the subclass side of rdfs:subClassOf (Whelk parity would no longer be structural), a new release of the oo-cert checker changing the oo-cert/1 grammar, or `vault certify` exiting 1 on a published generation"
@@ -46,3 +46,12 @@ At `9717f9d071c811cbfc78228c05e6d225d5cfd7ff`, `CARGO_TARGET_DIR=/home/devuser/w
 - Cross-vendor audit (Codex, gpt-6-astra, `urn:agentbox:activity:11ed6422…:sha256-12-4ec387f45562`): join completeness, ordering soundness, rule positions and step uniqueness — no defects; the delta's derived-only comparison — two defects, both fixed in this commit and pinned by `asserting_what_was_already_entailed_is_conservative_and_dropping_an_assertion_is_not`.
 
 Re-verified 2026-10-30 at c75004696: the `rdfs-certificate` crate extraction (b7d2a23da) is already recorded in Decision 1's 2026-10-20 amendment and the code matches it: `crates/vault/src/certificate.rs` is the adapter over `rdfs_certificate` (`pub use rdfs_certificate::{consequence_delta, Certificate, ConsequenceDelta, ..}`), `crates/vault-core/src/proposal.rs` re-exports `ConsequenceDelta`, and `crates/vault/licenses/open-ontologies.MIT.txt` moved into the crate with `NOTICE` pointing there. `ontology-publish.yml` still runs `vault certify` and the pinned `oo-cert` v2.0.1 checker. `crates/vault` also gains the feature-gated, off-by-default `vault rank` subcommand (`jev` feature, `main.rs`, `jev_rank.rs`), advisory only with no write path. The decision holds.
+
+## Scoped re-verification — 2026-11-01, ADR-2168
+
+The vault manifest adds only the shared layout feature/dependency, and CLI edits affect discovery/refusal plus formatting of one certificate-building call. Certificate adapters, consequence delta, SHACL and proposal code are unchanged. The package suite passes; external Lean checking and real-corpus parity remain their dated receipts, not new evidence here.
+
+All governed paths were byte-identical between the previous verification pin and
+the pre-change baseline `5e1bd90a4`. The reviewed delta is the shared-layout change
+through `974daf5d22d2d0ea709140777eae58d60ddb2c36`. Existing activation and acceptance limits
+remain in force; this stamp does not repeat historical runtime measurements.
