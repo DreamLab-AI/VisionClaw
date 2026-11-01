@@ -2,8 +2,9 @@
  * Desktop agent momentum nudge: a per-agent visual offset added to the
  * marker's hover point, once per frame, by the marker pass (`features/bots/agentMarkerPass.ts`, ADR-2142 / ADR-2135).
  *
- * - **Working** (a 0x23 beam in the last 15 s): the offset converges on the
- *   target node, so the agent visibly goes to the node it acts on.
+ * - **Not done**: no offset. An agent that works sits at its marker's base (beside its target
+ *   node, or on the centre ring) and the work beam shows the node it acts on; nothing pulls it
+ *   anywhere.
  * - **Done**: from the moment it finishes, the agent moves outward from the centre of the
  *   scene to the scene's edge in `AGENT_EDGE_SECONDS` (30 s) and stops there (owner decision,
  *   2026-11-01). The edge is the bounding sphere the camera frames (`sceneFitBounds`), passed in
@@ -16,20 +17,19 @@
  *   The headset runs the same rule in `xr-client/scripts/agent_choreography.gd` (`EDGE_SECONDS`, `ease_out_cubic`,
  *   its edge the overlay volume's box); ADR-2135 names the one definition, and `test_agent_edge_run.gd` fails
  *   if `AGENT_EDGE_SECONDS` here and `EDGE_SECONDS` there differ.
- * - **No work on record**: the offset relaxes to zero, handing the agent back
- *   to its server position (ADR-2135), snapping to zero under
+ *   The edge hold is final: the agent stays on the edge until the registry retires it (the server
+ *   sends `retired` when the agent leaves the roster); nothing here ends the hold.
+ * - **Not done** (working, or no state): any offset relaxes to zero, snapping to zero under
  *   `AGENT_RELAX_SNAP`.
  */
 
 export type Vec3 = readonly [number, number, number];
 
-/** per-frame lerp towards the work target */
-export const AGENT_NUDGE_SPEED = 0.03;
 /** seconds from finishing to arriving at the scene's edge */
 export const AGENT_EDGE_SECONDS = 30;
 /** once the 30 s are up, closer than this to the edge (world units, far under a pixel) the agent holds */
 export const AGENT_EDGE_SNAP = 1e-4;
-/** per-frame relaxation of the offset for an agent with no work on record */
+/** per-frame relaxation of the offset of an agent that is not done */
 export const AGENT_RELAX_SPEED = 0.03;
 /**
  * Below this magnitude a relaxing offset snaps to zero. Without it a geometric `* 0.97` keeps
@@ -55,8 +55,7 @@ export function newAgentFinish(): AgentFinish {
 
 /**
  * Advance the offset at `off[o3 .. o3+2]` by one frame. `base` is the agent's
- * server position (plus its activity drift), `target` the work target's
- * position (null when unknown), `state` its work state, `edge` the scene
+ * marker base (plus its activity drift), `state` `'done'` or null, `edge` the scene
  * edge (null when unknown: a done agent then holds still), `finish` the
  * agent's finish clock and `nowMs` the frame's time in milliseconds.
  */
@@ -64,18 +63,12 @@ export function stepAgentOffset(
   off: Float32Array,
   o3: number,
   base: Vec3,
-  target: Vec3 | null,
-  state: 'working' | 'done' | null,
+  state: 'done' | null,
   edge: SceneEdge | null,
   finish: AgentFinish,
   nowMs: number,
 ): void {
   if (state !== 'done') finish.since = -1;
-  if (state === 'working') {
-    if (!target) return;
-    for (let k = 0; k < 3; k++) off[o3 + k] += (target[k] - base[k] - off[o3 + k]) * AGENT_NUDGE_SPEED;
-    return;
-  }
   if (state === 'done') {
     if (!edge) return;
     const px = base[0] + off[o3] - edge.centre[0];

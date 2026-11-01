@@ -107,7 +107,7 @@ export class AgentMarkerPass {
       if (input.offsetsEnabled) {
         _base[0] = bx; _base[1] = by; _base[2] = bz
         const done = registry.agents.get(id)?.state === 'done'
-        stepAgentOffset(off, 0, _base, null, done ? 'done' : null, input.edge, st.finish, input.nowMs)
+        stepAgentOffset(off, 0, _base, done ? 'done' : null, input.edge, st.finish, input.nowMs)
       } else {
         off[0] = 0; off[1] = 0; off[2] = 0
         // Offsets off: the 30 s run is paused, not elapsed, so it restarts when they come back.

@@ -31,7 +31,6 @@ import { computeNodeScale } from '../utils/nodeScaling';
 import { isWebGPURenderer } from '../../../rendering/rendererFactory';
 import { getTypeColor, getDomainColor } from '../hooks/useGraphNodeColors';
 import { agentStatusActivity } from '../../bots/agentVisualConstants';
-import { getAgentWork, AGENT_DONE_ACTIVITY } from '../../bots/agentWorkTargets';
 import { attentionHeat } from '../../visualisation/attentionHeat';
 import { heatBrightenFactor } from '../../visualisation/heatColor';
 
@@ -1009,10 +1008,7 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
           // mesh renders a single population.
           const recency = computeRecency(node.metadata?.lastModified ?? node.metadata?.updatedAt);
           if (isAgent) {
-            const aw = getAgentWork(nid);
-            texBuf[i4 + 3] = (aw && aw.state === 'done')
-              ? AGENT_DONE_ACTIVITY
-              : agentStatusActivity(node.metadata?.status as string | undefined);
+            texBuf[i4 + 3] = agentStatusActivity(node.metadata?.status as string | undefined);
           } else {
             texBuf[i4 + 3] = heatEnabled
               ? Math.max(recency, attentionHeat.getHeat(nid))

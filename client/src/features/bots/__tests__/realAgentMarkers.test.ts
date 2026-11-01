@@ -224,14 +224,11 @@ describe('retired removes the agent at once', () => {
 });
 
 describe('a state frame is presence plus state only', () => {
-  it('draws no beam, adds no work record and no drift credit', async () => {
-    const { getAgentWork, resetAgentWorkTargets } = await import('../agentWorkTargets');
-    resetAgentWorkTargets();
+  it('draws no beam and adds no drift credit', () => {
     for (const name of ['spawn', 'keepalive', 'done', 'retired'] as const) {
       useTransientBeamStore.getState().pushBeams(decodeFrame(name));
     }
     expect(useTransientBeamStore.getState().beams).toHaveLength(0);
-    expect(getAgentWork(String(idOf()))).toBeNull();
   });
 
   it('an ordinary action frame from the same agent still beams and clears done', () => {

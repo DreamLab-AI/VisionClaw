@@ -77,6 +77,16 @@ describe('one drawn-positions source', () => {
 
 // ADR-2142 / ADR-2135 (owner rule, 2026-11-01): agents are not graph nodes. Every agent reaches the desktop only as
 // 0x23 frames; the client registry is the one source of embodiment and the marker pass the one position writer.
+describe('agents have ONE state registry: agentTargetStore', () => {
+  it('the parallel work tracker is gone, with every reference', () => {
+    expect(existsSync(join(SRC, 'features/bots/agentWorkTargets.ts'))).toBe(false)
+    const hits = sources(SRC)
+      .filter(f => /agentWorkTargets|getAgentWork|markAgentDone|AGENT_DONE_ACTIVITY/.test(readFileSync(f, 'utf8')))
+      .map(f => f.replace(SRC, ''))
+    expect(hits).toEqual([])
+  })
+})
+
 describe('agents have ONE position path: the marker map', () => {
   const files = sources(SRC)
   const read = (rel: string) => readFileSync(join(SRC, rel), 'utf8')
