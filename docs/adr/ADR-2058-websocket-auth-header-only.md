@@ -16,6 +16,15 @@ repo: visionclaw
 
 # ADR-2058 — Accept WebSocket bearer tokens only from the Authorization header
 
+## External review note, 2026-11-02
+
+The [reconciliation](../reference/external-review-2026-11-02.md) records the remaining XR
+consumer mismatch at `e78210c4d`: `transport.rs:95` supplies a URL to connect,
+then authenticates after upgrade; release `http_handler.rs:124-175` requires an
+Origin and an accepted upgrade credential. The later signed NIP-98 subprotocol
+path is implemented server-side. This observation does not relax the release
+gate or claim a deployed headset regression.
+
 ## Context
 
 The `/wss` upgrade accepted a bearer token from either the `Authorization` header or a

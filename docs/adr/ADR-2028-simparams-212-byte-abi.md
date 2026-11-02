@@ -18,6 +18,13 @@ lineage: legacy ADR-138 (flat repr(C) SimParams + dual static_asserts), ADR-141 
 
 # ADR-2028 — SimParams is a size-locked 212-byte repr(C) raw-copy ABI, grown tail-append only
 
+## External review note, 2026-11-02
+
+The [scoped reconciliation](../reference/external-review-2026-11-02.md) confirms the 212-byte
+image and 53-field manifest at `e78210c4d`. Size assertions alone do not establish
+field-order or type identity; retain the manifest/offset conformance checks.
+This source check adds no GPU execution or deployment evidence.
+
 ## Context
 The Rust host and the CUDA kernel share simulation parameters every physics tick.
 There is no serialisation layer: the struct is copied device-ward as raw bytes.

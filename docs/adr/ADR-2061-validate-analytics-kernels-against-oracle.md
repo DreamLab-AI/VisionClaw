@@ -16,6 +16,15 @@ repo: visionclaw
 
 # ADR-2061 — Validate the GPU analytics kernels against the CPU reference oracle
 
+## External review note, 2026-11-02
+
+The external summary's numerical "proof" is fixture conformance, as detailed in
+the [scoped reconciliation](../reference/external-review-2026-11-02.md). In the retained
+receipt, PageRank 3.4e-11 is one fixture's result, not the maximum over all graphs
+or even all recorded fixtures; two_clique records 4.3e-10. LOF 4.759e-7 belongs
+to the corrected bounded-neighbour fixture. Neither establishes production
+activation. Thresholds and the accepted decision remain unchanged.
+
 ## Context
 
 `docs/GPU-wire-abi.md` "Analytics kernel trust status" records that Louvain, PageRank and

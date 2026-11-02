@@ -79,6 +79,11 @@ date: 2026-08-31
 
 # XR Client Architecture (VC-XR)
 
+The [2026-11-02 external-review reconciliation](reference/external-review-2026-11-02.md)
+records scoped source gaps in release upgrade, post-release acceptance, topology
+grab invalidation, portal rearm scale and link provenance/budget claims. It adds
+no headset or stereo activation evidence; existing acceptance boundaries stand.
+
 ## Purpose
 The immersive client that renders the VisionClaw knowledge graph in a headset: a
 Godot + OpenXR front-end whose hot path is a godot-rust (gdext) crate. This

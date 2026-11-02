@@ -22,6 +22,15 @@ acceptance_boundary: the gate, the per-hand state, the routing and transform ari
 
 # ADR-2172 — A node is grabbed with either hand, up to two at once, in any VisionClaw volume
 
+## External review note, 2026-11-02
+
+At `e78210c4d`, same-connection topology changes invalidate selections and
+sources but do not release active grabs (`graph_scene.gd:4224`); disconnects do
+release them (`:4207`). Treat generation invalidation of active grabs as open.
+The [reconciliation](../reference/external-review-2026-11-02.md) also qualifies hold ownership:
+the GPU messages carry holder identity, while the orchestrator bookkeeping is
+still node-only. This source check does not establish headset acceptance.
+
 ## Context
 - Owner finding, 2026-11-01: in the Ontology room a trigger on a node turns the wands green and shows its label, but nothing is grabbed. Node grab is a key feature of the platform.
 - Cause: `claim_blocks_drag` refused a node pick in every volume except `OVERLAY_VOLUME` (`knowledge`), and the ray candidates, the drag frames and the hand-to-server conversion all followed that one volume's connection slot and Content transform.

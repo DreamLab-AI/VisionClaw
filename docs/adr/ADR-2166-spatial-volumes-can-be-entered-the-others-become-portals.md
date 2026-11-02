@@ -22,6 +22,13 @@ acceptance_boundary: the layout, state, refusal, comfort and wiring logic is cov
 
 # ADR-2166 — Spatial volumes can be entered; the others become portals
 
+## External review note, 2026-11-02
+
+The scale-relative rearm finding remains open at `e78210c4d`:
+`space_portals.gd:617` compares world distance to fixed REARM_DISTANCE 0.3.
+The [reconciliation](../reference/external-review-2026-11-02.md) distinguishes this source
+finding from the unchanged stereo, comfort and headset activation gates.
+
 ## Context
 - The operator's request of 2026-10-31: "inspect and improve the visionclaw spatial containers to add the portal effects such that a user works in one space and can see into and move into the others".
 - ADR-2158 puts three 1 m volumes on a ring about the user (E3). The user sees them all from outside; there is no way to work *inside* one and look at the others.

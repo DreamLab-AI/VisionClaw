@@ -21,6 +21,17 @@ acceptance_boundary: registry, actor, orchestrator and handler rules are covered
 
 # ADR-2169 — A drag is a hold: the released node rejoins the simulation and the graph answers the hand within a few ticks
 
+## External review note, 2026-11-02
+
+At `e78210c4d`, `HoldNodes` and `ReleaseNodes` carry holder identity and the
+GPU registry applies ownership checks. The orchestrator's separate
+`NodeInteractionMessage` bookkeeping still inserts/removes a node-only set
+(`physics_orchestrator_actor.rs:1194-1200`), so the external finding is scoped
+to that layer. The acceptance script at `scripts/drag-physics-acceptance.mjs:320-388`
+still compares the dragger's drop sample with an observer sample without
+requiring ordered post-release observer frames. Its five checks alone do not
+prove release. See the [reconciliation](../reference/external-review-2026-11-02.md).
+
 ## Context
 - Owner requirement, 2026-11-01: up to two nodes held at once (one per controller), the whole graph responds as fast as practical on the server and every client, and a released node rejoins the physics instead of staying pinned.
 - Before this change `nodeDragEnd` left the node pinned on the GPU until an explicit `nodeUnpin`. One global pin map served drags and pins alike, so a second client's release freed a node the first still held. A connection could hold five nodes.

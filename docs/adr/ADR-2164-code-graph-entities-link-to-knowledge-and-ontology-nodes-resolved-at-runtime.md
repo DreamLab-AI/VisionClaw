@@ -20,6 +20,15 @@ relates: [ADR-2135, ADR-2161, ADR-2024, ADR-2021]
 
 # ADR-2164 — Code-graph entities link to knowledge-graph and ontology nodes, resolved at runtime
 
+## External review note, 2026-11-02
+
+At `e78210c4d`, annotation links are produced by this repository's
+`xr-client/rust/src/link_index.rs:281-285`: repo is empty and revision is None.
+The external summary attributes that path to Codescape incorrectly. Its
+512-instance claim also needs correction: GDScript caps link records, and Rust
+adds deduplicated markers after them. See the [reconciliation](../reference/external-review-2026-11-02.md)
+for the allowance boundary and the actual packing path. No status is promoted.
+
 ## Context
 - The operator asked (2026-10-30) for "linked knowledge and code graphs": the Codescape volume (ADR-2158 D4) should show which code implements which concept in the knowledge and ontology volumes.
 - **Today's data holds no usable link.** Measured at `00669b7a2` against the running servers (detail in Verification):

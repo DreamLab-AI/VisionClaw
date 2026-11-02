@@ -32,6 +32,11 @@ date: 2026-08-31
 
 # GPU & Wire ABI
 
+The [2026-11-02 external-review reconciliation](reference/external-review-2026-11-02.md)
+qualifies numerical oracle results as fixture conformance and distinguishes the
+paired size guards from the additional field-layout checks. No GPU test or
+deployed-service measurement was repeated for that source-only review.
+
 ## Purpose
 
 Defines the binary contract between the Rust host and the CUDA layout engine: the

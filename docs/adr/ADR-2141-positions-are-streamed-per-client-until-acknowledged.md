@@ -16,6 +16,16 @@ repo: visionclaw
 
 # ADR-2141 — Positions are streamed to each client in chunks until it has acknowledged them
 
+## External review note, 2026-11-02
+
+At `e78210c4d`, `client/src/features/graph/managers/dataManager/wsClient.ts:26-28`
+still returns a successful Promise for a frame throttled within 16 ms, while
+`client/src/store/websocket/binaryProtocol.ts:392-408` acknowledges after that
+Promise resolves. This is an open contradiction of decision 5, not an exception
+to it. Acceptance needs a throttled-chunk regression proving no ack until apply.
+The [reconciliation](../reference/external-review-2026-11-02.md) bounds the idle-bandwidth and
+independent-client claims; activation status is unchanged by this source check.
+
 ## Supersedes
 ADR-2139 decision 1 ("every position frame is a complete snapshot of every node the session is entitled to"), 5 ("the broadcast layer decides only *when*") and 9 (the interaction broadcast rate). Everything else in ADR-2139 stands: **no deltas**, entitlement applied identically on every path, fail-closed visibility policy, class flags on every frame, and the rule that a non-finite position is a counted fault.
 
