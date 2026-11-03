@@ -102,4 +102,17 @@ physics configuration rather than a fixed embedding.
 
 ## Deviations
 
-None yet.
+**D1 (2026-11-03, before any code or result).** On the owner's direction, the application will be
+framed around space, earth observation and supply chains. Added, with no change to the global
+arms, splits, metrics or thresholds:
+
+- A **space-geo-supply (SGS) slice**: nodes whose `domain` is `space-science-and-systems`,
+  `earth-observation-and-geospatial-sensing`, `supply-chains-and-logistics` or `supply-chain`.
+  M1–M3 are also reported on the test pairs whose two endpoints are both in the slice, and M4 is
+  also reported over slice nodes only (neighbours still drawn from all nodes). All arms still
+  train on the whole graph. Slice figures are descriptive and carry no pass/fail thresholds of
+  their own, because the slice is small (about 1,280 nodes) and was chosen for the application
+  narrative, not for statistical power.
+- A planned **H2, not run in this experiment:** a relation channel for connectedness over time,
+  sourced from RuVector's evolving edge weights, added as one more learned relation type. Its
+  data source and thresholds will be preregistered separately before it runs.
