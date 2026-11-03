@@ -1590,14 +1590,15 @@ impl OntologyRepository for OxigraphOntologyRepository {
         // idempotent initialisation step, not a reason to skip the INSERT.
         update.push_str(&format!("CLEAR SILENT GRAPH <{GRAPH_ONTOLOGY}> ;\n"));
         update.push_str(&format!("INSERT DATA {{\n  GRAPH <{GRAPH_ONTOLOGY}> {{\n"));
+        // IRI-object triples (class typing and class relations) come from the
+        // one shared projection the corpus-history writer also uses (ADR-2022),
+        // so the history and the assert graph cannot disagree on what a node or
+        // edge means.
+        for (s, p, o) in ontology_graph_iri_triples(graph) {
+            update.push_str(&format!("    <{s}> <{p}> <{o}> .\n"));
+        }
         for node in &graph.nodes {
-            let iri = node
-                .owl_class_iri
-                .clone()
-                .unwrap_or_else(|| ngm::class_iri(&slug(&node.metadata_id)));
-            update.push_str(&format!(
-                "    <{iri}> a <{T_VC_ONTOLOGY_CLASS}> , <{T_OWL_CLASS}> .\n"
-            ));
+            let iri = node_class_iri(node);
             let label = if node.label.is_empty() {
                 node.metadata_id.clone()
             } else {
@@ -1615,47 +1616,6 @@ impl OntologyRepository for OxigraphOntologyRepository {
                     ));
                 }
             }
-        }
-        // Edges → vc:relatesTo (or typed predicate) triples.
-        // Build id→iri map from current nodes.
-        let mut id_to_iri: HashMap<u32, String> = HashMap::new();
-        for node in &graph.nodes {
-            let iri = node
-                .owl_class_iri
-                .clone()
-                .unwrap_or_else(|| ngm::class_iri(&slug(&node.metadata_id)));
-            id_to_iri.insert(node.id, iri);
-        }
-        for edge in &graph.edges {
-            let src = match id_to_iri.get(&edge.source) {
-                Some(v) => v,
-                None => continue,
-            };
-            let tgt = match id_to_iri.get(&edge.target) {
-                Some(v) => v,
-                None => continue,
-            };
-            // An edge that carries its OWL property IRI (a frontmatter
-            // relation projected through the vocabulary) is written with that
-            // predicate; the coarse `edge_type` label is the fallback.
-            let predicate = match edge.owl_property_iri.as_deref() {
-                Some(owl) if is_insertable_iri(owl) => owl,
-                _ => match edge.edge_type.as_deref() {
-                    Some("is_subclass_of") | Some("subclass_of") | Some("SUBCLASS_OF") => {
-                        P_SUBCLASS_OF
-                    }
-                    Some("has_part") => P_HAS_PART,
-                    Some("is_part_of") => P_IS_PART_OF,
-                    Some("requires") => P_REQUIRES,
-                    Some("depends_on") => P_DEPENDS_ON,
-                    Some("enables") => P_ENABLES,
-                    Some("relates_to") => P_RELATES_TO,
-                    Some("bridges_to") => P_BRIDGES_TO,
-                    Some("bridges_from") => P_BRIDGES_FROM,
-                    _ => P_RELATES_TO,
-                },
-            };
-            update.push_str(&format!("    <{src}> <{predicate}> <{tgt}> .\n"));
         }
         update.push_str("  }\n}\n");
         self.run_update(update).await
@@ -3131,6 +3091,63 @@ fn _force_imports() -> (HashSet<u32>, OntologyRepositoryError) {
 /// `true` when `iri` can be written between `<…>` in a SPARQL update without
 /// escaping: non-empty, absolute (`scheme:`), and free of whitespace and the
 /// characters the IRIREF production forbids.
+/// The assert-graph IRI of a corpus node: its declared OWL class IRI, else the
+/// `ngm` class IRI minted from its metadata id.
+fn node_class_iri(node: &Node) -> String {
+    node.owl_class_iri
+        .clone()
+        .unwrap_or_else(|| ngm::class_iri(&slug(&node.metadata_id)))
+}
+
+/// Every triple with an IRI object that [`OntologyRepository::save_ontology_graph`]
+/// writes for `graph`: each node typed `vc:OntologyClass` and `owl:Class`, and
+/// each edge whose endpoints are both in `graph` as its OWL property, or the
+/// predicate its coarse `edge_type` maps to. Literal triples (labels, domain,
+/// maturity) are not included.
+///
+/// This is the single projection shared by the assert rebuild and the corpus
+/// history writer (ADR-2022), so the two cannot drift. Output is in input order.
+pub fn ontology_graph_iri_triples(graph: &GraphData) -> Vec<(String, String, String)> {
+    let mut out = Vec::with_capacity(graph.nodes.len() * 2 + graph.edges.len());
+    let mut id_to_iri: HashMap<u32, String> = HashMap::new();
+    for node in &graph.nodes {
+        let iri = node_class_iri(node);
+        out.push((
+            iri.clone(),
+            P_TYPE.to_string(),
+            T_VC_ONTOLOGY_CLASS.to_string(),
+        ));
+        out.push((iri.clone(), P_TYPE.to_string(), T_OWL_CLASS.to_string()));
+        id_to_iri.insert(node.id, iri);
+    }
+    for edge in &graph.edges {
+        let (Some(src), Some(tgt)) = (id_to_iri.get(&edge.source), id_to_iri.get(&edge.target))
+        else {
+            continue;
+        };
+        // An edge that carries its OWL property IRI (a frontmatter relation
+        // projected through the vocabulary) is written with that predicate;
+        // the coarse `edge_type` label is the fallback.
+        let predicate = match edge.owl_property_iri.as_deref() {
+            Some(owl) if is_insertable_iri(owl) => owl,
+            _ => match edge.edge_type.as_deref() {
+                Some("is_subclass_of") | Some("subclass_of") | Some("SUBCLASS_OF") => P_SUBCLASS_OF,
+                Some("has_part") => P_HAS_PART,
+                Some("is_part_of") => P_IS_PART_OF,
+                Some("requires") => P_REQUIRES,
+                Some("depends_on") => P_DEPENDS_ON,
+                Some("enables") => P_ENABLES,
+                Some("relates_to") => P_RELATES_TO,
+                Some("bridges_to") => P_BRIDGES_TO,
+                Some("bridges_from") => P_BRIDGES_FROM,
+                _ => P_RELATES_TO,
+            },
+        };
+        out.push((src.clone(), predicate.to_string(), tgt.clone()));
+    }
+    out
+}
+
 fn is_insertable_iri(iri: &str) -> bool {
     !iri.is_empty()
         && iri.contains(':')

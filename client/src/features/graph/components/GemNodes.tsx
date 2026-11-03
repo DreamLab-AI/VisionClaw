@@ -33,6 +33,8 @@ import { getTypeColor, getDomainColor } from '../hooks/useGraphNodeColors';
 import { agentStatusActivity } from '../../bots/agentVisualConstants';
 import { attentionHeat } from '../../visualisation/attentionHeat';
 import { heatBrightenFactor } from '../../visualisation/heatColor';
+import { useTimelineStore, nodeTimelineStatus } from '../../../store/timelineStore';
+import { applyTimelineTint } from '../utils/timelineTint';
 
 /** Minimal hierarchy node shape compatible with HierarchyNode from hierarchyDetector */
 interface HierarchyNodeLike {
@@ -215,6 +217,9 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
   const colorScheme = useSettingsStore(s => s.get<string>('visualisation.graphs.knowledge.nodes.colorScheme')) ?? 'type';
   // 'cycles' scheme: directed-cycle members, computed only while it is active.
   const cyclicIds = useCyclicNodeIds(colorScheme === 'cycles', props.nodes.length, props.edges.length);
+  // ADR-2022 P3: the bi-temporal scrubber's overlay. -1 while inactive, so an
+  // idle scrubber never invalidates the colour cache.
+  const timelineVersion = useTimelineStore(s => (s.active ? s.version : -1));
   // Per-node analytics data from binary protocol V3 (refreshed periodically).
   // Stride 5 (ADR-031 D2): [clusterId, anomalyScore, communityId, centrality, ssspDistance].
   const analyticsRef = useRef<Float32Array | null>(null);
@@ -862,7 +867,7 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
     }
 
     // --- Colour cache: recompute + upload only when colour inputs change -----
-    const colorHash = `${nodeCount}-${connectionCountMap.size}-${colorScheme}-${cyclicIds?.size ?? ''}-${baseNodeColor ?? ''}-${selectedNodeId ?? ''}-${ssspResult ? 's' : ''}-${qualityGates?.showClusters ? 1 : 0}${qualityGates?.showAnomalies ? 1 : 0}${qualityGates?.showCommunities ? 1 : 0}${qualityGates?.showCentrality ? 1 : 0}${qualityGates?.showSSSP ? 1 : 0}-${analyticsVersionRef.current}-${heatEnabled ? 1 : 0}`;
+    const colorHash = `${nodeCount}-${connectionCountMap.size}-${colorScheme}-${cyclicIds?.size ?? ''}-${baseNodeColor ?? ''}-${selectedNodeId ?? ''}-${ssspResult ? 's' : ''}-${qualityGates?.showClusters ? 1 : 0}${qualityGates?.showAnomalies ? 1 : 0}${qualityGates?.showCommunities ? 1 : 0}${qualityGates?.showCentrality ? 1 : 0}${qualityGates?.showSSSP ? 1 : 0}-${analyticsVersionRef.current}-${heatEnabled ? 1 : 0}-${timelineVersion}`;
     if (colorHash !== prevColorHashRef.current) {
       prevColorHashRef.current = colorHash;
       // Cache the UNHEATED base RGB so the 2Hz heat pass can rescale without
@@ -878,6 +883,11 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
         const mode = perNodeVisualModeMap.get(String(node.id)) || graphMode;
         const srcIdx = props.nodeIdToIndexMap.get(String(node.id));
         const c = computeColor(node, mode, srcIdx !== undefined ? srcIdx : i);
+        if (timelineVersion >= 0) {
+          const iri = (node as unknown as { owlClassIri?: string }).owlClassIri
+            ?? (node.metadata?.owl_class_iri as string | undefined);
+          applyTimelineTint(c, nodeTimelineStatus(node.id, iri));
+        }
         const b3 = i * 3;
         baseCache[b3] = c.r; baseCache[b3 + 1] = c.g; baseCache[b3 + 2] = c.b;
         // Bake current heat into the first paint so a colour-scheme change mid-

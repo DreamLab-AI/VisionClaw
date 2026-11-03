@@ -44,7 +44,7 @@ running code reads back as truth, regardless of what legacy ADR prose claims.
 | Ontology (asserted + inferred) | Oxigraph | `GRAPH_ONTOLOGY` / `GRAPH_ONTOLOGY_INFERRED` | Oxigraph transaction commit; inferred is derived, never primary |
 | Operational state | SQLite (WAL) | `data/{kpi,enrichment,settings,liveness}.sqlite3` | SQLite commit |
 | Vector / agent memory | RuVector (external Postgres) | `mcp__claude-flow__memory_*` → `ruvector-postgres:5432` | Embedding-pipeline insert |
-| Event journal / provenance | Oxigraph append-only | `GRAPH_PROVENANCE` (PROV-O reification), `oxigraph_ontology_repository.rs:55,641,2568` | Append; never mutated in place |
+| Event journal / provenance | Oxigraph append-only | `GRAPH_PROVENANCE` (PROV-O reification), `oxigraph_ontology_repository.rs:55,641,2568` | Append; never mutated in place. Since VisionFlow ADR-2022 it also holds corpus history: each full sync appends assertion-versions for public class typing and class relations (`src/services/corpus_history.rs`) |
 | Audit evidence (RBAC/auth) | SQLite role store | `src/services/role_store.rs` | Role-store write |
 | Credentials | `.env` plaintext | filesystem | N/A — see divergences (SOPS never executed) |
 
@@ -172,6 +172,11 @@ These must not silently change:
    derived-writeback path.** Only `:summary` / `:observed` accept writeback.
 3. **`GRAPH_PROVENANCE` is append-only.** Erasure of provenance must be by an
    explicit, documented redaction mechanism — never in-place mutation.
+   Corpus history enters this graph only from pages marked `public: true`,
+   and only as IRI triples (no labels or other literals), so until ADR-2102
+   lands a redaction mechanism no private or owner-scoped content is written
+   to a store that cannot delete it. `VISIONCLAW_CORPUS_HISTORY=0` stops the
+   writer.
 4. **Visibility filtering stays fail-closed.** Unknown-owner or anonymous
    callers get public-only; the default must remain ON.
 5. **Role resolution fails closed to `Viewer`.** Errors never escalate.

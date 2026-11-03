@@ -6,7 +6,11 @@ pub mod agent_visualization_protocol;
 pub mod audio_router;
 pub mod bots_client;
 pub mod chain_payments;
+pub mod corpus_history;
 pub mod corpus_source;
+// ADR-2022 P1 — conformance to the estate temporal contract (ontomark vectors).
+#[cfg(test)]
+mod temporal_contract_tests;
 pub mod file_service;
 pub mod github;
 pub mod github_sync_service;

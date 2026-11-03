@@ -123,6 +123,13 @@ pub struct SyncStatistics {
     pub duration: Duration,
     pub total_nodes: usize,
     pub total_edges: usize,
+    /// Corpus-history versions opened by this sync (ADR-2022 P2).
+    pub corpus_versions_opened: usize,
+    /// Corpus-history versions closed by this sync (ADR-2022 P2).
+    pub corpus_versions_closed: usize,
+    /// SHA-256 of the corpus IRI triples the assert rebuild wrote, when it
+    /// matched what `:assert` holds afterwards (ADR-2022 P4).
+    pub assert_digest: Option<String>,
 }
 
 /// Build a graph node directly from a canonical entity.
@@ -270,6 +277,9 @@ impl GitHubSyncService {
             duration: Duration::from_secs(0),
             total_nodes: 0,
             total_edges: 0,
+            corpus_versions_opened: 0,
+            corpus_versions_closed: 0,
+            assert_digest: None,
         };
 
         let base_path_changed = self.detect_and_handle_base_path_change().await;
@@ -1047,7 +1057,122 @@ impl GitHubSyncService {
             }
         };
         stats.ontology_files_processed += decisions;
+
+        // ADR-2022: check the rebuild landed (P4) and record what changed in the
+        // append-only provenance graph (P2). Both are non-fatal.
+        self.verify_and_record_corpus_history(ontology_graph, stats)
+            .await;
         Ok(count + decisions)
+    }
+
+    /// ADR-2022 P4 then P2, after the assert rebuild.
+    ///
+    /// P4: the digest of the corpus IRI triples the rebuild meant to write must
+    /// equal the digest of what `:assert` holds for those subjects and
+    /// predicates. A mismatch is a sync error; an operator `force_full` is the
+    /// rebuild that repairs it.
+    ///
+    /// P2: diff the public corpus triples against the corpus writer's own open
+    /// versions and append the change (see [`crate::services::corpus_history`]),
+    /// then check the open versions now match the public set. Skipped when the
+    /// kill switch is off or no panel identity is configured.
+    async fn verify_and_record_corpus_history(
+        &self,
+        ontology_graph: visionclaw_domain::models::graph::GraphData,
+        stats: &mut SyncStatistics,
+    ) {
+        use crate::services::corpus_history as ch;
+        let store = self.onto_repo.store().clone();
+        let agent = if ch::enabled_by_env() {
+            ch::corpus_agent_iri()
+        } else {
+            info!("[CorpusHistory] disabled by {}", ch::CORPUS_HISTORY_ENV);
+            None
+        };
+        let now = chrono::Utc::now();
+
+        let outcome = tokio::task::spawn_blocking(move || {
+            let mut errors = Vec::new();
+            let expected = ch::corpus_triples(&ontology_graph);
+            let subjects = expected.iter().map(|t| t.0.clone()).collect();
+            let predicates = expected.iter().map(|t| t.1.clone()).collect();
+            let digest = match ch::assert_triples_for(&store, &subjects, &predicates) {
+                Ok(actual) => {
+                    let (want, got) = (ch::triple_digest(&expected), ch::triple_digest(&actual));
+                    if want == got {
+                        Some(want)
+                    } else {
+                        errors.push(format!(
+                            "assert_digest_mismatch: rebuild wrote {} triples (sha256 {want}), assert holds {} (sha256 {got})",
+                            expected.len(),
+                            actual.len()
+                        ));
+                        None
+                    }
+                }
+                Err(e) => {
+                    errors.push(format!("assert_digest: {e}"));
+                    None
+                }
+            };
+
+            let Some(agent) = agent else {
+                return (digest, 0, 0, errors);
+            };
+            let public = ch::corpus_triples(&ch::public_subgraph(&ontology_graph));
+            let plan = match ch::open_corpus_versions(&store) {
+                Ok(open) => ch::plan_history(&public, &open, now, &agent),
+                Err(e) => {
+                    errors.push(format!("corpus_history: {e}"));
+                    return (digest, 0, 0, errors);
+                }
+            };
+            if plan.skipped > 0 {
+                errors.push(format!("corpus_history: skipped {} invalid triples", plan.skipped));
+            }
+            if let Err(e) = ch::apply_history(&store, &plan) {
+                errors.push(format!("corpus_history: {e}"));
+                return (digest, 0, 0, errors);
+            }
+            match ch::open_corpus_versions(&store) {
+                Ok(open) => {
+                    let held: std::collections::BTreeSet<ch::Triple> = open
+                        .into_iter()
+                        .map(|v| (v.subject, v.predicate, v.object))
+                        .collect();
+                    if ch::triple_digest(&held) != ch::triple_digest(&public) {
+                        errors.push(format!(
+                            "corpus_history_digest_mismatch: {} open versions vs {} public triples",
+                            held.len(),
+                            public.len()
+                        ));
+                    }
+                }
+                Err(e) => errors.push(format!("corpus_history: {e}")),
+            }
+            (digest, plan.opened, plan.closed, errors)
+        })
+        .await;
+
+        match outcome {
+            Ok((digest, opened, closed, errors)) => {
+                info!(
+                    "[CorpusHistory] assert digest {}, versions opened {opened}, closed {closed}",
+                    digest.as_deref().unwrap_or("MISMATCH")
+                );
+                for e in &errors {
+                    warn!("[CorpusHistory] {e}");
+                }
+                stats.assert_digest = digest;
+                stats.corpus_versions_opened += opened;
+                stats.corpus_versions_closed += closed;
+                stats.errors.extend(errors);
+            }
+            Err(e) => {
+                warn!("[CorpusHistory] task failed (non-fatal): {e}");
+                stats.errors.push(format!("corpus_history: {e}"));
+            }
+        }
     }
 
     /// ADR-050 read-half: re-derive `dl:DecisionRecord` instances from the corpus

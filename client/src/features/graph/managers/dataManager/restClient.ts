@@ -163,10 +163,10 @@ export async function fetchGraphData(
 
 /**
  * A single assertion-version entity returned by `/ontology/state-at` (ADR-049
- * bi-temporal provenance). Only runtime governed writes carry these version
- * entities; corpus-bulk classes in `:assert` are atemporal and never appear
- * here, so state-at yields the TEMPORAL subset that the client overlays on the
- * corpus backdrop — it does not replace the whole graph.
+ * bi-temporal provenance). Governed writes and full corpus syncs (ADR-2022:
+ * public class typing and class relations) carry these version entities; KG
+ * pages and literals do not, so state-at is the TEMPORAL subset the client
+ * overlays on the graph — it does not replace the whole graph.
  */
 export interface StateAtAssertion {
   subject: string;

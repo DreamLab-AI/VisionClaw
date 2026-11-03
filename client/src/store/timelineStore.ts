@@ -13,11 +13,12 @@
  *     retracted subjects read 'retracted' (red), still-valid subjects read
  *     'valid', other known runtime subjects 'faded', the rest 'neutral'.
  *
- * Only runtime governed writes carry assertion-version entities, so state-at
- * returns the TEMPORAL subset — this store overlays it on the corpus graph, it
- * never claims to describe every node. Subject↔node-id matching uses `String()`
- * coercion on both sides (Rust returns numeric node ids; assertion subjects are
- * IRIs/strings) per the project's node-id type-mismatch bug pattern.
+ * Governed writes and, since ADR-2022, full corpus syncs (public class typing
+ * and class relations) carry assertion-version entities, so state-at covers the
+ * ontology classes as well as runtime decisions. It still never describes every
+ * node: KG pages and literals are not versioned, and read 'neutral'. Subjects
+ * are IRIs, so a node matches by its `owlClassIri` as well as by its
+ * `String()`-coerced id (Rust returns numeric node ids).
  */
 
 import { create } from 'zustand';
@@ -55,6 +56,8 @@ interface TimelineState {
   knownSubjects: Set<string>;
   loading: boolean;
   error: string | null;
+  /** Bumped whenever the derived sets change, so renderers can cache on it. */
+  version: number;
 
   /** Load state-at a single instant and populate `validSubjects` (normal mode). */
   loadStateAt: (t: string, recordedAsOf?: string) => Promise<void>;
@@ -101,6 +104,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     knownSubjects: new Set<string>(),
     loading: false,
     error: null,
+    version: 0,
 
     loadStateAt: async (t, recordedAsOf) => {
       set({ loading: true, error: null });
@@ -120,6 +124,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
             knownSubjects: known,
             domainMinMs: Math.min(state.domainMinMs, earliest),
             loading: false,
+            version: state.version + 1,
           };
         });
       } catch (err) {
@@ -162,6 +167,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
             knownSubjects: known,
             domainMinMs: Math.min(state.domainMinMs, earliest),
             loading: false,
+            version: state.version + 1,
           };
         });
       } catch (err) {
@@ -171,12 +177,13 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     },
 
     setDiffMode: (on) => {
-      set({
+      set(state => ({
         diffMode: on,
         addedSubjects: new Set<string>(),
         retractedSubjects: new Set<string>(),
         // leave validSubjects intact so normal-mode highlight persists on toggle-off
-      });
+        version: state.version + 1,
+      }));
       if (!on) {
         // Re-run the single-instant load so validSubjects reflects `t`, not `t2`.
         const t = get().t;
@@ -200,6 +207,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         knownSubjects: new Set<string>(),
         loading: false,
         error: null,
+        version: get().version + 1,
       });
     },
   };
@@ -207,24 +215,26 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
 
 /**
  * Classify a graph node for the timeline overlay. Non-reactive read (safe to
- * call inside a render loop); the graph render maps the result to opacity/colour
- * (fade non-valid, green=added, red=retracted). `String()` coercion on the node
- * id mirrors the subject coercion so numeric Rust ids match string subjects.
+ * call inside a render loop); the graph render maps the result to colour
+ * (fade non-valid, green=added, red=retracted). A node matches a subject by its
+ * class IRI (`iri`, the form corpus and governed versions use) or by its
+ * `String()`-coerced id.
  */
-export function nodeTimelineStatus(nodeId: string | number): TimelineNodeStatus {
+export function nodeTimelineStatus(nodeId: string | number, iri?: string | null): TimelineNodeStatus {
   const s = useTimelineStore.getState();
   if (!s.active) return 'neutral';
   const id = String(nodeId);
+  const has = (set: Set<string>) => set.has(id) || (!!iri && set.has(iri));
 
   if (s.diffMode) {
-    if (s.addedSubjects.has(id)) return 'added';
-    if (s.retractedSubjects.has(id)) return 'retracted';
-    if (s.validSubjects.has(id)) return 'valid';
-    return s.knownSubjects.has(id) ? 'faded' : 'neutral';
+    if (has(s.addedSubjects)) return 'added';
+    if (has(s.retractedSubjects)) return 'retracted';
+    if (has(s.validSubjects)) return 'valid';
+    return has(s.knownSubjects) ? 'faded' : 'neutral';
   }
 
-  if (s.validSubjects.has(id)) return 'valid';
-  return s.knownSubjects.has(id) ? 'faded' : 'neutral';
+  if (has(s.validSubjects)) return 'valid';
+  return has(s.knownSubjects) ? 'faded' : 'neutral';
 }
 
 /**

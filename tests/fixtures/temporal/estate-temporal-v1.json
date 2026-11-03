@@ -1,0 +1,20 @@
+{
+  "contract": "estate-temporal-v1",
+  "description": "Bi-temporal assertion-version vectors (VisionFlow ADR-2022 P1). Valid time is the half-open interval [validFrom, validTo); recorded time is generatedAt. A version is in state(t, recordedAsOf) iff validFrom <= t AND (validTo absent OR t < validTo) AND (recordedAsOf absent OR generatedAt <= recordedAsOf).",
+  "versions": [
+    { "id": "v1", "subject": "urn:ngm:class:camera", "predicate": "http://www.w3.org/2000/01/rdf-schema#subClassOf", "object": "urn:ngm:class:device", "validFrom": "2026-03-01T09:00:00Z", "validTo": "2026-03-10T12:00:00Z", "generatedAt": "2026-03-01T09:00:00Z" },
+    { "id": "v2", "subject": "urn:ngm:class:camera", "predicate": "http://www.w3.org/2000/01/rdf-schema#subClassOf", "object": "urn:ngm:class:sensor", "validFrom": "2026-03-10T12:00:00Z", "generatedAt": "2026-03-10T12:00:00Z" },
+    { "id": "v3", "subject": "urn:ngm:class:lens", "predicate": "https://narrativegoldmine.com/ns/v1#isPartOf", "object": "urn:ngm:class:camera", "validFrom": "2026-03-05T14:00:00Z", "generatedAt": "2026-03-05T18:00:00Z" }
+  ],
+  "cases": [
+    { "name": "before any version", "t": "2026-02-28T00:00:00Z", "expect": [] },
+    { "name": "start is inclusive", "t": "2026-03-01T09:00:00Z", "expect": ["v1"] },
+    { "name": "interior of v1", "t": "2026-03-05T15:00:00Z", "expect": ["v1", "v3"] },
+    { "name": "end is exclusive: exactly one parent at the hand-over instant", "t": "2026-03-10T12:00:00Z", "expect": ["v2", "v3"] },
+    { "name": "one second before hand-over", "t": "2026-03-10T11:59:59Z", "expect": ["v1", "v3"] },
+    { "name": "open version stays current", "t": "2030-01-01T00:00:00Z", "expect": ["v2", "v3"] },
+    { "name": "late-recorded edit is invisible to an earlier knowledge cut", "t": "2026-03-05T15:00:00Z", "recordedAsOf": "2026-03-05T16:00:00Z", "expect": ["v1"] },
+    { "name": "the as-of answer improves once the edit is recorded", "t": "2026-03-05T15:00:00Z", "recordedAsOf": "2026-03-05T18:00:00Z", "expect": ["v1", "v3"] },
+    { "name": "recorded cut is inclusive", "t": "2026-03-10T12:00:00Z", "recordedAsOf": "2026-03-10T12:00:00Z", "expect": ["v2", "v3"] }
+  ]
+}
