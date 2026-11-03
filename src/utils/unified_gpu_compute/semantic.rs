@@ -220,8 +220,8 @@ struct CentroidTable {
 impl CentroidTable {
     fn new() -> Result<Self> {
         Ok(Self {
-            centroids: DeviceBuffer::from_slice(&vec![0f32; TYPE_SLOTS * 3])?,
-            counts: DeviceBuffer::from_slice(&vec![0i32; TYPE_SLOTS])?,
+            centroids: DeviceBuffer::from_slice(&[0f32; TYPE_SLOTS * 3])?,
+            counts: DeviceBuffer::from_slice(&[0i32; TYPE_SLOTS])?,
         })
     }
 }

@@ -19,6 +19,8 @@
 //!     key: "src_rank".into(),
 //!     id: 7,
 //!     path: "src/rank.rs".into(),
+//!     repo: "demo".into(),
+//!     revision: Some(1),
 //!     is_file: true,
 //!     refs: parse_ontology_refs("urn:ngm:class:bm25#L12"),
 //! }];
@@ -107,6 +109,10 @@ pub struct CodeRef {
     pub id: u32,
     /// `metadata.source_file`.
     pub path: String,
+    /// Repository label supplied by the Codescape snapshot.
+    pub repo: String,
+    /// Monotonic Codescape snapshot revision (not a Git commit SHA).
+    pub revision: Option<u64>,
     /// `node_type == "file"`: carries the roll-up of its symbols.
     pub is_file: bool,
     /// Parsed `metadata.ontology_refs`.
@@ -121,6 +127,16 @@ pub fn code_ref_from_node(node: &Value) -> Option<CodeRef> {
         return None;
     }
     Some(CodeRef {
+        repo: node
+            .get("metadata")?
+            .get("repo")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .into(),
+        revision: node
+            .get("metadata")?
+            .get("revision")
+            .and_then(Value::as_u64),
         key: node
             .get("metadata_id")
             .and_then(Value::as_str)
@@ -179,13 +195,13 @@ pub struct Endpoint {
 pub struct Provenance {
     /// `codescape-annotation`.
     pub via: String,
-    /// Codescape repository label. Empty: the XR stream does not carry it yet.
+    /// Codescape repository label. Empty only for legacy streams.
     pub repo: String,
     /// File holding the annotation.
     pub path: String,
     /// 1-based line of the annotation.
     pub line: u32,
-    /// Codescape revision. `None`: the XR stream does not carry it yet.
+    /// Monotonic Codescape snapshot revision, `None` only for legacy streams.
     pub revision: Option<u64>,
     /// `[source generation, target generation]`; a record is valid only while
     /// both connections are still on these.
@@ -278,10 +294,10 @@ pub fn join(
                 kind: KIND_ANNOTATES.into(),
                 provenance: Provenance {
                     via: VIA_CODESCAPE_ANNOTATION.into(),
-                    repo: String::new(),
+                    repo: c.repo.clone(),
                     path: path.to_string(),
                     line,
-                    revision: None,
+                    revision: c.revision,
                     generations: [code_gen, vc_gen],
                 },
             });
@@ -346,6 +362,8 @@ mod tests {
 
     fn cref(key: &str, id: u32, path: &str, is_file: bool, refs: &[(&str, u32)]) -> CodeRef {
         CodeRef {
+            repo: String::new(),
+            revision: None,
             key: key.into(),
             id,
             path: path.into(),
@@ -529,6 +547,8 @@ mod tests {
                 .expect("route array")
                 .iter()
                 .map(|r| CodeRef {
+                    repo: r["repo"].as_str().unwrap_or("").into(),
+                    revision: r["revision"].as_u64(),
                     key: r["key"].as_str().unwrap_or("").into(),
                     id: r["id"].as_u64().unwrap_or(0) as u32,
                     path: r["path"].as_str().unwrap_or("").into(),

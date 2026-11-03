@@ -450,6 +450,8 @@ pub struct PhysicsPauseMessage {
 #[rtype(result = "Result<(), VisionClawError>")]
 pub struct NodeInteractionMessage {
     pub node_id: u32,
+    /// Connection owning this hold; stale releases cannot clear another hold.
+    pub holder: u64,
     pub interaction_type: NodeInteractionType,
     pub position: Option<[f32; 3]>,
 }

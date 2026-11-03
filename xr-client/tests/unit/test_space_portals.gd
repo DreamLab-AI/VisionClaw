@@ -520,6 +520,24 @@ func test_walkthrough_rearms_only_after_leaving_every_portal() -> void:
 	assert_eq(got, other, "enters again once re-armed and dwelt")
 
 
+func test_walkthrough_rearm_margin_tracks_arrangement_scale() -> void:
+	var s := _scene()
+	var arr: Node3D = s["arr"]
+	var p: Node3D = s["p"]
+	p.walkthrough_enabled = true
+	_enter(p, &"knowledge", Vector3(0.0, 1.6, 0.0))
+	_settle(p, arr)
+	arr.scale = Vector3.ONE * 0.1
+	var q: Node3D = arr.volume(p.portal_ids()[0])
+	p._armed = false
+	var edge: Vector3 = q.global_position + q.global_transform.basis.x * (q.bounds.x * 0.5)
+	var direction := q.global_transform.basis.x.normalized()
+	p.update_walkthrough(edge + direction * 0.02, Vector3.FORWARD, DT)
+	assert_false(p.is_walkthrough_armed(), "inside the scaled 0.03 m margin")
+	p.update_walkthrough(edge + direction * 0.04, Vector3.FORWARD, DT)
+	assert_true(p.is_walkthrough_armed(), "past the scaled margin, even though less than 0.3 world metres")
+
+
 # --- comfort: no world motion while visible ------------------------------------
 
 func _world_state(arr: Node3D) -> Array:

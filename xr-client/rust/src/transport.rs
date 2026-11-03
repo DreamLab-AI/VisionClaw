@@ -17,6 +17,7 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex as AsyncMutex;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async_with_config, MaybeTlsStream, WebSocketStream};
@@ -43,6 +44,49 @@ use crate::runtime::runtime;
 use crate::signer::NostrSigner;
 
 const GRAPH_REQUEST_INITIAL: &str = r#"{"type":"requestInitialData"}"#;
+
+/// Build the same signed upgrade a browser uses. Credentials never enter a URL.
+fn graph_upgrade_request(
+    url: &str,
+    secret: &str,
+) -> Result<tokio_tungstenite::tungstenite::http::Request<()>, String> {
+    let mut request = url.into_client_request().map_err(|e| e.to_string())?;
+    let scheme = match request.uri().scheme_str() {
+        Some("ws") => "http",
+        Some("wss") => "https",
+        _ => return Err("graph socket requires ws or wss".into()),
+    };
+    let authority = request
+        .uri()
+        .authority()
+        .ok_or("missing socket authority")?;
+    let origin = format!("{scheme}://{authority}");
+    let signed_url = format!(
+        "{origin}{}",
+        request.uri().path_and_query().map_or("/", |p| p.as_str())
+    );
+    request
+        .headers_mut()
+        .insert("Origin", origin.parse().map_err(|_| "invalid Origin")?);
+    let protocols = if secret.trim().is_empty() {
+        "visionclaw".to_string()
+    } else {
+        let signer = build_signer(secret).map_err(|e| e.to_string())?;
+        let header = signer.nip98_http_authorization(&signed_url, "GET");
+        let carrier = header
+            .strip_prefix("Nostr ")
+            .ok_or("invalid signer header")?
+            .trim_end_matches('=')
+            .replace('+', "-")
+            .replace('/', "_");
+        format!("visionclaw, nostr.{carrier}")
+    };
+    request.headers_mut().insert(
+        "Sec-WebSocket-Protocol",
+        protocols.parse().map_err(|_| "invalid signed protocol")?,
+    );
+    Ok(request)
+}
 
 /// A message to the graph socket. Text carries the server-authoritative interactions (drag, pin,
 /// topology refetch); Binary carries the position acknowledgement (ADR-2141), which the server
@@ -72,8 +116,8 @@ impl ConnHandle {
 /// `BinaryProtocolClient::poll` to decode. There is no position subscription: the server streams
 /// every registered session its positions and waits for this client's acknowledgements.
 /// Returns the outbound channel used for server-authoritative interactions (node drag/pin) and
-/// the position acknowledgements. When `nostr_secret_hex` is non-empty, a NIP-98 `authenticate`
-/// message is sent after subscribe so the server accepts mutating messages.
+/// the position acknowledgements. A configured identity signs the HTTP upgrade;
+/// release servers authenticate before opening the graph socket.
 pub fn spawn_graph_stream(
     url: String,
     nostr_secret_hex: String,
@@ -92,8 +136,16 @@ async fn graph_pump(
     inbox: Arc<Mutex<VecDeque<GraphInbound>>>,
     outbound: mpsc::UnboundedReceiver<Outbound>,
 ) {
-    match connect_async_with_config(url.clone(), Some(ws_config()), false).await {
-        Ok((ws, _resp)) => {
+    let request = match graph_upgrade_request(&url, &nostr_secret_hex) {
+        Ok(request) => request,
+        Err(error) => {
+            error!("graph stream: invalid upgrade request: {error}");
+            push_graph(&inbox, GraphInbound::Disconnected);
+            return;
+        }
+    };
+    match connect_async_with_config(request, Some(ws_config()), false).await {
+        Ok((ws, response)) => {
             let (mut sink, mut stream) = ws.split();
             if sink
                 .send(Message::Text(GRAPH_REQUEST_INITIAL.to_owned()))
@@ -107,21 +159,23 @@ async fn graph_pump(
                 // connect) so the scene's reconnect FSM never treats a half-open
                 // socket as live (#3d).
                 push_graph(&inbox, GraphInbound::Connected);
-                // NIP-98 session auth: unlocks server-authoritative interactions
-                // (node drag/pin) for this connection. Anonymous read-only
-                // streaming still works without it.
-                if !nostr_secret_hex.trim().is_empty() {
-                    match build_signer(&nostr_secret_hex)
-                        .map(|s| s.nip98_authenticate_json(&url, "GET"))
-                    {
-                        Ok(auth_msg) => {
-                            if sink.send(Message::Text(auth_msg)).await.is_err() {
-                                warn!("graph stream: failed to send authenticate message");
+                // Codescape's first-message auth predates signed subprotocols.
+                // A server selecting visionclaw has authenticated at upgrade;
+                // otherwise retain the signed first-message consumer contract.
+                if response.headers().get("Sec-WebSocket-Protocol").is_none()
+                    && !nostr_secret_hex.trim().is_empty()
+                {
+                    match build_signer(&nostr_secret_hex) {
+                        Ok(signer) => {
+                            if sink
+                                .send(Message::Text(signer.nip98_authenticate_json(&url, "GET")))
+                                .await
+                                .is_err()
+                            {
+                                warn!("graph stream: failed to send first-message authentication");
                             }
                         }
-                        Err(e) => {
-                            warn!(err = %e, "graph stream: signer init failed; staying anonymous")
-                        }
+                        Err(error) => warn!(%error, "graph stream: signer unavailable"),
                     }
                 }
                 pump_graph_messages(&mut sink, &mut stream, &inbox, outbound).await;
@@ -196,7 +250,9 @@ pub async fn classify_text_off_runtime(text: String) -> GraphInbound {
     if text.len() < PARSE_OFFLOAD_BYTES {
         return crate::binary_protocol::classify_graph_text(&text);
     }
-    match tokio::task::spawn_blocking(move || crate::binary_protocol::classify_graph_text(&text)).await {
+    match tokio::task::spawn_blocking(move || crate::binary_protocol::classify_graph_text(&text))
+        .await
+    {
         Ok(ev) => ev,
         Err(e) => {
             // Only a panic inside the parser (or runtime shutdown) lands here. The frame is
@@ -431,6 +487,59 @@ mod tests {
     use crate::ports::Signer;
 
     #[tokio::test]
+    async fn graph_upgrade_supplies_origin_and_signed_http_url_before_connecting() {
+        use base64::Engine;
+        use nostr::JsonUtil;
+        let signer = NostrSigner::generate();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let host = listener.local_addr().unwrap();
+        let url = format!("ws://{host}/wss");
+        let expected = format!("http://{host}/wss");
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            tokio_tungstenite::accept_hdr_async(
+                stream,
+                move |request: &tokio_tungstenite::tungstenite::handshake::server::Request,
+                      response| {
+                    assert_eq!(request.headers()["Origin"], format!("http://{host}"));
+                    let protocols = request.headers()["Sec-WebSocket-Protocol"]
+                        .to_str()
+                        .unwrap();
+                    let carrier = protocols
+                        .split(", ")
+                        .find_map(|p| p.strip_prefix("nostr."))
+                        .unwrap();
+                    let json = base64::engine::general_purpose::URL_SAFE_NO_PAD
+                        .decode(carrier)
+                        .unwrap();
+                    let event = nostr::Event::from_json(json).unwrap();
+                    event.verify().unwrap();
+                    let tags = serde_json::to_value(&event).unwrap()["tags"].clone();
+                    assert!(tags
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|tag| tag == &serde_json::json!(["u", expected])));
+                    assert!(tags
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|tag| tag == &serde_json::json!(["method", "GET"])));
+                    Ok(response)
+                },
+            )
+            .await
+            .unwrap();
+        });
+        let request = graph_upgrade_request(&url, &signer.secret_hex()).unwrap();
+        connect_async_with_config(request, Some(ws_config()), false)
+            .await
+            .unwrap();
+        server.await.unwrap();
+        assert!(graph_upgrade_request("ws://localhost/wss", "malformed").is_err());
+    }
+
+    #[tokio::test]
     async fn small_and_large_text_frames_classify_the_same_way() {
         let small = r#"{"type":"broker:new_case","caseId":"c1"}"#.to_owned();
         match classify_text_off_runtime(small.clone()).await {
@@ -444,7 +553,10 @@ mod tests {
             r#"{{"type":"initialGraphLoad","nodes":[{}],"edges":[{{"source_id":1,"target_id":2}}]}}"#,
             nodes.join(",")
         );
-        assert!(big.len() >= PARSE_OFFLOAD_BYTES, "exercises the blocking-pool path");
+        assert!(
+            big.len() >= PARSE_OFFLOAD_BYTES,
+            "exercises the blocking-pool path"
+        );
         match classify_text_off_runtime(big).await {
             GraphInbound::Topology { edges, metas } => {
                 assert_eq!(edges.len(), 1);

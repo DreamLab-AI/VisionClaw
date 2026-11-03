@@ -2,7 +2,6 @@ use actix::prelude::*;
 use log::{debug, info, warn};
 use std::time::Instant;
 
-
 use super::types::SocketFlowServer;
 
 /// Whether the ADR-060 private-node drop-set filter is enabled (default ON, fail closed). One
@@ -135,6 +134,7 @@ fn send_holds(
                     .graph_service_addr
                     .do_send(NodeInteractionMessage {
                         node_id: *node_id,
+                        holder,
                         interaction_type: NodeInteractionType::Dragged,
                         position: Some(*pos),
                     });
@@ -165,6 +165,7 @@ pub(crate) fn release_holds(
                 .graph_service_addr
                 .do_send(NodeInteractionMessage {
                     node_id: *node_id,
+                    holder,
                     interaction_type: NodeInteractionType::Released,
                     position: None,
                 });

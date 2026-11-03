@@ -13,18 +13,17 @@ const logger = createLogger('GraphDataManager.wsClient');
 /**
  * Process a raw binary WebSocket frame that carries physics positions.
  *
- * Throttled to ~60 fps (16 ms gate). Delegates zero-copy to the worker via
+ * Every ack-paced chunk is applied. Delegates zero-copy to the worker via
  * `graphWorkerProxy.processBinaryFrame` (ADR-03 D7).
  */
 export async function handleBinaryFrame(
   positionData: ArrayBuffer,
-  lastUpdateTime: number,
+  _lastUpdateTime: number,
   onUpdateTime: (t: number) => void,
 ): Promise<void> {
   if (!positionData || positionData.byteLength === 0) return;
 
   const now = Date.now();
-  if (now - lastUpdateTime < 16) return; // throttle to ~60 fps
   onUpdateTime(now);
 
   try {
@@ -37,8 +36,8 @@ export async function handleBinaryFrame(
       }
     }
 
-    // ADR-03 D7: single binary entry point — newest-wins discipline is inside
-    // processBinaryFrame; no caller gating needed. Frame transferred zero-copy.
+    // Single binary entry point. The caller's ordered queue and the server's
+    // per-chunk acknowledgement pace application; no frame may be throttled here.
     const frame = new Uint8Array(positionData);
     await graphWorkerProxy.processBinaryFrame(frame);
     useWorkerErrorStore.getState().resetTransientErrors();
@@ -76,6 +75,7 @@ export async function handleBinaryFrame(
         logger.debug('Could not display binary data preview');
       }
     }
+    throw error;
   }
 }
 

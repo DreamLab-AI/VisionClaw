@@ -309,15 +309,24 @@ async fn update_api_keys(
 
 async fn get_api_keys(
     req: HttpRequest,
-    state: web::Data<AppState>,
+    nostr_service: web::Data<NostrService>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let caller = match caller_pubkey(&req) {
         Ok(pubkey) => pubkey,
         Err(resp) => return Ok(resp),
     };
 
-    let api_keys = state.get_api_keys(&caller).await;
-    ok_json!(api_keys)
+    match nostr_service.get_user(&caller).await {
+        Some(user) => {
+            let mut response = ok_json!(user.api_keys)?;
+            response.headers_mut().insert(
+                actix_web::http::header::CACHE_CONTROL,
+                actix_web::http::header::HeaderValue::from_static("no-store"),
+            );
+            Ok(response)
+        }
+        None => not_found!("User not found"),
+    }
 }
 
 // Add the handler to app_state initialization
@@ -398,6 +407,25 @@ mod api_keys_route_tests {
 
         let stored = service.get_user(PUBKEY).await.expect("user");
         assert_eq!(stored.api_keys.openai.as_deref(), Some("sk-test"));
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/auth/nostr/api-keys")
+                .insert_header(("X-Nostr-Pubkey", PUBKEY))
+                .insert_header(("X-Nostr-Token", stored.session_token.unwrap()))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[actix_web::http::header::CACHE_CONTROL],
+            "no-store"
+        );
+        let body: serde_json::Value = test::read_body_json(response).await;
+        assert!(
+            body.to_string().contains("sk-test"),
+            "saved key must be read from the same store"
+        );
     }
 
     #[actix_web::test]

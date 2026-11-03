@@ -20,7 +20,7 @@ use serde_json::json;
 use crate::actors::messages::{GetHierarchyLevels, RecalculateHierarchy, SetRelationshipTable};
 use crate::services::semantic_type_registry::{RelationshipForceConfig, SEMANTIC_TYPE_REGISTRY};
 use crate::AppState;
-use crate::{bad_request, error_json, ok_json};
+use crate::{error_json, ok_json};
 
 /// Get hierarchy level assignments for all nodes
 /// GET /api/semantic-forces/hierarchy-levels

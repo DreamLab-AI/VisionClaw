@@ -714,6 +714,18 @@ pub fn pack_links(
         }
         let mut colour = s.colour;
         let mut radius = LINK_RADIUS_M;
+        // The allowance covers links plus distinct endpoint-marker instances.
+        let extra_marks = if s.lit {
+            [(s.src_conn, s.src_id), (s.dst_conn, s.dst_id)]
+                .iter()
+                .filter(|key| !out.marks.iter().any(|(k, _)| k == *key))
+                .count()
+        } else {
+            0
+        };
+        if out.segments.len() + out.marks.len() + 1 + extra_marks > 512 {
+            continue;
+        }
         if s.lit {
             for c in &mut colour {
                 *c += (1.0 - *c) * LINK_HIGHLIGHT_LIFT;

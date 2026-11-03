@@ -5059,6 +5059,24 @@ mod tests {
         assert!((mag(&out.buf[0..16]) / mag(plain) - LINK_HIGHLIGHT_RADIUS_SCALE).abs() < 1e-3);
     }
 
+    #[test]
+    fn highlighted_link_budget_includes_endpoint_instances() {
+        let mut store = RenderStore::default();
+        let mut specs = Vec::new();
+        for i in 0..512u32 {
+            store.upsert(i * 2 + 1, [i as f32, 0.0, 0.0], 0, 0.0, 0.0);
+            store.upsert(i * 2 + 2, [i as f32, 1.0, 0.0], 0, 0.0, 0.0);
+            let mut s = spec((0, i * 2 + 1, 0), (0, i * 2 + 2, 0));
+            s.lit = true;
+            specs.push(s);
+        }
+        draw_all(&mut store);
+        let mut out = LinkFrame::default();
+        pack_links(&[Some(&store)], &[vol(IDENT)], &specs, &IDENT, &mut out);
+        assert_eq!((out.links, out.markers), (170, 340));
+        assert!(out.buf.len() / LINK_STRIDE <= 512);
+    }
+
     /// Cost of one `pack_links` at the 512-link cap, against the 2.6 ms the per-frame GDScript
     /// rebuild cost (`f15-report.md`, Godot 4.6.1 x86_64 headless, fake endpoints). Measured here
     /// at 0.07 ms median; the bound is 1 ms, so a loaded host does not flake it. Run with
