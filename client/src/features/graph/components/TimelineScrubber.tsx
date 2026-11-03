@@ -3,7 +3,7 @@
  * provenance timeline (W-G phase-1, client-only, DEFAULT-OFF).
  *
  * Renders a range slider over a time domain (min = earliest `validFrom` seen or
- * now-30d, max = now). Dragging it calls `fetchStateAt(t)` (via the timeline
+ * now-30d, max = now). Dragging it calls `fetchStateAtSubjects(t)` (via the timeline
  * store) and publishes the valid runtime-assertion subject set that the graph
  * render consumes through `nodeTimelineStatus` to fade / highlight nodes.
  *

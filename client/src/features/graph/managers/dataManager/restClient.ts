@@ -305,3 +305,43 @@ export function scheduleEmptyDataRetry(
 
   onReschedule(handle);
 }
+
+/** The `view=subjects` projection of `/ontology/state-at` (ADR-2022 P3). */
+export interface StateAtSubjects {
+  /** Distinct subjects with a version valid at `t`. */
+  subjects: string[];
+  /** Earliest `validFrom` among those versions, or null when there are none. */
+  earliestValidFrom: string | null;
+}
+
+/**
+ * Fetch only the subjects valid at `t` (and the earliest `validFrom` among
+ * them) from `/ontology/state-at?view=subjects`. Same semantics, auth and
+ * fail-open behaviour as {@link fetchStateAt}, but one entry per subject rather
+ * than one row per version, which keeps scrubbing cheap now that full corpus
+ * syncs record class history.
+ */
+export async function fetchStateAtSubjects(
+  t: string,
+  recordedAsOf?: string,
+): Promise<StateAtSubjects> {
+  const params = new URLSearchParams();
+  params.set('t', t);
+  params.set('view', 'subjects');
+  if (recordedAsOf) {
+    params.set('recorded_as_of', recordedAsOf);
+  }
+  try {
+    const response = await unifiedApiClient.get(`/ontology/state-at?${params.toString()}`, { timeout: 10000 });
+    const data = (response.data?.data ?? response.data ?? {}) as { subjects?: unknown[]; earliestValidFrom?: unknown };
+    const subjects = Array.isArray(data.subjects) ? data.subjects.filter(s => s != null).map(String) : [];
+    const earliest = data.earliestValidFrom == null ? null : String(data.earliestValidFrom);
+    if (debugState.isEnabled()) {
+      logger.debug(`state-at subjects t=${t}${recordedAsOf ? ` asOf=${recordedAsOf}` : ''}: ${subjects.length}`);
+    }
+    return { subjects, earliestValidFrom: earliest };
+  } catch (error) {
+    logger.warn('fetchStateAtSubjects failed; returning empty subject set:', createErrorMetadata(error));
+    return { subjects: [], earliestValidFrom: null };
+  }
+}

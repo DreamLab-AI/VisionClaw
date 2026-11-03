@@ -1380,6 +1380,10 @@ pub struct StateAtParams {
     /// Optional recorded-time bound (RFC3339). When present, only versions
     /// `generatedAt <= recorded_as_of` are returned (as-of-knowledge view).
     pub recorded_as_of: Option<String>,
+    /// Optional response shape. `subjects` returns only the distinct
+    /// subjects valid at `t` and the earliest `validFrom` among them (ADR-2022
+    /// P3: what the timeline overlay needs, without one row per version).
+    pub view: Option<String>,
 }
 
 /// Canonical UTC RFC-3339, second precision, `Z` suffix — the timestamp form
@@ -1413,6 +1417,38 @@ fn parse_rfc3339_utc(raw: &str) -> Result<DateTime<Utc>, String> {
 /// result to the point-in-time-of-knowledge view. `t`/`recorded` are bound as
 /// `xsd:dateTime` literals in canonical UTC form.
 pub fn build_state_at_sparql(t: DateTime<Utc>, recorded_as_of: Option<DateTime<Utc>>) -> String {
+    format!(
+        "{}SELECT ?subject ?predicate ?object ?validFrom ?validTo ?generatedAt ?activity ?agent\n{}",
+        state_at_prologue(),
+        state_at_where(t, recorded_as_of)
+    )
+}
+
+/// The `view=subjects` form of [`build_state_at_sparql`]: the same half-open,
+/// optionally knowledge-cut filter, grouped to one row per subject with the
+/// earliest `validFrom` of its valid versions.
+pub fn build_state_at_subjects_sparql(
+    t: DateTime<Utc>,
+    recorded_as_of: Option<DateTime<Utc>>,
+) -> String {
+    format!(
+        "{}SELECT ?subject (MIN(?validFrom) AS ?earliest)\n{}\nGROUP BY ?subject",
+        state_at_prologue(),
+        state_at_where(t, recorded_as_of)
+    )
+}
+
+fn state_at_prologue() -> String {
+    format!(
+        "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n\
+         PREFIX prov: <http://www.w3.org/ns/prov#>\n\
+         PREFIX dl: <{}>\n\
+         PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n",
+        crate::services::provenance_writer::DL_NS
+    )
+}
+
+fn state_at_where(t: DateTime<Utc>, recorded_as_of: Option<DateTime<Utc>>) -> String {
     let t_lit = state_at_iso_utc(&t);
     let recorded_clause = match recorded_as_of {
         Some(r) => format!(
@@ -1422,12 +1458,7 @@ pub fn build_state_at_sparql(t: DateTime<Utc>, recorded_as_of: Option<DateTime<U
         None => String::new(),
     };
     format!(
-        r#"PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX prov: <http://www.w3.org/ns/prov#>
-PREFIX dl: <{DL_NS}>
-PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
-SELECT ?subject ?predicate ?object ?validFrom ?validTo ?generatedAt ?activity ?agent
-WHERE {{
+        r#"WHERE {{
   GRAPH <{GRAPH_PROVENANCE}> {{
     ?entity a prov:Entity ;
             rdf:subject ?subject ;
@@ -1442,9 +1473,34 @@ WHERE {{
              && ( !BOUND(?validTo) || "{t_lit}"^^xsd:dateTime < ?validTo ){recorded_clause} )
   }}
 }}"#,
-        DL_NS = crate::services::provenance_writer::DL_NS,
         GRAPH_PROVENANCE = crate::services::provenance_writer::GRAPH_PROVENANCE,
     )
+}
+
+/// Map a `view=subjects` result into `(subjects, earliest validFrom)`.
+fn map_state_at_subjects(sparql_json: &serde_json::Value) -> (Vec<String>, Option<String>) {
+    let Some(bindings) = sparql_json
+        .get("results")
+        .and_then(|r| r.get("bindings"))
+        .and_then(|b| b.as_array())
+    else {
+        return (Vec::new(), None);
+    };
+    let mut subjects = Vec::with_capacity(bindings.len());
+    let mut earliest: Option<String> = None;
+    for row in bindings {
+        let Some(subject) = binding_value(row, "subject") else {
+            continue;
+        };
+        subjects.push(subject.to_string());
+        if let Some(e) = binding_value(row, "earliest") {
+            // Canonical UTC second-precision literals sort lexically.
+            if earliest.as_deref().is_none_or(|cur| e < cur) {
+                earliest = Some(e.to_string());
+            }
+        }
+    }
+    (subjects, earliest)
 }
 
 /// Pull the lexical `value` of a SPARQL-JSON binding cell (`{type, value, ...}`).
@@ -1499,9 +1555,10 @@ fn map_state_at_rows(sparql_json: &serde_json::Value) -> Vec<serde_json::Value> 
 /// entities in `urn:ngm:graph:provenance` whose half-open valid-time
 /// interval contains `t` (start inclusive, end exclusive). With
 /// `recorded_as_of`, additionally restricts to `generatedAt <= recorded_as_of`
-/// (point-in-time-of-knowledge). This is the TEMPORAL subset (runtime governed
-/// writes only) — atemporal corpus-bulk classes have no `dl:validFrom` and are
-/// deliberately excluded; the client overlays this on the corpus backdrop.
+/// (point-in-time-of-knowledge). This is the TEMPORAL subset: governed writes
+/// and, since ADR-2022, full corpus syncs (public class typing and relations).
+/// `view=subjects` returns only the distinct valid subjects and the earliest
+/// `validFrom` among them, which is what the timeline overlay needs.
 ///
 /// Read-auth mirrors `/api/ontology/query` (the `AuthenticatedUser` extractor;
 /// dev bypass = `Bearer dev-session-token` + `X-Nostr-Pubkey`). Fails graceful:
@@ -1530,7 +1587,21 @@ pub async fn state_at(
         None => None,
     };
 
-    let query = build_state_at_sparql(t, recorded_as_of);
+    let subjects_view = match params.view.as_deref() {
+        None => false,
+        Some("subjects") => true,
+        Some(other) => {
+            return crate::bad_request!(
+                "Invalid 'view' parameter",
+                format!("unknown view '{other}'")
+            )
+        }
+    };
+    let query = if subjects_view {
+        build_state_at_subjects_sparql(t, recorded_as_of)
+    } else {
+        build_state_at_sparql(t, recorded_as_of)
+    };
     info!(
         "state_at(t={}, recorded_as_of={:?}) over provenance graph",
         state_at_iso_utc(&t),
@@ -1538,6 +1609,17 @@ pub async fn state_at(
     );
 
     match state.ontology_repository.sparql_select_json(query).await {
+        Ok(sparql_json) if subjects_view => {
+            let (subjects, earliest) = map_state_at_subjects(&sparql_json);
+            let count = subjects.len();
+            ok_json!(serde_json::json!({
+                "t": state_at_iso_utc(&t),
+                "view": "subjects",
+                "subjects": subjects,
+                "earliestValidFrom": earliest,
+                "count": count,
+            }))
+        }
         Ok(sparql_json) => {
             let assertions = map_state_at_rows(&sparql_json);
             let count = assertions.len();

@@ -2,7 +2,7 @@
  * timelineStore — bi-temporal scrub state for the ADR-049 provenance timeline.
  *
  * The TimelineScrubber writes here (current instant `t`, or the `t1`/`t2` pair
- * in diff mode) by calling `fetchStateAt` and reducing the returned
+ * in diff mode) by calling `fetchStateAtSubjects` and reducing the returned
  * assertion-version set into subject sets. The graph render consumes this store
  * via `nodeTimelineStatus(nodeId)` to fade / highlight nodes:
  *
@@ -22,7 +22,7 @@
  */
 
 import { create } from 'zustand';
-import { fetchStateAt, type StateAtAssertion } from '../features/graph/managers/dataManager/restClient';
+import { fetchStateAtSubjects, type StateAtSubjects } from '../features/graph/managers/dataManager/restClient';
 import { createLogger } from '../utils/loggerConfig';
 
 const logger = createLogger('TimelineStore');
@@ -69,21 +69,17 @@ interface TimelineState {
   reset: () => void;
 }
 
-/** Widen the observed domain to include an assertion's `validFrom`. */
-function earliestValidFromMs(assertions: StateAtAssertion[], floor: number): number {
-  let min = floor;
-  for (const a of assertions) {
-    const ms = Date.parse(a.validFrom);
-    if (Number.isFinite(ms) && ms < min) min = ms;
-  }
-  return min;
+/** Widen the observed domain to include the projection's earliest `validFrom`. */
+function earliestValidFromMs(projection: StateAtSubjects, floor: number): number {
+  const ms = projection.earliestValidFrom ? Date.parse(projection.earliestValidFrom) : NaN;
+  return Number.isFinite(ms) && ms < floor ? ms : floor;
 }
 
-/** Extract the String-coerced subject set from an assertion list. */
-function subjectSet(assertions: StateAtAssertion[]): Set<string> {
+/** The String-coerced subject set of a projection. */
+function subjectSet(projection: StateAtSubjects): Set<string> {
   const set = new Set<string>();
-  for (const a of assertions) {
-    if (a.subject) set.add(String(a.subject));
+  for (const s of projection.subjects) {
+    if (s) set.add(String(s));
   }
   return set;
 }
@@ -109,7 +105,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     loadStateAt: async (t, recordedAsOf) => {
       set({ loading: true, error: null });
       try {
-        const assertions = await fetchStateAt(t, recordedAsOf);
+        const assertions = await fetchStateAtSubjects(t, recordedAsOf);
         const valid = subjectSet(assertions);
         set(state => {
           const known = new Set(state.knownSubjects);
@@ -128,7 +124,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
           };
         });
       } catch (err) {
-        // fetchStateAt already fails open; this only guards the reducer.
+        // fetchStateAtSubjects already fails open; this only guards the reducer.
         logger.warn('loadStateAt reducer error:', err);
         set({ loading: false, error: 'timeline load failed' });
       }
@@ -138,8 +134,8 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
       set({ loading: true, error: null });
       try {
         const [a1, a2] = await Promise.all([
-          fetchStateAt(t1, recordedAsOf),
-          fetchStateAt(t2, recordedAsOf),
+          fetchStateAtSubjects(t1, recordedAsOf),
+          fetchStateAtSubjects(t2, recordedAsOf),
         ]);
         const s1 = subjectSet(a1);
         const s2 = subjectSet(a2);

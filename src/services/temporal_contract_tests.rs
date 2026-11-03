@@ -13,7 +13,9 @@ use oxigraph::store::Store;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use crate::handlers::api_handler::ontology::build_state_at_sparql;
+use crate::handlers::api_handler::ontology::{
+    build_state_at_sparql, build_state_at_subjects_sparql,
+};
 use crate::services::provenance_writer::{
     build_assertion_version, state_at, AssertionInput, AssertionVersion,
 };
@@ -157,5 +159,57 @@ fn state_at_sparql_conforms() {
             .collect();
         let want: BTreeSet<String> = case.expect.iter().cloned().collect();
         assert_eq!(got, want, "state-at SPARQL: {}", case.name);
+    }
+}
+
+#[test]
+fn state_at_subjects_view_conforms() {
+    let v = load();
+    let store = Store::new().unwrap();
+    for x in &v.versions {
+        let q = build_assertion_version(&AssertionInput {
+            subject: x.subject.clone(),
+            predicate: x.predicate.clone(),
+            object: x.object.clone(),
+            valid_from: x.valid_from,
+            valid_to: x.valid_to,
+            generated_at: x.generated_at,
+            activity_urn: format!("urn:visionclaw:execution:vector-{}", x.id),
+            agent_iri: AGENT.to_string(),
+        })
+        .unwrap();
+        store.extend(q.provenance_quads).unwrap();
+    }
+    let by_id: HashMap<&str, &VectorVersion> =
+        v.versions.iter().map(|x| (x.id.as_str(), x)).collect();
+    for case in &v.cases {
+        let QueryResults::Solutions(rows) = store
+            .query(&build_state_at_subjects_sparql(case.t, case.recorded_as_of))
+            .unwrap()
+        else {
+            panic!("subjects view is a SELECT");
+        };
+        let mut got: HashMap<String, DateTime<Utc>> = HashMap::new();
+        for r in rows {
+            let r = r.unwrap();
+            let Some(Term::NamedNode(sub)) = r.get("subject") else {
+                panic!("subject is an IRI")
+            };
+            let Some(Term::Literal(e)) = r.get("earliest") else {
+                panic!("earliest is bound")
+            };
+            let e = DateTime::parse_from_rfc3339(e.value())
+                .unwrap()
+                .with_timezone(&Utc);
+            got.insert(sub.as_str().to_string(), e);
+        }
+        let mut want: HashMap<String, DateTime<Utc>> = HashMap::new();
+        for id in &case.expect {
+            let x = by_id[id.as_str()];
+            want.entry(x.subject.clone())
+                .and_modify(|e| *e = (*e).min(x.valid_from))
+                .or_insert(x.valid_from);
+        }
+        assert_eq!(got, want, "state-at subjects view: {}", case.name);
     }
 }

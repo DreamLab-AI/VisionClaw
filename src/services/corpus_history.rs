@@ -76,14 +76,36 @@ pub fn enabled_by_env() -> bool {
     )
 }
 
-/// The agent the corpus sync acts as: VisionClaw's own panel identity, the
-/// key the ACSP producer and elevation actors already sign with. `None` when
-/// no key is configured, in which case no history is written.
-pub fn corpus_agent_iri() -> Option<String> {
+/// Who the corpus sync records history as, or why it records none.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CorpusAgent {
+    /// VisionClaw's own panel identity (`did:nostr:<hex>`), the key the ACSP
+    /// producer and elevation actors already sign with.
+    Ready(String),
+    /// [`CORPUS_HISTORY_ENV`] is off.
+    Disabled,
+    /// No panel key is configured.
+    NoIdentity,
+    /// A panel key is configured but unusable; never a silent fallback.
+    Misconfigured(String),
+}
+
+/// Resolve the corpus-sync agent from the kill switch and the panel key.
+pub fn resolve_corpus_agent() -> CorpusAgent {
     use nostr_sdk::prelude::{Keys, SecretKey};
-    let secret = crate::services::acsp::key_file::load_panel_secret().ok()??;
-    let keys = Keys::new(SecretKey::from_hex(secret.secret_hex()).ok()?);
-    Some(format!("did:nostr:{}", keys.public_key().to_hex()))
+    if !enabled_by_env() {
+        return CorpusAgent::Disabled;
+    }
+    match crate::services::acsp::key_file::load_panel_secret() {
+        Ok(None) => CorpusAgent::NoIdentity,
+        Err(e) => CorpusAgent::Misconfigured(e.to_string()),
+        Ok(Some(secret)) => match SecretKey::from_hex(secret.secret_hex()) {
+            Ok(sk) => {
+                CorpusAgent::Ready(format!("did:nostr:{}", Keys::new(sk).public_key().to_hex()))
+            }
+            Err(_) => CorpusAgent::Misconfigured("panel key is not a valid secret".to_string()),
+        },
+    }
 }
 
 /// Mint the activity URN for one sync at `at`.
@@ -348,6 +370,118 @@ pub fn apply_history(store: &Store, plan: &HistoryPlan) -> Result<usize, String>
         .map_err(|e| format!("append corpus history: {e}"))
 }
 
+/// What one full sync's verification and history step did.
+#[derive(Debug, Default)]
+pub struct CorpusSyncReport {
+    /// Digest of the rebuild's corpus triples when `:assert` matched it.
+    pub assert_digest: Option<String>,
+    /// Whether history was recorded; `false` when the agent was not ready.
+    pub recorded: bool,
+    pub opened: usize,
+    pub closed: usize,
+    /// Why history was not recorded, when it was not.
+    pub not_recorded_reason: Option<String>,
+    /// Mismatches and failures, for the sync's error list.
+    pub errors: Vec<String>,
+}
+
+/// ADR-2022 P4 then P2 for one full sync, after the assert rebuild of `graph`.
+///
+/// P4: the digest of the corpus IRI triples the rebuild meant to write must
+/// equal the digest of what `:assert` holds for those subjects and
+/// predicates. A mismatch is reported as an error; an operator `force_full`
+/// is the rebuild that repairs it.
+///
+/// P2: when `agent` is ready, diff the public corpus triples against the
+/// writer's own open versions, append the change, and check the open
+/// versions then match the public set.
+pub fn verify_and_record(
+    store: &Store,
+    graph: &GraphData,
+    agent: &CorpusAgent,
+    now: DateTime<Utc>,
+) -> CorpusSyncReport {
+    let mut report = CorpusSyncReport::default();
+
+    let expected = corpus_triples(graph);
+    let subjects = expected.iter().map(|t| t.0.clone()).collect();
+    let predicates = expected.iter().map(|t| t.1.clone()).collect();
+    match assert_triples_for(store, &subjects, &predicates) {
+        Ok(actual) => {
+            let (want, got) = (triple_digest(&expected), triple_digest(&actual));
+            if want == got {
+                report.assert_digest = Some(want);
+            } else {
+                report.errors.push(format!(
+                    "assert_digest_mismatch: rebuild wrote {} triples (sha256 {want}), assert holds {} (sha256 {got})",
+                    expected.len(),
+                    actual.len()
+                ));
+            }
+        }
+        Err(e) => report.errors.push(format!("assert_digest: {e}")),
+    }
+
+    let agent_iri = match agent {
+        CorpusAgent::Ready(iri) => iri,
+        CorpusAgent::Disabled => {
+            report.not_recorded_reason = Some(format!("disabled by {CORPUS_HISTORY_ENV}"));
+            return report;
+        }
+        CorpusAgent::NoIdentity => {
+            report.not_recorded_reason = Some("no panel identity configured".to_string());
+            return report;
+        }
+        CorpusAgent::Misconfigured(e) => {
+            report.not_recorded_reason = Some("panel identity misconfigured".to_string());
+            report
+                .errors
+                .push(format!("corpus_history: panel identity: {e}"));
+            return report;
+        }
+    };
+
+    let public = corpus_triples(&public_subgraph(graph));
+    let plan = match open_corpus_versions(store) {
+        Ok(open) => plan_history(&public, &open, now, agent_iri),
+        Err(e) => {
+            report.errors.push(format!("corpus_history: {e}"));
+            return report;
+        }
+    };
+    if plan.skipped > 0 {
+        report.errors.push(format!(
+            "corpus_history: skipped {} invalid triples",
+            plan.skipped
+        ));
+    }
+    if let Err(e) = apply_history(store, &plan) {
+        report.errors.push(format!("corpus_history: {e}"));
+        return report;
+    }
+    report.recorded = true;
+    report.opened = plan.opened;
+    report.closed = plan.closed;
+
+    match open_corpus_versions(store) {
+        Ok(open) => {
+            let held: BTreeSet<Triple> = open
+                .into_iter()
+                .map(|v| (v.subject, v.predicate, v.object))
+                .collect();
+            if triple_digest(&held) != triple_digest(&public) {
+                report.errors.push(format!(
+                    "corpus_history_digest_mismatch: {} open versions vs {} public triples",
+                    held.len(),
+                    public.len()
+                ));
+            }
+        }
+        Err(e) => report.errors.push(format!("corpus_history: {e}")),
+    }
+    report
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -573,6 +707,97 @@ SELECT ?e ?s ?p ?o ?f ?t ?g WHERE {{ GRAPH <{GRAPH_PROVENANCE}> {{
         match prior {
             Some(v) => std::env::set_var(CORPUS_HISTORY_ENV, v),
             None => std::env::remove_var(CORPUS_HISTORY_ENV),
+        }
+    }
+
+    mod through_the_repository {
+        use super::*;
+        use std::sync::Arc;
+        use visionclaw_adapters::OxigraphOntologyRepository;
+        use visionclaw_domain::ports::ontology_repository::OntologyRepository;
+
+        fn corpus() -> GraphData {
+            graph(
+                vec![
+                    node(1, "camera", true),
+                    node(2, "device", true),
+                    node(3, "diary", false),
+                ],
+                vec![sub_edge(1, 2)],
+            )
+        }
+
+        #[tokio::test]
+        async fn a_clean_rebuild_digests_and_records_with_no_errors() {
+            let store = Arc::new(Store::new().unwrap());
+            let repo = OxigraphOntologyRepository::from_store(store.clone());
+            let g = corpus();
+            repo.save_ontology_graph(&g).await.unwrap();
+            // A decision instance re-materialised after the CLEAR, as the sync does.
+            store
+                .insert(oxigraph::model::QuadRef::new(
+                    NamedNodeRef::new_unchecked("urn:visionclaw:decision:d1"),
+                    NamedNodeRef::new_unchecked("http://www.w3.org/1999/02/22-rdf-syntax-ns#type"),
+                    NamedNodeRef::new_unchecked(
+                        "https://narrativegoldmine.com/ns/dl#DecisionRecord",
+                    ),
+                    GraphNameRef::NamedNode(NamedNodeRef::new_unchecked(GRAPH_ASSERT)),
+                ))
+                .unwrap();
+
+            let r = verify_and_record(&store, &g, &CorpusAgent::Ready(AGENT.into()), t(9));
+            assert!(r.errors.is_empty(), "{:?}", r.errors);
+            assert_eq!(r.assert_digest, Some(triple_digest(&corpus_triples(&g))));
+            assert!(r.recorded);
+            assert_eq!((r.opened, r.closed), (5, 0));
+        }
+
+        #[tokio::test]
+        async fn a_stray_triple_on_a_corpus_class_is_a_digest_mismatch() {
+            let store = Arc::new(Store::new().unwrap());
+            let repo = OxigraphOntologyRepository::from_store(store.clone());
+            let g = corpus();
+            repo.save_ontology_graph(&g).await.unwrap();
+            store
+                .insert(oxigraph::model::QuadRef::new(
+                    NamedNodeRef::new_unchecked("urn:ngm:class:camera"),
+                    NamedNodeRef::new_unchecked(SUB),
+                    NamedNodeRef::new_unchecked("urn:ngm:class:stray"),
+                    GraphNameRef::NamedNode(NamedNodeRef::new_unchecked(GRAPH_ASSERT)),
+                ))
+                .unwrap();
+
+            let r = verify_and_record(&store, &g, &CorpusAgent::NoIdentity, t(9));
+            assert_eq!(r.assert_digest, None);
+            assert!(r
+                .errors
+                .iter()
+                .any(|e| e.starts_with("assert_digest_mismatch")));
+        }
+
+        #[tokio::test]
+        async fn without_an_identity_nothing_is_recorded_and_the_reason_is_given() {
+            let store = Arc::new(Store::new().unwrap());
+            let repo = OxigraphOntologyRepository::from_store(store.clone());
+            let g = corpus();
+            repo.save_ontology_graph(&g).await.unwrap();
+            let r = verify_and_record(&store, &g, &CorpusAgent::NoIdentity, t(9));
+            assert!(!r.recorded);
+            assert_eq!(
+                r.not_recorded_reason.as_deref(),
+                Some("no panel identity configured")
+            );
+            assert!(r.errors.is_empty());
+            assert_eq!(provenance_len(&store), 0);
+
+            let r = verify_and_record(
+                &store,
+                &g,
+                &CorpusAgent::Misconfigured("bad file mode".into()),
+                t(9),
+            );
+            assert!(!r.recorded);
+            assert!(r.errors.iter().any(|e| e.contains("bad file mode")));
         }
     }
 }
