@@ -7638,6 +7638,7 @@ dependencies = [
  "visionclaw-memory-cloud",
  "visionclaw-ontology",
  "visionclaw-protocol",
+ "visionclaw-splat",
  "visionclaw-tri-layout",
  "visionclaw-xr-presence",
  "wasm-bindgen",
