@@ -1435,7 +1435,8 @@ func _build_volumes() -> void:
 # picking, labels, links or physics reach it. The arrangement and SpacePortals handle
 # it as they do any volume (ring slot, enter, portal, leave).
 func _build_splat_volume() -> void:
-	if not XrPrefs.splat_scene() or _arrangement == null:
+	if not XrPrefs.splat_scene() or _arrangement == null or _splat != null:
+		_sync_hud_splat()
 		return
 	_splat = SplatVolumeScript.new()
 	_splat.name = "Volume_splat"
@@ -1445,23 +1446,55 @@ func _build_splat_volume() -> void:
 	_splat.reduced_motion = _reduced_motion
 	_splat.credits_changed.connect(func(_line: String) -> void: _sync_hud_splat())
 	_splat.loaded.connect(func(_tier: int, _n: int) -> void: _sync_hud_splat())
+	_splat.load_failed.connect(func(_reason: String, _refused: bool) -> void: _sync_hud_splat())
 	_splat.request_asset("")
+	_sync_hud_splat()
+
+
+# HUD "Splat" toggle: the first press builds the volume (and stores the choice, which
+# outranks XR_SPLATS from then on); later presses show or hide it like the graph
+# volumes. Hiding while inside the scene leaves it first; showing a failed scene retries.
+func toggle_splat_scene() -> void:
+	if _splat == null:
+		XrPrefs.set_splat_scene(true)
+		_build_splat_volume()
+		return
+	var on: bool = not bool(_splat.visible_state)
+	if not on and _splat.is_entered():
+		leave_volume_space()
+	_splat.request_visible(on)
+	XrPrefs.set_splat_scene(on)
+	if on and _splat.phase == SplatVolumeScript.Phase.FAILED:
+		_splat.request_asset("")
+	_sync_hud_splat()
 
 
 # The credits line and the Layout page's Enter button follow the splat volume.
 func _sync_hud_splat() -> void:
-	if hud == null or _splat == null:
+	if hud == null:
+		return
+	if hud.has_method("set_splat_state"):
+		hud.set_splat_state(_splat_hud_state())
+	if _splat == null:
 		return
 	if hud.has_method("set_credits"):
 		hud.set_credits(_splat.credits_line())
-	if hud.has_method("set_splat_state"):
-		hud.set_splat_state(_splat_hud_state())
 
 
+# {enabled, available, entered, loading, failure} for the HUD's Splat toggle and the
+# Layout page's Splat Scene group. Enabled = built and shown.
 func _splat_hud_state() -> Dictionary:
 	if _splat == null:
-		return {}
-	return {"available": _splat.loaded_tier > 0, "entered": _splat.is_entered()}
+		return {"enabled": false}
+	var ph: int = _splat.phase
+	var failed: bool = ph == SplatVolumeScript.Phase.FAILED
+	return {
+		"enabled": bool(_splat.visible_state),
+		"available": _splat.loaded_tier > 0,
+		"entered": _splat.is_entered(),
+		"loading": not failed and _splat.loaded_tier <= 0,
+		"failure": str(_splat.failure) if failed else "",
+	}
 
 
 # Once per frame after the volumes' fit: the splat volume fits like any volume, then
@@ -1991,6 +2024,9 @@ func _on_hud_control(action: String) -> void:
 		return
 	if action.begins_with("volume_"):
 		_on_volume_action(action)
+		return
+	if action == "splat_toggle":
+		toggle_splat_scene()
 		return
 	if action == "splat_enter":
 		enter_volume_space(SplatVolumeScript.VOLUME_ID)

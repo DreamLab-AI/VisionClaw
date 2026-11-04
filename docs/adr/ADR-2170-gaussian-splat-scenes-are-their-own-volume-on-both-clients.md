@@ -149,6 +149,14 @@ Unverified:
 - the extras and splat governors stepping together on one timer;
 - every target in Acceptance.
 
+## Amendment (2026-11-04): HUD toggle and visible state
+
+In the first headset session the scene loaded (the cached `xr-1` matched its served SHA-256) but the owner found no option for it: the Session page's volume row lists only the three graph volumes (`hud.gd` `VOLUME_IDS`), the only control was an Enter button hidden on the Layout page until a variant landed, and nothing called `XrPrefs.set_splat_scene`, so `XR_SPLATS` was the only switch.
+
+- **Toggle.** A `Splat` button sits in the Session volume row beside KG, Onto and Code (`splat_toggle`). The first press builds the volume live and stores `xr.splat_scene = true`; later presses show or hide it like a graph volume (hidden withdraws the splat demand; hiding while entered leaves first; showing a failed scene retries). The stored choice outranks `XR_SPLATS`. The splat volume stays out of `VOLUME_ORDER`, focus and the connection gate: it has no server.
+- **Visible state.** Its face reads `Splat off`, `Splat …` (loading), `Splat` or `Splat ×` (failed). The Layout page's Splat Scene group shows whenever the scene is on; its button is disabled with "Loading splat scene…" or the failure reason until a variant has loaded, then Enter/Leave as before.
+- **Evidence.** Headless GUT, Godot 4.6.1, worktree build of the gdext library: 602 tests, 599 passing, 3 pending pixel tests, 0 failing; four new tests cover the toggle faces, the Layout group states, the Session row's width with the longest faces, and build/hide/reshow/remember through `GraphScene`. Not yet seen in the headset.
+
 ## Verification
 
 Evidence for the Context (2026-11-01, before implementation):

@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.29
+version: 0.1.30
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.30 (2026-11-04): ADR-2170 HUD amendment: a Splat on/off toggle in the Session volume row (stored in `xr.splat_scene`, which outranks `XR_SPLATS`; the first press builds the volume live); the Layout page's Splat Scene group shows whenever the scene is on, with a loading or failure line until a variant lands. Headless GUT only."
   - "0.1.29 (2026-11-04): ADR-2170 accepted (partial, staged; unit and headless-GUT evidence, no GPU render): splat volume, CPU-sorted quad layer and the separate splat account built; the owner accepted Decision 7, amending ADR-2167 and the PRD-008 triangle budget for splat scenes. Off unless `XR_SPLATS=1`. Served format SPZ v3. Splat section only; Current State, Invariants and verified_commit untouched."
   - "0.1.28 (2026-11-01): a finished agent eases out to the edge of the scene in 30 s and holds there, the desktop's rule (ADR-2135 one done rule; ADR-2109 amended). The park beat is deleted: no `PH_PARK`, `PH_COMPLETE` or park event. A lapsed work record relaxes onto the rest slot. The edge is the knowledge volume's `bounds` diagonal (`SpatialVolume.edge_radius`). No invariant changed."
   - "0.1.27 (2026-11-01): cross-volume link ends are resolved and packed in Rust (`pack_links`), through the same fold-aware `drawn_position_of` the edge pack uses; `link_layer.gd` no longer reads positions or builds instances (ADR-2164 D8 amended). `RenderStore::position_of` and the gdext `node_position` answer with the drawn (fold-aware) position. No invariant changed."
@@ -1281,7 +1282,7 @@ multiview; whether the GPU timer exists on the XR viewport. The numbers above ar
 
 ## Staged (ADR-2170, built 2026-11-04, off by default): Gaussian splat scenes
 
-Built, but off unless `XR_SPLATS=1` or the `xr.splat_scene` pref is set. The code lives in `splat_volume.gd`, `materials/splat.gdshader`, `rust/src/splat_{governor,sort,loader}.rs` and `frame_budget.rs` (`allocate_with_splats`). The evidence is headless and unit tests only; no frame has been rendered on the HP or the headset. The Current State and Invariants above are unchanged.
+Built, but off unless `XR_SPLATS=1` or the `xr.splat_scene` pref is set. The HUD's Session volume row carries a **Splat** toggle (`Splat off` / `Splat …` / `Splat` / `Splat ×`) that stores the pref, so the headset can switch it without an environment variable; the Layout page's **Splat Scene** group enters it and says why while it is loading or has failed (ADR-2170 HUD amendment). The code lives in `splat_volume.gd`, `materials/splat.gdshader`, `rust/src/splat_{governor,sort,loader}.rs` and `frame_budget.rs` (`allocate_with_splats`). The evidence is headless and unit tests only; no frame has been rendered on the HP or the headset. The Current State and Invariants above are unchanged.
 
 - **Placement.** A splat scene is its own `splat` volume under the ADR-2158 contract and can be entered (ADR-2166), so that it becomes the environment while the graph volumes become portals. A node may link to a splat asset, but it never parents one: splat roots are never under `GraphRoot`. Transparent objects sort per object, not per fragment, so an un-entered splat volume's box never intersects a graph volume's box and shares the graph's transparent `render_priority`. An entered splat volume is a backdrop at a lower priority than every graph layer and portal, fitted to room scale (ADR-2166); splat content between the user and a portal is overdrawn by the portal (a named artefact). A 1:1 metric view needs its own amendment.
 - **Renderer.** The splat layer is built to stay within Invariants 1 and 2:

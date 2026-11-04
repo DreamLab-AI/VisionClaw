@@ -332,6 +332,7 @@ var _splat_row: HBoxContainer = null
 var _splat_header: Label = null
 var _splat_button: Button = null
 var _splat_entered: bool = false
+var _splat_toggle: Button = null       # Session volume row: splat scene on/off (ADR-2170)
 var _notice_until_ms: int = 0
 var _hint_bar_notice_mode: bool = false
 
@@ -1353,7 +1354,17 @@ func _build_session_page() -> VBoxContainer:
 		b.pressed.connect(func() -> void: emit_signal("control_pressed", "volume_toggle:%s" % vid))
 		vol_row.add_child(b)
 		_volume_buttons[vid] = b
+	# ADR-2170: the splat scene is not a graph volume (no focus, no server), but it is
+	# switched beside them. Entering it is on the Layout page.
+	_splat_toggle = _press_fire(Button.new()) as Button
+	_splat_toggle.name = "SplatToggle"
+	_splat_toggle.custom_minimum_size = Vector2(0, BTN_H)
+	_splat_toggle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_splat_toggle.set_meta(HINT_META, "Turn the Gaussian splat scene on or off (remembered). Enter it from the Layout tab")
+	_splat_toggle.pressed.connect(func() -> void: emit_signal("control_pressed", "splat_toggle"))
+	vol_row.add_child(_splat_toggle)
 	set_volume_state(_focused_volume, {})
+	set_splat_state({})
 	page.add_child(_build_beat_row())
 	_debug_stats = _mk_label("FPS: --  MTP: --ms  Avatars: 0  Net: OFF", "Render & network diagnostics")
 	_debug_stats.name = "DebugStats"
@@ -2134,13 +2145,30 @@ func credits_line() -> String:
 
 ## ADR-2170: {available, entered} for the Layout page's splat button. The row appears
 ## once a splat scene is loaded.
+## {enabled, available, entered, loading, failure} from GraphScene (ADR-2170). The Session
+## toggle always shows; the Layout page's group shows while the scene is on, with its
+## Enter button live only once a variant has loaded.
 func set_splat_state(st: Dictionary) -> void:
+	var enabled: bool = bool(st.get("enabled", false))
 	var available: bool = bool(st.get("available", false))
+	var failure: String = str(st.get("failure", ""))
+	var loading: bool = bool(st.get("loading", false))
 	_splat_entered = bool(st.get("entered", false))
+	if _splat_toggle != null:
+		var face := "Splat off"
+		if enabled:
+			face = "Splat ×" if not failure.is_empty() else ("Splat …" if loading else "Splat")
+		_splat_toggle.text = face
 	if _splat_header != null:
-		_splat_header.visible = available
-		_splat_row.visible = available
-		_splat_button.text = "Leave Splat Scene" if _splat_entered else "Enter Splat Scene"
+		_splat_header.visible = enabled
+		_splat_row.visible = enabled
+		_splat_button.disabled = not available
+		if available:
+			_splat_button.text = "Leave Splat Scene" if _splat_entered else "Enter Splat Scene"
+		elif not failure.is_empty():
+			_splat_button.text = "Splat scene failed: %s" % failure.left(48)
+		else:
+			_splat_button.text = "Loading splat scene…"
 
 
 func set_avatar_count(count: int) -> void:

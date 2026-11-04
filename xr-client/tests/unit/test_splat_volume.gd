@@ -620,12 +620,12 @@ func test_the_hud_splat_button_appears_with_a_loaded_scene_and_emits_enter_and_l
 	var hud := await _hud()
 	assert_false(hud._splat_row.visible, "hidden without a scene: the Layout page costs nothing")
 	watch_signals(hud)
-	hud.set_splat_state({"available": true, "entered": false})
+	hud.set_splat_state({"enabled": true, "available": true, "entered": false})
 	assert_true(hud._splat_row.visible)
 	assert_eq(hud._splat_button.text, "Enter Splat Scene")
 	hud._splat_button.pressed.emit()
 	assert_signal_emitted_with_parameters(hud, "control_pressed", ["splat_enter"])
-	hud.set_splat_state({"available": true, "entered": true})
+	hud.set_splat_state({"enabled": true, "available": true, "entered": true})
 	assert_eq(hud._splat_button.text, "Leave Splat Scene")
 	hud._splat_button.pressed.emit()
 	assert_signal_emitted_with_parameters(hud, "control_pressed", ["splat_leave"])
@@ -633,6 +633,50 @@ func test_the_hud_splat_button_appears_with_a_loaded_scene_and_emits_enter_and_l
 	await get_tree().process_frame
 	var page: Control = hud._pages["layout"]
 	assert_lte(page.get_combined_minimum_size().y, hud._tabs_host.size.y + 1.0, "the Layout page still fits its host with the button")
+
+
+func test_the_session_row_has_a_splat_toggle_that_reads_the_scene_state() -> void:
+	var hud := await _hud()
+	assert_not_null(hud._splat_toggle, "beside KG, Onto and Code in the volume row")
+	assert_eq(hud._splat_toggle.get_parent(), (hud._volume_buttons[&"codescape"] as Button).get_parent())
+	assert_eq(hud._splat_toggle.text, "Splat off", "off until GraphScene says otherwise")
+	watch_signals(hud)
+	hud._splat_toggle.pressed.emit()
+	assert_signal_emitted_with_parameters(hud, "control_pressed", ["splat_toggle"])
+	hud.set_splat_state({"enabled": true, "loading": true})
+	assert_eq(hud._splat_toggle.text, "Splat …")
+	hud.set_splat_state({"enabled": true, "available": true})
+	assert_eq(hud._splat_toggle.text, "Splat")
+	hud.set_splat_state({"enabled": true, "failure": "splat listing: HTTP 502"})
+	assert_eq(hud._splat_toggle.text, "Splat ×")
+	hud.set_splat_state({"enabled": false, "available": true})
+	assert_eq(hud._splat_toggle.text, "Splat off", "hidden wins over loaded")
+
+
+func test_the_layout_group_shows_while_on_with_enter_live_only_once_loaded() -> void:
+	var hud := await _hud()
+	hud.set_splat_state({"enabled": true, "loading": true})
+	assert_true(hud._splat_header.visible, "on: the group is there even before a variant lands")
+	assert_true(hud._splat_row.visible)
+	assert_true(hud._splat_button.disabled, "nothing to enter yet")
+	assert_eq(hud._splat_button.text, "Loading splat scene…")
+	hud.set_splat_state({"enabled": true, "failure": "splat listing: HTTP 502"})
+	assert_true(hud._splat_button.disabled)
+	assert_true(hud._splat_button.text.contains("HTTP 502"), "the failure is said, not hidden")
+	hud.set_splat_state({"enabled": true, "available": true})
+	assert_false(hud._splat_button.disabled)
+	assert_eq(hud._splat_button.text, "Enter Splat Scene")
+	hud.set_splat_state({"enabled": false})
+	assert_false(hud._splat_row.visible, "off: the Layout page costs nothing")
+
+
+func test_the_session_volume_row_still_fits_the_panel_with_the_splat_toggle() -> void:
+	var hud := await _hud()
+	hud.set_splat_state({"enabled": true, "failure": "x"})
+	hud.set_volume_state(&"knowledge", {&"knowledge": {"shown": false, "online": false, "name": "Knowledge Graph"}})
+	var row: Control = hud._splat_toggle.get_parent()
+	assert_lte(row.get_combined_minimum_size().x, hud._tabs_host.size.x + 1.0,
+		"eight buttons, longest faces, inside the page width")
 
 
 func test_the_splat_scene_is_off_by_default() -> void:
@@ -792,5 +836,39 @@ func test_graph_scene_has_no_splat_volume_by_default() -> void:
 		assert_null(scene._splat, "off by default: the live client is unchanged")
 		assert_true(scene._volume_offline(&"splat"))
 	XrPrefs.path_override = ""
+	scene.queue_free()
+	await get_tree().process_frame
+
+
+func test_the_hud_toggle_builds_hides_and_reshows_the_splat_volume_and_is_remembered() -> void:
+	var XrPrefs = load("res://scripts/xr_prefs.gd")
+	var tmp := "user://xr_prefs.splat_toggle.cfg"
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
+	XrPrefs.path_override = tmp
+	XrPrefs.set_splat_scene(false)
+	var scene: Node3D = load("res://scenes/GraphScene.tscn").instantiate()
+	add_child(scene)
+	await get_tree().process_frame
+	assert_null(scene._splat, "stored off: not built")
+	assert_eq(scene._splat_hud_state(), {"enabled": false})
+	scene._on_hud_control("splat_toggle")
+	var sv: Node3D = scene._splat
+	assert_not_null(sv, "the first press builds it live")
+	assert_true(XrPrefs.splat_scene(), "and remembers on")
+	if sv != null:
+		assert_eq(sv.get_parent(), scene._arrangement)
+		assert_true(scene._splat_hud_state()["enabled"])
+		assert_true(scene._splat_hud_state()["loading"] or scene._splat_hud_state()["failure"] != "",
+			"loading, or failed with a reason (no backend in the test)")
+		scene._on_hud_control("splat_toggle")
+		assert_false(sv.visible_state, "the second press hides it")
+		assert_false(sv.wants_draw(), "hidden: no splat demand")
+		assert_false(XrPrefs.splat_scene(), "and remembers off over XR_SPLATS")
+		assert_false(scene._splat_hud_state()["enabled"])
+		scene._on_hud_control("splat_toggle")
+		assert_true(sv.visible_state, "the third press shows the same volume again")
+		assert_eq(scene._splat, sv, "never built twice")
+	XrPrefs.path_override = ""
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
 	scene.queue_free()
 	await get_tree().process_frame
