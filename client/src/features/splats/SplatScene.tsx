@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { sharedNodeIdToIndexMap, sharedNodePositions } from '../graph/contexts/NodePositionContext';
 import { sceneFitBounds } from '../graph/utils/sceneFitBounds';
+import { cloudFitInput } from '../graph/hooks/useCameraAutoFit';
 import { useReducedMotion } from '../visualisation/memoryCloud/useReducedMotion';
 import { useSettingsStore } from '../../store/settingsStore';
 import type { Sphere } from './fit';
@@ -9,11 +10,14 @@ import { registerSplatCommands } from './commands';
 import { SplatController } from './SplatController';
 import { useSplatStore } from './splatStore';
 
-/** The graph's bounding sphere (both graphs; the memory cloud is not counted). */
+/**
+ * The sphere enclosing every scene body: both graphs and the memory cloud, so a
+ * framed volume placed outside it is clear of all three (ADR-2170 decision 2).
+ */
 function readGraphSphere(): Sphere | null {
   const n = sharedNodeIdToIndexMap.size;
   if (!sharedNodePositions || n === 0) return null;
-  const b = sceneFitBounds(sharedNodePositions, n, null);
+  const b = sceneFitBounds(sharedNodePositions, n, cloudFitInput());
   return b ? { centre: b.centre, radius: b.radius } : null;
 }
 

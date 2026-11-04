@@ -129,7 +129,7 @@ The owner accepted Decision 7 on 2026-11-04 and directed the implementation; the
 
 - **Contract (`crates/visionclaw-splat`, MIT).** Manifest (`data/splats/manifest.json`, committed; assets never), the decision-10 licence rule, `sha256-12` addressing, the content-addressed cache that re-hashes every variant at open, and an SPZ v3 codec. `splat-admit` (feature `cli`) runs fetch, build (via `splat-transform`), admit and verify. **Served format is SPZ v3 (gzip), not splat-transform's default v4 (zstd)**: v3 is what the three addon, Spark and the pure-Rust headset decoder all read; v4 is refused at admission.
 - **Backend.** `GET /api/splats` (listing) and `GET /api/splats/blob/{sha256-12}` (immutable). `SPLAT_MANIFEST` and `SPLAT_CACHE_DIR` override `data/splats/manifest.json` and `data/splat-cache`.
-- **Desktop (`client/src/features/splats`).** One `SplatLayer`, backend chosen at mount from the live renderer and loaded by dynamic `import()`: three `GaussianSplat` + `SPZLoader` on WebGPU, Spark 2.4.0 `SplatMesh` on WebGL. SHA-256 is verified on fetch and on every cache hit; a mismatch is a refusal. The desktop has no volume system, so framed and entered placement live in `fit.ts`.
+- **Desktop (`client/src/features/splats`).** One `SplatLayer`, backend chosen at mount from the live renderer and loaded by dynamic `import()`: three `GaussianSplat` + `SPZLoader` on WebGPU, Spark 2.4.0 `SplatMesh` on WebGL. SHA-256 is verified on fetch and on every cache hit; a mismatch is a refusal. The desktop has no volume system, so framed and entered placement live in `fit.ts`. The framed volume sits outside the sphere enclosing both graphs and the memory cloud (`sceneFitBounds` with `cloudFitInput`). That separation is from source; no render has checked it.
 - **Headset.** The splat account (`allocate_with_splats`): draw calls taken before extras are priced, triangles reported in `splat_tris` and outside `TRI_LIMIT` and `over_budget`; un-entered volumes are capped at tier 1. The governor floor is tier 1 (tier 0 draws nothing, so nothing could be measured to climb); only low cost reaches 0. Sort is a two-pass radix on a worker. The frame-budget pass subtracts applied splat primitives from `other_tris`, the same way extras are subtracted.
 
 Evidence (container only):
@@ -143,6 +143,7 @@ Evidence (container only):
 Unverified:
 - any GPU frame on either client;
 - splat orientation on both desktop backends;
+- desktop Fit view, which does not include the framed splat volume, so the volume may open off screen;
 - `INSTANCE_ID` plus `texelFetch` under Compatibility multiview;
 - the 4096-texel data texture against the GLES 3.0 2048 guarantee (it matters only for a Quest export);
 - the extras and splat governors stepping together on one timer;
