@@ -17,6 +17,9 @@
 //! - desktop semantic encoding, attention heat and beat clock ports
 //!   (`semantic`, `attention`, `beat`) and their Godot glue (`pulse`)
 //! - spatial voice routing surface (`webrtc_audio`)
+//! - Gaussian splat scenes (ADR-2170): the tier governor (`splat_governor`), the
+//!   verified loader and data-texture packer (`splat_loader`) and the CPU depth
+//!   sort (`splat_sort`); the splat account itself lives in `frame_budget`
 //!
 //! GDScript drives scene composition only; this crate owns every byte that
 //! crosses the wire and every threshold that gates a pose / hit / level.
@@ -49,6 +52,9 @@ pub mod selection;
 pub mod semantic;
 pub mod settings_sync;
 pub mod signer;
+pub mod splat_governor;
+pub mod splat_loader;
+pub mod splat_sort;
 pub mod thread_cpu;
 pub mod transport;
 pub mod webrtc_audio;

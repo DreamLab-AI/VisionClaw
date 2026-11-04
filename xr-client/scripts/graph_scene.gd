@@ -11,6 +11,7 @@ const LinkLayerScript := preload("res://scripts/link_layer.gd")
 const BridgeLinkSource := preload("res://scripts/bridge_link_source.gd")
 const XrPrefs := preload("res://scripts/xr_prefs.gd")
 const SpacePortalsScript := preload("res://scripts/space_portals.gd")
+const SplatVolumeScript := preload("res://scripts/splat_volume.gd")
 const VolumePicker := preload("res://scripts/volume_picker.gd")
 const FramePicker := preload("res://scripts/frame_picker.gd")
 const LinkPicker := preload("res://scripts/link_picker.gd")
@@ -109,6 +110,7 @@ var _offline_labels: Dictionary = {}   # volume_id → Label3D
 var _focused_volume: StringName = &"knowledge"
 var _shim: Node = null
 var _portals: Node3D = null            # SpacePortals (ADR-2166): enter a volume, the rest become portals
+var _splat: Node3D = null              # SplatVolume (ADR-2170): in the arrangement, never in _volumes or VOLUME_ORDER
 var _shim_pending_start: bool = false
 # One status line every VOLUME_LOG_SEC: per volume shown/online, drawn nodes
 # and edges, and the fit scale, so a live run's log shows what each volume does.
@@ -1423,7 +1425,53 @@ func _build_volumes() -> void:
 			mmi.multimesh.instance_count = 0
 			mmi.visible = false
 	_update_offline_labels()
+	_build_splat_volume()
 	_build_portals()
+
+
+# ADR-2170: a Gaussian splat scene is a fourth volume in the arrangement, off by default
+# (`XrPrefs.splat_scene()`). It is deliberately not in VOLUME_BINDINGS, VOLUME_ORDER or
+# `_volumes`: it has no graph connection, so none of the graph's per-volume packing,
+# picking, labels, links or physics reach it. The arrangement and SpacePortals handle
+# it as they do any volume (ring slot, enter, portal, leave).
+func _build_splat_volume() -> void:
+	if not XrPrefs.splat_scene() or _arrangement == null:
+		return
+	_splat = SplatVolumeScript.new()
+	_splat.name = "Volume_splat"
+	_arrangement.add_volume(_splat, SplatVolumeScript.RING_YAW)
+	_splat.configure(_vc_conn, Callable(self, "_auth_headers"))
+	_splat.bind_budget(_budget)
+	_splat.reduced_motion = _reduced_motion
+	_splat.credits_changed.connect(func(_line: String) -> void: _sync_hud_splat())
+	_splat.loaded.connect(func(_tier: int, _n: int) -> void: _sync_hud_splat())
+	_splat.request_asset("")
+
+
+# The credits line and the Layout page's Enter button follow the splat volume.
+func _sync_hud_splat() -> void:
+	if hud == null or _splat == null:
+		return
+	if hud.has_method("set_credits"):
+		hud.set_credits(_splat.credits_line())
+	if hud.has_method("set_splat_state"):
+		hud.set_splat_state(_splat_hud_state())
+
+
+func _splat_hud_state() -> Dictionary:
+	if _splat == null:
+		return {}
+	return {"available": _splat.loaded_tier > 0, "entered": _splat.is_entered()}
+
+
+# Once per frame after the volumes' fit: the splat volume fits like any volume, then
+# states its demand and draws within the grant (before the budget pass runs).
+func _tick_splat(delta: float) -> void:
+	if _splat == null:
+		return
+	if _splat.visible_state and not _splat.is_closed:
+		_splat.tick(delta)
+	_splat.update_splat(delta)
 
 
 # ADR-2166: the opt-in "entered" state over the ring. Native container arm,
@@ -1454,6 +1502,9 @@ func _native_arm_owns_layout() -> bool:
 
 
 func _volume_offline(vid: StringName) -> bool:
+	# The splat volume has no graph connection: it can be entered once a scene is loaded.
+	if vid == SplatVolumeScript.VOLUME_ID:
+		return _splat == null or _splat.loaded_tier <= 0
 	var conn: Node = _conn_for_volume(vid)
 	return conn == null or not conn.is_connected_now()
 
@@ -1467,6 +1518,7 @@ func _on_portal_entered_changed(_entered_id: StringName) -> void:
 	if _budget != null and _budget.has_method("set_volume_weights"):
 		_budget.set_volume_weights(_portals.budget_weights())
 	_sync_hud_backend()
+	_sync_hud_splat()
 
 
 ## Enters volume `vid` (or swaps to it). False and no change when refused.
@@ -1939,6 +1991,12 @@ func _on_hud_control(action: String) -> void:
 		return
 	if action.begins_with("volume_"):
 		_on_volume_action(action)
+		return
+	if action == "splat_enter":
+		enter_volume_space(SplatVolumeScript.VOLUME_ID)
+		return
+	if action == "splat_leave":
+		leave_volume_space()
 		return
 	if action == "cross_links_toggle":
 		_set_cross_links(not (_link_layer != null and _link_layer.is_enabled()))
@@ -2680,6 +2738,7 @@ func _physics_process(delta: float) -> void:
 	# Each visible volume refits from its source's full extent (E7); this
 	# replaces the old whole-graph fit. GraphRoot then follows the overlay volume.
 	_tick_volumes(delta)
+	_tick_splat(delta)
 	# Both packs run every frame: the Rust pack plans (render_store_pack.rs) cost
 	# ~1 ms for 13k nodes + 20k edges together, so the old 45 Hz alternation (from
 	# when GDScript looped over the instances) is gone — it also left edge ends a
@@ -3170,6 +3229,10 @@ func _tick_frame_budget(delta: float) -> void:
 		if v != null and v.has_method("overhead_draw_calls"):
 			calls += int(v.overhead_draw_calls())
 		volumes[vid] = src.demand() if v != null and v.visible_state else {"nodes": 0, "edges": 0}
+	# The splat volume's frame (and handles) are draw calls like any volume's; its splats' own
+	# call is NOT counted here: the allocator reserves it (allocate_with_splats).
+	if _splat != null and _splat.visible_state and _splat.has_method("overhead_draw_calls"):
+		calls += int(_splat.overhead_draw_calls())
 	var layers := sum.duplicate()
 	layers["hulls"] = _parity.hull_count if _parity != null else 0
 	layers["hull_tris"] = _parity.hull_triangles if _parity != null else 0
@@ -3919,6 +3982,8 @@ func _refresh_reduced_motion() -> void:
 	_choreo.reduced_motion = _reduced_motion
 	if _portals != null:
 		_portals.reduced_motion = _reduced_motion
+	if _splat != null:
+		_splat.reduced_motion = _reduced_motion
 	if _memory_cloud != null:
 		_memory_cloud.reduced_motion = _reduced_motion
 	if _effects != null:
@@ -4219,6 +4284,11 @@ func _on_conn_connected_changed(conn_id: StringName, connected: bool) -> void:
 		_link_sig = []
 	_update_offline_labels()
 	_sync_hud_backend()
+	# The splat listing is fetched from the VisionClaw server: retry a failed (not refused)
+	# request when its connection comes up.
+	if connected and conn_id == &"visionclaw" and _splat != null and _splat.phase == SplatVolumeScript.Phase.FAILED \
+			and not _splat.failure_refused:
+		_splat.request_asset(_splat.asset_id)
 
 
 func _on_conn_topology_changed(conn_id: StringName, _generation: int) -> void:

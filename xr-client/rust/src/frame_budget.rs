@@ -35,6 +35,19 @@
 //! nothing, and their draw calls are checked against every other layer's final
 //! count.
 //!
+//! The **splat account** (ADR-2170 decision 7, accepted by the owner) sits outside
+//! [`TRI_LIMIT`]. A Gaussian splat is a camera-facing quad (2 triangles), so even
+//! the smallest tier would spend more than the whole graph leaves. Splat
+//! triangles are therefore *reported* ([`FrameCaps::splat_tris`]) and never
+//! charged: they are not in `tris_total`, they never set `over_budget`, and the
+//! graph's caps are bit-identical with or without a splat demand (tested).
+//! Splat **draw calls** are charged, one per visible splat volume and at most
+//! [`SPLAT_MAX_VOLUMES`], and they are reserved from [`DRAW_CALL_LIMIT`] *before*
+//! the extras allowance, so the extras can never take the calls splats need. A
+//! volume the limit has no call for is not granted. Tiers 0 to 3 are 0, 25k, 50k
+//! and 100k splats; only an *entered* splat volume (ADR-2166, the graph becomes
+//! portals) may draw above [`SPLAT_UNENTERED_MAX_TIER`].
+//!
 //! Near-tier costs are charged as the increment over the far tier that the
 //! node or edge would otherwise use. If the minimums alone exceed the budget
 //! the minimums are still returned, with `over_budget` set, so the benchmark
@@ -183,6 +196,89 @@ pub fn extras_cost(tier: usize, frames: usize) -> (usize, usize) {
     (tris, calls)
 }
 
+/// Highest splat tier (see [`splat_count`]).
+pub const SPLAT_MAX_TIER: usize = 3;
+/// Splats drawn at each tier (ADR-2170 decision 7): the headset variants
+/// `xr-1`, `xr-2` and `xr-3` (`visionclaw_splat::VariantName::headset_tier`).
+pub const SPLAT_TIER_COUNTS: [usize; SPLAT_MAX_TIER + 1] = [0, 25_000, 50_000, 100_000];
+/// A splat is one camera-facing quad.
+pub const SPLAT_TRIS_PER_SPLAT: usize = 2;
+/// Splat volumes that may draw at once, one draw call each.
+pub const SPLAT_MAX_VOLUMES: usize = 2;
+/// The highest tier a splat volume that is not the entered room may draw.
+pub const SPLAT_UNENTERED_MAX_TIER: usize = 1;
+
+/// Splats drawn at `tier` (clamped to [`SPLAT_MAX_TIER`]).
+pub fn splat_count(tier: usize) -> usize {
+    SPLAT_TIER_COUNTS[tier.min(SPLAT_MAX_TIER)]
+}
+
+/// What the splat volumes want drawn this frame.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SplatDemand {
+    /// Requested tier, 0 = off (low cost, no splat volume, or the governor).
+    pub tier: usize,
+    /// Splat volumes that are visible and loaded; more than
+    /// [`SPLAT_MAX_VOLUMES`] are charged as that many.
+    pub volumes: usize,
+    /// True while a splat volume is the entered room (ADR-2166). That volume is
+    /// the first of `volumes`; it alone may draw above
+    /// [`SPLAT_UNENTERED_MAX_TIER`].
+    pub entered: bool,
+}
+
+/// What the splat account granted.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SplatGrant {
+    /// Volumes granted a draw call.
+    pub volumes: usize,
+    /// Tier of the first granted volume (the entered room when `entered`).
+    pub tier: usize,
+    /// Tier every other granted volume draws.
+    pub portal_tier: usize,
+    /// Splats drawn across the granted volumes.
+    pub count: usize,
+    /// `count` quads at 2 triangles; reported, never charged to the graph.
+    pub tris: usize,
+    /// Draw calls spent (one per granted volume).
+    pub draw_calls: usize,
+}
+
+/// The splat account's grant for `d` when every other layer already makes
+/// `other_calls` draw calls. Pure; [`allocate_with_splats`] reserves the result
+/// before the extras.
+///
+/// The first volume draws `min(d.tier, 3)` when `d.entered` and
+/// `min(d.tier, SPLAT_UNENTERED_MAX_TIER)` otherwise; every further volume draws
+/// at most [`SPLAT_UNENTERED_MAX_TIER`]. Volumes are granted in order while a
+/// call remains under [`DRAW_CALL_LIMIT`]; tier 0 grants nothing.
+pub fn splat_grant(d: &SplatDemand, other_calls: usize) -> SplatGrant {
+    let tier = d.tier.min(SPLAT_MAX_TIER);
+    if tier == 0 {
+        return SplatGrant::default();
+    }
+    let room = DRAW_CALL_LIMIT.saturating_sub(other_calls);
+    let volumes = d.volumes.min(SPLAT_MAX_VOLUMES).min(room);
+    if volumes == 0 {
+        return SplatGrant::default();
+    }
+    let first = if d.entered {
+        tier
+    } else {
+        tier.min(SPLAT_UNENTERED_MAX_TIER)
+    };
+    let portal_tier = tier.min(SPLAT_UNENTERED_MAX_TIER);
+    let count = splat_count(first) + (volumes - 1) * splat_count(portal_tier);
+    SplatGrant {
+        volumes,
+        tier: first,
+        portal_tier,
+        count,
+        tris: count * SPLAT_TRIS_PER_SPLAT,
+        draw_calls: volumes,
+    }
+}
+
 /// Caps for the graph's near tiers.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct GraphCaps {
@@ -221,6 +317,21 @@ pub struct FrameCaps {
     /// allowance; counted in `extras_tris`). 0 under pressure, when the extras
     /// only buy what the graph left.
     pub extras_allowance: usize,
+    /// Splat volumes granted a draw call (counted in `draw_calls`).
+    pub splat_volumes: usize,
+    /// Tier the first granted splat volume draws (the entered room when one is
+    /// entered).
+    pub splat_tier: usize,
+    /// Tier every other granted splat volume draws.
+    pub splat_portal_tier: usize,
+    /// Splats drawn across the granted volumes.
+    pub splat_count: usize,
+    /// Triangles those splats draw. Reported only: outside `tris_total`,
+    /// `TRI_LIMIT` and `over_budget` (ADR-2170 decision 7).
+    pub splat_tris: usize,
+    /// Draw calls the splats spend (counted in `draw_calls`, reserved before
+    /// the extras).
+    pub splat_draw_calls: usize,
     /// The minimums alone exceed a budget.
     pub over_budget: bool,
 }
@@ -251,6 +362,23 @@ pub fn allocate(g: &GraphDemand, m: &MemoryDemand) -> FrameCaps {
 /// are checked against every other layer's final count, with the burst pool at
 /// its granted size.
 pub fn allocate_with_extras(g: &GraphDemand, m: &MemoryDemand, x: &ExtrasDemand) -> FrameCaps {
+    allocate_with_splats(g, m, x, &SplatDemand::default())
+}
+
+/// [`allocate_with_extras`] plus the splat account (ADR-2170 decision 7; see the
+/// module docs). The splat draw calls are reserved from [`DRAW_CALL_LIMIT`]
+/// after every other layer's calls and *before* the extras are priced, so an
+/// extras tier that needs a call the splats hold is refused instead. The
+/// triangle side is untouched: every graph, cloud, route, burst, hull and extras
+/// field equals what [`allocate_with_extras`] returns for the same inputs
+/// whenever the splat calls leave the extras their room (tested), and the splat
+/// triangles are only reported in [`FrameCaps::splat_tris`].
+pub fn allocate_with_splats(
+    g: &GraphDemand,
+    m: &MemoryDemand,
+    x: &ExtrasDemand,
+    sd: &SplatDemand,
+) -> FrameCaps {
     let faded = g.faded.min(g.nodes);
     let far = g.other_tris
         + g.nodes * IMPOSTOR_TRIS_PER_NODE
@@ -317,7 +445,10 @@ pub fn allocate_with_extras(g: &GraphDemand, m: &MemoryDemand, x: &ExtrasDemand)
             0
         }
         + if burst_slots > 0 { BURST_DRAW_CALLS } else { 0 };
-    let fits_calls = |calls: usize| base_calls + calls <= DRAW_CALL_LIMIT.max(base_calls);
+    // splat calls come off the limit before the extras can ask for any
+    let splat = splat_grant(sd, base_calls);
+    let held_calls = base_calls + splat.draw_calls;
+    let fits_calls = |calls: usize| held_calls + calls <= DRAW_CALL_LIMIT.max(held_calls);
     let top = x.tier.min(EXTRAS_MAX_TIER);
 
     // extras allowance (ADR-2167, owner decision 2026-10-31): the cost of the
@@ -370,7 +501,7 @@ pub fn allocate_with_extras(g: &GraphDemand, m: &MemoryDemand, x: &ExtrasDemand)
     } else {
         spent
     };
-    let draw_calls = base_calls + extras_draw_calls;
+    let draw_calls = held_calls + extras_draw_calls;
 
     FrameCaps {
         graph: GraphCaps {
@@ -388,6 +519,12 @@ pub fn allocate_with_extras(g: &GraphDemand, m: &MemoryDemand, x: &ExtrasDemand)
         extras_tris,
         extras_draw_calls,
         extras_allowance: if pressure { 0 } else { extras_tris },
+        splat_volumes: splat.volumes,
+        splat_tier: splat.tier,
+        splat_portal_tier: splat.portal_tier,
+        splat_count: splat.count,
+        splat_tris: splat.tris,
+        splat_draw_calls: splat.draw_calls,
         over_budget: over_tris || base_calls > DRAW_CALL_LIMIT,
     }
 }
@@ -600,6 +737,12 @@ fn caps_dictionary(c: &FrameCaps) -> Dictionary {
     d.set("extras_tris", c.extras_tris as i64);
     d.set("extras_draw_calls", c.extras_draw_calls as i64);
     d.set("extras_allowance", c.extras_allowance as i64);
+    d.set("splat_volumes", c.splat_volumes as i64);
+    d.set("splat_tier", c.splat_tier as i64);
+    d.set("splat_portal_tier", c.splat_portal_tier as i64);
+    d.set("splat_count", c.splat_count as i64);
+    d.set("splat_tris", c.splat_tris as i64);
+    d.set("splat_draw_calls", c.splat_draw_calls as i64);
     d.set("over_budget", c.over_budget);
     d
 }
@@ -714,6 +857,86 @@ impl FrameBudget {
             frames: u(extras_frames),
         };
         caps_dictionary(&allocate_with_extras(&g, &m, &x))
+    }
+
+    /// [`allocate_with_extras`] plus the splat account (ADR-2170): the same
+    /// thirteen arguments, then a `splat` dictionary {tier: requested tier, 0 =
+    /// off; volumes: visible loaded splat volumes; entered: whether a splat
+    /// volume is the entered room} (gdext methods take at most 15 arguments, so
+    /// the demand travels as one). The result adds `splat_volumes`, `splat_tier`, `splat_portal_tier`,
+    /// `splat_count`, `splat_tris` and `splat_draw_calls`; `splat_tris` is
+    /// reported only and is not in `tris_total`.
+    #[func]
+    #[allow(clippy::too_many_arguments)]
+    fn allocate_with_splats(
+        &self,
+        nodes: i64,
+        edges: i64,
+        hulls: i64,
+        hull_tris: i64,
+        faded: i64,
+        other_tris: i64,
+        graph_draw_calls: i64,
+        cloud_rows: i64,
+        route_rows: i64,
+        route_sidecar: i64,
+        burst_slots: i64,
+        extras_tier: i64,
+        extras_frames: i64,
+        splat: Dictionary,
+    ) -> Dictionary {
+        let u = |v: i64| v.max(0) as usize;
+        let g = GraphDemand {
+            nodes: u(nodes),
+            edges: u(edges),
+            hulls: u(hulls),
+            hull_tris: u(hull_tris),
+            faded: u(faded),
+            draw_calls: u(graph_draw_calls),
+            other_tris: u(other_tris),
+        };
+        let route = (route_rows >= 2).then(|| RouteShape {
+            rows: u(route_rows),
+            sidecar: u(route_sidecar),
+        });
+        let m = MemoryDemand {
+            cloud_rows: u(cloud_rows),
+            route,
+            burst_slots: u(burst_slots),
+        };
+        let x = ExtrasDemand {
+            tier: u(extras_tier),
+            frames: u(extras_frames),
+        };
+        let field = |key: &str| {
+            splat
+                .get(key)
+                .and_then(|v| v.try_to::<i64>().ok())
+                .unwrap_or(0)
+        };
+        let sd = SplatDemand {
+            tier: u(field("tier")),
+            volumes: u(field("volumes")),
+            entered: splat
+                .get("entered")
+                .and_then(|v| v.try_to::<bool>().ok())
+                .unwrap_or(false),
+        };
+        caps_dictionary(&allocate_with_splats(&g, &m, &x, &sd))
+    }
+
+    /// The splat account's constants: max_tier, tier_counts (index = tier),
+    /// tris_per_splat, max_volumes, unentered_max_tier.
+    #[func]
+    fn splat_spec(&self) -> Dictionary {
+        let mut d = Dictionary::new();
+        d.set("max_tier", SPLAT_MAX_TIER as i64);
+        let counts: Vec<i64> = SPLAT_TIER_COUNTS.iter().map(|&c| c as i64).collect();
+        d.set("tier_counts", PackedInt64Array::from(counts.as_slice()));
+        d.set("tris_per_splat", SPLAT_TRIS_PER_SPLAT as i64);
+        d.set("max_volumes", SPLAT_MAX_VOLUMES as i64);
+        d.set("unentered_max_tier", SPLAT_UNENTERED_MAX_TIER as i64);
+        d
     }
 
     /// [triangles, draw calls] of extras `tier` with `frames` volume frames
@@ -1641,5 +1864,174 @@ mod tests {
         assert_eq!((c.extras_tris, c.extras_draw_calls), (0, 0), "no triangle bought");
         assert_eq!(c.tris_total, plain.tris_total, "the minimums are what is reported");
         assert_eq!(c.graph, plain.graph);
+    }
+
+    // ── splat account (ADR-2170 decision 7) ──
+
+    /// Every field the graph, memory layers and extras own, i.e. everything but
+    /// the splat fields and the draw-call total.
+    fn without_splats(c: &FrameCaps) -> FrameCaps {
+        FrameCaps {
+            splat_volumes: 0,
+            splat_tier: 0,
+            splat_portal_tier: 0,
+            splat_count: 0,
+            splat_tris: 0,
+            splat_draw_calls: 0,
+            draw_calls: 0,
+            ..*c
+        }
+    }
+
+    fn splats(tier: usize, volumes: usize, entered: bool) -> SplatDemand {
+        SplatDemand { tier, volumes, entered }
+    }
+
+    #[test]
+    fn splat_tiers_are_the_adr_counts_at_two_triangles_a_quad() {
+        assert_eq!(SPLAT_TIER_COUNTS, [0, 25_000, 50_000, 100_000]);
+        assert_eq!(SPLAT_TRIS_PER_SPLAT, 2);
+        assert_eq!(SPLAT_MAX_VOLUMES, 2);
+        assert_eq!(splat_count(0), 0);
+        assert_eq!(splat_count(3), 100_000);
+        assert_eq!(splat_count(9), 100_000, "tier clamps");
+        // The reason for the separate account: tier 1 alone is half the whole limit.
+        assert!(splat_count(1) * SPLAT_TRIS_PER_SPLAT > TRI_LIMIT / 2);
+    }
+
+    #[test]
+    fn splat_grant_follows_tier_volume_and_entered_state() {
+        let off = SplatGrant::default();
+        assert_eq!(splat_grant(&splats(0, 2, true), 6), off, "tier 0 is off");
+        assert_eq!(splat_grant(&splats(3, 0, true), 6), off, "no volume, no call");
+        // entered: the room draws the requested tier, one call
+        let g = splat_grant(&splats(3, 1, true), 6);
+        assert_eq!((g.volumes, g.tier, g.count, g.tris, g.draw_calls), (1, 3, 100_000, 200_000, 1));
+        // not entered: held at the unentered ceiling however high the governor climbed
+        let g = splat_grant(&splats(3, 1, false), 6);
+        assert_eq!((g.tier, g.count), (SPLAT_UNENTERED_MAX_TIER, 25_000));
+        // two volumes, one entered: the room at tier 3, the portal at the ceiling
+        let g = splat_grant(&splats(3, 2, true), 6);
+        assert_eq!((g.volumes, g.tier, g.portal_tier, g.draw_calls), (2, 3, 1, 2));
+        assert_eq!(g.count, 100_000 + 25_000);
+        assert_eq!(g.tris, 2 * g.count);
+        // at most two volumes are ever charged
+        assert_eq!(splat_grant(&splats(3, 7, true), 6).draw_calls, 2);
+        // a tier-1 request is never raised
+        assert_eq!(splat_grant(&splats(1, 2, true), 6).count, 50_000);
+    }
+
+    #[test]
+    fn splat_draw_calls_count_against_the_limit() {
+        let g = production();
+        let m = MemoryDemand::default();
+        let c = allocate_with_splats(&g, &m, &ExtrasDemand::default(), &splats(3, 2, true));
+        let plain = allocate(&g, &m);
+        assert_eq!(c.splat_draw_calls, 2);
+        assert_eq!(c.draw_calls, plain.draw_calls + 2, "one call per volume, in the total");
+        assert!(c.draw_calls <= DRAW_CALL_LIMIT);
+        // No room: a volume the limit has no call for is not granted.
+        for room in 0..=2usize {
+            let g = GraphDemand { draw_calls: DRAW_CALL_LIMIT - room, ..g };
+            let c = allocate_with_splats(&g, &m, &ExtrasDemand::default(), &splats(3, 2, true));
+            assert_eq!(c.splat_volumes, room, "room for {room} call(s)");
+            assert_eq!(c.splat_draw_calls, room);
+            assert!(c.draw_calls <= DRAW_CALL_LIMIT, "{room}: the limit holds");
+            assert!(!c.over_budget, "{room}: splats never cause an overrun");
+        }
+        // A graph that already overruns the calls grants none and adds none.
+        let g = GraphDemand { draw_calls: DRAW_CALL_LIMIT + 3, ..g };
+        let c = allocate_with_splats(&g, &m, &ExtrasDemand::default(), &splats(3, 2, true));
+        assert_eq!((c.splat_volumes, c.draw_calls), (0, DRAW_CALL_LIMIT + 3));
+        assert!(c.over_budget, "the graph's own overrun is still reported");
+    }
+
+    #[test]
+    fn splat_calls_are_reserved_before_the_extras() {
+        // Two calls of room, tier 3 extras want one (the motes). Splats first:
+        // both calls go to the splats and the motes tier is refused.
+        let g = GraphDemand { draw_calls: DRAW_CALL_LIMIT - 2, ..production() };
+        let m = MemoryDemand::default();
+        let x = ExtrasDemand { tier: 3, frames: 3 };
+        let without = allocate_with_extras(&g, &m, &x);
+        assert_eq!(without.extras_tier, 3, "with nothing else asking, the motes fit");
+        let c = allocate_with_splats(&g, &m, &x, &splats(3, 2, true));
+        assert_eq!(c.splat_draw_calls, 2, "the splats keep their calls");
+        assert_eq!(c.extras_draw_calls, 0, "the extras cannot take them");
+        assert_eq!(c.extras_tier, 2, "the ribbons need no call and stay");
+        assert_eq!(c.draw_calls, DRAW_CALL_LIMIT);
+        // With a spare call both fit.
+        let g = GraphDemand { draw_calls: DRAW_CALL_LIMIT - 3, ..production() };
+        let c = allocate_with_splats(&g, &m, &x, &splats(3, 2, true));
+        assert_eq!((c.splat_draw_calls, c.extras_draw_calls, c.extras_tier), (2, 1, 3));
+        assert_eq!(c.draw_calls, DRAW_CALL_LIMIT);
+    }
+
+    #[test]
+    fn splat_triangles_are_reported_and_never_charged() {
+        for (g, m) in [
+            (production(), full_memory()),
+            (production(), MemoryDemand::default()),
+            (benchmark_production().0, benchmark_production().1),
+        ] {
+            let x = ExtrasDemand { tier: 4, frames: 3 };
+            let plain = allocate_with_extras(&g, &m, &x);
+            for tier in 0..=SPLAT_MAX_TIER {
+                for volumes in 0..=3 {
+                    for entered in [false, true] {
+                        let c = allocate_with_splats(&g, &m, &x, &splats(tier, volumes, entered));
+                        assert_eq!(c.tris_total, plain.tris_total, "tier {tier}: splat tris are not in the total");
+                        assert!(c.tris_total <= TRI_LIMIT.max(plain.tris_total));
+                        assert_eq!(c.over_budget, plain.over_budget, "tier {tier}: no splat-caused overrun");
+                        assert_eq!(c.splat_tris, c.splat_count * SPLAT_TRIS_PER_SPLAT);
+                        if c.splat_count > 0 {
+                            assert!(c.splat_tris > TRI_LIMIT / 2, "reported on its own, outside TRI_LIMIT");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn graph_allocation_is_unchanged_by_any_splat_demand() {
+        // The graph, cloud, route, burst and hull caps, and the extras the calls
+        // leave room for, equal the no-splat allocation in every state.
+        let m = full_memory();
+        for g in [production(), benchmark_production().0] {
+            for extras in 0..=EXTRAS_MAX_TIER {
+                let x = ExtrasDemand { tier: extras, frames: 3 };
+                let plain = allocate_with_extras(&g, &m, &x);
+                for tier in 0..=SPLAT_MAX_TIER {
+                    for volumes in 0..=2 {
+                        for entered in [false, true] {
+                            let c = allocate_with_splats(&g, &m, &x, &splats(tier, volumes, entered));
+                            assert_eq!(
+                                without_splats(&c),
+                                without_splats(&plain),
+                                "extras {extras}, splats {tier}/{volumes}/{entered}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        // And allocate_with_extras is exactly the account with nothing asked.
+        let g = production();
+        let x = ExtrasDemand { tier: 3, frames: 3 };
+        assert_eq!(allocate_with_extras(&g, &m, &x), allocate_with_splats(&g, &m, &x, &SplatDemand::default()));
+        assert_eq!(allocate(&g, &m), allocate_with_splats(&g, &m, &ExtrasDemand::default(), &SplatDemand::default()));
+    }
+
+    #[test]
+    fn only_an_entered_splat_volume_may_climb_past_the_unentered_ceiling() {
+        let (g, m) = (production(), MemoryDemand::default());
+        let x = ExtrasDemand::default();
+        for tier in 0..=SPLAT_MAX_TIER {
+            let out = allocate_with_splats(&g, &m, &x, &splats(tier, 1, false));
+            assert!(out.splat_tier <= SPLAT_UNENTERED_MAX_TIER, "tier {tier} unentered");
+            let inn = allocate_with_splats(&g, &m, &x, &splats(tier, 1, true));
+            assert_eq!(inn.splat_tier, tier, "tier {tier} entered");
+        }
     }
 }

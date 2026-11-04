@@ -356,3 +356,82 @@ func test_extras_constants_match_the_allocator() -> void:
 	assert_eq(int(spec["motes_high"]), EyeCandy.MOTES_HIGH)
 	assert_eq(int(spec["frame_tris"]), EyeCandy.FRAME_RIBBON_TRIS)
 	assert_eq(int(spec["max_tier"]), EyeCandy.MAX_TIER)
+
+
+# ── the splat account through the pass (ADR-2170 decision 7) ──
+
+func test_splat_demand_is_granted_and_reported_but_never_charged_to_the_graph() -> void:
+	var client := _client()
+	var layers := _production_layers()
+	var off = FrameBudgetPass.new()
+	var on = FrameBudgetPass.new()
+	on.set_splat_demand(3, 1, true)
+	off.tick(1.0, client, layers, null, _measured(client, layers, 2000, 0))
+	on.tick(1.0, client, layers, null, _measured(client, layers, 2000, 0))
+	assert_eq(int(on.caps["splat_tier"]), 3)
+	assert_eq(int(on.caps["splat_count"]), 100000)
+	assert_eq(int(on.caps["splat_tris"]), 200000, "reported, outside TRI_LIMIT")
+	assert_eq(int(on.caps["splat_draw_calls"]), 1)
+	assert_eq(int(on.caps["draw_calls"]), int(off.caps["draw_calls"]) + 1, "the call is charged")
+	for k: String in ["gem_nodes", "cylinder_edges", "max_hulls", "cloud_sprites", "route_tris", "burst_slots", "tris_total"]:
+		assert_eq(on.caps[k], off.caps[k], "%s: the graph allocation is unchanged by a splat demand" % k)
+	assert_false(bool(on.caps["over_budget"]), "splat triangles never set over_budget")
+	assert_eq(int(off.caps["splat_tris"]), 0)
+
+
+func test_an_unentered_splat_volume_is_held_at_the_unentered_ceiling() -> void:
+	var client := _client()
+	var layers := _production_layers()
+	var p = FrameBudgetPass.new()
+	p.set_splat_demand(3, 1, false)
+	p.tick(1.0, client, layers, null, _measured(client, layers, 2000, 0))
+	var spec: Dictionary = FrameBudget.new().splat_spec()
+	assert_eq(int(p.caps["splat_tier"]), int(spec["unentered_max_tier"]), "only an entered volume climbs past it")
+
+
+func test_drawn_splats_are_not_charged_twice() -> void:
+	var client := _client()
+	var layers := _production_layers()
+	var drawn := 200000 # 100k quads
+	var p = FrameBudgetPass.new()
+	# The renderer's total includes every splat quad; the pass subtracts them, or the
+	# graph would read them as "outside the budgeted layers" and its caps would collapse.
+	p.set_splat_applied(drawn, 1)
+	p.tick(1.0, client, layers, null, _measured(client, layers, 2000 + drawn, 0))
+	assert_eq(int(p.last_report["other_tris"]), 2000, "other_tris excludes what the splats drew")
+	var q = FrameBudgetPass.new()
+	q.tick(1.0, client, layers, null, _measured(client, layers, 2000 + drawn, 0))
+	assert_eq(int(q.last_report["other_tris"]), 2000 + drawn, "and counts it when nobody reports it")
+	# The graph caps with the splats reported equal the no-splat caps.
+	var base = FrameBudgetPass.new()
+	base.tick(1.0, client, layers, null, _measured(client, layers, 2000, 0))
+	for k: String in ["gem_nodes", "cylinder_edges", "max_hulls"]:
+		assert_eq(p.caps[k], base.caps[k], k)
+	assert_lt(int(q.caps["gem_nodes"]), int(base.caps["gem_nodes"]), "unreported, the same splats would starve the graph")
+
+
+func test_the_splat_calls_are_reserved_before_the_extras() -> void:
+	var client := _client()
+	# 46 of 48 calls already spent: two calls of room. Splats ask for both, extras for one.
+	var layers := _production_layers()
+	layers["draw_calls"] = 46
+	var p = FrameBudgetPass.new()
+	p.set_extras_demand(3, 3)
+	p.set_splat_demand(3, 2, true)
+	p.tick(1.0, client, layers, null, _measured(client, layers, 2000, 0))
+	assert_eq(int(p.caps["splat_draw_calls"]), 2)
+	assert_eq(int(p.caps["extras_draw_calls"]), 0, "the extras cannot take the calls splats need")
+	assert_lte(int(p.caps["draw_calls"]), 48)
+
+
+func test_the_splat_demand_is_clamped_and_the_constants_match_the_allocator() -> void:
+	var spec: Dictionary = FrameBudget.new().splat_spec()
+	var p = FrameBudgetPass.new()
+	p.set_splat_demand(99, 7, true)
+	assert_eq(int(p.splat_demand["tier"]), int(spec["max_tier"]))
+	p.set_splat_demand(-3, -1, false)
+	assert_eq(p.splat_demand, {"tier": 0, "volumes": 0, "entered": false})
+	assert_eq(FrameBudgetPass.SPLAT_MAX_TIER, int(spec["max_tier"]))
+	assert_eq(int(spec["max_volumes"]), 2)
+	assert_eq(int(spec["tris_per_splat"]), 2)
+	assert_eq(Array(spec["tier_counts"]), [0, 25000, 50000, 100000])

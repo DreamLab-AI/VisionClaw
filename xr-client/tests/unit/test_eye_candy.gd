@@ -490,7 +490,8 @@ func _code_only(src: String, marker: String) -> String:
 
 
 func test_no_extra_reaches_for_a_post_process_or_a_screen_read() -> void:
-	for path: String in ["res://materials/frame_ribbon.gdshader", "res://materials/ambient_mote.gdshader", "res://materials/eye_candy_sky.gdshader"]:
+	# ADR-2170: the splat shader is under the same rule.
+	for path: String in ["res://materials/frame_ribbon.gdshader", "res://materials/ambient_mote.gdshader", "res://materials/eye_candy_sky.gdshader", "res://materials/splat.gdshader"]:
 		var src: String = _code_only(FileAccess.get_file_as_string(path), "//")
 		assert_ne(src, "", path)
 		for banned: String in ["SCREEN_TEXTURE", "DEPTH_TEXTURE", "hint_screen_texture", "hint_depth_texture", "NORMAL_ROUGHNESS_TEXTURE"]:

@@ -38,6 +38,18 @@ extends RefCounted
 ## measured primitives, so it is taken out of `other_tris` here, or the pass
 ## would charge it twice and revoke it two seconds later.
 
+## Splat account (ADR-2170 decision 7, accepted by the owner). `splat_volume.gd` states
+## what it wants with `set_splat_demand(tier, volumes, entered)` and what it drew with
+## `set_splat_applied(tris, draw_calls)`. `allocate_with_splats` reserves the splat draw
+## calls (one a visible volume, at most two) before the extras allowance, and reports the
+## splat triangles in `caps["splat_tris"]` without charging them to the graph. The
+## measured primitives include every splat quad, so `tick` takes the applied splat
+## triangles out of `other_tris` exactly as it does the extras': otherwise a 100k-splat
+## room (200k triangles) would read as "everything outside the budgeted layers" and the
+## graph's caps would collapse. The splat volume's own draw calls are NOT in
+## `layers.draw_calls` (the allocator adds them); only its frame is, via
+## `overhead_draw_calls`.
+
 const NodeLod := preload("res://scripts/node_lod.gd")
 ## Low rate: demand changes with the drawn set, not per frame (caps only move
 ## the tier split, never invalidate the pack plans).
@@ -46,6 +58,8 @@ const DEFAULT_MAX_HULLS: int = 32
 const OTHER_PEAK_SEC: float = 2.0
 ## Highest extras tier; mirrors rust/src/frame_budget.rs EXTRAS_MAX_TIER (checked in test_frame_budget_pass.gd).
 const EXTRAS_MAX_TIER: int = 4
+## Highest splat tier; mirrors rust/src/frame_budget.rs SPLAT_MAX_TIER (checked in test_splat_volume.gd).
+const SPLAT_MAX_TIER: int = 3
 ## Burst pool slots reserved while memory_flash bursts are on and the cloud is
 ## hidden (memory_bursts.gd POOL_SIZE; with the cloud shown bursts restyle rows).
 const BURST_POOL: int = 64
@@ -59,6 +73,12 @@ var caps: Dictionary = {
 	"extras_tris": 0,
 	"extras_draw_calls": 0,
 	"extras_allowance": 0,
+	"splat_volumes": 0,
+	"splat_tier": 0,
+	"splat_portal_tier": 0,
+	"splat_count": 0,
+	"splat_tris": 0,
+	"splat_draw_calls": 0,
 	"over_budget": false,
 }
 var last_report: Dictionary = {}
@@ -68,6 +88,9 @@ var volume_caps: Dictionary = {}
 var volume_weights: Dictionary = {}
 ## What the visual extras want: {"tier": 0..4, "frames": visible volume frames}.
 var extras_demand: Dictionary = {"tier": 0, "frames": 0}
+## What the splat volumes want: {"tier": 0..3, "volumes": visible loaded splat volumes,
+## "entered": a splat volume is the entered room}.
+var splat_demand: Dictionary = {"tier": 0, "volumes": 0, "entered": false}
 
 var _accum: float = BUDGET_SEC
 var _fb: Object = null
@@ -75,6 +98,7 @@ var _bucket_max: int = 0                 # peak other_tris since the last pass
 var _peaks: Array[int] = []              # per-pass peaks over OTHER_PEAK_SEC
 var _last_volumes: Dictionary = {}       # the volumes of the last tick, for an immediate re-split
 var _extras_tris: int = 0                # triangles the extras drew last frame (reported by the controller)
+var _splat_tris: int = 0                 # triangles the splat volumes drew last frame (reported by them)
 
 
 ## Call every frame. `layers`: instance counts drawn last frame — gems, faded,
@@ -100,7 +124,7 @@ func tick(delta: float, client: RefCounted, layers: Dictionary, memory: Object, 
 		var b: Dictionary = memory.budget()
 		memory_tris = int(b.get("cloud_triangles", 0)) + int(b.get("route_triangles", 0))
 	if measured_tris > 0:
-		_bucket_max = maxi(_bucket_max, maxi(0, measured_tris - graph_tris - memory_tris - _extras_tris))
+		_bucket_max = maxi(_bucket_max, maxi(0, measured_tris - graph_tris - memory_tris - _extras_tris - _splat_tris))
 	_accum += delta
 	if _accum < BUDGET_SEC:
 		return false
@@ -122,7 +146,12 @@ func tick(delta: float, client: RefCounted, layers: Dictionary, memory: Object, 
 	var cloud_shown: bool = int(demand.get("cloud_rows", 0)) > 0
 	var burst_demand: int = BURST_POOL if bursts_on and not cloud_shown else 0
 	var result: Dictionary
-	if _fb.has_method("allocate_with_extras"):
+	if _fb.has_method("allocate_with_splats"):
+		result = _fb.allocate_with_splats(gems + impostors + faded, cylinders + ribbons, int(layers.get("hulls", 0)),
+			hull_tris, faded, other_tris, int(layers.get("draw_calls", 0)), int(demand.get("cloud_rows", 0)),
+			int(demand.get("route_rows", 0)), int(demand.get("route_sidecar", 0)), burst_demand,
+			int(extras_demand.get("tier", 0)), int(extras_demand.get("frames", 0)), splat_demand)
+	elif _fb.has_method("allocate_with_extras"):
 		result = _fb.allocate_with_extras(gems + impostors + faded, cylinders + ribbons, int(layers.get("hulls", 0)),
 			hull_tris, faded, other_tris, int(layers.get("draw_calls", 0)), int(demand.get("cloud_rows", 0)),
 			int(demand.get("route_rows", 0)), int(demand.get("route_sidecar", 0)), burst_demand,
@@ -174,6 +203,18 @@ func set_extras_applied(tris: int, _draw_calls: int) -> void:
 	# make (the frames' via overhead_draw_calls, the motes' as the extras' own,
 	# which the allocator prices), so none is taken out of `caps.draw_calls`.
 	_extras_tris = maxi(0, tris)
+
+
+## The splat volumes' request for the next pass (see the file header). `volumes` is the
+## visible, loaded splat volumes; `entered` is true while one of them is the entered room.
+func set_splat_demand(tier: int, volumes: int, entered: bool) -> void:
+	splat_demand = {"tier": clampi(tier, 0, SPLAT_MAX_TIER), "volumes": maxi(0, volumes), "entered": entered}
+
+
+## What the splat volumes drew last frame, so the measured total is not charged twice.
+## `draw_calls` is informational: the allocator already counts them.
+func set_splat_applied(tris: int, _draw_calls: int) -> void:
+	_splat_tris = maxi(0, tris)
 
 
 ## Share the current near caps between `volumes` (volume_id → {"nodes",
