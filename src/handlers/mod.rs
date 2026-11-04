@@ -129,7 +129,9 @@ pub use solid_proxy_handler::init_solid_state;
 
 // Image generation (ComfyUI Flux2)
 pub mod image_gen_handler;
+pub mod splat_handler;
 pub use image_gen_handler::configure_routes as configure_image_gen_routes;
+pub use splat_handler::configure_routes as configure_splat_routes;
 
 // HTTP 402 payments / exchange (Web Ledgers + AMM) — gated on solid-pod-rs
 #[cfg(feature = "solid-pod-embed")]

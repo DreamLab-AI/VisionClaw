@@ -300,3 +300,7 @@ archive/attic/
 # Remembered optional-sidecar choice (scripts/launch.sh)
 .launch-sidecars
 .launch-sidecars.tmp.*
+
+# ADR-2170: splat assets are never committed; only data/splats/manifest.json is.
+data/splat-cache/
+data/splat-work/

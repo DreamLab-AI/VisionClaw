@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "assets": [
+    {
+      "id": "iss",
+      "title": "International Space Station",
+      "author": "Tamás Máté",
+      "sourceUrl": "https://superspl.at/scene/cc026f6a",
+      "licence": {
+        "spdx": "CC-BY-4.0",
+        "url": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "attribution": "\"International Space Station\" by Tamás Máté (superspl.at/scene/cc026f6a)",
+      "upstreamUnchecked": [
+        "NASA ISS 3D model (terms not checked)",
+        "drsys.eu Earth textures (terms not checked)"
+      ],
+      "sources": [
+        {
+          "name": "meta.json",
+          "url": "https://d28zzqy0iyovbz.cloudfront.net/cc026f6a/v1/meta.json",
+          "sha256": "6e4a3d5775b6cf9de4941fa6b90030705ed169ae775b3a29301d866f7d6f7797"
+        },
+        {
+          "name": "means_l.webp",
+          "url": "https://d28zzqy0iyovbz.cloudfront.net/cc026f6a/v1/means_l.webp",
+          "sha256": "9506fea70c0e203f6f154d9a2b8d77edfb9644a2ca9ca8f2b6dda53ca0a47fa9"
+        },
+        {
+          "name": "means_u.webp",
+          "url": "https://d28zzqy0iyovbz.cloudfront.net/cc026f6a/v1/means_u.webp",
+          "sha256": "f608a0a6608ca1e10938927bb46f4d6918b52592a5ea03e144aa71c4c12990da"
+        },
+        {
+          "name": "quats.webp",
+          "url": "https://d28zzqy0iyovbz.cloudfront.net/cc026f6a/v1/quats.webp",
+          "sha256": "8d756a07875e3b8d3584343ff03460ae7ba28c2376366d9b0929fd25b34a6b6e"
+        },
+        {
+          "name": "scales.webp",
+          "url": "https://d28zzqy0iyovbz.cloudfront.net/cc026f6a/v1/scales.webp",
+          "sha256": "91f2cbcbfea39a9080c58a03dac156c5a6757d04dc7f29b80a9cc676dafbc1e0"
+        },
+        {
+          "name": "sh0.webp",
+          "url": "https://d28zzqy0iyovbz.cloudfront.net/cc026f6a/v1/sh0.webp",
+          "sha256": "a7c86aad87476ab3e52dea0b175562b8f191800f70cd2c0892e2905b43949717"
+        },
+        {
+          "name": "shN_centroids.webp",
+          "url": "https://d28zzqy0iyovbz.cloudfront.net/cc026f6a/v1/shN_centroids.webp",
+          "sha256": "f1bc95aa54f014c54f270afc49c6377019e904ba83bb7a37b75150dee5991d7a"
+        },
+        {
+          "name": "shN_labels.webp",
+          "url": "https://d28zzqy0iyovbz.cloudfront.net/cc026f6a/v1/shN_labels.webp",
+          "sha256": "5c1e9c08eb488a82b3e6736858fd9d299eced5404dc5d039b590531277dc95dc"
+        }
+      ],
+      "bounds": {
+        "min": [
+          -64.0,
+          -36.5,
+          -26.0
+        ],
+        "max": [
+          64.0,
+          36.0,
+          43.0
+        ]
+      },
+      "variants": [
+        {
+          "name": "desktop-hi",
+          "splats": 3000000,
+          "shDegree": 3,
+          "sha256": null
+        },
+        {
+          "name": "desktop",
+          "splats": 1500000,
+          "shDegree": 3,
+          "sha256": null
+        },
+        {
+          "name": "xr-3",
+          "splats": 100000,
+          "shDegree": 0,
+          "sha256": null
+        },
+        {
+          "name": "xr-2",
+          "splats": 50000,
+          "shDegree": 0,
+          "sha256": null
+        },
+        {
+          "name": "xr-1",
+          "splats": 25000,
+          "shDegree": 0,
+          "sha256": null
+        }
+      ]
+    }
+  ]
+}

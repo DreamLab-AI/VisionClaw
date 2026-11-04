@@ -7648,6 +7648,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "visionclaw-splat"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.16",
+ "ureq",
+]
+
+[[package]]
 name = "visionclaw-tri-layout"
 version = "0.1.0"
 dependencies = [

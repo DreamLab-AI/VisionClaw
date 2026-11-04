@@ -903,6 +903,13 @@ async fn main() -> std::io::Result<()> {
         memory_cloud_data.config().query_per_minute,
     );
 
+    // ADR-2170: the splat cache is re-hashed once at boot, off the reactor.
+    let splat_store = web::Data::new(
+        tokio::task::spawn_blocking(visionclaw_server::handlers::splat_handler::open_store_from_env)
+            .await
+            .expect("splat store open task"),
+    );
+
     // Pre-initialise Solid pod state in the main async context (FsBackend::new
     // is async). The state is injected via app_data so Actix workers don't need
     // to run async init inside their sync configure closure.
@@ -1076,6 +1083,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(pathfinding_service.clone()))
             .app_data(app_state_data.nostr_service.clone().unwrap_or_else(|| web::Data::new(NostrService::default())))
             .app_data(app_state_data.feature_access.clone())
+            .app_data(splat_store.clone())
             .app_data(web::Data::new(github_sync_service.clone()))
             .app_data(web::Data::new(ontology_query_service.clone()))
             .app_data(web::Data::new(ontology_mutation_service.clone()))
@@ -1204,6 +1212,9 @@ async fn main() -> std::io::Result<()> {
 
                     // Solid Pod (embedded solid-pod-rs)
                     .configure(visionclaw_server::handlers::configure_solid_routes)
+
+                    // Gaussian splat assets, content-addressed (ADR-2170)
+                    .configure(visionclaw_server::handlers::configure_splat_routes)
 
                     // Image generation via ComfyUI (Flux2)
                     .configure(visionclaw_server::handlers::configure_image_gen_routes)
