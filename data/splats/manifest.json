@@ -74,31 +74,36 @@
           "name": "desktop-hi",
           "splats": 3000000,
           "shDegree": 3,
-          "sha256": null
+          "sha256": "6873c408012747f9a410ac495b02c654d982dedeacb31654c833a56b66fd7ab1",
+          "bytes": 72257670
         },
         {
           "name": "desktop",
           "splats": 1500000,
           "shDegree": 3,
-          "sha256": null
+          "sha256": "3f7cb941c21593357560f0e1619f122f2db5d025fc0c03365583f034158c6baa",
+          "bytes": 36724123
         },
         {
           "name": "xr-3",
           "splats": 100000,
           "shDegree": 0,
-          "sha256": null
+          "sha256": "c319865948aefb6534c2af12fb66e87ff41da0332eac6b19f9c44e19cf552259",
+          "bytes": 1746133
         },
         {
           "name": "xr-2",
           "splats": 50000,
           "shDegree": 0,
-          "sha256": null
+          "sha256": "a4995fa97eded8c638fc778a28d5339618917e0542b2cfad823d1f4ff47a79c1",
+          "bytes": 876159
         },
         {
           "name": "xr-1",
           "splats": 25000,
           "shDegree": 0,
-          "sha256": null
+          "sha256": "d4dd551c681c61623247c8c33a9dd38670375f7b5750c2cfab9b6cb444ac62d2",
+          "bytes": 442550
         }
       ]
     }
