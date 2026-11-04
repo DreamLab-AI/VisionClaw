@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: ff849f2baa4b0b47fcb1adb6c039a2ef72bbc5e6
+verified_commit: 5c94c3cbdafad99e6985fe509162831bf18c2ec8
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -385,3 +385,7 @@ Re-verified after the R23 fixes. `agent_roster_feed.rs` `apply` takes the produc
 ## Re-verification — 2026-10-31 (`ff849f2ba`)
 
 Re-stamped at the merge of `phys/integrate` and `viz/edge-tracking` (`ff849f2ba`). The governed-path delta since `e2afd65d6` is the ADR-sprint work recorded in ADR-2169, 2172, 2173, 2174 and the 2026-11-01 consolidation commits. The delta was read from the diff, not re-run against this record's acceptance tests. Re-run: `git diff e2afd65d6..ff849f2ba -- $(verified_paths)`.
+
+## Re-verification — 2026-11-04 (`5c94c3cbd`)
+
+Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `ff849f2ba` are additive: `Cargo.toml`: a workspace member and path dependency for `crates/visionclaw-splat`; no profile, feature or other dependency changed. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff ff849f2ba..5c94c3cbd -- <governed path>`.

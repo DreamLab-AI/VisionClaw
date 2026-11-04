@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: c750046962749715a4efb1b6056c7f40d9865110
+verified_commit: 5c94c3cbdafad99e6985fe509162831bf18c2ec8
 verified_paths: [src/config/security_profile.rs, src/main.rs]
 owner: jjohare
 review_trigger: adoption of a production deployment, or any change to the profile env vars (RBAC_PUBLIC_READS, PUBKEY_VISIBILITY_FILTER, RBAC_DEFAULT_ROLE)
@@ -319,3 +319,7 @@ None of these changes touches the decision this record makes. Every deletion had
 Governed diff `bb76e75bd..b4a175412` touches `security_profile.rs` (doc-comment renames only) and `main.rs` (telemetry log guard, `semantic_service` app data); no boot-assertion line changed. **Holds, status stays `partial`.** Fresh anchors (source reading; tests not re-run): `SECURITY_PROFILE_ENV` `security_profile.rs:54`, `FORBIDDEN_DEV_VARS` `:59`, `DeploymentProfile` `:83`, `expected_flags` `:124`, findings `MissingDeclaredProfile` `:295`, `UnnamedEffectiveProfile` `:297`, `FullDisclosureFlagPair` `:304`, `may_bind_listener` `:388`, `evaluate_effective_profile` `:485` (full-disclosure rule `:545-556`, drift `:559-579`, missing-declaration and unnamed findings `:596-600`), `assert_effective_profile_or_exit` `:624` with `process::exit(2)` `:654`. `main.rs`: block `:937-955`, call `:950`, receipt logged `:956-960`, `HttpServer::new` `:970`, `.bind()` `:1259`. The Decision's implicit `multi-user-locked` default is still not implemented and none is added: an undeclared production deployment is instead refused (`MissingDeclaredProfile`, `:596`), which is stricter than the Decision and is the divergence already awaiting owner ratification. `docs/SECURITY-profiles.md` anchors (`main.rs`, `rbac_gate.rs`, `docker-compose.unified.yml`, `security_profile.rs`) were stale and have been refreshed in the same change.
 
 Re-verified 2026-10-30 at c75004696: `src/main.rs` only gains the Jev client (`visionclaw_jev::hub::global()`, `.with_jev`, `configure_jev_routes` under the same authenticated `/api` scope; `src/handlers/jev_handler.rs` takes `AuthenticatedUser`). The boot-time profile assertion is untouched. Anchors at HEAD: `enforce_release_env_hygiene` real body `src/main.rs:118`, dev stub `:169`, call `:209`; `assert_effective_profile_or_exit` call `:952` (import `:949`), `HttpServer::new` `:972`, `.bind` `:1264`, so the assertion still runs before the listener binds. These supersede the older `main.rs` line numbers in this record. The decision holds.
+
+## Re-verification — 2026-11-04 (`5c94c3cbd`)
+
+Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `c75004696` are additive: `src/main.rs`: the splat store opened once at boot (fails open, test-covered) plus its `app_data` and `/api/splats` routes; no auth, RBAC, profile or env-hygiene code changed. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff c75004696..5c94c3cbd -- <governed path>`.

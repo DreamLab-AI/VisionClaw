@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 69b16867d0910f1475c4e8eb3aa9bc4df26778e5
+verified_commit: 5c94c3cbdafad99e6985fe509162831bf18c2ec8
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs, xr-client/scripts/spatial_volume.gd]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -240,3 +240,7 @@ Re-verified 2026-11-01 after the inscribed-sphere edge change: `git diff df3e2ac
 Re-verified after the R23 fixes. Decision 4 is amended above: `build_beam_buffer` no longer falls back to a graph node with the agent's id (R23 F4); `render_store.rs` gains the one `is_drawn` predicate and the registry now holds a done agent until a `retired` frame, with tests `a_beam_never_starts_on_a_graph_node_that_shares_the_agents_id` and `a_done_real_agent_is_held_until_a_retired_frame` and the GUT hold test. Every claim in this record holds. Evidence: `cargo test` in `xr-client/rust` (623 passed), server `cargo test --lib` (1781 passed, `CUDA_VISIBLE_DEVICES=1`), client vitest (1540 passed), GUT on a fresh `.so` (553 passed, 0 failed, `gut_guard` ok). Not run: the headset.
 
 Re-verified again at `69b16867d`: A later commit makes the one drawn predicate slot-aware (`is_drawn_in_slot`; the link pack asks each end's own volume slot, `LinkVolume.slot`, `LinkPacker.pack` `vol_slot`) after a review found `is_drawn` alone dropped bridge links across pack slots; GUT `test_each_end_is_drawn_when_its_own_volumes_pack_slot_drew_it` and the Rust test `a_link_between_volumes_that_share_one_store_asks_each_volumes_own_pack_slot` pin it. Decisions unchanged. GUT on a fresh `.so`: 554 passed, 0 failed; `xr-client/rust` `cargo test`: 624 passed.
+
+## Re-verification — 2026-11-04 (`5c94c3cbd`)
+
+Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `69b16867d` are additive: `xr-client/scripts/graph_scene.gd`: the splat volume, built only when `XrPrefs.splat_scene()` is on (off by default) and kept out of VOLUME_BINDINGS, VOLUME_ORDER and GraphRoot. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff 69b16867d..5c94c3cbd -- <governed path>`.

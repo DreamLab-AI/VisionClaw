@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 8775359e37a394d1558bb8b5317d37a92973288e
+verified_commit: 5c94c3cbdafad99e6985fe509162831bf18c2ec8
 verified_paths: [src/config/security_profile.rs, src/main.rs, .github/workflows/ci.yml, Dockerfile.production]
 owner: jjohare
 review_trigger: any change to the production Dockerfile build line, the dev-auth feature gates, or enforce_release_env_hygiene
@@ -186,3 +186,7 @@ Re-verified 2026-10-30 at c75004696: `src/main.rs` only gains the Jev client (`v
 ## Re-verified 2026-10-31 at 8775359e3
 
 `.github/workflows/ci.yml` gained one `--test layer_direction` argument on the `rust-cpu` hermetic step (ADR-2005); the `dev-auth-release-gate` job and every Dockerfile check are unchanged. Decision holds; no re-run of this record's own tests.
+
+## Re-verification — 2026-11-04 (`5c94c3cbd`)
+
+Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `8775359e3` are additive: `src/main.rs`: the splat store opened once at boot (fails open, test-covered) plus its `app_data` and `/api/splats` routes; no auth, RBAC, profile or env-hygiene code changed. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff 8775359e3..5c94c3cbd -- <governed path>`.

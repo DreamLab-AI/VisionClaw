@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
+verified_commit: 5c94c3cbdafad99e6985fe509162831bf18c2ec8
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -366,3 +366,7 @@ Re-verified 2026-10-30 at c75004696: `src/main.rs` only gains the Jev client wir
 ## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
 
 `15acb9219` deletes the `requestSwarmTelemetry` handler from `socket_flow_handler/position_updates.rs`. That handler was a fourth agent position source, and agents now reach clients only as `0x23` frames (ADR-2142 amendment). Profile selection and the demo-open boot are untouched. The decision holds unchanged. One route-exception change sits outside this record's governed paths and is recorded here for the profile inventory: `POST /api/bots/mock-agents` (`bots_visualization_handler.rs`) now takes `AuthenticatedUser`, as its sibling `POST /api/bots/data` already did. It was anonymous before. Dev builds still pass via the compile-gated dev bypass (`auth_extractor.rs:21`). No script or client calls it.
+
+## Re-verification — 2026-11-04 (`5c94c3cbd`)
+
+Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `15acb9219` are additive: `src/main.rs`: the splat store opened once at boot (fails open, test-covered) plus its `app_data` and `/api/splats` routes; no auth, RBAC, profile or env-hygiene code changed. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff 15acb9219..5c94c3cbd -- <governed path>`.

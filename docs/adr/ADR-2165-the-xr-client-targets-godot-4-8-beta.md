@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 00669b7a2b8bca15702b8173df1dab268144c3ec
+verified_commit: 5c94c3cbdafad99e6985fe509162831bf18c2ec8
 verified_paths: [xr-client/visionclaw_xr_gdext.gdextension, xr-client/rust/Cargo.toml]
 owner: jjohare
 review_trigger: the Invariant 1 headset re-test on 4.8 (pass or fail); Godot 4.8-beta3, RC or stable; a godot-rust release with an api-4-8 feature; the Quest/Android XR export being unfrozen
@@ -60,3 +60,7 @@ Established at `verified_commit` (main, the tree synced to HP `~/mce-xr/godot48/
   - **Not observed:** the right eye, Invariant 1's known failure. Nobody was wearing the HMD; SteamVR reported "Standing by" and throttled the app to about 5 FPS with no session-state change, as the 4.6.1 log also shows.
   - **New in 4.8:** one `Viewport marked with use_xr but current camera is not an XRCamera3D` warning, followed by a GLES3 `rb->get_view_count() != p_camera_data->view_count` error (`rasterizer_scene_gles3.cpp:2444`). It fires once, at the XRBoot→GraphScene switch before SYNCHRONIZED, and drops that one frame. The 4.6.1 log has neither.
   - `implementation_status` stays `partial` and `activation_status` stays `staged` until both eyes are confirmed in the headset.
+
+## Re-verification — 2026-11-04 (`5c94c3cbd`)
+
+Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `00669b7a2` are additive: `xr-client/rust/Cargo.toml`: the `visionclaw-splat` path dependency and a `tempfile` dev-dependency; the godot crate pin is unchanged. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff 00669b7a2..5c94c3cbd -- <governed path>`.

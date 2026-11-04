@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
+verified_commit: 5c94c3cbdafad99e6985fe509162831bf18c2ec8
 verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml, src/middleware/rate_limit.rs, tests/memory_cloud_auth_test.rs, client/src/features/visualisation/memoryCloud/api.ts, client/src/features/visualisation/memoryCloud/MemoryExplorerPanel.tsx, client/src/features/graph/components/GraphCanvas.tsx]
 owner: jjohare
 review_trigger: "a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context; the System One rerank egress (ADR-2148) being widened"
@@ -245,3 +245,7 @@ Re-verified 2026-10-30 at c75004696: `crates/visionclaw-memory-cloud/src/wire.rs
 ## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
 
 `15acb9219` replaces the `<BotsVisualization />` mount in `GraphCanvas.tsx` with `<AgentOverlay />` (ADR-2142 amendment: one agent marker path). The canvas structure this record decides is otherwise untouched. The decision holds unchanged.
+
+## Re-verification — 2026-11-04 (`5c94c3cbd`)
+
+Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `15acb9219` are additive: `client/src/features/graph/components/GraphCanvas.tsx`: `<SplatScene/>` and `<SplatInfoPanel/>` mounted, both empty until a splat asset is opened. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff 15acb9219..5c94c3cbd -- <governed path>`.

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: c750046962749715a4efb1b6056c7f40d9865110
+verified_commit: 5c94c3cbdafad99e6985fe509162831bf18c2ec8
 verified_paths: [src/services/ontology_generation.rs, .github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).
@@ -208,3 +208,7 @@ Re-verified at b4a175412. The delivery direction (publish to the rolling `ontolo
 - Governed diff `67086c29e..b4a175412` is only `env.example` (comment-level) and `src/main.rs` (unrelated). Source reading; the `ontology_pull` and `ontology_generation` tests were not re-run.
 
 Re-verified 2026-10-30 at c75004696: `src/main.rs` gains Jev wiring only; `.github/workflows/ontology-publish.yml` gains the `vault certify` and `oo-cert` steps and two artefact uploads in `build-ontology` (ADR-2147); `env.example` gains the System One block and re-words the GitHub source header (ADR-2115). The pull model is untouched. Anchors at HEAD: `init_solid_state` `src/main.rs:910`, `spawn_boot_pull` `:917`; `publish-release` `ontology-publish.yml:286` (tag `ontology-latest` `:295`), `deploy-jss` `:356` gated at `:360`; `ONTOLOGY_PULL_*` documented at `env.example:236-239`. The decision holds.
+
+## Re-verification — 2026-11-04 (`5c94c3cbd`)
+
+Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `c75004696` are additive: `src/main.rs`: the splat store opened once at boot (fails open, test-covered) plus its `app_data` and `/api/splats` routes; no auth, RBAC, profile or env-hygiene code changed. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff c75004696..5c94c3cbd -- <governed path>`.
