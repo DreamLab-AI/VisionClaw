@@ -83,28 +83,30 @@ describe('loadVariantBytes', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('discards a corrupt cache hit, then fetches once and verifies that', async () => {
+  it('refuses a corrupt cache hit: deletes the entry, throws, and does not fetch', async () => {
     const v = variantFor('desktop');
     const key = `/__splat-cache__/${v.address}`;
     const { store, cache, caches } = fakeCaches({ [key]: BAD });
     const fetchMock = fakeFetch(GOOD);
-    const out = await loadVariantBytes(v, deps({ caches, fetch: fetchMock as unknown as typeof fetch }));
-    expect(new Uint8Array(out)).toEqual(GOOD);
-    expect(cache.delete).toHaveBeenCalledWith(key);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(store.get(key)).toEqual(GOOD);
-  });
-
-  it('refuses when both the cache and the server hold wrong bytes, with one fetch', async () => {
-    const v = variantFor('desktop');
-    const key = `/__splat-cache__/${v.address}`;
-    const { store, caches } = fakeCaches({ [key]: BAD });
-    const fetchMock = fakeFetch(BAD);
     await expect(loadVariantBytes(v, deps({ caches, fetch: fetchMock as unknown as typeof fetch }))).rejects.toBeInstanceOf(
       SplatIntegrityError,
     );
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(cache.delete).toHaveBeenCalledWith(key);
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(store.has(key)).toBe(false);
+  });
+
+  it('heals on the next open after a refused cache hit: no entry, so one verified fetch', async () => {
+    const v = variantFor('desktop');
+    const key = `/__splat-cache__/${v.address}`;
+    const { store, caches } = fakeCaches({ [key]: BAD });
+    const fetchMock = fakeFetch(GOOD);
+    const d = deps({ caches, fetch: fetchMock as unknown as typeof fetch });
+    await expect(loadVariantBytes(v, d)).rejects.toBeInstanceOf(SplatIntegrityError);
+    const out = await loadVariantBytes(v, d);
+    expect(new Uint8Array(out)).toEqual(GOOD);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(store.get(key)).toEqual(GOOD);
   });
 
   it('works without Cache Storage', async () => {

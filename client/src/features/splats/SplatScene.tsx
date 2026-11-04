@@ -58,8 +58,11 @@ export default function SplatScene() {
   const asset = useMemo(() => assets.find((a) => a.id === activeId) ?? null, [assets, activeId]);
 
   useEffect(() => {
-    // low visual quality withdraws the request in the same render
-    controllerRef.current?.request(asset && !lowQuality ? { asset, mode } : null);
+    const controller = controllerRef.current;
+    if (!controller) return;
+    // low visual quality removes the cloud at once, with no transition
+    if (asset && lowQuality) controller.withdraw();
+    else controller.request(asset ? { asset, mode } : null);
   }, [asset, mode, lowQuality, gl]);
 
   useFrame((_, dt) => controllerRef.current?.update(dt));

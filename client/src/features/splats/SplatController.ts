@@ -44,6 +44,8 @@ export class SplatController {
   private pending: Pending | null = null;
   private fade: Fade = STEADY;
   private token = 0;
+  /** the load in progress, so a repeat request for the same blob never fetches twice */
+  private inflight: { address: string; token: number; req: SplatRequest } | null = null;
   private disposed = false;
   private readonly kind: SplatBackendKind;
 
@@ -58,7 +60,16 @@ export class SplatController {
   /** Ask for a cloud (or none). Safe to call every time the request changes. */
   request(req: SplatRequest | null): void {
     if (this.disposed) return;
+    if (req) {
+      const wanted = chooseVariant(req.asset, renderPathFor(this.kind));
+      if (wanted && this.inflight?.address === wanted.address) {
+        // same blob already loading: only the requested mode can differ
+        this.inflight.req = req;
+        return;
+      }
+    }
     const token = ++this.token;
+    this.inflight = null;
     if (!req) {
       this.discardPendingLayer();
       if (this.layer) this.startSwap({ kind: 'remove' });
@@ -80,7 +91,24 @@ export class SplatController {
     }
     this.discardPendingLayer();
     this.deps.onStatus('loading', { variant });
-    void this.loadAndStage(token, req, variant);
+    this.inflight = { address: variant.address, token, req };
+    void this.loadAndStage(token, variant);
+  }
+
+  /**
+   * Remove the cloud in this frame, with no transition. For the low
+   * visual-quality setting, which withdraws splats at once (ADR-2170 decision 9).
+   */
+  withdraw(): void {
+    if (this.disposed) return;
+    this.token++;
+    this.inflight = null;
+    this.discardPendingLayer();
+    this.layer?.dispose();
+    this.layer = null;
+    this.current = null;
+    this.fade = STEADY;
+    this.deps.onStatus('idle', { variant: null });
   }
 
   /** Per-frame step: advance the transition and push opacity to the layer. */
@@ -99,13 +127,14 @@ export class SplatController {
   dispose(): void {
     this.disposed = true;
     this.token++;
+    this.inflight = null;
     this.discardPendingLayer();
     this.layer?.dispose();
     this.layer = null;
     this.current = null;
   }
 
-  private async loadAndStage(token: number, req: SplatRequest, variant: SplatVariant): Promise<void> {
+  private async loadAndStage(token: number, variant: SplatVariant): Promise<void> {
     let layer: SplatLayer | null = null;
     try {
       const bytes = await (this.deps.loadBytes ?? loadVariantBytes)(variant);
@@ -116,11 +145,18 @@ export class SplatController {
         layer.dispose();
         return;
       }
+      const req = this.inflight?.req;
+      this.inflight = null;
+      if (!req) {
+        layer.dispose();
+        return;
+      }
       this.startSwap({ kind: 'replace', request: req, variant, layer });
       this.deps.onStatus('ready', { variant });
     } catch (e) {
       layer?.dispose();
       if (token !== this.token) return;
+      this.inflight = null;
       const message = e instanceof Error ? e.message : String(e);
       logger.error(`splat ${variant.address} not shown: ${message}`);
       this.deps.onStatus(e instanceof SplatIntegrityError ? 'refused' : 'error', { variant, message });

@@ -122,4 +122,66 @@ describe('SplatController', () => {
     expect(deps.loadBytes).not.toHaveBeenCalled();
     expect(layers).toHaveLength(0);
   });
+
+  it('never fetches the same blob twice when the mode changes mid-load', async () => {
+    let release: (b: ArrayBuffer) => void = () => {};
+    const loadBytes = vi.fn().mockReturnValue(new Promise<ArrayBuffer>((r) => (release = r)));
+    const { controller, layers, statuses } = setup({ loadBytes });
+    const asset = assetWith(['desktop']);
+    controller.request(framed(asset));
+    controller.request({ asset, mode: 'entered' }); // Enter pressed while loading
+    controller.request({ asset: assetWith(['desktop']), mode: 'entered' }); // listing refreshed: new object, same blob
+    release(new ArrayBuffer(8));
+    await flush();
+    expect(loadBytes).toHaveBeenCalledTimes(1);
+    expect(layers).toHaveLength(1);
+    expect(layers[0].setRenderOrder).toHaveBeenLastCalledWith(-1000); // the latest mode won
+    expect(statuses).toEqual(['loading', 'ready']);
+  });
+
+  it('surfaces a refusal that arrives after a mid-load mode change', async () => {
+    const loadBytes = vi.fn().mockRejectedValue(new SplatIntegrityError('sha256-12-aaaaaaaaaaaa', 'a', 'b'));
+    const { controller, statuses } = setup({ loadBytes });
+    const asset = assetWith(['desktop']);
+    controller.request(framed(asset));
+    controller.request({ asset, mode: 'entered' });
+    await flush();
+    expect(loadBytes).toHaveBeenCalledTimes(1);
+    expect(statuses).toEqual(['loading', 'refused']);
+  });
+
+  it('withdraw removes the cloud in the same call, with no fade, even under eased motion', async () => {
+    const { controller, layers, statuses } = setup({ reducedMotion: () => false });
+    controller.request(framed(assetWith(['desktop'])));
+    await flush();
+    controller.withdraw();
+    expect(layers[0].dispose).toHaveBeenCalledTimes(1);
+    expect(statuses.at(-1)).toBe('idle');
+    controller.update(0.016);
+    expect(layers[0].dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('close, by contrast, keeps the transition: the layer lives until the fade ends', async () => {
+    const { controller, layers } = setup({ reducedMotion: () => false });
+    controller.request(framed(assetWith(['desktop'])));
+    await flush();
+    controller.update(1); // let the fade-in finish
+    controller.request(null);
+    expect(layers[0].dispose).not.toHaveBeenCalled();
+    controller.update(0.1);
+    expect(layers[0].dispose).not.toHaveBeenCalled();
+    controller.update(0.2);
+    expect(layers[0].dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('withdraw cancels a load in flight', async () => {
+    let release: (b: ArrayBuffer) => void = () => {};
+    const loadBytes = vi.fn().mockReturnValue(new Promise<ArrayBuffer>((r) => (release = r)));
+    const { controller, layers } = setup({ loadBytes });
+    controller.request(framed(assetWith(['desktop'])));
+    controller.withdraw();
+    release(new ArrayBuffer(8));
+    await flush();
+    expect(layers).toHaveLength(0);
+  });
 });

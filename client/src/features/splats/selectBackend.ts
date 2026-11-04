@@ -30,7 +30,7 @@ export function renderPathFor(kind: SplatBackendKind): RenderPath {
 export async function createSplatLayer(gl: unknown, kind: SplatBackendKind = pickBackendKind(gl)): Promise<SplatLayer> {
   if (kind === 'core-addon') {
     const { CoreAddonSplatLayer } = await import('./coreAddonBackend');
-    return new CoreAddonSplatLayer();
+    return new CoreAddonSplatLayer(gl);
   }
   const { SparkSplatLayer } = await import('./sparkBackend');
   return new SparkSplatLayer(gl as import('three').WebGLRenderer);

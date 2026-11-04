@@ -77,11 +77,10 @@ async function verify(bytes: ArrayBuffer, variant: SplatVariant, deps: SplatCach
 /**
  * The verified bytes of one variant.
  *
- * A cache hit is re-verified before use. A corrupt cached entry is deleted and
- * the blob fetched once from the server, because a damaged local cache says
- * nothing about the server. A fetched blob that fails verification is a
- * refusal: the entry is deleted, `SplatIntegrityError` is thrown and the
- * server is not asked again.
+ * A cache hit is re-verified before use. Any mismatch, from the cache or from
+ * the server, is a refusal: the entry is deleted, `SplatIntegrityError` is
+ * thrown and nothing is fetched again within this call. A corrupt cache entry
+ * therefore heals on the next explicit open, which finds no entry and fetches.
  */
 export async function loadVariantBytes(variant: SplatVariant, deps: SplatCacheDeps = {}): Promise<ArrayBuffer> {
   const cache = await openCache(deps);
@@ -95,9 +94,8 @@ export async function loadVariantBytes(variant: SplatVariant, deps: SplatCacheDe
         await verify(bytes, variant, deps);
         return bytes;
       } catch (e) {
-        if (!(e instanceof SplatIntegrityError)) throw e;
-        logger.warn(`cached splat ${variant.address} failed re-verification; discarding`);
-        await cache.delete(key);
+        if (e instanceof SplatIntegrityError) await cache.delete(key);
+        throw e;
       }
     }
   }

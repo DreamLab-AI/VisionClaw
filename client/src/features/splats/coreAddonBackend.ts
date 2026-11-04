@@ -16,6 +16,9 @@ export class CoreAddonSplatLayer implements SplatLayer {
   private source: THREE.BufferGeometry | null = null;
   private parent: THREE.Object3D | null = null;
 
+  /** @param gl the live WebGPURenderer, used only to release compute pipelines on dispose */
+  constructor(private readonly gl?: unknown) {}
+
   async load(bytes: ArrayBuffer): Promise<void> {
     const geometry = await new SPZLoader().parse(bytes);
     if (!geometry) throw new Error('SPZ parse produced no geometry');
@@ -55,10 +58,13 @@ export class CoreAddonSplatLayer implements SplatLayer {
       this.root.remove(splat);
       // The addon has no dispose(): it owns storage buffers (splat data, the
       // sort's order, bin, histogram and offset buffers) that only release
-      // when each attribute dispatches 'dispose'.
-      const internal = splat as unknown as { _buffers?: object; _sort?: object };
-      for (const owner of [internal._buffers, internal._sort]) {
-        for (const value of Object.values(owner ?? {})) disposeStorage(value);
+      // when each attribute dispatches 'dispose', and compute nodes (the sort
+      // passes and the spherical-harmonics pass) whose pipelines live in the
+      // renderer until it is told to drop them.
+      const internal = splat as unknown as Record<string, unknown>;
+      for (const owner of [internal._buffers, internal._sort, internal._sphericalHarmonicsComputeNode]) {
+        if (isNode(owner)) this.releaseNode(owner);
+        else for (const value of Object.values((owner as object | undefined) ?? {})) this.releaseValue(value);
       }
       splat.geometry.dispose();
       splat.material.dispose();
@@ -67,16 +73,44 @@ export class CoreAddonSplatLayer implements SplatLayer {
     this.splat = null;
     this.source = null;
   }
+
+  /** A storage attribute, a storage node wrapping one, or a compute node. */
+  private releaseValue(value: unknown): void {
+    if (isStorageAttribute(value)) {
+      value.dispose?.();
+    } else if (isNode(value)) {
+      this.releaseNode(value);
+    }
+  }
+
+  private releaseNode(node: NodeLike): void {
+    if (isStorageAttribute(node.value)) node.value.dispose?.();
+    if (node.isComputeNode === true) {
+      // Pipelines.delete is not public API; guarded so a three change degrades to a leak, not a throw.
+      try {
+        (this.gl as { _pipelines?: { delete?: (o: unknown) => void } } | undefined)?._pipelines?.delete?.(node);
+      } catch {
+        /* the pipeline is released with the renderer */
+      }
+    }
+    node.dispose?.();
+  }
 }
 
-/** Dispose a StorageBufferAttribute, or the storage node that wraps one. */
-function disposeStorage(value: unknown): void {
-  const v = value as { isStorageBufferAttribute?: boolean; value?: unknown; dispose?: () => void } | null;
-  if (!v || typeof v !== 'object') return;
-  if (v.isStorageBufferAttribute === true) {
-    v.dispose?.();
-    return;
-  }
-  const inner = v.value as { isStorageBufferAttribute?: boolean; dispose?: () => void } | undefined;
-  if (inner?.isStorageBufferAttribute === true) inner.dispose?.();
+interface Disposable {
+  dispose?: () => void;
+}
+
+interface NodeLike extends Disposable {
+  isNode?: boolean;
+  isComputeNode?: boolean;
+  value?: unknown;
+}
+
+function isNode(v: unknown): v is NodeLike {
+  return typeof v === 'object' && v !== null && (v as NodeLike).isNode === true;
+}
+
+function isStorageAttribute(v: unknown): v is Disposable {
+  return typeof v === 'object' && v !== null && (v as { isStorageBufferAttribute?: boolean }).isStorageBufferAttribute === true;
 }
