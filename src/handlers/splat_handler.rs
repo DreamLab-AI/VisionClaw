@@ -28,6 +28,13 @@ pub fn open_store_from_env() -> SplatStore {
         std::env::var("SPLAT_CACHE_DIR").unwrap_or_else(|_| DEFAULT_CACHE_DIR.to_string()),
     );
     let mode = CacheMode::from_env_value(std::env::var("SPLAT_CACHE_MODE").ok().as_deref());
+    open_store(&manifest_path, cache_dir, mode)
+}
+
+/// Open the store from explicit paths. Fails open: an absent or corrupt
+/// manifest, or an absent cache directory, serves an empty listing and never
+/// stops the server booting.
+pub fn open_store(manifest_path: &str, cache_dir: PathBuf, mode: CacheMode) -> SplatStore {
     let manifest = match std::fs::read_to_string(&manifest_path)
         .map_err(|e| e.to_string())
         .and_then(|t| Manifest::from_json(&t).map_err(|e| e.to_string()))
@@ -100,6 +107,30 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
 
 #[cfg(test)]
 mod tests {
+    #[actix_web::test]
+    async fn boot_fails_open_on_absent_or_corrupt_inputs() {
+        let dir = tempfile::tempdir().unwrap();
+        let corrupt = dir.path().join("corrupt.json");
+        std::fs::write(&corrupt, b"{not json").unwrap();
+        let missing = dir.path().join("absent.json");
+        for manifest in [missing.to_str().unwrap(), corrupt.to_str().unwrap()] {
+            let store = super::open_store(
+                manifest,
+                dir.path().join("no-such-cache"),
+                super::CacheMode::from_env_value(None),
+            );
+            assert!(store.listing().assets.is_empty());
+        }
+        // The committed manifest has only pending variants: it lists nothing.
+        let committed = concat!(env!("CARGO_MANIFEST_DIR"), "/data/splats/manifest.json");
+        let store = super::open_store(
+            committed,
+            dir.path().join("no-such-cache"),
+            super::CacheMode::from_env_value(None),
+        );
+        assert!(store.listing().assets.iter().all(|a| a.variants.is_empty()));
+    }
+
     use super::*;
     use actix_web::{test, App};
     use visionclaw_splat::manifest::{Bounds, Licence, SplatAsset, Variant, VariantName};
