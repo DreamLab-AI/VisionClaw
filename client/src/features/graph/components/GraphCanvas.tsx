@@ -39,6 +39,9 @@ import EchoPulseLayer from '../../control-center/echo/EchoPulseLayer';
 // overlay, gated on the client-only provenance.enableTimeline flag (default off).
 import TimelineScrubber from './TimelineScrubber';
 
+// Gaussian splat scenes (ADR-2170): a scene-level layer plus its info panel.
+import { SplatScene, SplatInfoPanel } from '../../splats';
+
 // Store and utils
 import { useSettingsStore } from '../../../store/settingsStore';
 import { graphDataManager, type GraphData } from '../managers/graphDataManager';
@@ -464,6 +467,9 @@ const GraphCanvas: React.FC = () => {
                     control-center feature flag + prefers-reduced-motion, zero cost when idle */}
                 <EchoPulseLayer />
 
+                {/* Splat scene — scene-level, world-locked, outside the graph root; empty until an asset is opened */}
+                <SplatScene />
+
                 {/* Embedding cloud — live memory sample behind graph nodes; draws query routes */}
                 <EmbeddingCloudLayer enabled={embeddingCloudEnabled} />
 
@@ -522,6 +528,9 @@ const GraphCanvas: React.FC = () => {
             {/* Bi-temporal provenance timeline (ADR-049) — bottom-docked overlay,
                 mounted only when the client-only provenance.enableTimeline flag is on. */}
             {enableTimeline && <TimelineScrubber />}
+
+            {/* Splat scene attribution, licence and enter/leave/close */}
+            <SplatInfoPanel />
 
             {/* Memory explorer — query the live memory cloud and replay the
                 route; mounted only while the embedding cloud is switched on. */}
