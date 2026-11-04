@@ -12,9 +12,11 @@ use super::errors::ErrorCategory;
 use super::iri;
 
 /// Accepted `@context` URL values. ADR-D01 §D11: bump on breaking
-/// changes; v1 is currently the only accepted version.
+/// changes. v1 is frozen; v2 (ontomark ADR-OM-012, visionGraph ADR-VG-009)
+/// is served at both `/context/v2.jsonld` and `/ns/v2.jsonld`.
 pub const ACCEPTED_CONTEXT_URLS: &[&str] = &[
     "https://narrativegoldmine.com/context/v1.jsonld",
+    "https://narrativegoldmine.com/context/v2.jsonld",
     "https://narrativegoldmine.com/ns/v2.jsonld",
 ];
 
@@ -254,6 +256,27 @@ mod tests {
             .categories
             .iter()
             .any(|c| matches!(c, ErrorCategory::ContextVersionUnknown { .. })));
+    }
+
+    #[test]
+    fn every_served_context_url_is_accepted() {
+        for url in ACCEPTED_CONTEXT_URLS {
+            let block = json!({
+                "@context": url,
+                "@id": "urn:visionclaw:page:abc",
+                "@type": "Page",
+                "prov:wasAttributedTo": {"@id": "did:nostr:npub1bob"},
+                "prov:generatedAtTime": {"@value": "2026-05-16T00:00:00Z"}
+            });
+            let issues = validate_block_frame(&block);
+            assert!(
+                !issues
+                    .categories
+                    .iter()
+                    .any(|c| matches!(c, ErrorCategory::ContextVersionUnknown { .. })),
+                "{url}"
+            );
+        }
     }
 
     #[test]

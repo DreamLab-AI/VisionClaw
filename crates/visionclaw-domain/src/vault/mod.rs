@@ -109,6 +109,12 @@ pub struct PageMeta {
     pub generated: Option<GeneratedStamp>,
     /// Which carrier matched.
     pub format: PageFormat,
+    /// The frontmatter mapping exactly as parsed, so a render keeps what the
+    /// typed fields cannot hold: nested values such as `verified` stamps
+    /// (with their `keys`, VisionFlow ADR-2022 / ontomark ADR-OM-012),
+    /// `sources` items, `generated.process`, and the YAML type of an
+    /// untouched scalar. `None` for a page built in code.
+    pub raw: Option<serde_yaml::Mapping>,
 }
 
 /// The OKF `generated` trust stamp: which actor produced this page, and when.
@@ -234,12 +240,25 @@ impl PageMeta {
                 Value::String(format!("[[{}]]", elevated_from)),
             );
         }
+        let raw = self.raw.as_ref();
+        let raw_get = |k: &str| raw.and_then(|m| m.get(key(k)));
         if let Some(ref generated) = self.generated {
             let mut stamp = serde_yaml::Mapping::new();
             stamp.insert(key("by"), Value::String(generated.by.clone()));
             stamp.insert(key("at"), Value::String(generated.at.clone()));
             if let Some(ref rule) = generated.rule {
                 stamp.insert(key("rule"), Value::String(rule.clone()));
+            }
+            // An unchanged stamp keeps its other fields (`process`, …); a
+            // re-stamped page drops them, since they described the old writer.
+            if let Some(Value::Mapping(old)) = raw_get("generated") {
+                if yaml_generated_stamp(&Value::Mapping(old.clone())).as_ref() == Some(generated) {
+                    for (k, v) in old {
+                        if !stamp.contains_key(k) {
+                            stamp.insert(k.clone(), v.clone());
+                        }
+                    }
+                }
             }
             map.insert(key("generated"), Value::Mapping(stamp));
         }
@@ -253,6 +272,47 @@ impl PageMeta {
                 continue;
             }
             map.insert(key(extra_key), Value::String(extra_value.clone()));
+        }
+        // An extra key the writer left as parsed goes back in its authored
+        // form: a list keeps non-scalar items, a number stays a number.
+        let extra_keys: Vec<String> = self
+            .extra
+            .keys()
+            .chain(self.extra_lists.keys())
+            .cloned()
+            .collect();
+        for k in extra_keys {
+            let Some(original) = raw_get(&k) else {
+                continue;
+            };
+            let derived_list = match original {
+                Value::Sequence(items) => {
+                    let l: Vec<String> = items.iter().filter_map(yaml_non_empty_string).collect();
+                    (!l.is_empty()).then_some(l)
+                }
+                _ => None,
+            };
+            if self.extra.get(&k) == yaml_render(original).as_ref()
+                && self.extra_lists.get(&k) == derived_list.as_ref()
+            {
+                map.insert(key(&k), original.clone());
+            }
+        }
+        // A key no typed field or extra map can hold (a mapping, or a list of
+        // mappings such as `verified`) was never visible to the writer, so it
+        // cannot have been edited or removed: it survives as authored.
+        if let Some(raw) = raw {
+            for (k, v) in raw {
+                let Some(name) = k.as_str() else { continue };
+                if map.contains_key(k) || is_typed_key(name) || yaml_render(v).is_some() {
+                    continue;
+                }
+                let listable = matches!(v, Value::Sequence(items)
+                    if items.iter().any(|i| yaml_non_empty_string(i).is_some()));
+                if !listable {
+                    map.insert(k.clone(), v.clone());
+                }
+            }
         }
 
         serde_yaml::to_string(&Value::Mapping(map)).unwrap_or_default()
@@ -450,6 +510,7 @@ fn parse_frontmatter(yaml: &str) -> Option<PageMeta> {
 
     let mut meta = PageMeta {
         format: PageFormat::Obsidian,
+        raw: Some(mapping.clone()),
         ..PageMeta::default()
     };
 
@@ -608,6 +669,29 @@ fn yaml_generated_stamp(value: &serde_yaml::Value) -> Option<GeneratedStamp> {
         at: get("at")?,
         rule: get("rule"),
     })
+}
+
+/// Keys [`parse_frontmatter`] reads into a typed [`PageMeta`] field. A
+/// writer clears one by clearing the field, so the raw copy never brings
+/// it back.
+fn is_typed_key(key: &str) -> bool {
+    matches!(
+        key,
+        "public"
+            | "owl-class"
+            | "owl:class"
+            | "source-domain"
+            | "title"
+            | "elevatedFrom"
+            | "elevated-from"
+            | "aliases"
+            | "alias"
+            | "tags"
+            | "type"
+            | "resource"
+            | "status"
+            | "generated"
+    )
 }
 
 /// Render any YAML value for the verbatim `extra` map: scalars as themselves,
@@ -860,6 +944,7 @@ mod tests {
             .into_iter()
             .collect(),
             format: PageFormat::Obsidian,
+            raw: None,
             owl_class_rejected: None,
             public_declared_false: false,
             page_type: Some("Class".to_string()),
@@ -873,7 +958,126 @@ mod tests {
             extra_lists: BTreeMap::new(),
         };
         let page = render_page(&meta, "# Foo\n\nBody prose.\n");
-        assert_eq!(parse(&page), meta);
+        // A parsed page also carries the mapping it was read from.
+        let mut back = parse(&page);
+        assert!(back.raw.is_some());
+        back.raw = None;
+        assert_eq!(back, meta);
+    }
+
+    const RICH: &str = "---\ntype: Class\ntitle: Fungible Token\nresource: urn:ngm:class:fungible-token\npublic: true\nstatus: stable\nquality: 0.72\ngenerated:\n  by: agent:ontology-mesh/1\n  process: process:vault-migrate/1.0\n  at: 2026-09-22T12:41:39Z\nsources:\n- id: origin\n  resource: '[[Token]]'\nis-a:\n- '[[Token]]'\nverified:\n- by: human:npub1x\n  at: 2026-10-05T18:59:14Z\n- by: human:npub1x\n  at: 2026-11-04T10:00:00Z\n  keys:\n  - is-a\n  - enables\n---\nBody.\n";
+
+    fn fm_of(page: &str) -> serde_yaml::Mapping {
+        let yaml = page.split("---\n").nth(1).unwrap();
+        serde_yaml::from_str(yaml).unwrap()
+    }
+
+    #[test]
+    fn rendering_an_untouched_page_loses_nothing() {
+        let meta = parse(RICH);
+        let before = fm_of(RICH);
+        let after = fm_of(&render_page(&meta, "Body.\n"));
+        for (k, v) in &before {
+            assert_eq!(after.get(k), Some(v), "key {k:?} changed or vanished");
+        }
+        assert_eq!(after.len(), before.len());
+    }
+
+    #[test]
+    fn a_typed_edit_keeps_verified_and_restamping_drops_stale_process() {
+        let mut meta = parse(RICH);
+        meta.status = Some("deprecated".into());
+        let after = fm_of(&render_page(&meta, "Body.\n"));
+        let key = |k: &str| serde_yaml::Value::String(k.into());
+        assert_eq!(after.get(key("verified")), fm_of(RICH).get(key("verified")));
+        assert_eq!(after.get(key("status")), Some(&key("deprecated")));
+        assert!(after[&key("generated")].get("process").is_some());
+
+        meta.generated = Some(GeneratedStamp {
+            by: "process:visionclaw/0.2.0".into(),
+            at: "2026-11-04T00:00:00Z".into(),
+            rule: None,
+        });
+        let restamped = fm_of(&render_page(&meta, "Body.\n"));
+        assert!(restamped[&key("generated")].get("process").is_none());
+        assert!(restamped.get(key("verified")).is_some());
+    }
+
+    /// Corpus proof: parse → render keeps every frontmatter value of every
+    /// page. Run against a vault with
+    /// `VAULT_KNOWLEDGE_DIR=<vault>/knowledge cargo test -p visionclaw-domain -- --ignored corpus_round_trip`.
+    #[test]
+    #[ignore = "needs VAULT_KNOWLEDGE_DIR"]
+    fn corpus_round_trip_is_lossless() {
+        let dir = std::env::var("VAULT_KNOWLEDGE_DIR").expect("VAULT_KNOWLEDGE_DIR");
+        let mut stack = vec![std::path::PathBuf::from(dir)];
+        let (mut pages, mut lossy, mut defects) = (0usize, Vec::new(), Vec::new());
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).unwrap().flatten() {
+                let p = e.path();
+                let name = p.file_name().unwrap().to_string_lossy().to_string();
+                if p.is_dir() {
+                    if !name.starts_with('.')
+                        && !["templates", "bases", "assets"].contains(&name.as_str())
+                    {
+                        stack.push(p);
+                    }
+                    continue;
+                }
+                if !name.ends_with(".md") {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&p).unwrap();
+                let Some(rest) = text.strip_prefix("---\n") else {
+                    continue;
+                };
+                let Some(end) = rest.find("\n---\n") else {
+                    continue;
+                };
+                let before: serde_yaml::Mapping = serde_yaml::from_str(&rest[..end]).unwrap();
+                let after = fm_of(&render_page(&parse(&text), "x\n"));
+                pages += 1;
+                // A typed key whose authored value is a nested list (an
+                // unquoted `[[wikilink]]` in YAML) is a corpus defect no
+                // typed reader can hold; it is reported, not counted as loss.
+                let malformed = |k: &serde_yaml::Value, v: &serde_yaml::Value| {
+                    k.as_str().is_some_and(is_typed_key)
+                        && matches!(v, serde_yaml::Value::Sequence(i)
+                            if i.iter().any(serde_yaml::Value::is_sequence))
+                };
+                for (k, v) in &before {
+                    if malformed(k, v) {
+                        defects.push(format!("{name}: {k:?}"));
+                    } else if after.get(k) != Some(v) {
+                        lossy.push(name.clone());
+                    }
+                }
+            }
+        }
+        assert!(pages > 0);
+        assert!(
+            lossy.is_empty(),
+            "{} of {pages} pages lossy, e.g. {:?}",
+            lossy.len(),
+            &lossy[..lossy.len().min(5)]
+        );
+        eprintln!("{pages} pages round-trip losslessly; malformed typed values: {defects:?}");
+    }
+
+    #[test]
+    fn a_cleared_extra_key_stays_cleared() {
+        let mut meta = parse(RICH);
+        meta.extra.remove("quality");
+        meta.extra.remove("is-a");
+        meta.extra_lists.remove("is-a");
+        let after = fm_of(&render_page(&meta, "Body.\n"));
+        assert!(after.get("quality").is_none());
+        assert!(after.get("is-a").is_none());
+        // A changed extra value is written as the writer set it.
+        let mut meta = parse(RICH);
+        meta.extra.insert("quality".into(), "0.9".into());
+        let after = fm_of(&render_page(&meta, "Body.\n"));
+        assert_eq!(after["quality"], serde_yaml::Value::String("0.9".into()));
     }
 
     #[test]
