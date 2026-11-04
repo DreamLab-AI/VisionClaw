@@ -1,0 +1,20 @@
+[package]
+name = "relational-field"
+version = "0.1.0"
+edition = "2021"
+description = "Learned relation-typed force fields for knowledge-graph layout, with a preregistered evaluation harness"
+license = "MPL-2.0"
+publish = false
+
+# Standalone: kept out of the VisionClaw workspace so the experiment never touches the main lockfile.
+[workspace]
+
+[dependencies]
+rand = "0.8"
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+debug = false
