@@ -2,19 +2,19 @@
 id: ADR-2170
 title: Gaussian splat scenes are their own volume, rendered by a per-backend library on the desktop and a CPU-sorted quad layer in the headset
 date: 2026-11-01
-decision_status: proposed
-implementation_status: none
-activation_status: inactive
+decision_status: accepted
+implementation_status: partial
+activation_status: staged
 supersedes: []
 superseded_by: []
 verified_commit:
-verified_paths: []
+verified_paths: [crates/visionclaw-splat, src/handlers/splat_handler.rs, client/src/features/splats, xr-client/rust/src/frame_budget.rs, xr-client/rust/src/splat_governor.rs, xr-client/rust/src/splat_sort.rs, xr-client/rust/src/splat_loader.rs, xr-client/materials/splat.gdshader, xr-client/scripts/splat_volume.gd]
 owner: jjohare
-review_trigger: The first splat frame on either client, any three.js bump past 0.183, a Spark release with WebGPURenderer support (sparkjsdev/spark#394), or the owner's decision on the headset's separate splat account (Decision 7).
+review_trigger: The first splat frame on either client, any three.js bump past 0.183, a Spark release with WebGPURenderer support (sparkjsdev/spark#394), or the first headset session with `XR_SPLATS=1`.
 repo: visionclaw
 domain: XR-client
-evidence_class: source
-acceptance_boundary: Library source and registry metadata (three 0.187.0 tarball, Spark 2.4.0 and splat-transform 3.10.3 on npm) and the ISS asset's published metadata, read and hashed in the agentbox container on 2026-11-01. No splat was rendered on any GPU; nothing here is a frame-time, fill-rate, stereo or headset measurement. The acceptance numbers below are targets, not results.
+evidence_class: source+test
+acceptance_boundary: Library source and registry metadata (three 0.187.0 tarball, Spark 2.4.0 and splat-transform 3.10.3 on npm) and the ISS asset's published metadata, read and hashed in the agentbox container on 2026-11-01. No splat was rendered on any GPU; nothing here is a frame-time, fill-rate, stereo or headset measurement. The acceptance numbers below are targets, not results. Implementation (2026-11-04) adds unit, integration and headless-GUT evidence in the agentbox container only (Godot 4.6.1 headless, Node/jsdom); still no GPU render.
 lineage: Places splats under ADR-2158 (spatial volumes) and ADR-2166 (entered volume, portals); budgets them beside ADR-2167 (visual extras allowance) and PRD-008 (100k triangles, 50 draw calls); renderer rule unchanged from ADR-2032; content addressing per ADR-2023.
 ---
 
@@ -123,9 +123,34 @@ The headset is `gl_compatibility` (`xr-client/project.godot:56`): no compute, no
   - `XR_VISUAL_QUALITY=low` removes splats within one frame.
 - **Tests:** the headless tests are the `frame_budget` splat-account tests, the shader grep rule, the manifest hash and licence refusal tests, and the sort-cadence tests (sorts per second under scripted head motion).
 
+## Implementation (2026-11-04)
+
+The owner accepted Decision 7 on 2026-11-04 and directed the implementation; the record is accepted. `implementation_status: partial` because the LOD variants are not produced (decimation needs a WebGPU adapter, which the container lacks) and no acceptance target is measured. `activation_status: staged`: the headset layer is off unless `XR_SPLATS=1` or the `xr.splat_scene` pref is set, and the desktop shows nothing until a variant is admitted.
+
+- **Contract (`crates/visionclaw-splat`, MIT).** Manifest (`data/splats/manifest.json`, committed; assets never), the decision-10 licence rule, `sha256-12` addressing, the content-addressed cache that re-hashes every variant at open, and an SPZ v3 codec. `splat-admit` (feature `cli`) runs fetch, build (via `splat-transform`), admit and verify. **Served format is SPZ v3 (gzip), not splat-transform's default v4 (zstd)**: v3 is what the three addon, Spark and the pure-Rust headset decoder all read; v4 is refused at admission.
+- **Backend.** `GET /api/splats` (listing) and `GET /api/splats/blob/{sha256-12}` (immutable). `SPLAT_MANIFEST` and `SPLAT_CACHE_DIR` override `data/splats/manifest.json` and `data/splat-cache`.
+- **Desktop (`client/src/features/splats`).** One `SplatLayer`, backend chosen at mount from the live renderer and loaded by dynamic `import()`: three `GaussianSplat` + `SPZLoader` on WebGPU, Spark 2.4.0 `SplatMesh` on WebGL. SHA-256 is verified on fetch and on every cache hit; a mismatch is a refusal. The desktop has no volume system, so framed and entered placement live in `fit.ts`.
+- **Headset.** The splat account (`allocate_with_splats`): draw calls taken before extras are priced, triangles reported in `splat_tris` and outside `TRI_LIMIT` and `over_budget`; un-entered volumes are capped at tier 1. The governor floor is tier 1 (tier 0 draws nothing, so nothing could be measured to climb); only low cost reaches 0. Sort is a two-pass radix on a worker. The frame-budget pass subtracts applied splat primitives from `other_tris`, the same way extras are subtracted.
+
+Evidence (container only):
+- `cargo test -p visionclaw-splat`: 30 passed. The real-file test decodes splat-transform 3.10.3 v3 output (221 063 and 1 357 052 splats).
+- Root `cargo test --lib splat_handler`: 2 passed.
+- `xr-client/rust` `cargo test --workspace`: 699 passed, 0 failed, 3 ignored.
+- GUT, Godot 4.6.1 headless: 598 tests, 595 passing, 3 pending pixel tests that need GL.
+- Desktop vitest: 1 593 passed, 47 of them splat tests; `tsc --noEmit` clean.
+- Sort, 100k random splats on container CPU (not HP, not Quest): p95 1.64 ms.
+
+Unverified:
+- any GPU frame on either client;
+- splat orientation on both desktop backends;
+- `INSTANCE_ID` plus `texelFetch` under Compatibility multiview;
+- the 4096-texel data texture against the GLES 3.0 2048 guarantee (it matters only for a Quest export);
+- the extras and splat governors stepping together on one timer;
+- every target in Acceptance.
+
 ## Verification
 
-`implementation_status: none`: there is no code. The evidence for the Context is this:
+Evidence for the Context (2026-11-01, before implementation):
 - **three:** the `three-0.187.0` npm tarball was read, `GaussianSplat.js:79-86` (the WebGPURenderer-only note) and the loader list. Registry dates: 0.183.0 2026-02-18, 0.186.0 2026-09-08, 0.187.0 2026-10-30.
 - **Spark:** `registry.npmjs.org/@sparkjsdev/spark` latest is 2.4.0 (2026-10-20), peer `three >=0.180.0`, and the GitHub API shows #394 open.
 - **ISS asset:**

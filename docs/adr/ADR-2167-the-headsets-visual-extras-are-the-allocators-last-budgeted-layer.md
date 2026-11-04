@@ -52,6 +52,10 @@ The owner approved reserving up to tier 4 (ribbons plus 512 motes) ahead of the 
 
 Re-stamped to `6f5e7ad48` (2026-10-31, this amendment; previous stamp `a4c07caed`). Re-run: `git diff --stat a4c07caed3f05bc170a0096fdde878ceebbd19c1 6f5e7ad481fef9e7b4e527bf8d1e7107d866d9ec -- xr-client/rust/src/frame_budget.rs xr-client/scripts/frame_budget_pass.gd xr-client/scripts/eye_candy.gd xr-client/scripts/emulated_volume.gd xr-client/scripts/spatial_environment.gd xr-client/perf/benchmark.gd xr-client/perf/gpu_time_probe.gd` gives `eye_candy.gd | 11`, `frame_budget.rs | 271`, `frame_budget_pass.gd | 10` (242 insertions, 50 deletions) and nothing else. `evidence_class` and `acceptance_boundary` are unchanged: mono desktop and headless only.
 
+## Amendment: separate splat account (owner decision, 2026-11-04, ADR-2170 Decision 7)
+
+The owner accepted a splat account beside the extras allowance. `FrameCaps` gains `splat_tris` and the other splat fields. Splat triangles sit outside `TRI_LIMIT`, `tris_total` and `over_budget`. Splat draw calls (at most 1 per visible splat volume, 2 volumes) are reserved from the 48 before the extras are priced, so extras cannot take them. With no splat demand the allocation is identical: a sweep test asserts every non-splat field matches. The splat tier is stepped with this record's thresholds by its own governor (`splat_governor.rs`), whose frame-time fallback ceiling is tier 2. This also amends PRD-008's 100k-triangle budget for splat scenes; PRD-008 is archived, and the governing text is `docs/XR-client.md`.
+
 ## Re-verification — 2026-10-31 (`ca35fd9db`)
 
 The only governed-path change since 6f5e7ad48 is the test module of `xr-client/rust/src/frame_budget.rs` (R12 F3: two pressure sweep tests). Allocator code is unchanged. `cargo test --lib frame_budget` in `xr-client/rust`: 30 passed; removing the route or burst pressure term fails exactly the matching new test. Evidence: `git diff 6f5e7ad48..ca35fd9db -- xr-client/rust/src/frame_budget.rs`.

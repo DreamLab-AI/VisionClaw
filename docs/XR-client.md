@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.28
+version: 0.1.29
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.29 (2026-11-04): ADR-2170 accepted (partial, staged; unit and headless-GUT evidence, no GPU render): splat volume, CPU-sorted quad layer and the separate splat account built; the owner accepted Decision 7, amending ADR-2167 and the PRD-008 triangle budget for splat scenes. Off unless `XR_SPLATS=1`. Served format SPZ v3. Splat section only; Current State, Invariants and verified_commit untouched."
   - "0.1.28 (2026-11-01): a finished agent eases out to the edge of the scene in 30 s and holds there, the desktop's rule (ADR-2135 one done rule; ADR-2109 amended). The park beat is deleted: no `PH_PARK`, `PH_COMPLETE` or park event. A lapsed work record relaxes onto the rest slot. The edge is the knowledge volume's `bounds` diagonal (`SpatialVolume.edge_radius`). No invariant changed."
   - "0.1.27 (2026-11-01): cross-volume link ends are resolved and packed in Rust (`pack_links`), through the same fold-aware `drawn_position_of` the edge pack uses; `link_layer.gd` no longer reads positions or builds instances (ADR-2164 D8 amended). `RenderStore::position_of` and the gdext `node_position` answer with the drawn (fold-aware) position. No invariant changed."
   - "0.1.26 (2026-11-01): ADR-2170 (proposed, none, inactive; source evidence only): Gaussian splat scenes as their own volume; a Compatibility-safe CPU-sorted quad layer with a separate splat account (owner decision pending). New proposed section only; Current State, Invariants and verified_commit untouched. Version skips 0.1.25, which xr/grab-client (ADR-2168) uses."
@@ -1278,9 +1279,9 @@ open owner decision (ADR-2167).
 **Unverified.** Stereo (both eyes), the headset and fill rate in both eyes; the sky shader's behaviour under
 multiview; whether the GPU timer exists on the XR viewport. The numbers above are mono desktop.
 
-## Proposed (ADR-2170, 2026-11-01, not built): Gaussian splat scenes
+## Staged (ADR-2170, built 2026-11-04, off by default): Gaussian splat scenes
 
-Nothing below exists in `xr-client/`; this section describes a proposal, not the client. The Current State and Invariants above are unchanged.
+Built, but off unless `XR_SPLATS=1` or the `xr.splat_scene` pref is set. The code lives in `splat_volume.gd`, `materials/splat.gdshader`, `rust/src/splat_{governor,sort,loader}.rs` and `frame_budget.rs` (`allocate_with_splats`). The evidence is headless and unit tests only; no frame has been rendered on the HP or the headset. The Current State and Invariants above are unchanged.
 
 - **Placement.** A splat scene is its own `splat` volume under the ADR-2158 contract and can be entered (ADR-2166), so that it becomes the environment while the graph volumes become portals. A node may link to a splat asset, but it never parents one: splat roots are never under `GraphRoot`. Transparent objects sort per object, not per fragment, so an un-entered splat volume's box never intersects a graph volume's box and shares the graph's transparent `render_priority`. An entered splat volume is a backdrop at a lower priority than every graph layer and portal, fitted to room scale (ADR-2166); splat content between the user and a portal is overdrawn by the portal (a named artefact). A 1:1 metric view needs its own amendment.
 - **Renderer.** The splat layer is built to stay within Invariants 1 and 2:
@@ -1290,12 +1291,12 @@ Nothing below exists in `xr-client/`; this section describes a proposal, not the
   - **Overdraw and comfort guards:** a screen-radius cap and a 0.3 m near fade.
   - **Shader rules:** no compute, post-process, `SCREEN_TEXTURE`, depth-texture read or `SubViewport`.
 - **Sort cadence.** One head-pose sort serves both eyes. A sort is triggered by 5 cm or 2° of head motion, at no more than 30 Hz, and is dropped if late.
-- **Budget (owner decision pending).** At 2 triangles a quad, splats cannot fit inside `TRI_LIMIT`, which the graph already fills (about 94.5k of 95k). The proposal is a separate splat account in `frame_budget.rs`, outside `TRI_LIMIT`:
+- **Budget (owner accepted, 2026-11-04).** At 2 triangles a quad, splats cannot fit inside `TRI_LIMIT`, which the graph already fills (about 94.5k of 95k). The proposal is a separate splat account in `frame_budget.rs`, outside `TRI_LIMIT`:
   - its draw calls count against the 48;
   - its tiers are 0, 25k, 50k and 100k splats at SH 0;
   - the tier is stepped by the ADR-2167 governor thresholds, with frame time as the fallback (ceiling tier 2).
 
-  This amends PRD-008 and ADR-2167, and needs the owner's decision. Without it, headset splats stay off.
+  This amends PRD-008 and ADR-2167 (see ADR-2167's amendment). Splat draw calls are reserved before extras are priced; splat triangles are `splat_tris`, outside `over_budget`; an un-entered volume is capped at tier 1; the governor floor is tier 1, and only low cost reaches 0.
 - **Comfort.** Splat scenes are world-locked and static. Under reduced motion (the default), entering and tier changes use dim-and-snap. `XR_VISUAL_QUALITY=low` removes splats in the same frame.
 - **Assets.** Assets are never committed. A manifest records the URL, SHA-256, author, licence and attribution. Assets are cached by `sha256-12` under `user://splat-cache/`, and attribution plus "modified" appear on the HUD credits line. Only licences that allow redistribution and adaptation are admitted.
 - **Acceptance (targets).** On the VIVE Pro with ISS `xr-3` entered:
