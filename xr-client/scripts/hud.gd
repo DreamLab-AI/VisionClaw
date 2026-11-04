@@ -323,6 +323,15 @@ const KEY_REGION_H: int = 452                                # header + region m
 const NOTICE_SEC: float = 8.0
 const NOTICE_COLOR: Color = Color(1.0, 0.72, 0.32)
 var _notice_text: String = ""
+## ADR-2170: the Gaussian splat credits (attribution, licence link, "modified (decimated)"),
+## shown on the resting hint line while a splat scene is drawn. Hover hints and notices win.
+var _credits_line: String = ""
+const CREDITS_FONT: int = 18
+var _credits_font_on: bool = false
+var _splat_row: HBoxContainer = null
+var _splat_header: Label = null
+var _splat_button: Button = null
+var _splat_entered: bool = false
 var _notice_until_ms: int = 0
 var _hint_bar_notice_mode: bool = false
 
@@ -609,6 +618,24 @@ func _build_layout_page() -> VBoxContainer:
 	_layout_mode_button = _action_btn("Layout: Force", "layout_mode_cycle", "Cycle graph layout mode (force, hierarchical, radial, spectral, temporal, clustered)")
 	row.add_child(_layout_mode_button)
 	page.add_child(row)
+	# ADR-2170: enter the Gaussian splat scene. Hidden until a scene is loaded, so the page
+	# costs nothing without one.
+	_splat_header = _group_header("Splat Scene")
+	_splat_header.visible = false
+	page.add_child(_splat_header)
+	_splat_row = HBoxContainer.new()
+	_splat_row.name = "SplatRow"
+	_splat_row.visible = false
+	_splat_button = _press_fire(Button.new()) as Button
+	_splat_button.name = "SplatButton"
+	_splat_button.text = "Enter Splat Scene"
+	_splat_button.custom_minimum_size = Vector2(0, BTN_H)
+	_splat_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_splat_button.set_meta(HINT_META, "Step into the Gaussian splat scene; the graph volumes become portals. Leave returns to the ring")
+	_splat_button.pressed.connect(func() -> void:
+		emit_signal("control_pressed", "splat_leave" if _splat_entered else "splat_enter"))
+	_splat_row.add_child(_splat_button)
+	page.add_child(_splat_row)
 	return page
 
 
@@ -2059,7 +2086,16 @@ func _process(delta: float) -> void:
 		if notice != _hint_bar_notice_mode:
 			_hint_bar_notice_mode = notice
 			_hint_bar.add_theme_color_override("font_color", NOTICE_COLOR if notice else ACCENT)
-		_hint_bar.text = ("⚠ " + _notice_text) if notice else ("ⓘ " + _resolve_hint())
+		var hint: String = "" if notice else _resolve_hint()
+		var credits: bool = not notice and hint == HINT_DEFAULT and not _credits_line.is_empty()
+		if credits != _credits_font_on:
+			_credits_font_on = credits
+			# The credits are longer than a hint: one line at a smaller size.
+			if credits:
+				_hint_bar.add_theme_font_size_override("font_size", CREDITS_FONT)
+			else:
+				_hint_bar.remove_theme_font_size_override("font_size")
+		_hint_bar.text = ("⚠ " + _notice_text) if notice else (_credits_line if credits else "ⓘ " + hint)
 	# Ambient ACSP glow: pulse amber while cases are open, transparent when clear.
 	if acsp_glow != null:
 		if _open_case_count > 0:
@@ -2084,6 +2120,27 @@ func _resolve_hint() -> String:
 			return str(node.get_meta(HINT_META))
 		node = node.get_parent()
 	return HINT_DEFAULT
+
+
+## ADR-2170: the splat credits line ("" hides it). Shown on the resting hint line.
+func set_credits(line: String) -> void:
+	_credits_line = line
+
+
+## The credits line now set.
+func credits_line() -> String:
+	return _credits_line
+
+
+## ADR-2170: {available, entered} for the Layout page's splat button. The row appears
+## once a splat scene is loaded.
+func set_splat_state(st: Dictionary) -> void:
+	var available: bool = bool(st.get("available", false))
+	_splat_entered = bool(st.get("entered", false))
+	if _splat_header != null:
+		_splat_header.visible = available
+		_splat_row.visible = available
+		_splat_button.text = "Leave Splat Scene" if _splat_entered else "Enter Splat Scene"
 
 
 func set_avatar_count(count: int) -> void:

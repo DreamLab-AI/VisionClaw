@@ -23,6 +23,9 @@ const KEY_RELEASE := "cross_volume_links_release"
 ## `xr.portal_walkthrough` (ADR-2166): walking the headset into a portal enters
 ## it. One key for both build types, off by default.
 const KEY_WALKTHROUGH := "portal_walkthrough"
+## `xr.splat_scene` (ADR-2170): show the Gaussian splat volume. Off by default until it
+## has been measured on the headset; `XR_SPLATS=1` turns it on for a run.
+const KEY_SPLATS := "splat_scene"
 
 
 # Every test copy on a machine shares `user://` (app_userdata/"VisionClaw XR")
@@ -105,4 +108,22 @@ static func set_portal_walkthrough(on: bool) -> int:
 	var cfg := ConfigFile.new()
 	var _ignored := cfg.load(path())
 	cfg.set_value(SECTION, KEY_WALKTHROUGH, on)
+	return cfg.save(path())
+
+
+## Whether the Gaussian splat volume is built (ADR-2170). Off by default: the stored
+## choice, else the XR_SPLATS environment variable ("1", "true" or "on").
+static func splat_scene() -> bool:
+	var cfg := ConfigFile.new()
+	if cfg.load(path()) == OK and cfg.has_section_key(SECTION, KEY_SPLATS):
+		var v: Variant = cfg.get_value(SECTION, KEY_SPLATS)
+		if typeof(v) == TYPE_BOOL:
+			return v
+	return OS.get_environment("XR_SPLATS").to_lower() in ["1", "true", "on"]
+
+
+static func set_splat_scene(on: bool) -> int:
+	var cfg := ConfigFile.new()
+	var _ignored := cfg.load(path())
+	cfg.set_value(SECTION, KEY_SPLATS, on)
 	return cfg.save(path())

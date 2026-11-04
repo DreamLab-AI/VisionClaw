@@ -22,6 +22,10 @@ godot = "0.2"
 visionclaw-xr-presence = { path = "../../crates/visionclaw-xr-presence" }
 # ADR-2135: the separated-layout triangle, the same crate the server projects with.
 visionclaw-tri-layout = { path = "../../crates/visionclaw-tri-layout" }
+# ADR-2170: the splat manifest, SHA-256 addressing and the SPZ v3 decoder, the
+# same crate the server serves from. Its flate2 uses the pure-Rust backend, so the
+# Android build needs no C zlib.
+visionclaw-splat = { path = "../../crates/visionclaw-splat" }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "macros", "time"] }
 tokio-tungstenite = "0.21"
 bytes = "1.10"
@@ -49,6 +53,8 @@ visionclaw-wire = { path = "../../crates/visionclaw-wire" }
 # the same crate rather than a test-only reimplementation.
 nostr = "0.43"
 mockall = "0.13"
+# splat_loader cache tests write to a throwaway directory.
+tempfile = "3"
 proptest = "1.5"
 tokio = { version = "1", features = ["full", "test-util"] }
 criterion = { version = "0.5", features = ["html_reports"] }
