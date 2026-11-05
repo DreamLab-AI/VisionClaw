@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []                   # legacy ADR-142/ADR-094 distilled — not in this tree; see lineage
 superseded_by: []
-verified_commit: 685bc974ce4b4f813ffa247be0f866ebe27328bd
+verified_commit: 493148a3cffd9fc3df4e98d88d3285a38ca147ec
 verified_paths: [src/models/rbac.rs, src/services/role_store.rs, src/utils/auth.rs, src/handlers/admin_rbac_handler.rs, tests/rbac_concurrent_mutation_http_test.rs]
 owner: jjohare
 review_trigger: adoption of a multi-user-locked deployment, or any change to default_authenticated() or the last-Owner guard
@@ -209,3 +209,7 @@ None of these changes touches the decision this record makes. Every deletion had
 **Commands:** `cargo test --test rbac_concurrent_mutation_http_test` (1 test, passes); regression `cargo test --test adr142_rbac_gate --test rbac_gate_require_auth_stacking_test`.
 
 **Re-verification 2026-10-31:** review fixes applied; re-run `git diff 1c1ac674b..685bc974ce4b4f813ffa247be0f866ebe27328bd -- tests/rbac_concurrent_mutation_http_test.rs`.
+
+## Re-verification — 2026-10-31 (`493148a3c`)
+
+The only governed-path change since `685bc974c` is `493148a3c`: the `PROD_WS` nginx marker in `src/utils/auth.rs`'s `#[cfg(test)] mod nip98_proxy_tests` now includes `ws/presence`, matching `nginx.production.conf` after `6d412afa7`. It is a test-only change; production code and this record's decision are unchanged. `cargo test --lib` at `493148a3c` passed 1826, 0 failed. Re-run: `git diff 685bc974c..493148a3c -- src/utils/auth.rs`.

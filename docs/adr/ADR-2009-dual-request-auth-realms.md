@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: 493148a3cffd9fc3df4e98d88d3285a38ca147ec
 verified_paths: [src/utils/auth.rs, src/services/nostr_service.rs, src/middleware/rbac_gate.rs, client/src/services/api/authInterceptor.ts]
 owner: jjohare
 review_trigger: React client migrating to per-request NIP-98 signing, or any multi-tenant deployment where session-bearer mutations are unacceptable
@@ -168,3 +168,7 @@ Re-verified at `b4a175412`. **The Decision's second realm is conditional, and th
 - Unchanged and still true: session age is measured from the mutable `last_seen` (`nostr_service.rs:518`, freshness helper `:634`); the check is plain string equality (`:519`); the RBAC lattice binds to the pubkey whichever realm authenticated (`effective_access_level`, `auth.rs:85`); a missing credential is 401, an insufficient level 403.
 
 **Consequence for the record.** Where this record says the REST surface "cannot claim signature-grade non-replayability", that is now a property of a deployment that opts in, not of the default. Retiring the realm is a deletion of the legacy branch and `VISIONCLAW_LEGACY_SESSIONS`, no longer a client migration; the remaining blocker is any external or MCP consumer still presenting `X-Nostr-Token`, which no in-tree inventory covers. Not verified here: `/wss`, whose credential handling moved to ADR-2058 (signed subprotocol; `?token=` rejected in release, `http_handler.rs:151-213`) and which `IDENTITY-authority-chain.md` ("WebSocket / XR client auth") still describes in its pre-ADR-2058 form; that section needs its own pass.
+
+## Re-verification — 2026-10-31 (`493148a3c`)
+
+The only governed-path change since `2107637d6` is `493148a3c`: the `PROD_WS` nginx marker in `src/utils/auth.rs`'s `#[cfg(test)] mod nip98_proxy_tests` now includes `ws/presence`, matching `nginx.production.conf` after `6d412afa7`. It is a test-only change; production code and this record's decision are unchanged. `cargo test --lib` at `493148a3c` passed 1826, 0 failed. Re-run: `git diff 2107637d6..493148a3c -- src/utils/auth.rs`.

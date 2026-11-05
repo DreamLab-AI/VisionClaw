@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []                   # legacy ADR-011 dev-bypass clause distilled — not in this tree; see lineage
 superseded_by: []
-verified_commit: 4024ac777e2381cc1b667970ce7696e9808f1f42
+verified_commit: 493148a3cffd9fc3df4e98d88d3285a38ca147ec
 verified_paths: [src/utils/auth.rs, src/middleware/rbac_gate.rs]
 owner: jjohare
 review_trigger: any change to the dev-auth feature gate, DEV_AUTH_LOOPBACK handling, or the report-mode ack check
@@ -161,3 +161,7 @@ out).
 ## Re-verification — 2026-10-07 at e48099f28 (401 for missing credentials; dev bypass on the memory cloud)
 
 **Governed change:** in `verify_access` (`src/utils/auth.rs`, legacy-header branch) a request with no credentials at all (no `X-Nostr-Pubkey` or no `X-Nostr-Token`) now gets **401** "Authentication required" instead of 403; 403 stays for an identified caller below the required level. The memory-cloud handler admits every caller under `dev_full_bypass_active()` (ADR-2133 amendment); that predicate is unchanged, compile-gated to debug/`dev-auth` builds and refused at boot in release. Every caller in the tree accepts 401 or 403 alike (`UnifiedApiClient` retry rule, the memory-cloud client, `adr142_rbac_gate`, `rec1_route_guard`, the stacking test). Verified with `cargo test --lib -- auth rbac memory_cloud` (69 pass) and those integration tests plus `memory_cloud_auth_test` (all pass). The decision holds.
+
+## Re-verification — 2026-10-31 (`493148a3c`)
+
+The only governed-path change since `4024ac777` is `493148a3c`: the `PROD_WS` nginx marker in `src/utils/auth.rs`'s `#[cfg(test)] mod nip98_proxy_tests` now includes `ws/presence`, matching `nginx.production.conf` after `6d412afa7`. It is a test-only change; production code and this record's decision are unchanged. `cargo test --lib` at `493148a3c` passed 1826, 0 failed. Re-run: `git diff 4024ac777..493148a3c -- src/utils/auth.rs`.
