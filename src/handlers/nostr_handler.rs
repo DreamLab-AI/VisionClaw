@@ -418,7 +418,10 @@ mod api_keys_route_tests {
         .await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
-            response.headers()[actix_web::http::header::CACHE_CONTROL],
+            response
+                .headers()
+                .get(actix_web::http::header::CACHE_CONTROL)
+                .expect("authenticated GET sets Cache-Control"),
             "no-store"
         );
         let body: serde_json::Value = test::read_body_json(response).await;

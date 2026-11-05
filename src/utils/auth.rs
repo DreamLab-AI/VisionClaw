@@ -684,7 +684,8 @@ mod nip98_proxy_tests {
     }
 
     const PROD_API: &str = "location ^~ /api/ {";
-    const PROD_WS: &str = "location ~ ^/(wss|ws/speech|ws/mcp-relay|ws/hybrid-status)$ {";
+    const PROD_WS: &str =
+        "location ~ ^/(wss|ws/speech|ws/mcp-relay|ws/hybrid-status|ws/presence)$ {";
 
     #[test]
     fn prod_lan_headset_physics_put_validates_through_nginx() {
