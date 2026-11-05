@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: efbd7f6f080df06ecb580254bddabcee59d4fbf8
+verified_commit: 81e71126779b0b312b93ab459058ee8977233331
 verified_paths: [crates/vault/Cargo.toml, crates/vault-core/Cargo.toml, crates/vault/src/certificate.rs, crates/vault/src/propose.rs, crates/vault/src/main.rs, crates/vault-core/src/proposal.rs, crates/vault/tests/certificate_oo_cert.rs, crates/visionclaw-ontology/shapes/ontology-class.shacl.ttl, crates/visionclaw-ontology/src/services/jsonld_validator/shacl.rs]
 owner: jjohare
 review_trigger: "Activation (staged → live): the `vault certify` step of ontology-publish.yml exiting 0 on a published generation. Review: the emitter putting a restriction or an equivalence on the subclass side of rdfs:subClassOf (Whelk parity would no longer be structural), a new release of the oo-cert checker changing the oo-cert/1 grammar, or `vault certify` exiting 1 on a published generation"
@@ -63,3 +63,9 @@ in this record's governed paths through `efbd7f6f080df06ecb580254bddabcee59d4fbf
 The manifest feature graph and consumer implementation are unchanged. Registry
 vault/core tests, strict Clippy, the actual local-module tests and the server
 library compile check pass; prior runtime and activation limits remain.
+
+## Re-verification — 2026-11-05 (`81e711267`)
+
+Governed-path change since the last stamp: `crates/vault/src/propose.rs` (`6b811f7a1`): a `RESOURCE_IMMUTABLE` blocker and a line wrap on the `consequence_delta` call. The certificate and consequence-delta construction is unchanged. **Decision unaffected.**
+
+Re-run: `git diff efbd7f6f0..81e711267 -- crates/vault/Cargo.toml crates/vault-core/Cargo.toml crates/vault/src/certificate.rs crates/vault/src/propose.rs crates/vault/src/main.rs crates/vault-core/src/proposal.rs crates/vault/tests/certificate_oo_cert.rs crates/visionclaw-ontology/shapes/ontology-class.shacl.ttl crates/visionclaw-ontology/src/services/jsonld_validator/shacl.rs`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.

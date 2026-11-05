@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 5c94c3cbdafad99e6985fe509162831bf18c2ec8
+verified_commit: 81e71126779b0b312b93ab459058ee8977233331
 verified_paths: [src/services/ontology_generation.rs, .github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).
@@ -53,8 +53,7 @@ repository (`publish-release` job; tag moved to the publishing commit, assets
 replaced). The server, on `solid-pod-embed`, spawns
 `services::ontology_pull::spawn_boot_pull` right after the pod state is
 initialised (`src/main.rs`): it fetches `index.jsonld`, compares
-`visionflow:buildSha` with the manifest already in the pod, and only if they
-differ fetches `SHA256SUMS` and every content file, verifies each digest, then
+`visionflow:buildSha` and, when present, `visionflow:sourceSha` with the manifest already in the pod (and requires an atomic generation), and only if either differs fetches `SHA256SUMS` and every content file, verifies each digest, then
 writes through the `Storage` trait: containers, a public-read WAC ACL at
 `/public/ontology/.acl` (an observed existing ACL is preserved; an existence-probe error is currently treated as absence), the four content files, and the manifest last. It repeats every
 `ONTOLOGY_PULL_INTERVAL_SECS` (default one hour, one small GET when nothing
@@ -102,7 +101,7 @@ Configuration: `ONTOLOGY_PULL_URL` (default the release download base),
 `cargo test --no-default-features --features solid-pod-embed --lib services::ontology_pull`
 exercises the sequence against `MemoryBackend` and a map-backed `Fetch`: first
 pull writes all resources with the ACL and the manifest last; an unchanged
-`buildSha` fetches only the manifest; a new build replaces content and keeps an
+`buildSha` and `sourceSha` fetch only the manifest (the same build with a different source is not current); a new build replaces content and keeps an
 operator's ACL; a digest mismatch, a missing `SHA256SUMS` entry and an
 unreachable release write nothing; `ONTOLOGY_PULL_ENABLED=off` short-circuits.
 `ontology-publish.yml` run on the publishing commit: `publish-release` diffs
@@ -212,3 +211,9 @@ Re-verified 2026-10-30 at c75004696: `src/main.rs` gains Jev wiring only; `.gith
 ## Re-verification — 2026-11-04 (`5c94c3cbd`)
 
 Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `c75004696` are additive: `src/main.rs`: the splat store opened once at boot (fails open, test-covered) plus its `app_data` and `/api/splats` routes; no auth, RBAC, profile or env-hygiene code changed. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff c75004696..5c94c3cbd -- <governed path>`.
+
+## Re-verification — 2026-11-05 (`81e711267`)
+
+Governed-path change since the last stamp: `src/services/ontology_pull.rs` (`6b811f7a1`). The manifest parser reads an optional `visionflow:sourceSha`, and the up-to-date short-circuit now requires `buildSha` **and** `sourceSha` to agree with the manifest in the pod, in addition to `has_atomic_generation()`. A manifest without `sourceSha` is comparable only with another legacy manifest, so existing releases still short-circuit. Pull-model delivery, SHA256 verification, ACL preservation and manifest-last publication are untouched. **Claims otherwise unchanged; the Decision's comparison sentence and the test summary are amended above to name `sourceSha`**, the same-build-different-source case being `same_build_with_a_different_source_is_not_treated_as_current`.
+
+Re-run: `git diff 5c94c3cbd..81e711267 -- src/services/ontology_generation.rs .github/workflows/ontology-publish.yml src/services/ontology_pull.rs src/main.rs scripts/ontology/pack-pod-resources.py client/src/features/ontology/services/jss/contextLoader.ts client/src/features/ontology/services/jss/schemaParser.ts env.example`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.

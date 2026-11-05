@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 974daf5d22d2d0ea709140777eae58d60ddb2c36
+verified_commit: 81e71126779b0b312b93ab459058ee8977233331
 verified_paths: [src/handlers/ontology_agent_handler.rs, tests/rec1_route_guard.rs, crates/vault/src/main.rs, crates/vault/src/propose.rs]
 owner: jjohare
 review_trigger: "the first caller reported still POSTing to /api/ontology-agent/propose; any change to the 410 body, or any new HTTP ontology write route"
@@ -84,3 +84,9 @@ All governed paths were byte-identical between the previous verification pin and
 the pre-change baseline `5e1bd90a4`. The reviewed delta is the shared-layout change
 through `974daf5d22d2d0ea709140777eae58d60ddb2c36`. Existing activation and acceptance limits
 remain in force; this stamp does not repeat historical runtime measurements.
+
+## Re-verification — 2026-11-05 (`81e711267`)
+
+Governed-path change since the last stamp: `crates/vault/src/propose.rs` (`6b811f7a1`): a blocker `RESOURCE_IMMUTABLE` for an amendment that changes a page's resource IRI, and a formatting change. The retirement of `POST /api/ontology-agent/propose` (the handler and `rec1_route_guard.rs`) is untouched, and `vault propose` still builds a `PatchProposal` and posts a forum 31402. **Decision unaffected:** the added blocker narrows what may be posted without changing the forum-request model.
+
+Re-run: `git diff 974daf5d2..81e711267 -- src/handlers/ontology_agent_handler.rs tests/rec1_route_guard.rs crates/vault/src/main.rs crates/vault/src/propose.rs`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.

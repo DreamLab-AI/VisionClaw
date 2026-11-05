@@ -87,6 +87,8 @@ records scoped source gaps in release upgrade, post-release acceptance, topology
 grab invalidation, portal rearm scale and link provenance/budget claims. It adds
 no headset or stereo activation evidence; existing acceptance boundaries stand.
 
+Update 2026-11-05: the source gaps named there (signed release upgrade, post-release acceptance, topology grab invalidation, portal rearm scale, link provenance and the total instance budget) are repaired by `6b811f7a1`; see [external-fixes-2026-11-03](reference/external-fixes-2026-11-03.md). Headset, stereo and comfort gates are unchanged.
+
 ## Purpose
 The immersive client that renders the VisionClaw knowledge graph in a headset: a
 Godot + OpenXR front-end whose hot path is a godot-rust (gdext) crate. This

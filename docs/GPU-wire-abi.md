@@ -37,6 +37,8 @@ qualifies numerical oracle results as fixture conformance and distinguishes the
 paired size guards from the additional field-layout checks. No GPU test or
 deployed-service measurement was repeated for that source-only review.
 
+Update 2026-11-05: hold ownership now holds at the orchestrator as well as the GPU registry (`NodeInteractionMessage.holder`), and the drag acceptance script requires sequence-ordered post-release observer samples; see [external-fixes-2026-11-03](reference/external-fixes-2026-11-03.md). No GPU test was repeated for this record.
+
 ## Purpose
 
 Defines the binary contract between the Rust host and the CUDA layout engine: the

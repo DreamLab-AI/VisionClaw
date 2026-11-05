@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158, ADR-2166]
-verified_commit: 858cf136fa89bf9fdc3475ac3b409b3a3783308f
+verified_commit: 81e71126779b0b312b93ab459058ee8977233331
 verified_paths: [xr-client/scripts/graph_scene.gd, xr-client/scripts/spatial_environment.gd, xr-client/scripts/backend_connection.gd, xr-client/scripts/connection_volume_source.gd, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs, xr-client/materials/edge_flow_common.gdshaderinc, xr-client/materials/edge_flow.tres]
 owner: jjohare
 review_trigger: the first headset session grabbing in the Ontology volume and inside an entered room (reach, depth feel, two-hand comfort); or the server's drag-release unpin (stream GS) merging
@@ -30,6 +30,8 @@ release them (`:4207`). Treat generation invalidation of active grabs as open.
 The [reconciliation](../reference/external-review-2026-11-02.md) also qualifies hold ownership:
 the GPU messages carry holder identity, while the orchestrator bookkeeping is
 still node-only. This source check does not establish headset acceptance.
+
+**Update, 2026-11-05 (`6b811f7a1`):** both are closed in source. `_on_conn_topology_changed` calls `_release_grab` for every volume bound to the connection before it invalidates sources, because wire ids are scoped to a topology generation and an active hold must not outlive the ids it names. The orchestrator's hold set is now owner-aware (see ADR-2169). The text above is kept as the record at `e78210c4d`. The link-instance budget is also now a total: the Rust pack admits at most 512 instances including deduplicated endpoint markers (`render_store.rs` `highlighted_link_budget_includes_endpoint_instances`: 170 links plus 340 markers). Headset acceptance is still not established.
 
 ## Context
 - Owner finding, 2026-11-01: in the Ontology room a trigger on a node turns the wands green and shows its label, but nothing is grabbed. Node grab is a key feature of the platform.
@@ -99,3 +101,9 @@ Re-verified again at `69b16867d`: A later commit adds `is_drawn_in_slot` to `ren
 Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `69b16867d` are additive: `xr-client/scripts/graph_scene.gd`: the splat volume, built only when `XrPrefs.splat_scene()` is on (off by default) and kept out of VOLUME_BINDINGS, VOLUME_ORDER and GraphRoot. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff 69b16867d..5c94c3cbd -- <governed path>`.
 
 Re-verified 2026-11-05 at `858cf136f` for ADR-2178: `grab_volume_allowed` takes the merged space's guest: the ontology volume grabs while the splat stage is entered (ADR-2178); a hidden volume never does. `ac0d68913` does not touch the grab paths. GUT `test_grab_client.gd` passes on the HP rig at this commit.
+
+## Re-verification — 2026-11-05 (`81e711267`)
+
+Governed-path changes since the last stamp, all `6b811f7a1`: `graph_scene.gd` (topology change releases active grabs), `render_store.rs` (a test for the total 512-instance link budget; the pack itself is in `render_store_pack.rs`, outside this record's paths) and `binary_protocol.rs` (provenance fields and a type alias, no wire change). The topology item the note above called open is closed; the grab, volume and two-hand rules decided here are unchanged. **Claims otherwise unchanged; text amended above.**
+
+Re-run: `git diff 858cf136f..81e711267 -- xr-client/scripts/graph_scene.gd xr-client/scripts/spatial_environment.gd xr-client/scripts/backend_connection.gd xr-client/scripts/connection_volume_source.gd xr-client/rust/src/render_store.rs xr-client/rust/src/binary_protocol.rs xr-client/materials/edge_flow_common.gdshaderinc xr-client/materials/edge_flow.tres`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.

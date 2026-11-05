@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 5c94c3cbdafad99e6985fe509162831bf18c2ec8
+verified_commit: 81e71126779b0b312b93ab459058ee8977233331
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -370,3 +370,9 @@ Re-verified 2026-10-30 at c75004696: `src/main.rs` only gains the Jev client wir
 ## Re-verification — 2026-11-04 (`5c94c3cbd`)
 
 Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `15acb9219` are additive: `src/main.rs`: the splat store opened once at boot (fails open, test-covered) plus its `app_data` and `/api/splats` routes; no auth, RBAC, profile or env-hygiene code changed. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff 15acb9219..5c94c3cbd -- <governed path>`.
+
+## Re-verification — 2026-11-05 (`81e711267`)
+
+Governed-path change since the last stamp: `src/handlers/socket_flow_handler/position_updates.rs` (`6b811f7a1`): a blank line is removed and the holder is now passed into `NodeInteractionMessage`. No profile table, flag, RBAC gate or compose default is touched. **Decision unaffected.**
+
+Re-run: `git diff 5c94c3cbd..81e711267 -- src/config/security_profile.rs src/middleware/rbac_gate.rs src/main.rs src/services/role_store.rs src/handlers/socket_flow_handler/position_updates.rs docker-compose.unified.yml`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.

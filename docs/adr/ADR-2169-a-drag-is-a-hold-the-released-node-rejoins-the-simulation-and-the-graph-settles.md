@@ -9,7 +9,7 @@ supersedes: []
 superseded_by: []
 amends: [ADR-2140]
 relates: [ADR-2141, ADR-2172]
-verified_commit: ff849f2baa4b0b47fcb1adb6c039a2ef72bbc5e6
+verified_commit: 81e71126779b0b312b93ab459058ee8977233331
 verified_paths: [src/utils/unified_gpu_compute/hold_overlay.rs, src/utils/unified_gpu_compute/execution.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, src/actors/gpu/hold_registry.rs, src/actors/gpu/force_compute_actor.rs, src/actors/physics_orchestrator_actor.rs, src/handlers/socket_flow_handler/position_updates.rs, src/handlers/socket_flow_handler/types.rs, src/handlers/layout_handler.rs, scripts/drag-physics-acceptance.mjs]
 owner: jjohare
 review_trigger: the first headset session after the server carrying this change is deployed (does the graph answer the hand, does it rest about two seconds after release), or any change to the FA2 integrator or the stored `globalSpeed`.
@@ -31,6 +31,8 @@ to that layer. The acceptance script at `scripts/drag-physics-acceptance.mjs:320
 still compares the dragger's drop sample with an observer sample without
 requiring ordered post-release observer frames. Its five checks alone do not
 prove release. See the [reconciliation](../reference/external-review-2026-11-02.md).
+
+**Update, 2026-11-05 (`6b811f7a1`):** both gaps named above are closed in code. `NodeInteractionMessage` carries `holder` and the orchestrator's `held_nodes` is a node-to-holder map (`track_hold_owner`); a release from a connection that is not the current holder no longer clears the node, so a stale release cannot restore the orchestrator's inter-step sleep or let the equilibrium auto-pause latch while another hand holds it (`stale_holder_release_cannot_put_the_orchestrator_to_sleep`). The acceptance script now takes release evidence from sequence-ordered observer samples after release (`scripts/lib/drag-release-evidence.mjs`): a cross-socket displacement, a single old sample, duplicate or out-of-order frames or total silence cannot prove release, and the held node must move between post-release samples. The sentence in the note above is kept as the record at `e78210c4d`. The acceptance script is still only run against a local mock.
 
 ## Context
 - Owner requirement, 2026-11-01: up to two nodes held at once (one per controller), the whole graph responds as fast as practical on the server and every client, and a released node rejoins the physics instead of staying pinned.
@@ -94,3 +96,9 @@ Evidence: `cargo test --lib -- hold_physics_tests hold_registry socket_flow_hand
 ## Re-verification — 2026-10-31 (`ff849f2ba`)
 
 Re-stamped at the merge of `phys/integrate` and `viz/edge-tracking` (`ff849f2ba`). The governed-path delta since `e2afd65d6` is the ADR-sprint work recorded in ADR-2169, 2172, 2173, 2174 and the 2026-11-01 consolidation commits. The delta was read from the diff, not re-run against this record's acceptance tests. Re-run: `git diff e2afd65d6..ff849f2ba -- $(verified_paths)`.
+
+## Re-verification — 2026-11-05 (`81e711267`)
+
+Governed-path changes since the last stamp, all `6b811f7a1`: orchestrator hold ownership (`held_nodes` node-to-holder map; `holder` on `NodeInteractionMessage`, passed by `position_updates.rs`), and `drag-physics-acceptance.mjs` using ordered post-release evidence. Item 1's rule that a release counts only from the node's current owner is now true at the orchestrator as well as the GPU registry, which is what the external review note above recorded as missing. Items 2 to 10 (GPU stepping, spring overlay, gains) are untouched. **Claims otherwise unchanged; text amended above.** The repair record reports server lib 1,809 passed, 11 ignored, and three Node tests for the evidence helper; not repeated here.
+
+Re-run: `git diff ff849f2ba..81e711267 -- src/utils/unified_gpu_compute/hold_overlay.rs src/utils/unified_gpu_compute/execution.rs crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu src/actors/gpu/hold_registry.rs src/actors/gpu/force_compute_actor.rs src/actors/physics_orchestrator_actor.rs src/handlers/socket_flow_handler/position_updates.rs src/handlers/socket_flow_handler/types.rs src/handlers/layout_handler.rs scripts/drag-physics-acceptance.mjs`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.

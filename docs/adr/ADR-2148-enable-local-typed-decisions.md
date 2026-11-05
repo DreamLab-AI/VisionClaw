@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 772039bd172027af034d64befacca1ebcf0bbc04
+verified_commit: 81e71126779b0b312b93ab459058ee8977233331
 verified_paths: [docker-compose.unified.yml, crates/visionclaw-jev/src/edge.rs, src/handlers/jev_handler.rs, crates/visionclaw-jev/src/wire.rs]
 owner: operator
 review_trigger: "labelled confidence calibration setting the automatic thresholds (VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE); the System One route moving off the shared agentbox proxy; any graph write or proposal approval driven by /api/jev/edge"
@@ -100,3 +100,9 @@ after `client.ask(...)` has returned a model answer, either an `unsupported` cho
 (`crates/visionclaw-jev/src/edge.rs:191-204`). Transport and timeout failures carry their own tags
 (`crates/visionclaw-jev/src/lib.rs:89-97`). The model was therefore reached and its advice withheld, which is the
 advisory behaviour this record decides. Usefulness still awaits calibration (`review_trigger`).
+
+## Re-verification — 2026-11-05 (`81e711267`)
+
+Governed-path change since the last stamp: `src/handlers/jev_handler.rs` (`6b811f7a1`): `debug_assert!(MAX_PALETTE_CANDIDATES > 0)` becomes a `const { assert!(..) }` compile-time check; behaviour is identical. `docker-compose.unified.yml` and the `visionclaw-jev` wire and edge sources are unchanged. **Decision unaffected.**
+
+Re-run: `git diff 772039bd1..81e711267 -- docker-compose.unified.yml crates/visionclaw-jev/src/edge.rs src/handlers/jev_handler.rs crates/visionclaw-jev/src/wire.rs`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.

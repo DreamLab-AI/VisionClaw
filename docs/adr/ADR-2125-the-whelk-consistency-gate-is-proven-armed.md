@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: c750046962749715a4efb1b6056c7f40d9865110
+verified_commit: 81e71126779b0b312b93ab459058ee8977233331
 verified_paths: [crates/vault-core/src/consistency.rs, crates/vault-core/src/lib.rs, crates/vault/src/model.rs, crates/vault/src/build/turtle.rs, crates/vault/src/whelk.rs, crates/vault/src/validate.rs, crates/vault/src/build/mod.rs, crates/vault/src/propose.rs, crates/vault/tests/probe_consistency.rs, src/actors/elevation_actor.rs]
 owner: jjohare
 review_trigger: the `disjoint-with` key entering ontology/vocabulary.yaml; any proposal to re-enable domain-root disjointness; a WHELK_INCONSISTENT blocker firing on a real proposal
@@ -81,3 +81,9 @@ Not re-run: no build was permitted. Governing document `docs/VAULT-corpus-format
 Governed change since 2107637d6: `crates/vault/src/propose.rs` (9717f9d07, ADR-2147) adds an RDFS certificate to `Assessment` and the consequence delta to the proposal; `delta()`, the `WHELK_INCONSISTENT` scoping and the probe are untouched. `cargo test -p vault --test probe_consistency`: 2 passed. **Still holds.**
 
 Re-verified 2026-10-30 at c75004696: `crates/vault/src/model.rs` changes one rustdoc link only (the ADR-2147 rustdoc fix). The Whelk gate is untouched. The decision holds.
+
+## Re-verification — 2026-11-05 (`81e711267`)
+
+Governed-path change since the last stamp: `crates/vault/src/propose.rs` (`6b811f7a1`): `build_with_certificates` adds a `RESOURCE_IMMUTABLE` blocker for an amendment that changes an existing page's resource IRI. The consistency gate (`consistency.rs`, `whelk.rs`, `elevation_actor.rs`) and the Whelk blocker are untouched; the new blocker is an additional, independent refusal. **Decision unaffected.**
+
+Re-run: `git diff c75004696..81e711267 -- crates/vault-core/src/consistency.rs crates/vault-core/src/lib.rs crates/vault/src/model.rs crates/vault/src/build/turtle.rs crates/vault/src/whelk.rs crates/vault/src/validate.rs crates/vault/src/build/mod.rs crates/vault/src/propose.rs crates/vault/tests/probe_consistency.rs src/actors/elevation_actor.rs`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.

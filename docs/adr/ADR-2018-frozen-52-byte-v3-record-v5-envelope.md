@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: abcf36db1460f68015133ba5196d14cdf4112e19
+verified_commit: 81e71126779b0b312b93ab459058ee8977233331
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a new GPU analytics field that cannot fit an existing slot, or any need to change the 52-byte node-record layout
@@ -298,3 +298,9 @@ Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (
 ## Re-verification — 2026-11-01 (`abcf36db1`, branch `viz/edge-tracking`)
 
 Re-verified after the R23 fixes. `xr-client/rust/src/binary_protocol.rs` changes one doc comment (`set_agent_anchors`) and adds one test; no wire constant, decoder, tag or envelope changes. Every claim in this record holds. Evidence: `cargo test` in `xr-client/rust` (623 passed), server `cargo test --lib` (1781 passed, `CUDA_VISIBLE_DEVICES=1`), client vitest (1540 passed), GUT on a fresh `.so` (553 passed, 0 failed, `gut_guard` ok). Not run: the headset.
+
+## Re-verification — 2026-11-05 (`81e711267`)
+
+Governed-path change since the last stamp: `xr-client/rust/src/binary_protocol.rs` (`6b811f7a1`): `NodeMetaWire` gains `source_repo` and `source_revision` (parsed from node metadata, for code-link provenance), `ChunkAdmission` names the existing return tuple of the admission function, and `chunks_exact(2)` becomes `as_chunks::<2>()`. No wire constant, record width, envelope, tag or decoder rule changed. **Decision unaffected.**
+
+Re-run: `git diff abcf36db1..81e711267 -- src/utils/binary_protocol.rs xr-client/rust/src/binary_protocol.rs`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.

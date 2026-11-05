@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 5c94c3cbdafad99e6985fe509162831bf18c2ec8
+verified_commit: 81e71126779b0b312b93ab459058ee8977233331
 verified_paths: [xr-client/visionclaw_xr_gdext.gdextension, xr-client/rust/Cargo.toml]
 owner: jjohare
 review_trigger: the Invariant 1 headset re-test on 4.8 (pass or fail); Godot 4.8-beta3, RC or stable; a godot-rust release with an api-4-8 feature; the Quest/Android XR export being unfrozen
@@ -64,3 +64,9 @@ Established at `verified_commit` (main, the tree synced to HP `~/mce-xr/godot48/
 ## Re-verification — 2026-11-04 (`5c94c3cbd`)
 
 Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `00669b7a2` are additive: `xr-client/rust/Cargo.toml`: the `visionclaw-splat` path dependency and a `tempfile` dev-dependency; the godot crate pin is unchanged. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff 00669b7a2..5c94c3cbd -- <governed path>`.
+
+## Re-verification — 2026-11-05 (`81e711267`)
+
+Governed-path change since the last stamp: `xr-client/rust/Cargo.toml` (`6b811f7a1`) adds `base64 = "0.22"` for the signed upgrade subprotocol. The gdextension manifest and the Godot 4.8-beta target are unchanged. **Decision unaffected.**
+
+Re-run: `git diff 5c94c3cbd..81e711267 -- xr-client/visionclaw_xr_gdext.gdextension xr-client/rust/Cargo.toml`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
