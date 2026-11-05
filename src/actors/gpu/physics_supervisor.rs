@@ -552,7 +552,6 @@ impl Actor for PhysicsSupervisor {
                     warn!("PhysicsSupervisor: OntologyConstraintActor mailbox disconnected — triggering restart");
                     act.ontology_constraint_state.is_running = false;
                     act.handle_actor_failure("OntologyConstraintActor", "Mailbox disconnected (detected by health check)", ctx);
-                    return;
                 }
             }
         });

@@ -114,7 +114,7 @@ pub struct PhysicsOrchestratorActor {
 
     /// Nodes any client currently holds (`Dragged` adds, `Released` removes). While non-empty
     /// the pipeline does not sleep between steps and no equilibrium auto-pause can latch.
-    held_nodes: std::collections::HashSet<u32>,
+    held_nodes: std::collections::HashMap<u32, u64>,
 
     /// Whether the CPU fallback warning has been logged (log at most once).
     cpu_fallback_warned: bool,
@@ -231,7 +231,7 @@ impl PhysicsOrchestratorActor {
             pipeline_step_pending: false,
             pipeline_step_pending_since: None,
             pipeline_target_interval: Duration::from_millis(16),
-            held_nodes: std::collections::HashSet::new(),
+            held_nodes: std::collections::HashMap::new(),
             cpu_fallback_warned: false,
             gpu_init_started_at: None,
             consecutive_gpu_failures: 0,
@@ -1180,21 +1180,25 @@ impl Handler<PhysicsPauseMessage> for PhysicsOrchestratorActor {
     }
 }
 
+fn track_hold_owner(holds: &mut HashMap<u32, u64>, msg: &NodeInteractionMessage) {
+    match msg.interaction_type {
+        NodeInteractionType::Dragged => {
+            holds.insert(msg.node_id, msg.holder);
+        }
+        NodeInteractionType::Released if holds.get(&msg.node_id) == Some(&msg.holder) => {
+            holds.remove(&msg.node_id);
+        }
+        _ => {}
+    }
+}
+
 impl Handler<NodeInteractionMessage> for PhysicsOrchestratorActor {
     type Result = Result<(), VisionClawError>;
 
     fn handle(&mut self, msg: NodeInteractionMessage, ctx: &mut Self::Context) -> Self::Result {
         info!("Node interaction detected: {:?}", msg.interaction_type);
 
-        match msg.interaction_type {
-            NodeInteractionType::Dragged => {
-                self.held_nodes.insert(msg.node_id);
-            }
-            NodeInteractionType::Released => {
-                self.held_nodes.remove(&msg.node_id);
-            }
-            NodeInteractionType::Selected => {}
-        }
+        track_hold_owner(&mut self.held_nodes, &msg);
 
         if self
             .simulation_params
@@ -1942,13 +1946,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn stale_holder_release_cannot_put_the_orchestrator_to_sleep() {
+        let mut actor = held_actor();
+        let msg = |holder, interaction_type| NodeInteractionMessage {
+            node_id: 7,
+            holder,
+            interaction_type,
+            position: None,
+        };
+        track_hold_owner(&mut actor.held_nodes, &msg(1, NodeInteractionType::Dragged));
+        track_hold_owner(&mut actor.held_nodes, &msg(2, NodeInteractionType::Dragged));
+        track_hold_owner(
+            &mut actor.held_nodes,
+            &msg(1, NodeInteractionType::Released),
+        );
+        assert_eq!(actor.effective_interval(), Duration::ZERO);
+        track_hold_owner(
+            &mut actor.held_nodes,
+            &msg(2, NodeInteractionType::Released),
+        );
+        assert_eq!(actor.effective_interval(), Duration::from_millis(16));
+    }
+
+    #[tokio::test]
     async fn a_held_node_removes_the_continuous_step_pause_and_a_release_restores_it() {
         let mut actor = held_actor();
         assert_eq!(actor.effective_interval(), Duration::from_millis(16));
-        actor.held_nodes.insert(7);
+        actor.held_nodes.insert(7, 1);
         assert_eq!(actor.effective_interval(), Duration::ZERO);
         // A second hand, then one let go: still held.
-        actor.held_nodes.insert(8);
+        actor.held_nodes.insert(8, 1);
         actor.held_nodes.remove(&7);
         assert_eq!(actor.effective_interval(), Duration::ZERO);
         actor.held_nodes.remove(&8);
@@ -1996,7 +2023,7 @@ mod tests {
         );
         actor.simulation_params.is_physics_paused = false;
         actor.simulation_params.equilibrium_stability_counter = 99;
-        actor.held_nodes.insert(1);
+        actor.held_nodes.insert(1, 1);
         actor.check_equilibrium_and_auto_pause();
         assert!(
             !actor.simulation_params.is_physics_paused,

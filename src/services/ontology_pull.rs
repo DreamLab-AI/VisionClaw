@@ -34,6 +34,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use solid_pod_rs::error::PodError;
 use solid_pod_rs::wac::{AclAuthorization, AclDocument, IdOrIds, IdRef};
+#[cfg(test)]
 use solid_pod_rs::Storage;
 use tracing::{info, warn};
 
@@ -198,6 +199,7 @@ impl Fetch for HttpFetch {
 #[derive(Debug, Clone)]
 struct Manifest {
     build_sha: String,
+    source_sha: Option<String>,
     classes: u64,
     triples: u64,
 }
@@ -225,6 +227,11 @@ fn parse_manifest(body: &[u8]) -> Result<Manifest, PullError> {
     let num = |k: &str| v.get(k).and_then(Value::as_u64).unwrap_or(0);
     Ok(Manifest {
         build_sha,
+        source_sha: v
+            .get("visionflow:sourceSha")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
         classes: num("visionflow:classes"),
         triples: num("visionflow:triples"),
     })
@@ -283,6 +290,7 @@ fn public_read_acl() -> AclDocument {
     }
 }
 
+#[cfg(test)]
 async fn pod_build_sha<S: Storage + ?Sized>(storage: &S) -> Option<String> {
     let (body, _) = storage
         .get(&format!("{POD_CONTAINER}{MANIFEST}"))
@@ -309,8 +317,14 @@ where
     let manifest_bytes = fetch.get(&url(MANIFEST)).await?;
     let manifest = parse_manifest(&manifest_bytes)?;
 
-    if pod_build_sha(storage).await.as_deref() == Some(manifest.build_sha.as_str())
-        && storage.has_atomic_generation().await?
+    let current = storage
+        .get(&format!("{POD_CONTAINER}{MANIFEST}"))
+        .await
+        .ok()
+        .and_then(|(body, _)| parse_manifest(&body).ok());
+    if current.as_ref().is_some_and(|old| {
+        old.build_sha == manifest.build_sha && old.source_sha == manifest.source_sha
+    }) && storage.has_atomic_generation().await?
     {
         return Ok(PullOutcome::UpToDate {
             build_sha: manifest.build_sha,
@@ -732,6 +746,38 @@ mod tests {
             before + 1,
             "only the manifest"
         );
+    }
+
+    #[tokio::test]
+    async fn same_build_with_a_different_source_is_not_treated_as_current() {
+        let storage = MemoryBackend::new();
+        let mut old_release = release("same-build");
+        let mut old: Value = serde_json::from_slice(&old_release[MANIFEST]).unwrap();
+        old["visionflow:sourceSha"] = serde_json::json!("old-source");
+        old_release.insert(MANIFEST.into(), Bytes::from(old.to_string()));
+        let sums: String = old_release
+            .iter()
+            .filter(|(n, _)| n.as_str() != SUMS)
+            .map(|(n, b)| format!("{}  {}\n", sha256_hex(b), n))
+            .collect();
+        old_release.insert(SUMS.into(), Bytes::from(sums));
+        pull_once(&fetcher(old_release), &storage, &cfg())
+            .await
+            .unwrap();
+        let mut next_release = release("same-build");
+        let mut next: Value = serde_json::from_slice(&next_release[MANIFEST]).unwrap();
+        next["visionflow:sourceSha"] = serde_json::json!("new-source");
+        next_release.insert(MANIFEST.into(), Bytes::from(next.to_string()));
+        let sums: String = next_release
+            .iter()
+            .filter(|(n, _)| n.as_str() != SUMS)
+            .map(|(n, b)| format!("{}  {}\n", sha256_hex(b), n))
+            .collect();
+        next_release.insert(SUMS.into(), Bytes::from(sums));
+        let out = pull_once(&fetcher(next_release), &storage, &cfg())
+            .await
+            .unwrap();
+        assert!(matches!(out, PullOutcome::Updated { .. }));
     }
 
     #[tokio::test]

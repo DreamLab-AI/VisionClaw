@@ -569,6 +569,14 @@ pub fn build_with_certificates(
     for blocker in unparseable {
         push_unique(&mut blockers, blocker);
     }
+    for id in &pages {
+        if let (Some(old), Some(new)) = (vault.get(id), patched.get(id)) {
+            if old.resource(&vocab.namespace) != new.resource(&vocab.namespace) {
+                push_unique(&mut blockers, Blocker::new("RESOURCE_IMMUTABLE",
+                    format!("`{id}` changes its resource IRI; amend content without reminting identity")));
+            }
+        }
+    }
 
     // Creations answer to more than the delta: a new page must not take an
     // existing page's file, IRI or published URL, and one that brings a new
@@ -608,7 +616,8 @@ pub fn build_with_certificates(
         &stale_after,
         options,
     )?;
-    let consequences = crate::certificate::consequence_delta(&before.certificate, &after.certificate);
+    let consequences =
+        crate::certificate::consequence_delta(&before.certificate, &after.certificate);
     let proposal = proposal
         .with_kind(kind)
         .with_preexisting(preexisting)
@@ -811,6 +820,26 @@ scalars:
         let path = dir.path().join("proposed.md");
         std::fs::write(&path, text).unwrap();
         (dir, path)
+    }
+
+    #[test]
+    fn amending_a_page_cannot_remint_its_resource_iri() {
+        let vault = vault_of(vec![("A", GOOD)]);
+        let vocab = vocab();
+        let corpus = Corpus::build(&vault, &vocab);
+        let (_dir, path) = proposed_file(&GOOD.replace("urn:ngm:class:a", "urn:ngm:class:renamed"));
+        let built = build(
+            &vault,
+            &corpus,
+            &vocab,
+            "test-generation",
+            &options(Level::Content, Some(path)),
+        )
+        .unwrap();
+        assert!(built
+            .blockers
+            .iter()
+            .any(|b| b.code == "RESOURCE_IMMUTABLE"));
     }
 
     #[test]

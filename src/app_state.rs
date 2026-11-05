@@ -1576,13 +1576,7 @@ impl AppState {
     }
 
     pub async fn get_api_keys(&self, pubkey: &str) -> ApiKeys {
-        use crate::actors::protected_settings_actor::GetApiKeys;
-        self.protected_settings_addr
-            .send(GetApiKeys {
-                pubkey: pubkey.to_string(),
-            })
-            .await
-            .unwrap_or_else(|_| ApiKeys::default())
+        self.get_nostr_user(pubkey).await.map(|user| user.api_keys).unwrap_or_default()
     }
 
     pub async fn get_nostr_user(&self, pubkey: &str) -> Option<NostrUser> {

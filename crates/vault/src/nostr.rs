@@ -102,6 +102,9 @@ pub fn action_request(
     pubkey_hex: &str,
     created_at: u64,
 ) -> Result<UnsignedEvent, String> {
+    if proposal.is_grouped() {
+        return Err("grouped proposal signing is unsupported until the ontology consumer implements atomic multi-page application; inspect the unsigned group locally or propose each page separately".into());
+    }
     if !proposal.is_postable() {
         return Err(format!(
             "refusing to post: {} blocker(s); first: {}",
@@ -132,15 +135,6 @@ pub fn action_request(
         vec!["generation".into(), proposal.generation.clone()],
         vec!["expiration".into(), expiration.to_string()],
     ];
-    // A grouped proposal announces its SCOPE in the tags, not only inside the
-    // content. The single most decision-relevant fact for a human deciding
-    // whether to open a case is how many pages it changes, and a reviewer
-    // scanning a relay sees tags before content. Added only when grouped, so a
-    // single-page event is byte-identical to what it was before grouping
-    // existed.
-    if proposal.is_grouped() {
-        tags.push(vec!["pages".into(), proposal.pages.len().to_string()]);
-    }
     tags.extend(task_properties(proposal.level).to_tags());
 
     Ok(UnsignedEvent {
@@ -384,6 +378,16 @@ mod tests {
         assert_eq!(tag(&e, "generation"), Some("visionGraph@abc1234"));
         // 2026-10-06T00:00:00Z as NIP-40 unix seconds, not the RFC 3339 text.
         assert_eq!(tag(&e, "expiration"), Some("1791244800"));
+    }
+
+    #[test]
+    fn grouped_requests_are_refused_before_signing_but_single_page_still_builds() {
+        let mut p = proposal(Level::Content, vec![]);
+        assert!(action_request(&p, PUBKEY, 1_790_000_000).is_ok());
+        p.pages = vec!["A".into(), "B".into()];
+        assert!(action_request(&p, PUBKEY, 1_790_000_000)
+            .unwrap_err()
+            .contains("atomic multi-page"));
     }
 
     #[test]

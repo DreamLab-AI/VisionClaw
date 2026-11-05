@@ -806,7 +806,9 @@ static func distance_to_box(v: Node3D, p: Vector3) -> float:
 	var xf: Transform3D = v.global_transform if v.is_inside_tree() else v.transform
 	var local := xf.affine_inverse() * p
 	var over: Vector3 = local.abs() - (v.bounds as Vector3) * 0.5
-	return over.max(Vector3.ZERO).length()
+	# The inverse above gives local units. Restore per-axis world scale before
+	# comparing to a world-space rearm margin (rotated boxes remain orthogonal).
+	return (over.max(Vector3.ZERO) * xf.basis.get_scale().abs()).length()
 
 
 ## Call every frame with the head pose (world). With walk-through on and a space
@@ -824,7 +826,9 @@ func update_walkthrough(head_world: Vector3, heading_world: Vector3, delta: floa
 	if not _armed:
 		var clear := true
 		for id: StringName in ids:
-			if distance_to_box(arrangement.volume(id), head_world) <= REARM_DISTANCE:
+			var axis_scale := arrangement.global_transform.basis.get_scale().abs()
+			var world_rearm := REARM_DISTANCE * maxf(axis_scale.x, maxf(axis_scale.y, axis_scale.z))
+			if distance_to_box(arrangement.volume(id), head_world) <= world_rearm:
 				clear = false
 				break
 		if clear:

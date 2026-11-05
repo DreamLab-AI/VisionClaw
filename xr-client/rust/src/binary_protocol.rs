@@ -199,6 +199,10 @@ pub struct NodeMetaWire {
     pub ontology_refs: String,
     /// `metadata.source_file`: the path a code link's provenance names.
     pub source_file: String,
+    /// Codescape snapshot repository label.
+    pub source_repo: String,
+    /// Monotonic snapshot revision, not a Git commit SHA.
+    pub source_revision: Option<u64>,
 }
 
 /// `iri → [wire ids]` over a topology's node metadata (one IRI may sit on several nodes).
@@ -229,6 +233,8 @@ pub fn code_refs_from_metas(metas: &[NodeMetaWire]) -> Vec<crate::link_index::Co
                 key: m.metadata_id.clone(),
                 id: m.id,
                 path: m.source_file.clone(),
+                repo: m.source_repo.clone(),
+                revision: m.source_revision,
                 is_file: m.node_type == "file",
                 refs,
             })
@@ -400,6 +406,8 @@ pub fn parse_initial_graph(text: &str) -> Option<(Vec<EdgeSpec>, Vec<NodeMetaWir
                 iris,
                 ontology_refs,
                 source_file,
+                source_repo: meta_str(meta, "repo").unwrap_or("").to_string(),
+                source_revision: meta.and_then(|m| m.get("revision")).and_then(serde_json::Value::as_u64),
             });
         }
     }
@@ -524,7 +532,7 @@ pub fn edges_for_class_mask(
                 .unwrap_or(false)
     };
     let mut keep: Vec<(usize, f32)> = flat
-        .chunks_exact(2)
+        .as_chunks::<2>().0.iter()
         .enumerate()
         .filter(|(_, p)| inside(p[0]) && inside(p[1]))
         .map(|(i, _)| (i, weights.get(i).copied().filter(|w| w.is_finite()).unwrap_or(1.0)))
@@ -692,6 +700,9 @@ pub enum Freshness {
     RejectStale { sequence: u64, watermark: u64 },
 }
 
+/// Admission decision, optional applied records and optional acknowledgement bytes.
+pub type ChunkAdmission = (Freshness, Option<Vec<NodeUpdate>>, Option<Vec<u8>>);
+
 impl Freshness {
     /// Whether the caller should apply this frame's records.
     pub fn is_accepted(self) -> bool {
@@ -837,7 +848,7 @@ impl FreshnessGate {
         &mut self,
         bytes: &[u8],
         now_ms: u64,
-    ) -> Result<(Freshness, Option<Vec<NodeUpdate>>, Option<Vec<u8>>), DecodeError> {
+    ) -> Result<ChunkAdmission, DecodeError> {
         let (verdict, updates) = self.admit_frame(bytes)?;
         let ack = match (&updates, ack_sequence(verdict)) {
             (Some(u), Some(seq)) => Some(encode_broadcast_ack(seq, u.len() as u32, now_ms)),
@@ -3263,7 +3274,7 @@ mod tests {
             {"id":2,"label":"BM25 page","metadata":{"page_iri":"urn:visionflow:page:bm25","class_iri":"urn:ngm:class:bm25"}},
             {"id":3,"label":"other","owl_class_iri":"urn:ngm:class:rank"},
             {"id":10,"metadata_id":"src_rank","label":"rank.rs","node_type":"file",
-             "metadata":{"source_file":"src/rank.rs","ontology_refs":"urn:ngm:class:bm25#L12 junk urn:ngm:class:rank#L30"}},
+             "metadata":{"source_file":"src/rank.rs","repo":"demo","revision":42,"ontology_refs":"urn:ngm:class:bm25#L12 junk urn:ngm:class:rank#L30"}},
             {"id":11,"metadata_id":"src_rank::score","label":"score","node_type":"function",
              "metadata":{"source_file":"src/rank.rs","ontology_refs":"urn:ngm:class:bm25#L12"}},
             {"id":12,"metadata_id":"plain","label":"plain","node_type":"file","metadata":{"source_file":"src/x.rs"}}
@@ -3274,6 +3285,8 @@ mod tests {
         assert_eq!(by_id(3).iris, vec!["urn:ngm:class:rank".to_string()]);
         assert_eq!(by_id(10).ontology_refs, "urn:ngm:class:bm25#L12 junk urn:ngm:class:rank#L30");
         assert_eq!(by_id(10).source_file, "src/rank.rs");
+        assert_eq!(by_id(10).source_repo, "demo");
+        assert_eq!(by_id(10).source_revision, Some(42));
         let t = iri_table_from_metas(&metas);
         assert_eq!(t["urn:ngm:class:bm25"], vec![1, 2], "one IRI on two nodes");
         assert_eq!(t["urn:ngm:class:rank"], vec![3]);

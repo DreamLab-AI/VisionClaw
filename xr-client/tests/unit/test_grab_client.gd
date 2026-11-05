@@ -302,6 +302,17 @@ func test_no_jump_on_grab_in_the_ring_for_both_volumes_and_hands() -> void:
 	await _free(scene)
 
 
+func test_topology_generation_releases_both_hands_before_ids_are_reused() -> void:
+	var scene: Node3D = await _make_scene()
+	var fake := _fake(scene)
+	assert_true(scene._begin_grab(0, &"knowledge", 11, Vector3.ZERO))
+	assert_true(scene._begin_grab(1, &"ontology", 22, Vector3.ZERO))
+	scene._on_conn_topology_changed(&"visionclaw", 2)
+	assert_eq(scene._held_ids(), [], "old-generation ids cannot remain under a hand")
+	assert_eq(fake.of_kind("end").size(), 2, "release each old-generation hold")
+	await _free(scene)
+
+
 func test_no_jump_on_grab_inside_a_scaled_entered_room() -> void:
 	var scene: Node3D = await _make_scene()
 	_settle(scene)

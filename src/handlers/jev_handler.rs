@@ -104,7 +104,7 @@ pub async fn palette(
     client: web::Data<JevHub>,
     req: web::Json<PaletteRequest>,
 ) -> impl Responder {
-    debug_assert!(MAX_PALETTE_CANDIDATES > 0);
+    const { assert!(MAX_PALETTE_CANDIDATES > 0); }
     HttpResponse::Ok().json(palette_body(&client, &req).await)
 }
 

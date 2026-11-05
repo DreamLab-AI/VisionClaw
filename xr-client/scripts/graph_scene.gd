@@ -4382,6 +4382,10 @@ func _on_conn_connected_changed(conn_id: StringName, connected: bool) -> void:
 
 
 func _on_conn_topology_changed(conn_id: StringName, _generation: int) -> void:
+	# Wire ids are scoped to a topology generation, including active hand holds.
+	for vid: StringName in _sources:
+		if VOLUME_BINDINGS[vid]["conn"] == conn_id:
+			_release_grab(vid)
 	for vid: StringName in _sources:
 		if VOLUME_BINDINGS[vid]["conn"] == conn_id:
 			_sources[vid].invalidate()

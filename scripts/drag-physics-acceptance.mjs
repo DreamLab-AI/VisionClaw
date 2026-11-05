@@ -46,6 +46,7 @@
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { releaseEvidence } from './lib/drag-release-evidence.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -123,6 +124,7 @@ class Client {
     this.frames = 0;
     this.authed = false;
     this.acks = [];
+    this.lastSequence = null;
   }
 
   async open() {
@@ -173,6 +175,8 @@ class Client {
     const frame = decodeFrame(buf);
     if (!frame) return;
     const { seq, nodes } = frame;
+    if (seq !== null && this.lastSequence !== null && seq <= this.lastSequence) return;
+    if (seq !== null) this.lastSequence = seq;
     const t = now();
     if (seq !== null) this.ack(seq, nodes.length);
     const moved = new Map();
@@ -182,7 +186,7 @@ class Client {
       this.pos.set(n.id, [n.x, n.y, n.z]);
     }
     this.frames++;
-    this.log.push({ t, moved, count: nodes.length });
+    this.log.push({ t, seq, moved, positions: new Map(nodes.map(n => [n.id, [n.x, n.y, n.z]])), count: nodes.length });
   }
 
   close() {
@@ -212,23 +216,6 @@ function firstMove(client, ids, t0, eps) {
     }
   }
   return null;
-}
-
-/**
- * Time of the last frame at or after `t0` that carried motion (a node past `eps`), provided the
- * stream has then been quiet for `quietMs` up to `tEnd`; null when it was still moving at the end
- * or never moved. A graph at rest sends no frames, so rest is silence, not small frames.
- */
-function lastMotion(client, t0, tEnd, eps, quietMs) {
-  let last = null;
-  for (const f of client.log) {
-    if (f.t < t0) continue;
-    let max = 0;
-    for (const d of f.moved.values()) if (d > max) max = d;
-    if (max > eps) last = f.t;
-  }
-  if (last === null) return t0; // nothing moved after t0: already at rest
-  return tEnd - last >= quietMs ? last : null;
 }
 
 const results = [];
@@ -317,7 +304,7 @@ try {
     await sleep(period);
   }
   const tRelease = now();
-  const heldNow = new Map(held.map((h) => [h, [...A.pos.get(h)]]));
+  const releaseSequence = B.lastSequence;
   for (const h of held) A.send({ type: 'nodeDragEnd', data: { nodeId: h } });
 
   // Watch the aftermath.
@@ -350,20 +337,13 @@ try {
     })(),
   };
 
-  const restB = lastMotion(B, tRelease, tEnd, opt.restEps, opt.quietMs);
-  report.settleMs = restB == null ? null : Math.round(restB - tRelease);
-  report.framesAfterRelease = B.log.filter((f) => f.t >= tRelease).length;
+  const evidence = releaseEvidence(B.log, tRelease, releaseSequence, held, tEnd, opt.restEps, opt.quietMs);
+  report.settleMs = evidence.settleMs == null ? null : Math.round(evidence.settleMs);
+  report.framesAfterRelease = evidence.frames;
 
   // Did the released node rejoin the simulation? A pinned node never moves after release; a free
   // one is pulled by its springs, so it travels from the drop point.
-  const afterB = new Map(held.map((h) => [h, B.pos.get(h)]));
-  report.releasedNodeTravel = Object.fromEntries(
-    held.map((h) => {
-      const a = heldNow.get(h);
-      const b = afterB.get(h);
-      return [h, +Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]).toFixed(2)];
-    }),
-  );
+  report.releasedNodeTravel = evidence.travel;
 
   console.log(JSON.stringify(report, null, 2));
 

@@ -81,7 +81,16 @@ impl NostrSigner {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0) as i64;
-        let tags = serde_json::json!([["u", url], ["method", method]]);
+        // NIP-98 events are single use. Reconnects within one clock second
+        // must not mint the same deterministic event id for the same URL.
+        use secp256k1::rand::RngCore;
+        let mut nonce = [0u8; 16];
+        secp256k1::rand::thread_rng().fill_bytes(&mut nonce);
+        let tags = serde_json::json!([
+            ["u", url],
+            ["method", method],
+            ["nonce", hex::encode(nonce)]
+        ]);
         let content = "";
 
         // NIP-01 canonical id preimage: [0, pubkey, created_at, kind, tags, content]
@@ -360,6 +369,17 @@ mod tests {
         let sig =
             Signature::from_slice(&hex::decode(event["sig"].as_str().unwrap()).unwrap()).unwrap();
         assert!(SECP256K1.verify_schnorr(&sig, &message, &xonly).is_ok());
+    }
+
+    #[test]
+    fn repeated_upgrades_mint_distinct_single_use_events() {
+        let signer = NostrSigner::generate();
+        let first = signer.nip98_http_authorization("http://localhost/wss", "GET");
+        let second = signer.nip98_http_authorization("http://localhost/wss", "GET");
+        assert_ne!(
+            first, second,
+            "rapid reconnects must not replay an event id"
+        );
     }
 
     #[test]
