@@ -92,6 +92,24 @@ func test_no_page_overflows_its_host() -> void:
 	await get_tree().process_frame
 
 
+
+# ADR-2170/2178: the Layout page grows by the Splat Scene group (header, Enter row and,
+# for a staged scene, the Merge row) once a scene is loaded; it must still fit.
+func test_the_layout_page_fits_with_the_whole_splat_group_shown() -> void:
+	var hud: Node3D = await _make_hud()
+	var host: Control = hud.get_node(TABS)
+	var page: Control = hud.get_node("%s/LayoutPage" % TABS)
+	for st: Dictionary in [{"enabled": true, "available": true, "stageable": true},
+			{"enabled": true, "available": true, "stageable": true, "merged": true, "scale_mult": 1.41, "metres_per_unit": 3.17}]:
+		hud.set_splat_state(st)
+		await get_tree().process_frame
+		var row: Control = page.find_child("MergeRow", true, false)
+		assert_true(row != null and row.visible, "the Merge row is shown for a staged scene")
+		var need: float = page.get_combined_minimum_size().y
+		assert_lte(need, host.size.y + 1.0, "Layout page min-height %.0f must fit host %.0f with %s" % [need, host.size.y, st])
+	hud.queue_free()
+	await get_tree().process_frame
+
 func test_public_api_and_signals_preserved() -> void:
 	var hud: Node3D = await _make_hud()
 	for m in ["set_controls_status", "set_control_states", "set_fold_state", "set_query_preview",
