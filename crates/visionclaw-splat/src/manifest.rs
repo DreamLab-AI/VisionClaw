@@ -48,6 +48,10 @@ pub struct SplatAsset {
     pub sources: Vec<SourceFile>,
     /// Axis-aligned bounds of the scene in its own units, for the volume fit.
     pub bounds: Bounds,
+    /// Where a viewer stands and what the scene is about, for the merged
+    /// splat space (ADR-2178). Absent: the asset can only be a bounded volume.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<Stage>,
     pub variants: Vec<Variant>,
 }
 
@@ -73,6 +77,22 @@ pub struct SourceFile {
 pub struct Bounds {
     pub min: [f32; 3],
     pub max: [f32; 3],
+}
+
+/// How a scene is staged at viewer scale (ADR-2178).
+///
+/// The scene must be baked into its stage frame: the viewer's start is the
+/// floor point at the origin, +Y is up and the viewer faces −Z. That leaves
+/// two facts per asset: the size of one scene unit in metres, and the point of
+/// interest the start looks towards.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Stage {
+    /// Metres per scene unit, measured from the capture (for a panorama
+    /// capture, standing eye height over the camera's height above the floor).
+    pub metres_per_unit: f32,
+    /// The point of interest, in scene units, inside the bounds.
+    pub focus: [f32; 3],
 }
 
 /// The LOD variants ADR-2170 decision 5 names.
@@ -178,6 +198,8 @@ pub enum ManifestError {
     ShDegree { asset: String, sh: u8 },
     #[error("asset {0}: bounds min is not below max")]
     Bounds(String),
+    #[error("asset {asset}: stage {why}")]
+    Stage { asset: String, why: &'static str },
     #[error("manifest JSON: {0}")]
     Json(String),
 }
@@ -218,6 +240,18 @@ impl Manifest {
             }
             if (0..3).any(|i| a.bounds.min[i] >= a.bounds.max[i]) {
                 return Err(ManifestError::Bounds(a.id.clone()));
+            }
+            if let Some(st) = &a.stage {
+                let stage = |why| ManifestError::Stage { asset: a.id.clone(), why };
+                if !st.metres_per_unit.is_finite() || st.metres_per_unit <= 0.0 {
+                    return Err(stage("metresPerUnit is not a positive number"));
+                }
+                if (0..3).any(|i| !(a.bounds.min[i]..=a.bounds.max[i]).contains(&st.focus[i])) {
+                    return Err(stage("focus is outside the bounds"));
+                }
+                if (0..3).any(|i| !(a.bounds.min[i]..=a.bounds.max[i]).contains(&0.0)) {
+                    return Err(stage("start (the origin) is outside the bounds"));
+                }
             }
             for s in &a.sources {
                 if !is_sha256_hex(&s.sha256) {
@@ -298,6 +332,9 @@ pub struct ListedAsset {
     /// every view says "modified (decimated)".
     pub modified: bool,
     pub bounds: Bounds,
+    /// Passed through from the manifest; absent when the asset has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<Stage>,
     pub variants: Vec<ListedVariant>,
 }
 
@@ -349,6 +386,7 @@ impl ListedAsset {
             attribution: asset.attribution.clone(),
             modified: true,
             bounds: asset.bounds,
+            stage: asset.stage,
             variants,
         }
     }
@@ -392,6 +430,7 @@ pub(crate) mod tests {
                     min: [-1.0; 3],
                     max: [1.0; 3],
                 },
+                stage: None,
                 variants: vec![
                     Variant {
                         name: VariantName::Xr3,
@@ -410,6 +449,44 @@ pub(crate) mod tests {
                 ],
             }],
         }
+    }
+
+    #[test]
+    fn a_stage_round_trips_and_reaches_the_listing() {
+        let mut m = sample();
+        m.assets[0].stage = Some(Stage { metres_per_unit: 2.25, focus: [0.0, 0.5, -0.9] });
+        let json = m.to_json();
+        assert!(json.contains("\"metresPerUnit\": 2.25"), "{json}");
+        assert_eq!(Manifest::from_json(&json).unwrap(), m);
+        let listed = ListedAsset::from_asset(&m.assets[0], |v| v.bytes);
+        assert_eq!(listed.stage, m.assets[0].stage);
+        assert!(serde_json::to_string(&listed).unwrap().contains("\"focus\":[0.0,0.5,-0.9]"));
+    }
+
+    #[test]
+    fn an_asset_without_a_stage_serialises_without_the_key() {
+        let m = sample();
+        assert!(!m.to_json().contains("stage"));
+        let listed = ListedAsset::from_asset(&m.assets[0], |v| v.bytes);
+        assert!(!serde_json::to_string(&listed).unwrap().contains("stage"));
+    }
+
+    #[test]
+    fn a_bad_stage_is_refused() {
+        for (st, why) in [
+            (Stage { metres_per_unit: 0.0, focus: [0.0; 3] }, "positive"),
+            (Stage { metres_per_unit: f32::NAN, focus: [0.0; 3] }, "positive"),
+            (Stage { metres_per_unit: 1.0, focus: [0.0, 2.0, 0.0] }, "focus"),
+        ] {
+            let mut m = sample();
+            m.assets[0].stage = Some(st);
+            let e = m.validate().unwrap_err().to_string();
+            assert!(e.contains(why), "{e}");
+        }
+        let mut m = sample();
+        m.assets[0].bounds = Bounds { min: [0.5; 3], max: [1.0; 3] };
+        m.assets[0].stage = Some(Stage { metres_per_unit: 1.0, focus: [0.75; 3] });
+        assert!(m.validate().unwrap_err().to_string().contains("origin"));
     }
 
     #[test]

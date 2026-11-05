@@ -16,6 +16,15 @@ extends Node3D
 ## drawn for all portals by a single MultiMesh (one draw call). No second
 ## camera, render-to-texture, stencil or screen/depth sampling.
 ##
+## The merged splat space (ADR-2178) is a second kind of entered state. The
+## room is a staged splat volume at viewer scale (its bounds are the scene's
+## extent times metres-per-unit, so the fit scale is exactly that), placed so
+## the scene's start lands on the user's floor point and its focus lies ahead
+## along the heading. One graph volume, the guest, is placed directly inside
+## the room on the sight line from the user to the focus: no membrane, still
+## pickable and draggable. Every other volume is hidden and shown again on
+## leave. There are no portals.
+##
 ## `IMMERSIVE` (1:1 graph units, and the native shim's mode mapping) is not
 ## used. Leaving restores the ring exactly from the snapshot taken at the first
 ## enter: transforms, bounds, mode, slots, moved flags and the arrangement's own
@@ -68,6 +77,22 @@ const MEMBRANE_SHADER := "res://materials/portal_membrane.gdshader"
 const MEMBRANE_PRIORITY := 10
 const UNFOCUSED := 0.35
 const DEFAULT_TINT := Color(0.8, 0.85, 1.0)
+
+# Merged splat space (ADR-2178). The guest is a cube sized from the start-to-focus
+# distance and kept within reach of the wand ray (graph_scene RAY_LENGTH, 5 m) from
+# the start: its centre is at most GUEST_FAR from the user and its near face at
+# least GUEST_NEAR_GAP away. It hangs on the sight line to the focus, between
+# GUEST_FLOOR_GAP above the floor and GUEST_MAX_LIFT above the eye.
+const GUEST_FRACTION := 0.3
+const GUEST_EDGE_FRACTION := 0.25
+const GUEST_EDGE_MIN := 1.2
+const GUEST_EDGE_MAX := 3.0
+const GUEST_NEAR_GAP := 1.0
+const GUEST_FAR := 4.0
+const GUEST_FLOOR_GAP := 0.3
+const GUEST_MAX_LIFT := 1.5
+## The viewer-scale multiplier steps the HUD offers (1.0 is the measured stage).
+const MERGED_SCALES: Array[float] = [0.25, 0.5, 0.71, 1.0, 1.41, 2.0]
 ## Knowledge, ontology and Codescape portal tints.
 const TINTS := {
 	&"knowledge": Color(0.35, 0.75, 1.0),
@@ -96,6 +121,10 @@ var membranes: MultiMeshInstance3D
 var fade_quad: MeshInstance3D
 
 var _entered: StringName = &""
+var _guest: StringName = &""          # ADR-2178: the merged space's guest volume
+var _stage: Dictionary = {}           # {metres_per_unit, focus, content} of the merged room
+var _scale_mult := 1.0
+var _hidden: Array[StringName] = []   # volumes the merged space hid, shown again on leave
 var _snap: Dictionary = {}
 var _user := Vector3.ZERO          # floor point, arrangement parent frame
 var _heading := Vector3(0.0, 0.0, -1.0)
@@ -157,6 +186,68 @@ static func room_transform(user: Vector3, heading: Vector3, room: Vector3) -> Tr
 	var fwd := Vector3(heading.x, 0.0, heading.z)
 	fwd = Vector3(0.0, 0.0, -1.0) if fwd.length() < 1.0e-6 else fwd.normalized()
 	return Transform3D(Basis.looking_at(fwd, Vector3.UP), Vector3(user.x, user.y + room.y * 0.5, user.z))
+
+
+## ADR-2178: the yaw basis that turns the stage's −Z onto `heading` (XZ only).
+static func heading_basis(heading: Vector3) -> Basis:
+	var fwd := Vector3(heading.x, 0.0, heading.z)
+	fwd = Vector3(0.0, 0.0, -1.0) if fwd.length() < 1.0e-6 else fwd.normalized()
+	return Basis.looking_at(fwd, Vector3.UP)
+
+
+## The merged room's bounds: the staged scene's extent at viewer scale `s`
+## (metres per scene unit times the multiplier). The fit then scales by exactly `s`.
+static func merged_room_bounds(content: AABB, s: float) -> Vector3:
+	return content.size * s
+
+
+## The merged room's transform. The fit centres the content at the volume origin, so
+## the origin goes where the content centre must be for the stage start (the content
+## origin) to land on `user`, the floor point, with the stage's −Z along `heading`.
+static func merged_room_transform(user: Vector3, heading: Vector3, content: AABB, s: float) -> Transform3D:
+	var r := heading_basis(heading)
+	return Transform3D(r, user + r * (content.get_center() * s))
+
+
+## A stage point (scene units) in the room's parent frame, for the same placement.
+static func stage_point(user: Vector3, heading: Vector3, s: float, p: Vector3) -> Vector3:
+	return user + heading_basis(heading) * (p * s)
+
+
+## {xf, bounds} for the guest: a cube on the sight line from the eye (`eye_y` above
+## `user`'s floor point) to `focus`, in plan between the user and the focus, within
+## reach of the wand ray, turned so its +Z face looks back at the user.
+static func guest_placement(user: Vector3, eye_y: float, focus: Vector3) -> Dictionary:
+	var eye := Vector3(user.x, eye_y, user.z)
+	var flat := Vector3(focus.x - user.x, 0.0, focus.z - user.z)
+	var dist := flat.length()
+	var dir := Vector3(0.0, 0.0, -1.0) if dist < 1.0e-6 else flat / dist
+	var edge := clampf(dist * GUEST_EDGE_FRACTION, GUEST_EDGE_MIN, GUEST_EDGE_MAX)
+	var near := edge * 0.5 + GUEST_NEAR_GAP
+	var d := clampf(dist * GUEST_FRACTION, near, maxf(near, GUEST_FAR))
+	var slope := 0.0 if dist < 1.0e-6 else (focus.y - eye.y) / dist
+	var lo := user.y + edge * 0.5 + GUEST_FLOOR_GAP
+	var hi := maxf(lo, eye.y + GUEST_MAX_LIFT)
+	var y := clampf(eye.y + slope * d, lo, hi)
+	var pos := Vector3(user.x, 0.0, user.z) + dir * d
+	pos.y = y
+	return {"xf": Transform3D(Basis.looking_at(dir, Vector3.UP), pos), "bounds": Vector3.ONE * edge}
+
+
+## The start after re-scaling by `ratio` about the floor point `about`: what was under
+## `about` stays under it.
+static func rescale_start(start: Vector3, about: Vector3, ratio: float) -> Vector3:
+	var d := start - about
+	return Vector3(about.x + d.x * ratio, start.y, about.z + d.z * ratio)
+
+
+## The next multiplier step from `current` (`dir` −1 or +1), held at the ends.
+static func step_scale(current: float, dir: int) -> float:
+	var i := 0
+	for k: int in MERGED_SCALES.size():
+		if absf(MERGED_SCALES[k] - current) < absf(MERGED_SCALES[i] - current):
+			i = k
+	return MERGED_SCALES[clampi(i + signi(dir), 0, MERGED_SCALES.size() - 1)]
 
 
 ## Separating-axis test for two oriented boxes (`xf` places a box of full
@@ -282,7 +373,7 @@ func fade_alpha() -> float:
 ## arm active, an unknown, closed, hidden or offline volume, the volume already
 ## entered, or a transition in flight.
 func can_enter(id: StringName) -> bool:
-	if arrangement == null or _phase != Phase.IDLE or id == _entered:
+	if arrangement == null or _phase != Phase.IDLE or id == _entered or _guest != &"":
 		return false
 	if native_check.is_valid() and bool(native_check.call()):
 		return false
@@ -342,6 +433,81 @@ func leave() -> bool:
 	return true
 
 
+## ADR-2178: true when `room_id` (a staged splat volume) and `guest_id` can be merged
+## now: nothing is entered, no transition runs, both are open, shown and online, and
+## `stage` carries a positive scale and a non-empty content box.
+func can_enter_merged(room_id: StringName, guest_id: StringName, stage: Dictionary) -> bool:
+	if _entered != &"" or room_id == guest_id or not can_enter(room_id):
+		return false
+	var g: Node3D = arrangement.volume(guest_id)
+	if g == null or g.is_closed or not g.visible_state:
+		return false
+	if offline_check.is_valid() and bool(offline_check.call(guest_id)):
+		return false
+	var content: Variant = stage.get("content", null)
+	return float(stage.get("metres_per_unit", 0.0)) > 0.0 and content is AABB \
+			and (content as AABB).has_volume() and stage.get("focus", null) is Vector3
+
+
+## Enters the merged space: `room_id` becomes the stage at `mult` times its measured
+## scale, `guest_id` hangs between the user and the focus, the rest are hidden. Always
+## through the dim (the room grows to tens of metres around the user). Arguments as
+## for `enter`. False and no change when refused.
+func enter_merged(room_id: StringName, guest_id: StringName, stage: Dictionary, mult: float,
+		user_world: Vector3, heading_world: Vector3 = Vector3(0.0, 0.0, -1.0), floor_world_y := 0.0) -> bool:
+	if not can_enter_merged(room_id, guest_id, stage):
+		return false
+	_snap = arrangement.snapshot()
+	var inv := _parent_inverse()
+	var head_local := inv * user_world
+	var floor_local := (inv * Vector3(user_world.x, floor_world_y, user_world.z)).y
+	_user = Vector3(head_local.x, floor_local, head_local.z)
+	_eye_y = floor_local + clampf(head_local.y - floor_local, EYE_MIN, EYE_MAX)
+	_heading = inv.basis * heading_world
+	_entered = room_id
+	_guest = guest_id
+	_stage = stage.duplicate()
+	_scale_mult = mult if mult > 0.0 else 1.0
+	_armed = false
+	_dwell = 0.0
+	_dwell_id = &""
+	arrangement.layout_locked = true
+	_begin_dim(_apply_merged)
+	entered_changed.emit(_entered)
+	return true
+
+
+func is_merged() -> bool:
+	return _guest != &""
+
+
+func merged_guest() -> StringName:
+	return _guest
+
+
+func merged_scale() -> float:
+	return _scale_mult
+
+
+## Viewer scale now: metres per scene unit times the multiplier (0 when not merged).
+func viewer_scale() -> float:
+	return float(_stage.get("metres_per_unit", 0.0)) * _scale_mult if _guest != &"" else 0.0
+
+
+## Re-scales the merged space to `mult` about the floor point under `head_world`, so the
+## user stays where they stand in the scene; through the dim. False when not merged,
+## mid-transition or unchanged.
+func set_merged_scale(mult: float, head_world: Vector3) -> bool:
+	if _guest == &"" or _phase != Phase.IDLE or mult <= 0.0 or is_equal_approx(mult, _scale_mult):
+		return false
+	var about := _parent_inverse() * head_world
+	about.y = _user.y
+	_user = rescale_start(_user, about, mult / _scale_mult)
+	_scale_mult = mult
+	_begin_dim(_apply_merged)
+	return true
+
+
 ## Ends the space through the dim from any state, including part-way through a
 ## dim: the restore lands in full dark and the opacity carries on from where it
 ## is, so nothing around the user moves or scales while visible.
@@ -387,14 +553,15 @@ func budget_weights() -> Dictionary:
 	if arrangement == null:
 		return out
 	for v: Node3D in arrangement.volumes():
-		out[v.volume_id] = 1.0 if (_entered == &"" or v.volume_id == _entered) else OTHER_WEIGHT
+		var full: bool = _entered == &"" or v.volume_id == _entered or v.volume_id == _guest
+		out[v.volume_id] = 1.0 if full else OTHER_WEIGHT
 	return out
 
 
 ## The volumes currently drawn as portals, in layout order.
 func portal_ids() -> Array[StringName]:
 	var out: Array[StringName] = []
-	if arrangement == null or _entered == &"":
+	if arrangement == null or _entered == &"" or _guest != &"":
 		return out
 	for v: Node3D in arrangement.volumes():
 		if v.volume_id != _entered and not v.is_closed and v.visible_state:
@@ -437,6 +604,37 @@ func _apply_layout(old: StringName, duration: float, snap_content: bool) -> void
 	_update_membranes()
 
 
+# ADR-2178: lands the merged layout (always in full dark). The guest keeps its own
+# fit rule inside its box, so the graph is drawn at the guest's scale, not the room's.
+func _apply_merged() -> void:
+	if _entered == &"" or _guest == &"" or arrangement == null:
+		return
+	arrangement.transform = Transform3D.IDENTITY
+	var room: Node3D = arrangement.volume(_entered)
+	var guest: Node3D = arrangement.volume(_guest)
+	if room == null or guest == null:
+		return
+	var content: AABB = _stage["content"]
+	var s := viewer_scale()
+	room.set_portal_room(true)
+	room.set_runtime_bounds(merged_room_bounds(content, s), SpatialVolume.BoundsMode.BOUNDED)
+	arrangement.ease_volume_to(_entered, merged_room_transform(_user, _heading, content, s), 0.0)
+	var focus := stage_point(_user, _heading, s, _stage["focus"])
+	var g := guest_placement(_user, _eye_y, focus)
+	guest.set_runtime_bounds(g["bounds"], SpatialVolume.BoundsMode.BOUNDED)
+	arrangement.ease_volume_to(_guest, g["xf"], 0.0)
+	for v: Node3D in arrangement.volumes():
+		var id: StringName = v.volume_id
+		if id != _entered and id != _guest and not v.is_closed and v.visible_state:
+			v.request_visible(false)
+			if not _hidden.has(id):
+				_hidden.append(id)
+	room.snap_fit()
+	guest.snap_fit()
+	_signature = _make_signature()
+	_update_membranes()
+
+
 # The dim's landing for a portal that appeared, went or resized: re-lay the ring
 # and take the signature then, so a second change made during the dim is seen
 # afterwards.
@@ -475,6 +673,13 @@ func _apply_leave() -> void:
 		v.set_portal_room(false)
 	arrangement.restore(_snap, 0.0)
 	arrangement.layout_locked = false
+	for id: StringName in _hidden:
+		var h: Node3D = arrangement.volume(id)
+		if h != null and not h.is_closed:
+			h.request_visible(true)
+	_hidden.clear()
+	_guest = &""
+	_stage = {}
 	for v: Node3D in arrangement.volumes():
 		if not v.is_closed and v.visible_state:
 			v.snap_fit()
@@ -546,6 +751,11 @@ func tick(delta: float) -> void:
 	if room == null or room.is_closed or not room.visible_state \
 			or (offline_check.is_valid() and bool(offline_check.call(_entered))):
 		_end_space_through_dim()
+		return
+	if _guest != &"":
+		var g: Node3D = arrangement.volume(_guest)
+		if _phase == Phase.IDLE and (g == null or g.is_closed or not g.visible_state):
+			_end_space_through_dim()
 		return
 	if _phase == Phase.IDLE:
 		var sig := _make_signature()

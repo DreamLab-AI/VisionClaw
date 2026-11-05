@@ -26,6 +26,9 @@ const KEY_WALKTHROUGH := "portal_walkthrough"
 ## `xr.splat_scene` (ADR-2170): show the Gaussian splat volume. Off by default until it
 ## has been measured on the headset; `XR_SPLATS=1` turns it on for a run.
 const KEY_SPLATS := "splat_scene"
+## `xr.merged_splat_scale` (ADR-2178): the viewer-scale multiplier of the merged splat
+## space, over the stage's measured metres-per-unit. 1.0 by default.
+const KEY_MERGED_SCALE := "merged_splat_scale"
 
 
 # Every test copy on a machine shares `user://` (app_userdata/"VisionClaw XR")
@@ -126,4 +129,22 @@ static func set_splat_scene(on: bool) -> int:
 	var cfg := ConfigFile.new()
 	var _ignored := cfg.load(path())
 	cfg.set_value(SECTION, KEY_SPLATS, on)
+	return cfg.save(path())
+
+
+## The merged splat space's scale multiplier (ADR-2178): the stored positive value,
+## else 1.0.
+static func merged_splat_scale() -> float:
+	var cfg := ConfigFile.new()
+	if cfg.load(path()) == OK and cfg.has_section_key(SECTION, KEY_MERGED_SCALE):
+		var v: Variant = cfg.get_value(SECTION, KEY_MERGED_SCALE)
+		if (typeof(v) == TYPE_FLOAT or typeof(v) == TYPE_INT) and is_finite(float(v)) and float(v) > 0.0:
+			return float(v)
+	return 1.0
+
+
+static func set_merged_splat_scale(mult: float) -> int:
+	var cfg := ConfigFile.new()
+	var _ignored := cfg.load(path())
+	cfg.set_value(SECTION, KEY_MERGED_SCALE, mult)
 	return cfg.save(path())

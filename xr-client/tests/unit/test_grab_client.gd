@@ -95,6 +95,9 @@ func test_grab_volume_allowed_only_in_the_entered_space_or_the_ring() -> void:
 	assert_true(GraphScene.grab_volume_allowed(&"knowledge", &""))
 	assert_true(GraphScene.grab_volume_allowed(&"ontology", &"ontology"), "the entered room")
 	assert_false(GraphScene.grab_volume_allowed(&"knowledge", &"ontology"), "a portal never grabs")
+	# ADR-2178: in the merged space the guest grabs as well as the entered stage.
+	assert_true(GraphScene.grab_volume_allowed(&"ontology", &"splat", &"ontology"), "the merged guest")
+	assert_false(GraphScene.grab_volume_allowed(&"knowledge", &"splat", &"ontology"), "a hidden volume never grabs")
 	assert_false(GraphScene.grab_volume_allowed(&"codescape", &"ontology"))
 
 

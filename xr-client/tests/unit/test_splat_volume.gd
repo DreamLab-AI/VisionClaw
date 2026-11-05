@@ -872,3 +872,18 @@ func test_the_hud_toggle_builds_hides_and_reshows_the_splat_volume_and_is_rememb
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
 	scene.queue_free()
 	await get_tree().process_frame
+
+
+# ADR-2178: the stage reaches the volume from the plan, and only a usable one does.
+func test_a_staged_plan_gives_the_volume_its_stage() -> void:
+	var content := AABB(Vector3(-16.4, -0.3, -24.0), Vector3(30.2, 24.6, 32.9))
+	var plan := {"staged": true, "metres_per_unit": 2.25, "focus": Vector3(0.06, 4.76, -12.02)}
+	var st: Dictionary = SplatVolume.stage_from_plan(plan, content)
+	assert_almost_eq(float(st["metres_per_unit"]), 2.25, 1.0e-6)
+	assert_eq(st["focus"], Vector3(0.06, 4.76, -12.02))
+	assert_eq(st["content"], content)
+	assert_eq(SplatVolume.stage_from_plan({"staged": false}, content), {}, "unstaged")
+	assert_eq(SplatVolume.stage_from_plan({}, content), {}, "a server without stages")
+	assert_eq(SplatVolume.stage_from_plan({"staged": true, "metres_per_unit": 0.0, "focus": Vector3.ZERO}, content), {}, "no scale")
+	assert_eq(SplatVolume.stage_from_plan({"staged": true, "metres_per_unit": 1.0, "focus": Vector3(0.0, 99.0, 0.0)}, content), {}, "focus outside")
+

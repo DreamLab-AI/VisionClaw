@@ -333,6 +333,10 @@ var _splat_header: Label = null
 var _splat_button: Button = null
 var _splat_entered: bool = false
 var _splat_toggle: Button = null       # Session volume row: splat scene on/off (ADR-2170)
+var _merge_row: HBoxContainer = null   # Layout page: merged splat space and its scale (ADR-2178)
+var _merge_button: Button = null
+var _scale_down: Button = null
+var _scale_up: Button = null
 var _notice_until_ms: int = 0
 var _hint_bar_notice_mode: bool = false
 
@@ -637,6 +641,34 @@ func _build_layout_page() -> VBoxContainer:
 		emit_signal("control_pressed", "splat_leave" if _splat_entered else "splat_enter"))
 	_splat_row.add_child(_splat_button)
 	page.add_child(_splat_row)
+	# ADR-2178: the staged scene at viewer scale with the ontology hanging inside it.
+	# Shown only for a scene that carries a stage.
+	_merge_row = HBoxContainer.new()
+	_merge_row.name = "MergeRow"
+	_merge_row.visible = false
+	_merge_button = _press_fire(Button.new()) as Button
+	_merge_button.name = "MergeButton"
+	_merge_button.text = "Merge with Ontology"
+	_merge_button.custom_minimum_size = Vector2(0, BTN_H)
+	_merge_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_merge_button.set_meta(HINT_META, "Walk the splat scene at life size with the ontology hanging between you and its focus; the other volumes hide until you leave")
+	_merge_button.pressed.connect(func() -> void: emit_signal("control_pressed", "splat_merge"))
+	_merge_row.add_child(_merge_button)
+	for spec: Array in [["ScaleDown", "−", "splat_scale_down", "Make the merged scene smaller around you"],
+			["ScaleUp", "+", "splat_scale_up", "Make the merged scene larger around you"]]:
+		var b := _press_fire(Button.new()) as Button
+		b.name = spec[0]
+		b.text = spec[1]
+		b.custom_minimum_size = Vector2(BTN_H, BTN_H)
+		b.set_meta(HINT_META, spec[3])
+		var act: String = spec[2]
+		b.pressed.connect(func() -> void: emit_signal("control_pressed", act))
+		_merge_row.add_child(b)
+		if spec[0] == "ScaleDown":
+			_scale_down = b
+		else:
+			_scale_up = b
+	page.add_child(_merge_row)
 	return page
 
 
@@ -2169,6 +2201,23 @@ func set_splat_state(st: Dictionary) -> void:
 			_splat_button.text = "Splat scene failed: %s" % failure.left(48)
 		else:
 			_splat_button.text = "Loading splat scene…"
+	if _merge_row != null:
+		var merged: bool = bool(st.get("merged", false))
+		_merge_row.visible = enabled and available and bool(st.get("stageable", false))
+		_merge_button.disabled = _splat_entered
+		var mult: float = float(st.get("scale_mult", 1.0))
+		if merged:
+			_merge_button.text = "Leave Merged Space (×%s, %.2f m/u)" % [_fmt_mult(mult), float(st.get("metres_per_unit", 0.0))]
+		else:
+			_merge_button.text = "Merge with Ontology (×%s)" % _fmt_mult(mult)
+		_scale_down.disabled = not merged
+		_scale_up.disabled = not merged
+		if _splat_row != null and merged:
+			_splat_button.disabled = true
+
+
+static func _fmt_mult(m: float) -> String:
+	return str(snappedf(m, 0.01)).trim_suffix(".0")
 
 
 func set_avatar_count(count: int) -> void:

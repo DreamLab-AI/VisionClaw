@@ -1140,3 +1140,162 @@ class FakeBudget extends RefCounted:
 	var seen: Array = []
 	func set_volume_weights(w: Dictionary) -> void:
 		seen.append(w.duplicate())
+
+
+# --- ADR-2178: the merged splat space ------------------------------------------------
+# The room is the codescape volume standing in for a staged splat: its source is swapped
+# for one shaped like the Sentinel stage (the start, the content origin, on its floor).
+
+const MERGED_CONTENT := AABB(Vector3(-16.4, -0.3, -24.0), Vector3(30.2, 24.6, 32.9))
+const MERGED_FOCUS := Vector3(0.06, 4.76, -12.02)
+
+
+func _stage(mpu := 2.25) -> Dictionary:
+	return {"metres_per_unit": mpu, "focus": MERGED_FOCUS, "content": MERGED_CONTENT}
+
+
+func _merged_scene() -> Dictionary:
+	var sc := _scene()
+	var room: Node3D = (sc["arr"] as Node3D).volume(&"codescape")
+	room.detach()
+	room.attach(FixtureContentSource.new(PackedVector3Array([MERGED_CONTENT.position, MERGED_CONTENT.end, MERGED_FOCUS]), &"fx:stage"))
+	room.tick(DT)
+	return sc
+
+
+func _merge(p: Node3D, mpu := 2.25, mult := 1.0, at := Vector3(2.0, 1.6, -1.0)) -> bool:
+	return p.enter_merged(&"codescape", &"ontology", _stage(mpu), mult, at, Vector3(0.0, 0.0, -1.0), 0.0)
+
+
+func test_the_merged_room_puts_the_stage_start_under_the_user_and_the_focus_ahead() -> void:
+	var sp: Script = _portals_script()
+	var user := Vector3(2.0, 0.0, -1.0)
+	var c := AABB(Vector3(-10.0, 0.0, -20.0), Vector3(20.0, 8.0, 25.0))
+	var s := 2.25
+	var room_xf: Transform3D = sp.merged_room_transform(user, Vector3(1.0, 0.0, 0.0), c, s)
+	# The fit maps content point q to room-local (q - centre) * s.
+	var start_world: Vector3 = room_xf * ((Vector3.ZERO - c.get_center()) * s)
+	assert_almost_eq(start_world, user, Vector3.ONE * 1.0e-4, "start lands on the floor point")
+	var focus_world: Vector3 = room_xf * ((Vector3(0.0, 5.0, -12.0) - c.get_center()) * s)
+	assert_almost_eq(focus_world, sp.stage_point(user, Vector3(1.0, 0.0, 0.0), s, Vector3(0.0, 5.0, -12.0)),
+			Vector3.ONE * 1.0e-4, "stage_point agrees with the room transform")
+	assert_almost_eq(focus_world.z, user.z, 1.0e-4, "heading +X: the focus is straight along +X")
+	assert_gt(focus_world.x, user.x)
+	assert_almost_eq(sp.merged_room_bounds(c, s), c.size * s, Vector3.ONE * 1.0e-5)
+
+
+func test_the_guest_hangs_on_the_sight_line_within_reach_of_the_ray() -> void:
+	var sp: Script = _portals_script()
+	var user := Vector3(0.0, 0.0, 0.0)
+	var focus := Vector3(0.0, 10.7, -27.0)   # the Sentinel stage at 2.25 m per unit
+	var g: Dictionary = sp.guest_placement(user, 1.6, focus)
+	var xf: Transform3D = g["xf"]
+	var edge: float = (g["bounds"] as Vector3).x
+	assert_almost_eq(edge, sp.GUEST_EDGE_MAX, 1.0e-5, "a far focus gets the largest cube")
+	var flat := Vector2(xf.origin.x, xf.origin.z).length()
+	assert_lte(flat, sp.GUEST_FAR + 1.0e-5, "centre within reach from the start")
+	assert_gte(flat - edge * 0.5, sp.GUEST_NEAR_GAP - 1.0e-5, "near face clear of the user")
+	assert_lt(xf.origin.z, 0.0, "between the user and the focus")
+	assert_almost_eq(xf.origin.y, 1.6 + (10.7 - 1.6) / 27.0 * flat, 1.0e-4, "on the sight line")
+	assert_gte(xf.origin.y - edge * 0.5, user.y + sp.GUEST_FLOOR_GAP - 1.0e-5, "off the floor")
+	assert_almost_eq(xf.basis.z.normalized(), Vector3(0.0, 0.0, 1.0), Vector3.ONE * 1.0e-4, "+Z face looks back at the user")
+	# A focus straight overhead of a near point still keeps the cube off the floor and below the lift cap.
+	var low: Dictionary = sp.guest_placement(user, 1.6, Vector3(0.0, -5.0, -3.0))
+	assert_gte((low["xf"] as Transform3D).origin.y - (low["bounds"] as Vector3).x * 0.5, sp.GUEST_FLOOR_GAP - 1.0e-5)
+	var high: Dictionary = sp.guest_placement(user, 1.6, Vector3(0.0, 80.0, -4.0))
+	assert_lte((high["xf"] as Transform3D).origin.y, 1.6 + sp.GUEST_MAX_LIFT + 1.0e-5)
+
+
+func test_the_scale_steps_and_rescaling_keep_the_user_in_place() -> void:
+	var sp: Script = _portals_script()
+	assert_eq(sp.step_scale(1.0, 1), 1.41)
+	assert_eq(sp.step_scale(1.0, -1), 0.71)
+	assert_eq(sp.step_scale(2.0, 1), 2.0, "held at the top")
+	assert_eq(sp.step_scale(0.25, -1), 0.25, "held at the bottom")
+	assert_eq(sp.step_scale(0.9, 1), 1.41, "an off-step value snaps to the nearest first")
+	var about := Vector3(3.0, 0.0, -4.0)
+	assert_almost_eq(sp.rescale_start(Vector3(1.0, 0.0, 2.0), about, 2.0), Vector3(-1.0, 0.0, 8.0), Vector3.ONE * 1.0e-5)
+	assert_almost_eq(sp.rescale_start(about, about, 0.5), about, Vector3.ONE * 1.0e-5)
+
+
+func test_entering_the_merged_space_scales_the_room_places_the_guest_and_hides_the_rest() -> void:
+	var sc := _merged_scene()
+	var arr: Node3D = sc["arr"]
+	var p: Node3D = sc["p"]
+	var before: Dictionary = arr.snapshot()
+	assert_true(_merge(p), "merged")
+	assert_true(p.is_merged())
+	_settle(p, arr)
+	var room: Node3D = arr.volume(&"codescape")
+	var guest: Node3D = arr.volume(&"ontology")
+	assert_almost_eq(room.bounds, MERGED_CONTENT.size * 2.25, Vector3.ONE * 1.0e-3, "room at viewer scale")
+	assert_almost_eq(room.target_scale(), 2.25, 1.0e-5, "the fit scale is exactly metres per unit")
+	assert_almost_eq(room.world_from_content(Vector3(0.0, 10.0, 0.0)) - room.world_from_content(Vector3.ZERO),
+			Vector3(0.0, 22.5, 0.0), Vector3.ONE * 1.0e-3, "content is drawn at the stage scale")
+	var focus_w: Vector3 = room.world_from_content(MERGED_FOCUS)
+	assert_lt(focus_w.z, -1.0 - 20.0, "the focus is far ahead along the heading")
+	assert_almost_eq(room.world_from_content(Vector3.ZERO), Vector3(2.0, 0.0, -1.0), Vector3.ONE * 1.0e-3,
+			"the stage start is under the user")
+	assert_true(guest.visible_state, "the guest stays shown")
+	assert_false(arr.volume(&"knowledge").visible_state, "every other volume is hidden")
+	assert_eq(p.portal_ids().size(), 0, "no portals in the merged space")
+	assert_true(SpacePortalsBoxCheck.inside(room, guest), "the guest hangs inside the room")
+	var w: Dictionary = p.budget_weights()
+	assert_eq(w[&"ontology"], 1.0)
+	assert_eq(w[&"codescape"], 1.0)
+	assert_false(p.can_enter(&"knowledge"), "no ordinary enter while merged")
+	assert_true(p.leave())
+	_settle(p, arr)
+	assert_false(p.is_merged())
+	assert_true(arr.volume(&"knowledge").visible_state, "hidden volumes come back")
+	for id: StringName in IDS:
+		assert_almost_eq(arr.volume(id).bounds, before["bounds"][id], Vector3.ONE * 1.0e-5, "%s bounds restored" % id)
+		assert_true((arr.volume(id).transform as Transform3D).is_equal_approx(before["xf"][id]), "%s transform restored" % id)
+
+
+func test_the_merged_space_is_refused_without_a_stage_or_while_entered() -> void:
+	var sc := _merged_scene()
+	var arr: Node3D = sc["arr"]
+	var p: Node3D = sc["p"]
+	assert_false(p.enter_merged(&"codescape", &"ontology", {}, 1.0, Vector3(0.0, 1.6, 0.0)), "no stage")
+	assert_false(p.enter_merged(&"codescape", &"codescape", _stage(), 1.0, Vector3(0.0, 1.6, 0.0)), "guest is the room")
+	_offline[&"ontology"] = true
+	assert_false(_merge(p), "guest offline")
+	_offline.clear()
+	assert_true(_enter(p, &"knowledge"))
+	_settle(p, arr)
+	assert_false(_merge(p), "an ordinary space is entered")
+	assert_eq(_calls, 1)
+
+
+func test_rescaling_the_merged_space_keeps_the_point_under_the_user() -> void:
+	var sc := _merged_scene()
+	var arr: Node3D = sc["arr"]
+	var p: Node3D = sc["p"]
+	assert_true(_merge(p))
+	_settle(p, arr)
+	var room: Node3D = arr.volume(&"codescape")
+	var head := Vector3(4.0, 1.6, -3.0)
+	var under: Vector3 = room.content_to_world().affine_inverse() * Vector3(head.x, 0.0, head.z)
+	assert_true(p.set_merged_scale(2.0, head))
+	assert_false(p.set_merged_scale(2.0, head), "unchanged or mid-transition is refused")
+	_settle(p, arr)
+	assert_almost_eq(room.target_scale(), 4.5, 1.0e-5)
+	assert_almost_eq(p.viewer_scale(), 4.5, 1.0e-5)
+	var now: Vector3 = room.world_from_content(under)
+	assert_almost_eq(Vector2(now.x, now.z), Vector2(head.x, head.z), Vector2.ONE * 1.0e-3, "the scene point under the user stays there")
+
+
+class SpacePortalsBoxCheck:
+	## True when every corner of `inner`'s box lies inside `outer`'s box.
+	static func inside(outer: Node3D, inner: Node3D) -> bool:
+		var inv: Transform3D = outer.global_transform.affine_inverse()
+		var h: Vector3 = (inner.bounds as Vector3) * 0.5
+		var half: Vector3 = (outer.bounds as Vector3) * 0.5 + Vector3.ONE * 1.0e-4
+		for k: int in 8:
+			var c := Vector3(h.x * (1 if k & 1 else -1), h.y * (1 if k & 2 else -1), h.z * (1 if k & 4 else -1))
+			var q: Vector3 = inv * (inner.global_transform * c)
+			if absf(q.x) > half.x or absf(q.y) > half.y or absf(q.z) > half.z:
+				return false
+		return true
+

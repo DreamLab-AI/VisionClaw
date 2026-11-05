@@ -49,7 +49,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use visionclaw_splat::address::{is_content_address, is_sha256_hex, sha256_hex};
-use visionclaw_splat::manifest::{ListedAsset, ListedVariant, SplatListing};
+use visionclaw_splat::manifest::{ListedAsset, ListedVariant, SplatListing, Stage};
 use visionclaw_splat::spz::{self, Splats};
 
 /// Texels a splat occupies in the data texture.
@@ -111,6 +111,9 @@ pub struct Plan {
     pub credits: String,
     pub bounds_min: [f32; 3],
     pub bounds_max: [f32; 3],
+    /// The asset's stage (ADR-2178), when it has one: the merged splat space
+    /// is only offered for a staged asset.
+    pub stage: Option<Stage>,
     /// The tier of the variant chosen (at most the tier asked for).
     pub tier: usize,
     pub variant: ListedVariant,
@@ -141,6 +144,7 @@ pub fn plan(listing_json: &str, asset_id: Option<&str>, tier: usize) -> Result<P
         credits: asset.credits(),
         bounds_min: asset.bounds.min,
         bounds_max: asset.bounds.max,
+        stage: asset.stage,
         tier: got_tier,
         variant: variant.clone(),
     })
@@ -516,6 +520,11 @@ impl SplatLoaderNode {
                 d.set("splats", p.variant.splats as i64);
                 d.set("bounds_min", v3(p.bounds_min));
                 d.set("bounds_max", v3(p.bounds_max));
+                d.set("staged", p.stage.is_some());
+                if let Some(st) = p.stage {
+                    d.set("metres_per_unit", st.metres_per_unit as f64);
+                    d.set("focus", v3(st.focus));
+                }
                 self.plan = Some(p);
             }
             Err(e) => {
@@ -661,6 +670,7 @@ mod tests {
             attribution: "A. Author, ISS".into(),
             modified: true,
             bounds: Bounds { min: [-3.0, 0.0, -7.0], max: [2.5, 3.0, 0.0] },
+            stage: None,
             variants,
         }
     }
@@ -699,6 +709,22 @@ mod tests {
     }
 
     // ── planning ──
+
+    #[test]
+    fn a_staged_asset_carries_its_stage_into_the_plan() {
+        let files = vec![spz_of(10)];
+        let mut a = asset("sentinel", vec![variant(VariantName::Xr1, &files[0], 10)]);
+        a.stage = Some(Stage { metres_per_unit: 2.25, focus: [0.0, 2.0, -6.0] });
+        let p = plan(&listing_json(vec![a]), None, 1).unwrap();
+        assert_eq!(p.stage, Some(Stage { metres_per_unit: 2.25, focus: [0.0, 2.0, -6.0] }));
+    }
+
+    #[test]
+    fn a_listing_from_a_server_without_stages_still_plans() {
+        let (json, _) = full_listing();
+        assert!(!json.contains("stage"));
+        assert_eq!(plan(&json, None, 3).unwrap().stage, None);
+    }
 
     #[test]
     fn tiers_one_to_three_pick_xr_1_to_xr_3() {

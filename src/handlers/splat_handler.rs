@@ -164,6 +164,7 @@ mod tests {
                 min: [-1.0; 3],
                 max: [1.0; 3],
             },
+            stage: None,
             variants: vec![Variant {
                 name: VariantName::Xr1,
                 splats: 3,

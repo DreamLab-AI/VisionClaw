@@ -131,6 +131,7 @@ var _pending: Dictionary = {}          # decoded data waiting for the dim to lan
 var _pending_tier := 0
 var _pending_plan: Dictionary = {}
 var _credits := ""
+var _stage: Dictionary = {}               # ADR-2178: the landed asset's stage, {} without one
 var _credits_shown := ""
 var _low_cost := false
 var _fade := Fade.NONE
@@ -387,6 +388,7 @@ func _land_pending() -> void:
 	splat_count = n
 	loaded_tier = _pending_tier
 	_credits = str(_pending_plan.get("credits", ""))
+	_stage = stage_from_plan(_pending_plan, _splat_source.bounds)
 	_pending = {}
 	phase = Phase.READY
 	_refit_now = true
@@ -446,6 +448,26 @@ func drawn_splats() -> int:
 
 
 ## The credits line while a scene is drawn, else "".
+## ADR-2178: {metres_per_unit, focus, content} for the loaded asset, or {} when it has no
+## stage (it can then only be a bounded volume, never the merged space). `content` is the
+## scene's bounds in scene units; the start is the content origin's floor point, facing −Z.
+func stage() -> Dictionary:
+	return _stage
+
+
+## The stage a plan carries (pure, for the tests): {} unless the plan is staged with a
+## positive scale and a focus inside `content`.
+static func stage_from_plan(plan: Dictionary, content: AABB) -> Dictionary:
+	if not bool(plan.get("staged", false)):
+		return {}
+	var mpu := float(plan.get("metres_per_unit", 0.0))
+	var focus: Variant = plan.get("focus", null)
+	if not is_finite(mpu) or mpu <= 0.0 or not (focus is Vector3) \
+			or not content.grow(1.0e-4).has_point(focus as Vector3):
+		return {}
+	return {"metres_per_unit": mpu, "focus": focus as Vector3, "content": content}
+
+
 func credits_line() -> String:
 	return _credits if (is_drawing() or (loaded_tier > 0 and wants_draw())) else ""
 

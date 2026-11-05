@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.30
+version: 0.1.31
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.31 (2026-11-05): ADR-2178 (proposed, partial, staged): the merged splat space. A staged splat asset (manifest `stage {metresPerUnit, focus}`) can be entered at viewer scale with the ontology volume hanging between the start and the focus; the other volumes hide. Layout page Merge button and scale steps (`xr.merged_splat_scale`). New section only; Current State, Invariants and verified_commit untouched."
   - "0.1.30 (2026-11-04): ADR-2170 HUD amendment: a Splat on/off toggle in the Session volume row (stored in `xr.splat_scene`, which outranks `XR_SPLATS`; the first press builds the volume live); the Layout page's Splat Scene group shows whenever the scene is on, with a loading or failure line until a variant lands. Headless GUT only."
   - "0.1.29 (2026-11-04): ADR-2170 accepted (partial, staged; unit and headless-GUT evidence, no GPU render): splat volume, CPU-sorted quad layer and the separate splat account built; the owner accepted Decision 7, amending ADR-2167 and the PRD-008 triangle budget for splat scenes. Off unless `XR_SPLATS=1`. Served format SPZ v3. Splat section only; Current State, Invariants and verified_commit untouched."
   - "0.1.28 (2026-11-01): a finished agent eases out to the edge of the scene in 30 s and holds there, the desktop's rule (ADR-2135 one done rule; ADR-2109 amended). The park beat is deleted: no `PH_PARK`, `PH_COMPLETE` or park event. A lapsed work record relaxes onto the rest slot. The edge is the knowledge volume's `bounds` diagonal (`SpatialVolume.edge_radius`). No invariant changed."
@@ -1308,3 +1309,13 @@ Built, but off unless `XR_SPLATS=1` or the `xr.splat_scene` pref is set. The HUD
   - both eyes render.
 
   Measurements need the lead's approval and never run while the owner is in the headset.
+
+## Staged (ADR-2178, built 2026-11-05, off by default): the merged splat space
+
+Offered only for a splat asset whose manifest carries a `stage` (the Sentinel hangar), with the splat scene on. The Layout page's **Splat Scene** group gains **Merge with Ontology** and two scale steps (− and +). The code is `space_portals.gd` (`enter_merged`, `set_merged_scale` and the static layout maths), `splat_volume.gd` (`stage()`), `graph_scene.gd` (`toggle_merged_splat_space`, `step_merged_splat_scale`) and the `stage` field in `crates/visionclaw-splat` and `splat_loader.rs`.
+
+- **Stage frame.** The asset is baked so that the start is the floor point at the origin, +Y is up and the start faces −Z; the manifest adds `metresPerUnit` and the `focus` point. Old clients ignore the field.
+- **Room.** The splat volume is entered with bounds = content extent × viewer scale (so its fit scale is exactly the viewer scale), the stage start on the user's floor point and the stage −Z along their heading. Locomotion walks it.
+- **Guest.** The ontology volume is a cube (1.2–3 m) on the sight line from the eye to the focus, at most 4 m out from the start (the wand ray is 5 m), at least 0.3 m off the floor and at most 1.5 m above the eye. No membrane; its nodes pick and grab (ADR-2172). Knowledge and Codescape are hidden until leave.
+- **Scale.** Viewer scale = `metresPerUnit` × a multiplier (0.25 to 2, stored in `xr.merged_splat_scale`); a step re-scales about the user's floor point. Every change lands in full dark.
+- **Artefact.** The graph's transparent layers draw over nearer splat content (the entered splat is the backdrop; ADR-2170 decision 2 is amended for this mode only).

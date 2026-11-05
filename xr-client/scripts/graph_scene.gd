@@ -321,8 +321,8 @@ static func claim_blocks_drag(kind: String, volume_id: StringName, _overlay: Str
 ## ADR-2166: a node is grabbed in the entered space, or in ring view when no
 ## space is entered. `entered` is the entered volume's id (&"" in ring view);
 ## pointing into a portal from inside a room never grabs.
-static func grab_volume_allowed(volume_id: StringName, entered: StringName) -> bool:
-	return entered == &"" or volume_id == entered
+static func grab_volume_allowed(volume_id: StringName, entered: StringName, guest: StringName = &"") -> bool:
+	return entered == &"" or volume_id == entered or (guest != &"" and volume_id == guest)
 
 
 ## World transform of a box moved by a ray grab: the box translates with the
@@ -1488,10 +1488,15 @@ func _splat_hud_state() -> Dictionary:
 		return {"enabled": false}
 	var ph: int = _splat.phase
 	var failed: bool = ph == SplatVolumeScript.Phase.FAILED
+	var merged: bool = _portals != null and _portals.is_merged()
 	return {
 		"enabled": bool(_splat.visible_state),
 		"available": _splat.loaded_tier > 0,
-		"entered": _splat.is_entered(),
+		"entered": _splat.is_entered() and not merged,
+		"stageable": not _splat.stage().is_empty() and _volumes.has(MERGED_GUEST),
+		"merged": merged,
+		"scale_mult": _portals.merged_scale() if merged else XrPrefs.merged_splat_scale(),
+		"metres_per_unit": _portals.viewer_scale() if merged else 0.0,
 		"loading": not failed and _splat.loaded_tier <= 0,
 		"failure": str(_splat.failure) if failed else "",
 	}
@@ -1572,6 +1577,48 @@ func enter_volume_space(vid: StringName) -> bool:
 
 func leave_volume_space() -> bool:
 	return _portals != null and _portals.leave()
+
+
+# ADR-2178: the merged splat space joins the splat stage and the ontology volume.
+const MERGED_GUEST := &"ontology"
+
+
+## Toggles the merged splat space: the staged splat scene at viewer scale with the
+## ontology volume hanging between the start and the scene's focus. Leaves it when it
+## is on. False and no change when the scene has no stage or the request is refused.
+func toggle_merged_splat_space() -> bool:
+	if _portals == null or _splat == null:
+		return false
+	if _portals.is_merged():
+		return _portals.leave()
+	_end_box_grip()
+	var cam: XRCamera3D = _portal_camera()
+	_portals.attach_fade(cam)
+	var pos := Vector3.ZERO if cam == null else cam.global_position
+	var heading := Vector3(0.0, 0.0, -1.0) if cam == null else -cam.global_transform.basis.z
+	var origin: XROrigin3D = _find_xr_origin()
+	var floor_y := 0.0 if origin == null else origin.global_position.y
+	return _portals.enter_merged(SplatVolumeScript.VOLUME_ID, MERGED_GUEST, _splat.stage(),
+			XrPrefs.merged_splat_scale(), pos, heading, floor_y)
+
+
+## Steps the merged space's viewer scale (`dir` −1 smaller, +1 larger) about where the
+## user stands, and remembers the multiplier.
+func step_merged_splat_scale(dir: int) -> bool:
+	if _portals == null or not _portals.is_merged():
+		return false
+	var cam: XRCamera3D = _portal_camera()
+	var head := Vector3.ZERO if cam == null else cam.global_position
+	var mult: float = SpacePortalsScript.step_scale(_portals.merged_scale(), dir)
+	if not _portals.set_merged_scale(mult, head):
+		return false
+	XrPrefs.set_merged_splat_scale(mult)
+	_sync_hud_splat()
+	return true
+
+
+func _merged_guest() -> StringName:
+	return _portals.merged_guest() if _portals != null else &""
 
 
 func _tick_portals(delta: float) -> void:
@@ -2030,6 +2077,13 @@ func _on_hud_control(action: String) -> void:
 		return
 	if action == "splat_enter":
 		enter_volume_space(SplatVolumeScript.VOLUME_ID)
+		return
+	if action == "splat_merge":
+		toggle_merged_splat_space()
+		_sync_hud_splat()
+		return
+	if action == "splat_scale_down" or action == "splat_scale_up":
+		step_merged_splat_scale(-1 if action == "splat_scale_down" else 1)
 		return
 	if action == "splat_leave":
 		leave_volume_space()
@@ -3410,11 +3464,11 @@ func _grab_candidate_volumes(hand: int) -> Array[StringName]:
 		return out
 	var entered: StringName = _entered_volume()
 	if (kind == "node" or kind == "frame") and cv != &"":
-		if grab_volume_allowed(cv, entered) and volume_serves_drag(cv):
+		if grab_volume_allowed(cv, entered, _merged_guest()) and volume_serves_drag(cv):
 			out.append(cv)
 		return out
 	for vid: StringName in VOLUME_ORDER:
-		if grab_volume_allowed(vid, entered) and volume_serves_drag(vid):
+		if grab_volume_allowed(vid, entered, _merged_guest()) and volume_serves_drag(vid):
 			out.append(vid)
 	return out
 
@@ -3500,7 +3554,7 @@ func _content_xf(vid: StringName) -> Transform3D:
 func _begin_grab(hand: int, vid: StringName, node_id: int, hand_pos: Vector3, hand_basis: Variant = null) -> bool:
 	if hand < 0 or hand > 1 or node_id < 0 or _grab_id[hand] != -1 or _is_held(node_id):
 		return false
-	if not volume_serves_drag(vid) or not grab_volume_allowed(vid, _entered_volume()) or _grab_locked():
+	if not volume_serves_drag(vid) or not grab_volume_allowed(vid, _entered_volume(), _merged_guest()) or _grab_locked():
 		return false
 	var conn: Node = _conn_for_volume(vid)
 	if conn == null:
