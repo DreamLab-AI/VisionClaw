@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: [ADR-2113]
-verified_commit: 5c94c3cbdafad99e6985fe509162831bf18c2ec8
+verified_commit: dcf38bf50e1f3b0d5b67abf472e8011cd1ff2a28
 verified_paths: [crates/vault-migrate, Cargo.toml, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: the in-place conversion of the corpus repo is committed, after which the crate is kept only as the round-trip/no-op checker
@@ -200,3 +200,7 @@ library compile check pass; prior runtime and activation limits remain.
 ## Re-verification — 2026-11-04 (`5c94c3cbd`)
 
 Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `efbd7f6f0` are additive: `Cargo.toml`: a workspace member and path dependency for `crates/visionclaw-splat`; no profile, feature or other dependency changed. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff efbd7f6f0..5c94c3cbd -- <governed path>`.
+
+## Re-verification — 2026-11-05 (`dcf38bf50`)
+
+Governed-path change since `5c94c3cbd`: `docs/VAULT-corpus-format.md` (`dcf38bf50`) amends Invariant 3 (an amendment changing a page's resource IRI is refused as `RESOURCE_IMMUTABLE`) and notes that `vault propose` event construction refuses grouped proposals. Neither touches the Logseq-to-Obsidian converter, which this record covers and ADR-2113 supersedes. `crates/vault-migrate` and `Cargo.toml` are unchanged. **Decision unaffected.** Re-run: `git diff 5c94c3cbd..dcf38bf50 -- crates/vault-migrate Cargo.toml docs/VAULT-corpus-format.md`.
