@@ -295,9 +295,8 @@ does not proxy `/ws/presence` (README run notes). "localhost:4000" is reached
 over a reverse SSH tunnel from HP-Desktop to the backend host. The Rust
 `BinaryProtocolClient` owns the wire; GDScript only supplies URLs/credentials and
 pumps the inbox each frame (`graph_scene.gd:65-66`). The graph socket connects to
-the **plain URL** and authenticates solely with the NIP-98 `authenticate` frame
-minted over that same URL — `connect_to_url(url, nostr_secret_hex)` takes no token
-and `XR_GRAPH_TOKEN` no longer exists (ADR-2076). It decodes **Protocol V3**
+the **plain URL** (no credential ever enters it) and authenticates with NIP-98 minted over that same URL — `connect_to_url(url, nostr_secret_hex)` takes no token
+and `XR_GRAPH_TOKEN` no longer exists (ADR-2076). Since `6b811f7a1` a configured identity signs the HTTP upgrade itself: `graph_upgrade_request` (`transport.rs`) sends a same-authority `Origin` and a signed NIP-98 carrier in `Sec-WebSocket-Protocol`, with a random signed nonce so rapid reconnects are distinct, and a malformed configured key fails before connect. A peer that does not negotiate the signed protocol (Codescape) keeps the first-message `authenticate` frame as before. It decodes **Protocol V3**
 and the **V5 wrapper** (`0x05` + 8-byte broadcast seq) — see VC protocol doc and
 README gdext-class table. HTTP origin for writes is derived by swapping the ws
 scheme (`_http_base`, `graph_scene.gd:1141-1152`) or `XR_BACKEND_HTTP`.
@@ -323,7 +322,7 @@ inherited session. SteamVR must be running with the VIVE Pro tracked and
 — ephemeral if the secret is empty (`graph_scene.gd:425-430`). `XR_NOSTR_SECRET`
 is a hex BIP-340 key and is **required** in practice: besides the presence
 challenge/response handshake it signs the NIP-98 `authenticate` on the graph
-socket that gates server-authoritative node drag/pin (README, `transport.rs:75`).
+socket (on the upgrade request where the server negotiates it, otherwise as the first message) that gates server-authoritative node drag/pin (README, `transport.rs`).
 Physics/layout HTTP writes attach a per-request NIP-98 `Authorization: Nostr
 <b64>` header minted for the exact URL+method (`_auth_headers`,
 `graph_scene.gd:1055-1073`); the HUD decide POST uses the same path
@@ -998,7 +997,7 @@ The operator accepted these on 2026-10-30 for implementation. Nothing below exis
 - **Cross-volume links (ADR-2158 D6, ADR-2164).**
   - **What is drawn.** One link layer draws knowledge↔ontology bridges and code→concept links, and later federated data-space links. Its endpoints are resolved and packed in Rust every frame (`LinkPacker.pack` → `pack_links`, `render_store_pack.rs`), after the volumes move and the packs run: each end is the volume's content-to-world transform applied to the connection's `RenderStore::drawn_position_of`, the fold-aware answer the edge pack draws with (a link on a folded node ends on its representative, where its edges end; `node_position` answers the same way). `link_layer.gd` keeps the records, their order and the per-volume and per-connection state, and uploads the buffer. A link ends where its node is drawn that frame; there is no refresh timer.
   - **The switch.** Links are drawn only while `xr.cross_volume_links` is on. It is **on in debug builds (`OS.is_debug_build()`) and off in release**, toggled at runtime from the XR menu, and stored per device in `user://xr_prefs.cfg` under a key per build type (`cross_volume_links_debug` or `cross_volume_links_release`), so a dev-build choice never carries into release. Turning it off removes the geometry at once, and the switch never changes what any server sends.
-  - **Budget.** One draw call, at most 512 links and at most 6 144 triangles.
+  - **Budget.** One draw call, at most 512 **instances** and at most 6 144 triangles. The 512 counts links plus the deduplicated endpoint markers of highlighted links (`pack_links` skips a link whose markers would exceed it, `6b811f7a1`); 512 links is the input table, not the output bound.
 - **Code links (ADR-2164).**
   - **The source.** An explicit `@ontology <iri>` comment in estate code. Today's KG, ontology and docs data hold no usable link.
   - **Delivery.** Codescape binds each annotation to its symbol, rolls it up to the file, and sends it on its file-tier `initialGraphLoad` as `metadata.ontology_refs` (`<iri>#L<line>`).

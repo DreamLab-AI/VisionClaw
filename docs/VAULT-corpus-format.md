@@ -97,7 +97,7 @@ call it; nothing else parses the corpus.
 | `vault validate` | OKF conformance + `vocabulary.yaml` + `types.json` agreement + link integrity + public gate | C2 |
 | `ontomark find / retrieve / tree` | graph over frontmatter wikilinks, per-edge-type expansion depth, `max_documents` cap (ported from `vault`, ADR-OM-005) | C2 |
 | `ontomark edit --expect docs=N blocks=M` / `create` / `apply` | guarded mutation; refused without a declared blast radius (ported from `vault`, ADR-OM-005) | C2 |
-| `vault propose` | `PatchProposal` (C4) + Whelk and conflict blockers + the RDFS consequence delta (`consequences`, ADR-2147) + forum 31402; `--certificate-dir` writes the base and proposed derivation certificates for `oo-cert` | C4, C5 |
+| `vault propose` | `PatchProposal` (C4) + Whelk and conflict blockers + the RDFS consequence delta (`consequences`, ADR-2147) + forum 31402 (single-page only: grouped proposals are assessed locally but event construction refuses them until the consumer applies a group atomically); `--certificate-dir` writes the base and proposed derivation certificates for `oo-cert` | C4, C5 |
 | `vault certify` | the `oo-cert/1` derivation certificate of the published graph, with the Whelk-parity check (ADR-2147) | C3 |
 | `vault gate` / `vault conflicts` | the autonomous quality gate and the conflict detector | C2 |
 | `vault build` | the bundle (C3), Quartz `static/`, the Loom bundle | C3 |
@@ -378,7 +378,7 @@ leading paragraph. `resource` was copied from the fence's `@id`, not recomputed.
 2. **One parser.** `vault-core::parse` is the only code that reads the corpus.
    A second parser — in VisionClaw, in a skill, in a script — is a violation.
 3. **`resource` is immutable.** Minted once, never recomputed, never reused.
-   A changed `resource` is the `RESOURCE_MUTATED` blocker.
+   A changed `resource` is the `RESOURCE_MUTATED` blocker; an amendment that would change an existing page's resource IRI is refused by `vault propose` as `RESOURCE_IMMUTABLE` before it can be posted (`6b811f7a1`).
 4. **Identity is the vault-relative path.** Non-namespace page ids are
    byte-identical to their v1 values; namespace ids derive from `Ns/Title`.
 5. **Path authority is `vault.toml`.** No consumer hard-codes a corpus path.
