@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit:
+verified_commit: 858cf136fa89bf9fdc3475ac3b409b3a3783308f
 verified_paths: [crates/visionclaw-splat/src/manifest.rs, xr-client/rust/src/splat_loader.rs, xr-client/scripts/space_portals.gd, xr-client/scripts/splat_volume.gd, xr-client/scripts/graph_scene.gd, xr-client/scripts/hud.gd, xr-client/scripts/xr_prefs.gd]
 owner: jjohare
 review_trigger: The first headset session in the merged space, a second staged asset, or any change to ADR-2170's placement or budget rules.
@@ -46,4 +46,4 @@ ADR-2170 enters a splat scene as a 6 × 3 × 6 m room (ADR-2166) and reserves a 
 
 - `cargo test -p visionclaw-splat --features cli`: 33 pass (stage round trip, listing pass-through, absent key, refusals).
 - `cargo test --lib splat_loader` in `xr-client/rust`: 26 pass (a staged plan; a stageless server's listing).
-- GUT on the HP rig: `test_space_portals.gd` (room transform, guest placement, scale steps, enter/leave round trip, refusals, re-scale about the user), `test_splat_volume.gd` (stage from plan), `test_grab_client.gd` (the guest grabs). Results recorded in the commit that stamps `verified_commit`.
+- GUT on the HP rig (Godot 4.8-beta2, snapshot `~/mce-xr/vc-858cf136f`, gdext rebuilt there): 52 scripts, 609 tests, 608 pass on the first run. The one failure was `test_agent_edge_run.gd` reading `client/src/features/graph/utils/agentNudge.ts`, which the snapshot had not copied; with the file added that script passes 20/20. The guard saw no parse errors. New tests: `test_space_portals.gd` (room transform, guest placement, scale steps, enter/leave round trip, refusals, re-scale about the user), `test_splat_volume.gd` (stage from plan), `test_grab_client.gd` (the guest grabs).

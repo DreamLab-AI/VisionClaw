@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158]
-verified_commit: 5c94c3cbdafad99e6985fe509162831bf18c2ec8
+verified_commit: 858cf136fa89bf9fdc3475ac3b409b3a3783308f
 verified_paths: [xr-client/scripts/space_portals.gd, xr-client/scripts/spatial_volume.gd, xr-client/scripts/emulated_volume.gd, xr-client/scripts/volume_arrangement.gd, xr-client/scripts/graph_scene.gd, xr-client/scripts/hud.gd, xr-client/scripts/xr_prefs.gd, xr-client/materials/portal_membrane.gdshader]
 owner: jjohare
 review_trigger: the first headset session with Enter used (stereo membranes, 90 Hz with an entered 6 m room, comfort of the dim); or XE merging FrameBudgetPass.set_volume_weights
@@ -103,3 +103,5 @@ Re-verified again at `69b16867d`: A later commit adds only a `slots` argument to
 ## Re-verification — 2026-11-04 (`5c94c3cbd`)
 
 Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `69b16867d` are additive: `xr-client/scripts/graph_scene.gd`: the splat volume, built only when `XrPrefs.splat_scene()` is on (off by default) and kept out of VOLUME_BINDINGS, VOLUME_ORDER and GraphRoot; `xr-client/scripts/hud.gd`: a credits line shown only when a splat scene sets one, and an Enter/Leave Splat Scene button hidden until one is loaded; `xr-client/scripts/xr_prefs.gd`: the `xr.splat_scene` pref and `XR_SPLATS` env switch. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff 69b16867d..5c94c3cbd -- <governed path>`.
+
+Re-verified 2026-11-05 at `858cf136f` for ADR-2178: ADR-2178 adds a second entered state (`enter_merged`, `set_merged_scale`, `_apply_merged`) beside `enter`; `enter` is refused while merged, `portal_ids` is empty while merged, and leave restores the ring from the same snapshot and shows the volumes the merge hid. Also reviewed `ac0d68913` on these paths: the HUD Splat toggle leaves an entered splat space before hiding it (`leave_volume_space`), consistent with this record. GUT on the HP rig at this commit: 609/609 (`test_space_portals.gd` includes the merged round trip).

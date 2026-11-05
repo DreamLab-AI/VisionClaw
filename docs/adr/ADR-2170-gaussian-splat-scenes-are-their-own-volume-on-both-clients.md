@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 5c94c3cbdafad99e6985fe509162831bf18c2ec8
+verified_commit: 858cf136fa89bf9fdc3475ac3b409b3a3783308f
 verified_paths: [crates/visionclaw-splat, src/handlers/splat_handler.rs, client/src/features/splats, xr-client/rust/src/frame_budget.rs, xr-client/rust/src/splat_governor.rs, xr-client/rust/src/splat_sort.rs, xr-client/rust/src/splat_loader.rs, xr-client/materials/splat.gdshader, xr-client/scripts/splat_volume.gd]
 owner: jjohare
 review_trigger: The first splat frame on either client, any three.js bump past 0.183, a Spark release with WebGPURenderer support (sparkjsdev/spark#394), or the first headset session with `XR_SPLATS=1`.
@@ -167,3 +167,5 @@ Evidence for the Context (2026-11-01, before implementation):
   - `splat-transform --stats` reads 9 999 999 Gaussians, SH 3, fill ratio 21.9.
   - A CPU opacity filter (not decimation) gave 221 063 splats at SH 0 as 3.69 MB SPZ, and 1 357 052 splats at SH 3 as 28.3 MB SPZ, which is a size guide only.
 - **Repository:** the renderer-factory lines were read at `ecd78b6cb`.
+
+Re-verified 2026-11-05 at `858cf136f` for ADR-2178: Governed paths changed only by ADR-2178: the manifest and listing gain an optional `stage`, the loader plan carries it, and `SplatVolume.stage()` exposes it. Decision 2 is amended for the merged space only (a graph box inside the splat box; the backdrop overdraw is named there). Crate 33 pass, gdext splat_loader 26 pass, GUT 609/609 on the HP rig.
