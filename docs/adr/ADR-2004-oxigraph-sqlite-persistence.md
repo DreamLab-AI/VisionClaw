@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
+verified_commit: de4ee9e3a91d2307ea56d66a040f495688c9c6cf
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -288,4 +288,4 @@ Governed-path change since the last stamp: `src/app_state.rs` (`6b811f7a1`): `ge
 
 Re-run: `git diff 5c94c3cbd..81e711267 -- Cargo.toml src/app_state.rs`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
 
-Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `src/app_state.rs` opens one more SQLite store (`shares.sqlite3`, graph shares) and no longer builds the `node_sssp` map or `ProtectedSettingsActor`; `Cargo.toml` drops the fastwebsockets/postcard/hyper networking deps of the deleted `FastWebSocketServer`. The embedded Oxigraph open and its sharing are untouched. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.
+Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..de4ee9e3a`, the last hunk whitespace-only): `src/app_state.rs` opens one more SQLite store (`shares.sqlite3`, graph shares) and no longer builds the `node_sssp` map or `ProtectedSettingsActor`; `Cargo.toml` drops the fastwebsockets/postcard/hyper networking deps of the deleted `FastWebSocketServer`. The embedded Oxigraph open and its sharing are untouched. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.
