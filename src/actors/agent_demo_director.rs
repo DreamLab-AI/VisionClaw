@@ -29,7 +29,7 @@ use serde::Serialize;
 
 use crate::actors::messages::{BroadcastAgentActionFrame, GetGraphData};
 use crate::actors::{ClientCoordinatorActor, GraphStateActor};
-use crate::utils::binary_protocol::{encode_agent_actions, AgentActionEvent};
+use crate::utils::binary_protocol::AgentActionEvent;
 
 /// Agent-node flag on a wire id (the client resolves a beam's source as an agent by this bit).
 pub const AGENT_NODE_FLAG: u32 = 0x8000_0000;
@@ -431,8 +431,7 @@ impl Actor for AgentDemoDirector {
             let now_ts = act.started.map_or(0, |t| t.elapsed().as_millis() as u32);
             let events = director.tick(TICK.as_millis() as u64, now_ts);
             if !events.is_empty() {
-                act.coordinator
-                    .do_send(BroadcastAgentActionFrame(encode_agent_actions(&events)));
+                act.coordinator.do_send(BroadcastAgentActionFrame(events));
             }
         });
     }
@@ -521,6 +520,7 @@ fn demo_graph_from(data: &visionclaw_domain::models::graph::GraphData) -> DemoGr
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::binary_protocol::encode_agent_actions;
 
     /// A star around node 1 plus a chain 2-3-4-5, so there are central and peripheral nodes.
     fn graph() -> DemoGraph {

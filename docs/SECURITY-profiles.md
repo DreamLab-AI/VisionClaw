@@ -1,7 +1,7 @@
 ---
 title: Security Profiles & Flag Matrix
 doc_id: VC-SECURITY
-version: 0.1.4
+version: 0.1.5
 status: draft-for-ratification
 verified_commit: 
 sources:
@@ -38,7 +38,7 @@ shipped posture — that gap is called out in Known divergences.
 |------|---------|--------------|--------------------|
 | `RBAC_PUBLIC_READS` | Allow anonymous safe-method (`GET`/`HEAD`/`OPTIONS`) reads across `/api` | **OFF** (fail-closed: absence requires auth) | `src/middleware/rbac_gate.rs:135-141` |
 | `RBAC_ALLOW_OWNERLESS` | Permit boot with no Owner assigned in the role store | **OFF** (fail-closed: refuses to start, exit on no Owner) | `src/main.rs:795-818`, `src/services/role_store.rs:33` |
-| `PUBKEY_VISIBILITY_FILTER` | ADR-060 drop-set: strip private nodes not owned by the session pubkey from the wire frame | **ON** (secure-by-default; only explicit `0`/`false`/`off`/`no` disables) | `crates/visionclaw-domain/src/utils/visibility_filter.rs:23-43` (`parse_visibility_flag` `:26`, memoised `filter_enabled` `:38`; moved out of `position_updates.rs` by the visibility-filter extraction) |
+| `PUBKEY_VISIBILITY_FILTER` | ADR-060 drop-set: strip private nodes not owned by the session pubkey from the wire frame | **ON** (secure-by-default; only explicit `0`/`false`/`off`/`no` disables) | `crates/visionclaw-domain/src/utils/visibility_filter.rs:31-55` (env constant `:31`, `parse_visibility_flag` `:34`, memoised `filter_enabled` `:46`; moved out of `position_updates.rs` by the visibility-filter extraction) |
 | `RBAC_GATE_MODE` | `report` downgrades `/api` denials to logs instead of 401/403 | **enforce** (`report` refuses to activate in release without dated `RBAC_REPORT_MODE_ACK`) | `src/middleware/rbac_gate.rs:83-125` |
 | `SETTINGS_AUTH_BYPASS` | Legacy dev auth bypass | Codepath `#[cfg]`-stripped in release; **presence hard-fails boot** (exit 2) | `src/main.rs:117-163` |
 | `VISIONCLAW_DEV_MODE` | **ADR-2039** LAN-local full auth bypass: in dev/`dev-auth` builds, `=1`/`true` grants dev-admin (`dev-mode-local-admin`) to **every** request — no NIP-98/token/peer check — across REST (`verify_access`), settings extractor, and WS handshake. Peer-agnostic by design (Docker SNAT hides origin). | **ON for the dev compose service** (ADR-2108: `${VISIONCLAW_DEV_MODE:-1}` in the `dev` profile only; opt out with `VISIONCLAW_DEV_MODE=0`); codepath `#[cfg]`-stripped in release + **presence hard-fails boot** (exit 2). Loud boot banner when armed. | `src/utils/auth.rs` (`dev_full_bypass_active`), `src/main.rs:118-137` |
@@ -93,10 +93,22 @@ the same process.
 
 ### Pubkey visibility filter (landing 2026-08-31)
 
-Default **ON**: `parse_visibility_flag` (`crates/visionclaw-domain/src/utils/visibility_filter.rs:23-43`) is the single reader, consulted through `filter_enabled()` by every position path (connect sync, snapshot request and the live stream; `client_coordinator_actor.rs:407,433`). The
+Default **ON**: `parse_visibility_flag` (`crates/visionclaw-domain/src/utils/visibility_filter.rs:34`) is the single reader, consulted through `filter_enabled()` (`:46`) by every position path (the live stream and a client's catch-up chunk, `client_coordinator_actor.rs:513`, `:539`) and by the agent-action fan-out (`:471`). The
 pure drop-set logic (`visibility_filter.rs`) is fail-closed: a missing session
 pubkey drops every private node, yielding a public-only graph. Public nodes are
 unaffected, so default-on is behaviour-neutral for all-public deployments.
+
+### Outbound visibility surface (sweep 2026-11-06)
+
+Every path that carries node ids, labels, metadata or per-node values to a caller goes through one policy: `visible_subgraph` / `NodeVisibility` (`crates/visionclaw-domain/src/utils/visibility_filter.rs`), reached from handlers through `src/handlers/graph_access.rs`. A hidden node gets exactly the reply a node that does not exist gets.
+
+- **One gate API.** `caller_view` (`graph_access.rs:23`) for routes that read the graph; `gate_for_graph` / `caller_gate` (`:120`, `:175`) for routes whose result comes from a whole-graph actor. `CallerGate` (`:82`) carries the visible node ids (`VisibleIds`) and the visible GPU positions (`VisibleSlots`) as distinct types: GPU answers are filtered by position, id-keyed results (DBSCAN clusters, CPU answers) by id, and a position counts only while its node's id equals it (fail closed on drift; test `ids_and_positions_are_distinct_sets_on_a_non_compact_graph`). The four per-route variants it replaces (`pathfinding.rs` `gated_view`, `semantic_handler.rs` `visible_ids`, `clustering_handlers.rs` `caller_clusters`, `pagerank_handlers.rs` `gate_for`) are gone or now thin calls into it.
+- **Computed over the view, not filtered after.** For a caller whose view hides nodes, SSSP, point-to-point, connected components, APSP (landmark rows, `k x n`), communities (modularity local moving), modularity and PageRank are computed on the CPU over that view and keyed by visible node id (`src/handlers/api_handler/analytics/visible_analytics.rs`; shortest paths through the one CPU Dijkstra, `src/services/pathfinding.rs` `single_source`). Structural anomalies (LOF / Z-score over layout positions) and semantic centrality are still filtered on the way out: their inputs are positions or analyser scores that hidden nodes shaped, and a recompute over the view would not remove that.
+- **Counts.** `/api/files/refresh_graph` and the `/wss` `state_sync` state the caller's view's counts (`graph_access::visible_counts`, `:200`); `/api/graph/positions` takes `numNodes` and the bounding box over the visible positions. The simulation's convergence telemetry (`settled`, `stableFrameCount`, `kineticEnergy`) is global and carries no node identity.
+- **Routes gated by the sweep:** `GET /api/pages`, `GET /api/analytics/insights` and `/insights/realtime`, `POST /api/analytics/pathfinding/apsp`, `GET /api/semantic-forces/hierarchy-levels`, `GET /api/constraints/list`, and the `0x23` agent-action frames (`ClientManager::broadcast_agent_actions`, per-identity drop-set as for positions). Each has a test pairing a hidden node with an absent one. The sweep table with every path, its gate and its test is in the lane report.
+- **Shares.** A share is never created without an authenticated creator; its creator may delete it, and a power user may delete a legacy share recorded with no creator (`graph_export_handler.rs` `may_delete_share_as`).
+- **Metadata scrub.** Besides `topic_counts`, `is_subclass_of`, `belongs_to_domain` and `tags`, wikilinks to hidden pages are cut out of the authored `definition` (row and node). Plain frontmatter text (`domain`, `source_domain`) is still left alone, by design.
+- **Known gap, unfixed (highest severity found): the ontology store.** `vault/mod.rs:168-170` admits a formal class page with `public: false` into the KG (`public || owl-class`, test `public_false_plus_class_is_included_but_never_publishable`), and the sync comment says such a page is published only when `public: true` (`github_sync_service.rs:1767-1769`). `GraphData` hides it, but `/api/ontology-agent/{discover,read,traverse,query,validate,check}` (authenticated) and the `/api/ontology` GETs (anonymous under `RBAC_PUBLIC_READS=1`) serve the Oxigraph store, which records no `public` flag: labels and IRIs leak, and page bodies too where the store was seeded by `load_ontology`. This contradicts the stated policy. Proposed fix: deny-list, per caller, the IRIs (`owl_class_iri`, `class_iri`, `page_iri`) of graph nodes hidden from that caller, so a hidden class reads as an unknown one; the visible consequence is gaps in the class hierarchy.
 
 ### Named validated profiles
 
@@ -150,7 +162,7 @@ Each profile is an **exact** flag set. Anything not listed takes its code defaul
   unless the flag is set). The image therefore boots owner-less with anonymous
   reads unless an operator overrides the `.env`. `PUBKEY_VISIBILITY_FILTER=1`
   (`docker-compose.unified.yml:125`) matches the code default
-  (`visibility_filter.rs:26`, `parse_visibility_flag` defaults ON). Net shipped
+  (`visibility_filter.rs:34`, `parse_visibility_flag` defaults ON). Net shipped
   posture ≈ `demo-open`. This is a deliberate compatibility trade-off (matches
   legacy ADR-142 open-by-default) and **stays**: the profile it realises is now
   named and ratified by ADR-2027, so the earlier "needs a named profile"

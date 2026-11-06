@@ -70,7 +70,7 @@ use crate::actors::messages::{
 };
 use crate::actors::ClientCoordinatorActor;
 use crate::agent_events;
-use crate::utils::binary_protocol::{encode_agent_actions, AgentActionEvent};
+use crate::utils::binary_protocol::AgentActionEvent;
 
 /// Agent-node high-bit flag (mirrors `binary_protocol::AGENT_NODE_FLAG`). The
 /// client resolves the source node of a beam as an *agent* node iff this bit is
@@ -158,13 +158,13 @@ impl BeamCoalescer {
         self.dropped_total
     }
 
-    /// Encode the entire backlog as one multi-action `0x23` frame. Non-consuming;
-    /// returns `None` when the backlog is empty (nothing to dispatch).
-    fn encode_pending(&self) -> Option<Vec<u8>> {
+    /// The entire backlog as one batch (the coordinator encodes it per client as one
+    /// multi-action `0x23` frame). Non-consuming; `None` when the backlog is empty.
+    fn pending_batch(&self) -> Option<Vec<AgentActionEvent>> {
         if self.pending.is_empty() {
             None
         } else {
-            Some(encode_agent_actions(&self.pending))
+            Some(self.pending.clone())
         }
     }
 
@@ -225,9 +225,13 @@ impl AgentBeamActor {
         }
         if let Err(e) = self
             .coordinator
-            .try_send(BroadcastAgentActionFrame(encode_agent_actions(&events)))
+            .try_send(BroadcastAgentActionFrame(events.clone()))
         {
-            warn!("AgentBeamActor: roster frame not sent ({} event(s)): {}", events.len(), e);
+            warn!(
+                "AgentBeamActor: roster frame not sent ({} event(s)): {}",
+                events.len(),
+                e
+            );
         }
     }
 }
@@ -390,9 +394,9 @@ impl Actor for AgentBeamActor {
 
                 // (3) Dispatch the whole backlog as ONE 0x23 frame. Clear only on
                 // success; on a full mailbox keep it buffered to coalesce forward.
-                if let Some(frame) = coalescer.encode_pending() {
+                if let Some(batch) = coalescer.pending_batch() {
                     let pending = coalescer.len();
-                    match coordinator.try_send(BroadcastAgentActionFrame(frame)) {
+                    match coordinator.try_send(BroadcastAgentActionFrame(batch)) {
                         Ok(()) => {
                             debug!(
                                 "AgentBeamActor: dispatched coalesced 0x23 frame ({pending} action(s))"
@@ -438,6 +442,7 @@ impl Actor for AgentBeamActor {
 mod tests {
     use super::*;
     use crate::agent_events::schema::AgentActionEnvelope;
+    use crate::utils::binary_protocol::encode_agent_actions;
 
     fn envelope(source_agent_id: u32, target_node_id: u32) -> AgentActionEnvelope {
         AgentActionEnvelope {
@@ -516,7 +521,8 @@ mod tests {
         assert_eq!(coalescer.len(), 1);
 
         let frame = coalescer
-            .encode_pending()
+            .pending_batch()
+            .map(|b| encode_agent_actions(&b))
             .expect("one pending ⇒ Some frame");
         // The wire frame leads with the MessageType::AgentAction tag (0x23); the
         // browser's decodeAgentActions consumes the batch body after that byte.
@@ -542,7 +548,10 @@ mod tests {
         }
         assert_eq!(coalescer.len(), 3);
 
-        let frame = coalescer.encode_pending().expect("Some frame");
+        let frame = coalescer
+            .pending_batch()
+            .map(|b| encode_agent_actions(&b))
+            .expect("Some frame");
         let decoded = decode_agent_actions(&frame[1..]).expect("batch decodes");
 
         assert_eq!(decoded.len(), 3, "all three actions ride one 0x23 frame");
@@ -577,7 +586,10 @@ mod tests {
         );
 
         // Drop-OLDEST: ids 0 and 1 are gone; the surviving front is id 2.
-        let frame = coalescer.encode_pending().expect("Some frame");
+        let frame = coalescer
+            .pending_batch()
+            .map(|b| encode_agent_actions(&b))
+            .expect("Some frame");
         let decoded = decode_agent_actions(&frame[1..]).expect("batch decodes");
         assert_eq!(decoded.len(), MAX_PENDING_ACTIONS);
         assert_eq!(
@@ -597,7 +609,10 @@ mod tests {
         let mut coalescer = BeamCoalescer::new();
         assert!(coalescer.is_empty());
         assert!(
-            coalescer.encode_pending().is_none(),
+            coalescer
+                .pending_batch()
+                .map(|b| encode_agent_actions(&b))
+                .is_none(),
             "nothing pending ⇒ no frame"
         );
 
@@ -608,6 +623,9 @@ mod tests {
             coalescer.is_empty(),
             "clear drains the backlog after dispatch"
         );
-        assert!(coalescer.encode_pending().is_none());
+        assert!(coalescer
+            .pending_batch()
+            .map(|b| encode_agent_actions(&b))
+            .is_none());
     }
 }

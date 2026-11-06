@@ -156,22 +156,18 @@ pub struct SendInitialGraphLoad {
     pub edges: Vec<InitialEdgeData>,
 }
 
-/// Broadcast a fully-encoded `0x23 AGENT_ACTION` binary frame to every connected
-/// WebSocket client (ADR-059 §4, Phase 2b — the agent-embodiment beam render).
+/// Broadcast agent actions as `0x23 AGENT_ACTION` binary frames to every connected WebSocket
+/// client (ADR-059 §4, Phase 2b — the agent-embodiment beam render).
 ///
-/// The payload is the complete wire frame as produced by
-/// [`crate::utils::binary_protocol::AgentActionEvent::encode`] (a 1-byte
-/// `MessageType::AgentAction` tag + 15-byte LE header + variable metadata
-/// payload). Pre-encoding upstream keeps `ClientCoordinatorActor` purely a fan-out
-/// stage: its handler reuses the exact same per-client `send_binary` dispatch loop
-/// as `BroadcastNodePositions` (`ClientManager::broadcast_to_all`) without knowing
-/// anything about the agent-event schema.
+/// Carries the actions, not a pre-encoded frame: the coordinator encodes one frame per client
+/// identity holding only the actions whose KG target that client may see
+/// (`ClientManager::broadcast_agent_actions`, ADR-060), as the position stream does.
 ///
-/// Webxr-internal (carries `Vec<u8>` and is dispatched only inside the webxr
-/// `ClientCoordinatorActor`), so it lives here rather than in the domain crate.
+/// Webxr-internal (dispatched only inside the webxr `ClientCoordinatorActor`), so it lives here
+/// rather than in the domain crate.
 #[derive(Message)]
 #[rtype(result = "()")]
-pub struct BroadcastAgentActionFrame(pub Vec<u8>);
+pub struct BroadcastAgentActionFrame(pub Vec<crate::utils::binary_protocol::AgentActionEvent>);
 
 /// One full set of display positions from the physics (every entitled node, absolute
 /// coordinates). The client coordinator replaces its cache with it and sends each client the next

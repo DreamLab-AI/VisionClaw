@@ -45,6 +45,9 @@ pub struct CommunityDetectionResponse {
     pub processing_time_ms: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Set when the answer did not come from the GPU kernel (the gated CPU path).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_path: Option<crate::actors::gpu::analytics_telemetry::ExecutionPath>,
 }
 
 #[cfg(feature = "gpu")]
@@ -113,6 +116,7 @@ pub async fn run_gpu_community_detection(
                 algorithm: request.algorithm.clone(),
                 processing_time_ms: processing_time,
                 error: None,
+                execution_path: None,
             })
         }
         Ok(Err(e)) => {
@@ -127,12 +131,42 @@ pub async fn run_gpu_community_detection(
                 algorithm: request.algorithm.clone(),
                 processing_time_ms: start_time.elapsed().as_millis() as u64,
                 error: Some(e),
+                execution_path: None,
             })
         }
         Err(e) => {
             error!("GPU actor mailbox error: {}", e);
             Err(format!("Failed to communicate with GPU actor: {}", e))
         }
+    }
+}
+
+/// The community response for a caller whose view hides nodes: modularity local moving over the
+/// view on the CPU ([`super::visible_analytics::visible_communities`]), whatever algorithm was asked
+/// for, and reported as such.
+pub(crate) fn visible_community_response(
+    gate: &crate::handlers::graph_access::CallerGate,
+    request: &CommunityDetectionRequest,
+) -> CommunityDetectionResponse {
+    let start = std::time::Instant::now();
+    let (communities, modularity, iterations, converged) =
+        super::visible_analytics::visible_communities(
+            gate,
+            request.max_iterations.unwrap_or(100).clamp(1, 10_000),
+        );
+    CommunityDetectionResponse {
+        success: true,
+        total_communities: communities.len(),
+        communities,
+        modularity,
+        iterations,
+        converged,
+        algorithm: "louvain_local_moving".to_string(),
+        processing_time_ms: start.elapsed().as_millis() as u64,
+        error: None,
+        execution_path: Some(
+            crate::actors::gpu::analytics_telemetry::ExecutionPath::CpuVisibleSubgraph,
+        ),
     }
 }
 

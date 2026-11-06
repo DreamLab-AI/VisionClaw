@@ -41,7 +41,7 @@ pub struct PageRankRequest {
 #[serde(rename_all = "camelCase")]
 pub struct PageRankResponse {
     pub success: bool,
-    pub result: Option<PageRankResult>,
+    pub result: Option<PageRankPayload>,
     pub error: Option<String>,
 }
 
@@ -61,7 +61,7 @@ impl std::fmt::Display for PageRankResponse {
 pub struct PageRankCacheResponse {
     pub success: bool,
     pub cached: bool,
-    pub result: Option<PageRankResult>,
+    pub result: Option<PageRankPayload>,
     pub error: Option<String>,
 }
 
@@ -90,28 +90,17 @@ impl std::fmt::Display for PageRankClearResponse {
     }
 }
 
-/// The caller's visible positions, or `None` when nothing is hidden from them (ADR-060). The
-/// PageRank actor and its cache are shared by every caller, so the filter runs on the way out.
-async fn gate_for(
-    data: &web::Data<AppState>,
-    caller: &crate::settings::OptionalAuth,
-) -> Result<Option<std::collections::HashSet<u32>>, String> {
-    crate::handlers::graph_access::caller_gate(
-        &data.graph_service_addr,
-        caller.0.as_ref().map(|u| u.pubkey.as_str()),
-    )
-    .await
-    .map(|gate| gate.map(|(_, visible)| visible))
-}
+/// Top nodes listed in a gated reply: the actor's own k (`extract_top_nodes(.., 10)`).
+const VISIBLE_TOP_K: usize = 10;
 
-fn apply_gate(
-    result: PageRankResult,
-    gate: Option<std::collections::HashSet<u32>>,
-) -> PageRankResult {
-    match gate {
-        Some(visible) => super::visible_results::gate_pagerank(result, &visible),
-        None => result,
-    }
+/// A PageRank result: the actor's whole-graph run, or the caller's view (ADR-060).
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum PageRankPayload {
+    /// Whole graph, indexed by position.
+    Whole(PageRankResult),
+    /// Computed over the caller's view, keyed by visible node id.
+    Visible(super::visible_analytics::VisiblePageRankResult),
 }
 
 /// Compute PageRank centrality for all nodes in the graph
@@ -143,6 +132,39 @@ pub async fn compute_pagerank(
         payload.damping_factor, payload.max_iterations, payload.epsilon
     );
 
+    // ADR-060: a caller whose view hides nodes is answered over that view on the CPU, keyed by
+    // visible node id; the shared actor (and its cache) only ever serves whole-graph callers.
+    match crate::handlers::graph_access::caller_gate(
+        &data.graph_service_addr,
+        crate::handlers::graph_access::caller_pubkey(&caller),
+    )
+    .await
+    {
+        Ok(Some(gate)) => {
+            return ok_json!(PageRankResponse {
+                success: true,
+                result: Some(PageRankPayload::Visible(
+                    super::visible_analytics::visible_pagerank(
+                        &gate,
+                        payload.damping_factor.unwrap_or(0.85),
+                        payload.max_iterations.unwrap_or(100).clamp(1, 1000),
+                        payload.epsilon.unwrap_or(1e-6),
+                        VISIBLE_TOP_K,
+                    )
+                )),
+                error: None,
+            });
+        }
+        Ok(None) => {}
+        Err(e) => {
+            return error_json!(PageRankResponse {
+                success: false,
+                result: None,
+                error: Some(e),
+            })
+        }
+    }
+
     if let Some(ref pagerank_actor) = data.analytics.pagerank {
         let params = PageRankParams {
             damping_factor: payload.damping_factor,
@@ -162,18 +184,11 @@ pub async fn compute_pagerank(
                     "PageRank computed successfully: {} nodes, converged={}, iterations={}",
                     result.stats.total_nodes, result.converged, result.iterations
                 );
-                match gate_for(&data, &caller).await {
-                    Ok(gate) => ok_json!(PageRankResponse {
-                        success: true,
-                        result: Some(apply_gate(result, gate)),
-                        error: None,
-                    }),
-                    Err(e) => error_json!(PageRankResponse {
-                        success: false,
-                        result: None,
-                        error: Some(e),
-                    }),
-                }
+                ok_json!(PageRankResponse {
+                    success: true,
+                    result: Some(PageRankPayload::Whole(result)),
+                    error: None,
+                })
             }
             Ok(Err(e)) => {
                 error!("PageRank computation failed: {}", e);
@@ -216,6 +231,34 @@ pub async fn get_pagerank_result(
 ) -> Result<HttpResponse> {
     info!("API: Getting cached PageRank result");
 
+    // ADR-060: the cache holds a whole-graph run. A caller whose view hides nodes has no cached
+    // result of their own (POST /compute answers them over their view), so they get exactly the
+    // "nothing cached" reply; an unreadable graph fails closed.
+    match crate::handlers::graph_access::caller_gate(
+        &data.graph_service_addr,
+        crate::handlers::graph_access::caller_pubkey(&caller),
+    )
+    .await
+    {
+        Ok(None) => {}
+        Ok(Some(_)) => {
+            return ok_json!(PageRankCacheResponse {
+                success: true,
+                cached: false,
+                result: None,
+                error: None,
+            })
+        }
+        Err(e) => {
+            return error_json!(PageRankCacheResponse {
+                success: false,
+                cached: false,
+                result: None,
+                error: Some(e),
+            })
+        }
+    }
+
     if let Some(ref pagerank_actor) = data.analytics.pagerank {
         match pagerank_actor.send(GetPageRankResult).await {
             Ok(Some(result)) => {
@@ -223,20 +266,12 @@ pub async fn get_pagerank_result(
                     "Returning cached PageRank result: {} nodes",
                     result.stats.total_nodes
                 );
-                match gate_for(&data, &caller).await {
-                    Ok(gate) => ok_json!(PageRankCacheResponse {
-                        success: true,
-                        cached: true,
-                        result: Some(apply_gate(result, gate)),
-                        error: None,
-                    }),
-                    Err(e) => error_json!(PageRankCacheResponse {
-                        success: false,
-                        cached: false,
-                        result: None,
-                        error: Some(e),
-                    }),
-                }
+                ok_json!(PageRankCacheResponse {
+                    success: true,
+                    cached: true,
+                    result: Some(PageRankPayload::Whole(result)),
+                    error: None,
+                })
             }
             Ok(None) => {
                 info!("No cached PageRank result available");

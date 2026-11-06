@@ -649,6 +649,82 @@ pub async fn get_auto_balance_notifications(
     }
 }
 
+/// The `/positions` body for a caller. `visible` is the caller's visible node ids when the
+/// filter is on: positions are filtered to them, and `numNodes` and the bounding box are taken
+/// over what is left, so a hidden node's position shapes nothing in the reply (ADR-060).
+/// `settled`, `stableFrameCount` and `kineticEnergy` are the simulation's own convergence
+/// telemetry, carry no node identity or position, and are the values `/api/graph/settlement`
+/// and the `/api/graph/data` `settlementState` already serve to every caller.
+fn positions_reply(
+    snapshot: &crate::actors::messages::CurrentPositionsSnapshot,
+    visible: Option<&std::collections::HashSet<u32>>,
+) -> serde_json::Value {
+    let kept: Vec<&(u32, f32, f32, f32)> = snapshot
+        .positions
+        .iter()
+        .filter(|(id, _, _, _)| visible.is_none_or(|v| v.contains(id)))
+        .collect();
+    let bounding_box = if visible.is_none() {
+        snapshot.bounding_box.clone()
+    } else if kept.is_empty() {
+        crate::actors::messages::BoundingBox {
+            min_x: 0.0,
+            min_y: 0.0,
+            min_z: 0.0,
+            max_x: 0.0,
+            max_y: 0.0,
+            max_z: 0.0,
+        }
+    } else {
+        kept.iter().fold(
+            crate::actors::messages::BoundingBox {
+                min_x: f32::MAX,
+                min_y: f32::MAX,
+                min_z: f32::MAX,
+                max_x: f32::MIN,
+                max_y: f32::MIN,
+                max_z: f32::MIN,
+            },
+            |b, &&(_, x, y, z)| crate::actors::messages::BoundingBox {
+                min_x: b.min_x.min(x),
+                min_y: b.min_y.min(y),
+                min_z: b.min_z.min(z),
+                max_x: b.max_x.max(x),
+                max_y: b.max_y.max(y),
+                max_z: b.max_z.max(z),
+            },
+        )
+    };
+    let positions: Vec<serde_json::Value> = kept
+        .iter()
+        .map(|(id, x, y, z)| serde_json::json!({ "id": id, "x": x, "y": y, "z": z }))
+        .collect();
+    serde_json::json!({
+        "success": true,
+        "data": {
+            "positions": positions,
+            "metadata": {
+                "numNodes": positions.len(),
+                "settled": snapshot.settled,
+                "stableFrameCount": snapshot.stable_frame_count,
+                "kineticEnergy": snapshot.kinetic_energy,
+                "boundingBox": {
+                    "min": {
+                        "x": bounding_box.min_x,
+                        "y": bounding_box.min_y,
+                        "z": bounding_box.min_z
+                    },
+                    "max": {
+                        "x": bounding_box.max_x,
+                        "y": bounding_box.max_y,
+                        "z": bounding_box.max_z
+                    }
+                }
+            }
+        }
+    })
+}
+
 /// Return the current GPU-computed node positions (not the initial loaded zeros).
 ///
 /// `GET /api/graph/positions`
@@ -671,8 +747,9 @@ pub async fn get_graph_positions(
 
     match gpu_addr.send(GetCurrentPositions).await {
         Ok(Ok(snapshot)) => {
-            // ADR-060: GPU index == compact node id, so the caller's visible node ids filter the
-            // positions directly. No graph snapshot means no visibility decision: fail closed.
+            // ADR-060: the snapshot is keyed by node id (`GetCurrentPositions` maps each GPU slot
+            // to its node id and skips unmapped slots), so the caller's visible node ids filter
+            // it. No graph snapshot means no visibility decision: fail closed.
             let visible: Option<std::collections::HashSet<u32>> =
                 if visionclaw_domain::utils::visibility_filter::filter_enabled() {
                     match fetch_graph_snapshot(&state, &caller).await {
@@ -691,45 +768,7 @@ pub async fn get_graph_positions(
                 } else {
                     None
                 };
-            let positions: Vec<serde_json::Value> = snapshot
-                .positions
-                .iter()
-                .filter(|(id, _, _, _)| visible.as_ref().is_none_or(|v| v.contains(id)))
-                .map(|(id, x, y, z)| {
-                    serde_json::json!({
-                        "id": id,
-                        "x": x,
-                        "y": y,
-                        "z": z
-                    })
-                })
-                .collect();
-            let visible_count = positions.len();
-
-            HttpResponse::Ok().json(serde_json::json!({
-                "success": true,
-                "data": {
-                    "positions": positions,
-                    "metadata": {
-                        "numNodes": visible_count,
-                        "settled": snapshot.settled,
-                        "stableFrameCount": snapshot.stable_frame_count,
-                        "kineticEnergy": snapshot.kinetic_energy,
-                        "boundingBox": {
-                            "min": {
-                                "x": snapshot.bounding_box.min_x,
-                                "y": snapshot.bounding_box.min_y,
-                                "z": snapshot.bounding_box.min_z
-                            },
-                            "max": {
-                                "x": snapshot.bounding_box.max_x,
-                                "y": snapshot.bounding_box.max_y,
-                                "z": snapshot.bounding_box.max_z
-                            }
-                        }
-                    }
-                }
-            }))
+            HttpResponse::Ok().json(positions_reply(&snapshot, visible.as_ref()))
         }
         Ok(Err(e)) => {
             warn!("GetCurrentPositions returned error: {}", e);
@@ -1076,17 +1115,7 @@ pub(super) async fn fetch_graph_view(
     Ok((view, whole))
 }
 
-/// The caller's pubkey, when the request carried a verified identity. `OptionalAuth` reuses the
-/// identity `RbacGate`/`RequireAuth` stored, else verifies the request's own header, and yields
-/// `None` on any failure, so a bad or missing credential reads as anonymous (fail closed).
-fn caller_pubkey(caller: &OptionalAuth) -> Option<&str> {
-    caller.0.as_ref().map(|u| u.pubkey.as_str())
-}
-
-/// The caller's view of `graph`; see [`crate::handlers::graph_access::caller_view`].
-fn caller_view(graph: &Arc<GraphData>, caller: &OptionalAuth) -> Arc<GraphData> {
-    crate::handlers::graph_access::caller_view(graph, caller)
-}
+use crate::handlers::graph_access::{caller_pubkey, caller_view};
 
 /// `GET /api/graph/node/{id}/relations`
 ///
@@ -2506,5 +2535,65 @@ mod visibility_parity_tests {
                 "/wss {key}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod positions_reply_tests {
+    use super::positions_reply;
+    use crate::actors::messages::{BoundingBox, CurrentPositionsSnapshot};
+
+    /// Visible 0 and 1 near the origin; when `with_hidden`, hidden 2 far away and moving fast.
+    fn snapshot(with_hidden: bool) -> CurrentPositionsSnapshot {
+        let mut positions = vec![(0, 0.0, 0.0, 0.0), (1, 1.0, 1.0, 1.0)];
+        let (mut max, mut ke) = (1.0, 0.5);
+        if with_hidden {
+            positions.push((2, 100.0, 100.0, 100.0));
+            max = 100.0;
+            ke = 40.0;
+        }
+        CurrentPositionsSnapshot {
+            num_nodes: positions.len() as u32,
+            positions,
+            settled: false,
+            kinetic_energy: ke,
+            stable_frame_count: 0,
+            bounding_box: BoundingBox {
+                min_x: 0.0,
+                min_y: 0.0,
+                min_z: 0.0,
+                max_x: max,
+                max_y: max,
+                max_z: max,
+            },
+        }
+    }
+
+    /// Review VC-04 Open: under the gate the positions were filtered but the bounding box still
+    /// covered the hidden node. A hidden node's position must shape nothing in the reply.
+    #[test]
+    fn a_hidden_node_shapes_no_positions_aggregate() {
+        let visible: std::collections::HashSet<u32> = [0, 1].into_iter().collect();
+        let hidden = positions_reply(&snapshot(true), Some(&visible));
+        let absent = positions_reply(&snapshot(false), Some(&visible));
+        assert_eq!(hidden["data"]["positions"], absent["data"]["positions"]);
+        assert_eq!(
+            hidden["data"]["metadata"]["numNodes"],
+            absent["data"]["metadata"]["numNodes"]
+        );
+        assert_eq!(
+            hidden["data"]["metadata"]["boundingBox"],
+            absent["data"]["metadata"]["boundingBox"]
+        );
+        assert_eq!(hidden["data"]["metadata"]["boundingBox"]["max"]["x"], 1.0);
+        assert_eq!(hidden["data"]["metadata"]["numNodes"], 2);
+    }
+
+    #[test]
+    fn the_filter_off_reply_is_the_snapshot() {
+        let r = positions_reply(&snapshot(true), None);
+        assert_eq!(r["data"]["metadata"]["numNodes"], 3);
+        assert_eq!(r["data"]["metadata"]["kineticEnergy"], 40.0);
+        assert_eq!(r["data"]["metadata"]["boundingBox"]["max"]["x"], 100.0);
     }
 }

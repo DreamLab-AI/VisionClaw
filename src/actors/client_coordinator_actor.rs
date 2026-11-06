@@ -458,6 +458,49 @@ impl ClientManager {
         result
     }
 
+    /// Fan agent actions (`0x23`) out to every client, each frame holding only the actions whose
+    /// KG target that client may see (ADR-060): the private-node drop-set is computed once per
+    /// identity, exactly as the position stream does. With the filter on and no classification
+    /// yet, nothing is sent (fail closed). A client whose filtered batch is empty gets no frame.
+    pub fn broadcast_agent_actions(
+        &self,
+        events: &[crate::utils::binary_protocol::AgentActionEvent],
+        nta: &crate::actors::messages::NodeTypeArrays,
+    ) -> BroadcastResult {
+        let mut result = BroadcastResult::default();
+        let policy_on = visionclaw_domain::utils::visibility_filter::filter_enabled();
+        if events.is_empty() || (policy_on && !nta.loaded) {
+            return result;
+        }
+        let entitlement_on = policy_on && !nta.private_nodes.is_empty();
+        let mut frames: HashMap<Option<String>, Option<Vec<u8>>> = HashMap::new();
+        for (&client_id, client) in &self.clients {
+            let frame = frames.entry(client.pubkey.clone()).or_insert_with(|| {
+                let hidden = entitlement_on.then(|| {
+                    visionclaw_domain::utils::visibility_filter::compute_private_opaque_ids(
+                        &nta.private_nodes,
+                        client.pubkey.as_deref(),
+                    )
+                });
+                let kept: Vec<crate::utils::binary_protocol::AgentActionEvent> = events
+                    .iter()
+                    .filter(|e| {
+                        hidden
+                            .as_ref()
+                            .is_none_or(|h| !h.contains(&e.target_node_id))
+                    })
+                    .cloned()
+                    .collect();
+                (!kept.is_empty())
+                    .then(|| crate::utils::binary_protocol::encode_agent_actions(&kept))
+            });
+            if let Some(frame) = frame {
+                result.deliver_binary(client_id, client, frame.clone());
+            }
+        }
+        result
+    }
+
     /// Send the next chunk to every client that is due one (ADR-2141). Called when new positions
     /// arrive and from the safety timer.
     pub fn pump_all(&mut self, cx: &PumpContext<'_>, seq: &mut u64) -> BroadcastResult {
@@ -1284,17 +1327,14 @@ impl Handler<UnregisterClient> for ClientCoordinatorActor {
 
 /// Handler for `BroadcastAgentActionFrame` (ADR-059 §4, Phase 2b).
 ///
-/// Fans out a pre-encoded `0x23 AGENT_ACTION` wire frame to every connected
-/// client, reusing the exact same per-client `send_binary` dispatch loop as
-/// `BroadcastNodePositions` (`ClientManager::broadcast_to_all` → each client's
-/// `addr.binary.try_send(SendToClientBinary(..))`). No new client registry, no
-/// duplicated dispatch: the agent-beam frame rides the established binary path.
+/// Encodes one `0x23 AGENT_ACTION` frame per client from the actions whose KG target that
+/// client may see ([`ClientManager::broadcast_agent_actions`]), and sends it on the established
+/// binary path.
 impl Handler<BroadcastAgentActionFrame> for ClientCoordinatorActor {
     type Result = ();
 
     fn handle(&mut self, msg: BroadcastAgentActionFrame, _ctx: &mut Self::Context) -> Self::Result {
-        let frame = msg.0;
-        let frame_len = frame.len();
+        let events = msg.0;
 
         let broadcast_result = {
             let manager = match handle_rwlock_error(self.client_manager.read()) {
@@ -1304,7 +1344,7 @@ impl Handler<BroadcastAgentActionFrame> for ClientCoordinatorActor {
                     return;
                 }
             };
-            manager.broadcast_to_all(frame)
+            manager.broadcast_agent_actions(&events, &self.node_type_arrays)
         };
 
         self.settle_broadcast_result(&broadcast_result, "agent-action frame");
@@ -1314,8 +1354,9 @@ impl Handler<BroadcastAgentActionFrame> for ClientCoordinatorActor {
             self.broadcast_count += 1;
             self.bytes_sent += broadcast_result.bytes as u64;
             debug!(
-                "Broadcasted agent-action frame ({} bytes) to {} clients",
-                frame_len, client_count
+                "Broadcasted agent-action frame ({} action(s)) to {} clients",
+                events.len(),
+                client_count
             );
         }
     }
@@ -1702,17 +1743,26 @@ mod tests {
             let mut public = Node::new_with_id("public.md".into(), Some(1));
             public.metadata.insert("public".into(), "true".into());
             let mut private_a = Node::new_with_id("private-a.md".into(), Some(2));
-            private_a.metadata.insert("owner_pubkey".into(), OWNER_A.into());
+            private_a
+                .metadata
+                .insert("owner_pubkey".into(), OWNER_A.into());
             let unowned = Node::new_with_id("unowned.md".into(), Some(3));
             let mut g = GraphData::new();
             for n in [public, private_a, unowned] {
                 g.metadata.insert(
                     n.metadata_id.clone(),
-                    Metadata { file_name: n.metadata_id.clone(), ..Metadata::default() },
+                    Metadata {
+                        file_name: n.metadata_id.clone(),
+                        ..Metadata::default()
+                    },
                 );
                 g.nodes.push(n);
             }
-            g.edges = vec![Edge::new(1, 2, 1.0), Edge::new(1, 3, 1.0), Edge::new(2, 3, 1.0)];
+            g.edges = vec![
+                Edge::new(1, 2, 1.0),
+                Edge::new(1, 3, 1.0),
+                Edge::new(2, 3, 1.0),
+            ];
             Arc::new(g)
         }
 
@@ -1729,7 +1779,10 @@ mod tests {
         fn anonymous_caller_gets_only_public_nodes() {
             let (nodes, edges) = reply_ids(None);
             assert_eq!(nodes, BTreeSet::from([1]));
-            assert!(edges.is_empty(), "no edge may touch a hidden node: {edges:?}");
+            assert!(
+                edges.is_empty(),
+                "no edge may touch a hidden node: {edges:?}"
+            );
         }
 
         #[test]
@@ -1937,6 +1990,65 @@ mod tests {
     /// The sequence number a V5 frame carries.
     fn frame_seq(frame: &[u8]) -> u64 {
         u64::from_le_bytes(frame[1..9].try_into().unwrap())
+    }
+
+    /// Review U2: 0x23 frames went to every session unfiltered, so an action on a private node
+    /// named that node's id to sessions that may not see it. Each session must get exactly the
+    /// actions on nodes it may see; a session that may see none gets no frame.
+    #[actix::test]
+    async fn agent_actions_on_a_private_node_reach_only_sessions_that_may_see_it() {
+        use crate::utils::binary_protocol::{decode_agent_actions, AgentActionEvent};
+        use visionclaw_domain::utils::visibility_filter::NodeVisibility;
+        let mut m = ClientManager::new();
+        let (anon_r, anon_frames) = capture_client();
+        let (owner_r, owner_frames) = capture_client();
+        let (anon, owner) = (m.register_client(anon_r), m.register_client(owner_r));
+        let _ = anon;
+        m.get_client_mut(owner).unwrap().pubkey = Some("owner-key".into());
+        let nta = crate::actors::messages::NodeTypeArrays {
+            loaded: true,
+            private_nodes: vec![NodeVisibility::private_owned_by(5, "owner-key")],
+            ..Default::default()
+        };
+        let act = |target: u32| {
+            AgentActionEvent::new(
+                900,
+                target,
+                crate::utils::binary_protocol::AgentActionType::Query,
+                100,
+            )
+        };
+        let targets = |f: &std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>| -> Vec<Vec<u32>> {
+            f.lock()
+                .unwrap()
+                .iter()
+                .map(|fr| {
+                    decode_agent_actions(&fr[1..])
+                        .unwrap()
+                        .iter()
+                        .map(|e| e.target_node_id)
+                        .collect()
+                })
+                .collect()
+        };
+
+        m.broadcast_agent_actions(&[act(1), act(5)], &nta);
+        m.broadcast_agent_actions(&[act(5)], &nta);
+        actix::clock::sleep(std::time::Duration::from_millis(20)).await;
+        assert_eq!(
+            targets(&anon_frames),
+            vec![vec![1]],
+            "the private target never reaches anon"
+        );
+        assert_eq!(targets(&owner_frames), vec![vec![1, 5], vec![5]]);
+
+        // Fail closed: with the filter on and no classification yet, nothing is sent.
+        let unloaded = crate::actors::messages::NodeTypeArrays::default();
+        if visionclaw_domain::utils::visibility_filter::filter_enabled() {
+            m.broadcast_agent_actions(&[act(1)], &unloaded);
+            actix::clock::sleep(std::time::Duration::from_millis(20)).await;
+            assert_eq!(targets(&anon_frames).len(), 1);
+        }
     }
 
     /// The connect-time sync withholds private nodes from sessions that may not see them, but

@@ -144,6 +144,93 @@ fn reconstruct_path(predecessors: &HashMap<u32, u32>, source: u32, target: u32) 
 }
 
 // ---------------------------------------------------------------------------
+// Single-source shortest paths (the one CPU implementation)
+// ---------------------------------------------------------------------------
+
+/// Distances and predecessors from one source, keyed by node id.
+///
+/// This is the one CPU single-source shortest-path implementation. The GPU kernel
+/// (`UnifiedGPUCompute::run_sssp`) is the accelerator for the same contract over the whole
+/// graph; every CPU caller, gated (over the caller's view) or not, goes through
+/// [`single_source`].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ShortestPaths {
+    /// The source node id.
+    pub source: u32,
+    /// Distance to every reachable node, the source included (0.0). Unreachable nodes are
+    /// absent.
+    pub distances: std::collections::BTreeMap<u32, f32>,
+    predecessors: HashMap<u32, u32>,
+}
+
+impl ShortestPaths {
+    /// The path from the source to `target`, source first; empty when `target` is unreachable.
+    pub fn path_to(&self, target: u32) -> Vec<u32> {
+        if !self.distances.contains_key(&target) {
+            return Vec::new();
+        }
+        reconstruct_path(&self.predecessors, self.source, target)
+    }
+}
+
+/// Dijkstra from `source` over `graph`, edges undirected with their weights. An edge with an
+/// endpoint that is not a node of `graph` is skipped, so a result never names an id outside
+/// `graph` (pass the caller's view and nothing hidden can be reached, routed through or named).
+/// `None` when `source` is not a node of `graph`.
+pub fn single_source(graph: &GraphData, source: u32) -> Option<ShortestPaths> {
+    let ids: HashSet<u32> = graph.nodes.iter().map(|n| n.id).collect();
+    if !ids.contains(&source) {
+        return None;
+    }
+    let mut adj: HashMap<u32, Vec<(u32, f32)>> = HashMap::new();
+    for e in &graph.edges {
+        if !ids.contains(&e.source) || !ids.contains(&e.target) {
+            continue;
+        }
+        adj.entry(e.source).or_default().push((e.target, e.weight));
+        if e.source != e.target {
+            adj.entry(e.target).or_default().push((e.source, e.weight));
+        }
+    }
+    let mut distances = std::collections::BTreeMap::new();
+    let mut predecessors = HashMap::new();
+    let mut best: HashMap<u32, f32> = HashMap::from([(source, 0.0)]);
+    let mut heap = BinaryHeap::from([HeapEntry {
+        node_id: source,
+        f_score: 0.0,
+        g_score: 0.0,
+    }]);
+    while let Some(HeapEntry {
+        node_id: u,
+        g_score: d,
+        ..
+    }) = heap.pop()
+    {
+        if distances.contains_key(&u) {
+            continue;
+        }
+        distances.insert(u, d);
+        for &(v, w) in adj.get(&u).map(Vec::as_slice).unwrap_or(&[]) {
+            let nd = d + w;
+            if !distances.contains_key(&v) && best.get(&v).is_none_or(|&b| nd < b) {
+                best.insert(v, nd);
+                predecessors.insert(v, u);
+                heap.push(HeapEntry {
+                    node_id: v,
+                    f_score: nd,
+                    g_score: nd,
+                });
+            }
+        }
+    }
+    Some(ShortestPaths {
+        source,
+        distances,
+        predecessors,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // A* Search
 // ---------------------------------------------------------------------------
 

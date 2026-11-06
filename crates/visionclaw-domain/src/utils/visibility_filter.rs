@@ -152,19 +152,6 @@ pub fn compute_private_opaque_ids(
         .collect()
 }
 
-/// Remove every `(id, _)` pair whose id is in `drop_set`, in place.
-///
-/// Returns the number of pairs removed. A no-op (and no reallocation) when the
-/// drop set is empty — the flag-off / nothing-to-drop hot path stays free.
-pub fn apply_drop_set<T>(nodes: &mut Vec<(u32, T)>, drop_set: &HashSet<u32>) -> usize {
-    if drop_set.is_empty() {
-        return 0;
-    }
-    let before = nodes.len();
-    nodes.retain(|(id, _)| !drop_set.contains(id));
-    before - nodes.len()
-}
-
 /// Whether `node` may reach a caller holding `session_pubkey` when the filter is on.
 ///
 /// ADR-059 §6: public, or private and owned by the caller. Fails closed for an anonymous caller
@@ -303,13 +290,52 @@ impl PageNames {
             .retain(|k, _| self.visible.contains(&Self::norm(k)));
         row.is_subclass_of.retain(|v| !self.is_hidden(v));
         row.belongs_to_domain.retain(|v| !self.is_hidden(v));
+        if let Some(def) = row.definition.as_mut() {
+            *def = self.scrub_links(def);
+        }
+    }
+
+    /// Free text with every `[[Page]]` / `[[Page|alias]]` wikilink to a removed page cut out,
+    /// alias included (the alias is authored text about the hidden page). Plain words are left
+    /// alone, for the reason `domain` is (N3). A link to a page that does not exist stays, as
+    /// written, exactly as a link to a page that is hidden would if it did not exist.
+    fn scrub_links(&self, text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut rest = text;
+        while let Some(start) = rest.find("[[") {
+            let Some(len) = rest[start + 2..].find("]]") else {
+                break;
+            };
+            let inner = &rest[start + 2..start + 2 + len];
+            // `[[Page#Heading|alias]]` / `[[Page^block]]` name the page before `#`, `^` or `|`.
+            let target = inner.split(['|', '#', '^']).next().unwrap_or(inner);
+            let hidden = self.is_hidden(target);
+            // An embed `![[Page]]` is cut with its `!`.
+            let lead = if hidden && rest[..start].ends_with('!') {
+                start - 1
+            } else {
+                start
+            };
+            out.push_str(&rest[..lead]);
+            if !hidden {
+                out.push_str(&rest[start..start + 2 + len + 2]);
+            }
+            rest = &rest[start + 2 + len + 2..];
+        }
+        out.push_str(rest);
+        out
     }
 
     /// Scrub only node keys whose values are page references (N3): `is_subclass_of`
-    /// (`[[Parent]]` links, joined ",") and `tags` (`#tag` / `tags::`, joined ", "). Plain
+    /// (`[[Parent]]` links, joined ","), `tags` (`#tag` / `tags::`, joined ", ") and the
+    /// wikilinks inside the authored `definition` (the leading paragraph). Plain
     /// frontmatter text such as `domain` / `source_domain` is left alone, because removing a
     /// value that merely shares a hidden page's name would itself reveal that page.
     fn scrub_node(&self, node: &mut Node) {
+        if let Some(def) = node.metadata.get("definition") {
+            let scrubbed = self.scrub_links(def);
+            node.metadata.insert("definition".to_string(), scrubbed);
+        }
         for (key, sep) in [("is_subclass_of", ","), ("tags", ", ")] {
             let Some(list) = node.metadata.get(key) else {
                 continue;
@@ -332,6 +358,14 @@ impl PageNames {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The drop set applied to `(id, payload)` pairs, as every wire path applies it (the
+    /// production paths filter inline; this helper only lets the tests state the result).
+    fn apply_drop_set<T>(nodes: &mut Vec<(u32, T)>, drop_set: &HashSet<u32>) -> usize {
+        let before = nodes.len();
+        nodes.retain(|(id, _)| !drop_set.contains(id));
+        before - nodes.len()
+    }
 
     // A stand-in for the encoder payload; the filter is generic over the data half.
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -793,6 +827,81 @@ mod subgraph_tests {
         assert!(!owner.metadata["public.md"]
             .topic_counts
             .contains_key("unowned"));
+    }
+}
+
+#[cfg(test)]
+mod definition_scrub_tests {
+    use super::*;
+    use crate::models::metadata::Metadata;
+    use crate::models::node::Node;
+
+    /// A visible page whose authored definition links a hidden page, and (when `with_hidden`)
+    /// the hidden page itself. Without it, the same definition links a page that does not
+    /// exist, which is left alone.
+    fn graph(with_hidden: bool) -> Arc<GraphData> {
+        let mut g = GraphData::default();
+        let mut public = Node::new_with_id("Public.md".to_string(), None);
+        public.id = 1;
+        public.label = "Public".into();
+        public.metadata.insert("public".into(), "true".into());
+        public.metadata.insert(
+            "definition".into(),
+            "Built on [[Secret Plan]], [[Secret Plan|the plan]], [[Secret Plan#Goals]] and \
+             ![[Secret Plan]], see [[Public]]."
+                .into(),
+        );
+        g.nodes.push(public);
+        g.metadata.insert(
+            "Public.md".into(),
+            Metadata {
+                file_name: "Public.md".into(),
+                definition: Some("Built on [[Secret Plan]], see [[Public]].".into()),
+                ..Metadata::default()
+            },
+        );
+        if with_hidden {
+            let mut hidden = Node::new_with_id("Secret Plan.md".to_string(), None);
+            hidden.id = 2;
+            hidden.label = "Secret Plan".into();
+            g.nodes.push(hidden);
+            g.metadata.insert(
+                "Secret Plan.md".into(),
+                Metadata {
+                    file_name: "Secret Plan.md".into(),
+                    ..Metadata::default()
+                },
+            );
+        }
+        Arc::new(g)
+    }
+
+    /// Review VC-19 Open: `scrub_row` left free-text `definition` alone, so an authored
+    /// definition that links a hidden page named it to every caller.
+    #[test]
+    fn a_definition_never_names_a_hidden_page() {
+        let out = visible_subgraph(&graph(true), None, true);
+        let row = out.metadata["Public.md"].definition.clone().unwrap();
+        let node = out.nodes[0].metadata["definition"].clone();
+        assert!(!row.contains("Secret"), "row definition: {row}");
+        assert!(!node.contains("Secret"), "node definition: {node}");
+        assert!(
+            !node.contains("Goals") && !node.contains('!'),
+            "node definition: {node}"
+        );
+        assert!(row.contains("[[Public]]"), "a visible link survives: {row}");
+    }
+
+    #[test]
+    fn a_link_to_a_page_that_does_not_exist_is_left_as_written() {
+        // Nothing hidden, so the input is returned unchanged.
+        let g = graph(false);
+        let out = visible_subgraph(&g, None, true);
+        assert!(out.metadata["Public.md"]
+            .definition
+            .as_deref()
+            .unwrap()
+            .contains("[[Secret Plan]]"));
     }
 }
 

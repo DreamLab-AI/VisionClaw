@@ -750,84 +750,7 @@ impl GraphStateActor {
         &self,
         source_node_id: u32,
     ) -> Result<HashMap<u32, (f32, Vec<u32>)>, String> {
-        if !self.node_map.contains_key(&source_node_id) {
-            return Err(source_not_found(source_node_id));
-        }
-
-        let mut distances: HashMap<u32, f32> = HashMap::new();
-        let mut predecessors: HashMap<u32, u32> = HashMap::new();
-        let mut unvisited: std::collections::BTreeSet<(ordered_float::OrderedFloat<f32>, u32)> =
-            std::collections::BTreeSet::new();
-
-        for &node_id in self.node_map.keys() {
-            let distance = if node_id == source_node_id {
-                0.0
-            } else {
-                f32::INFINITY
-            };
-            distances.insert(node_id, distance);
-            unvisited.insert((ordered_float::OrderedFloat(distance), node_id));
-        }
-
-        while let Some((current_distance, current_node)) = unvisited.pop_first() {
-            let current_distance = current_distance.into_inner();
-
-            if current_distance == f32::INFINITY {
-                break;
-            }
-
-            for edge in &self.graph_data.edges {
-                let (neighbor, edge_weight) = if edge.source == current_node {
-                    (edge.target, edge.weight)
-                } else if edge.target == current_node {
-                    (edge.source, edge.weight)
-                } else {
-                    continue;
-                };
-
-                let new_distance = current_distance + edge_weight;
-                let old_distance = distances.get(&neighbor).copied().unwrap_or(f32::INFINITY);
-
-                if new_distance < old_distance {
-                    unvisited.remove(&(ordered_float::OrderedFloat(old_distance), neighbor));
-
-                    distances.insert(neighbor, new_distance);
-                    predecessors.insert(neighbor, current_node);
-
-                    unvisited.insert((ordered_float::OrderedFloat(new_distance), neighbor));
-                }
-            }
-        }
-
-        let mut result: HashMap<u32, (f32, Vec<u32>)> = HashMap::new();
-
-        for (&target_node, &distance) in &distances {
-            if distance != f32::INFINITY {
-                let mut path = Vec::new();
-                let mut current = target_node;
-
-                while current != source_node_id {
-                    path.push(current);
-                    if let Some(&prev) = predecessors.get(&current) {
-                        current = prev;
-                    } else {
-                        break;
-                    }
-                }
-                path.push(source_node_id);
-                path.reverse();
-
-                result.insert(target_node, (distance, path));
-            }
-        }
-
-        info!(
-            "Computed shortest paths from node {} to {} reachable nodes",
-            source_node_id,
-            result.len()
-        );
-
-        Ok(result)
+        shortest_paths_over(&self.node_map, &self.graph_data, source_node_id)
     }
 }
 
@@ -1142,6 +1065,32 @@ impl Handler<GetNodeIdMapping> for GraphStateActor {
     }
 }
 
+/// Shortest distance and path from `source_node_id` to every reachable node, through the one
+/// CPU Dijkstra ([`crate::services::pathfinding::single_source`]). An edge to an id outside the
+/// graph is not followed (before the merge it named that id as reachable).
+fn shortest_paths_over(
+    node_map: &HashMap<u32, Node>,
+    graph_data: &GraphData,
+    source_node_id: u32,
+) -> Result<HashMap<u32, (f32, Vec<u32>)>, String> {
+    if !node_map.contains_key(&source_node_id) {
+        return Err(source_not_found(source_node_id));
+    }
+    let sp = crate::services::pathfinding::single_source(graph_data, source_node_id)
+        .ok_or_else(|| source_not_found(source_node_id))?;
+    let result: HashMap<u32, (f32, Vec<u32>)> = sp
+        .distances
+        .iter()
+        .map(|(&t, &d)| (t, (d, sp.path_to(t))))
+        .collect();
+    info!(
+        "Computed shortest paths from node {} to {} reachable nodes",
+        source_node_id,
+        result.len()
+    );
+    Ok(result)
+}
+
 /// The error for a shortest-path source that is not in the graph. `/sssp/compute` returns the
 /// same text for a source the caller cannot see, so the two are indistinguishable (ADR-060).
 pub(crate) fn source_not_found(source_node_id: u32) -> String {
@@ -1185,5 +1134,72 @@ impl Handler<ComputeShortestPaths> for GraphStateActor {
                 Err(e)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod shortest_path_characterisation {
+    use super::*;
+    use visionclaw_domain::models::edge::Edge;
+
+    /// 0–1 (1), 1–2 (1), 0–2 (3), 2–3 (2), and an isolated 4. No two paths to any node tie.
+    fn fixture() -> (HashMap<u32, Node>, GraphData) {
+        let nodes: Vec<Node> = (0..5)
+            .map(|id| {
+                let mut n = Node::new_with_id(format!("n{id}"), None);
+                n.id = id;
+                n
+            })
+            .collect();
+        let g = GraphData {
+            nodes: nodes.clone(),
+            edges: vec![
+                Edge::new(0, 1, 1.0),
+                Edge::new(1, 2, 1.0),
+                Edge::new(0, 2, 3.0),
+                Edge::new(2, 3, 2.0),
+            ],
+            ..GraphData::default()
+        };
+        (nodes.into_iter().map(|n| (n.id, n)).collect(), g)
+    }
+
+    #[test]
+    fn distances_and_paths_from_a_source() {
+        let (map, g) = fixture();
+        let r = shortest_paths_over(&map, &g, 0).unwrap();
+        assert_eq!(r.len(), 4, "the isolated node is unreachable and absent");
+        assert_eq!(r[&0], (0.0, vec![0]));
+        assert_eq!(r[&1], (1.0, vec![0, 1]));
+        assert_eq!(r[&2], (2.0, vec![0, 1, 2]));
+        assert_eq!(r[&3], (4.0, vec![0, 1, 2, 3]));
+        assert!(!r.contains_key(&4));
+    }
+
+    #[test]
+    fn edges_are_undirected() {
+        let (map, g) = fixture();
+        let r = shortest_paths_over(&map, &g, 3).unwrap();
+        assert_eq!(r[&0], (4.0, vec![3, 2, 1, 0]));
+    }
+
+    #[test]
+    fn an_unknown_source_is_not_found() {
+        let (map, g) = fixture();
+        assert_eq!(
+            shortest_paths_over(&map, &g, 99).unwrap_err(),
+            source_not_found(99)
+        );
+    }
+
+    #[test]
+    fn an_edge_to_an_id_outside_the_graph_is_not_followed() {
+        let (map, mut g) = fixture();
+        g.edges.push(Edge::new(3, 9, 1.0));
+        let r = shortest_paths_over(&map, &g, 0).unwrap();
+        assert!(
+            !r.contains_key(&9),
+            "a dangling edge must not invent a reachable node 9"
+        );
     }
 }

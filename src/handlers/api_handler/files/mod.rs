@@ -194,37 +194,37 @@ pub(crate) fn serve_file_content(
         }
     };
 
-    let canonical_path = match base_dir.join(file_name).canonicalize() {
-        Ok(p) => p,
+    // A missing page and a hidden one take the same steps (VC-19 residual): resolve, read, then
+    // the visibility decision runs on whatever was read (nothing, for a missing page), and only
+    // then is the outcome chosen. A missing page used to answer before any read or parse, a
+    // measurably faster "no" than a hidden page's.
+    let content = match base_dir.join(file_name).canonicalize() {
+        Ok(canonical_path) => {
+            // SECURITY: Verify the resolved path is within MARKDOWN_DIR
+            if !canonical_path.starts_with(&base) {
+                error!(
+                    "Path traversal attempt blocked: resolved path escapes MARKDOWN_DIR for file_name: {}",
+                    file_name
+                );
+                return HttpResponse::BadRequest().json(json!({
+                    "status": "error",
+                    "message": "Invalid file name"
+                }));
+            }
+            std::fs::read_to_string(&canonical_path)
+                .map_err(|e| error!("Failed to read file {}: {}", file_name, e))
+                .ok()
+        }
         Err(e) => {
             error!("Failed to read file {}: {}", file_name, e);
-            return file_not_found(file_name);
+            None
         }
     };
-
-    // SECURITY: Verify the resolved path is within MARKDOWN_DIR
-    if !canonical_path.starts_with(&base) {
-        error!(
-            "Path traversal attempt blocked: resolved path escapes MARKDOWN_DIR for file_name: {}",
-            file_name
-        );
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid file name"
-        }));
-    }
-
-    match std::fs::read_to_string(&canonical_path) {
-        Ok(content) => {
-            if filter_on && !page_is_visible(file_name, &content, caller) {
-                return file_not_found(file_name);
-            }
-            HttpResponse::Ok().body(content)
-        }
-        Err(e) => {
-            error!("Failed to read file {}: {}", file_name, e);
-            file_not_found(file_name)
-        }
+    let visible =
+        !filter_on || page_is_visible(file_name, content.as_deref().unwrap_or(""), caller);
+    match content {
+        Some(content) if visible => HttpResponse::Ok().body(content),
+        _ => file_not_found(file_name),
     }
 }
 
@@ -245,7 +245,10 @@ fn page_is_visible(file_name: &str, content: &str, caller: Option<&str>) -> bool
     visionclaw_domain::utils::visibility_filter::node_is_visible(&node, caller)
 }
 
-pub async fn refresh_graph(state: web::Data<AppState>) -> Result<impl Responder> {
+pub async fn refresh_graph(
+    state: web::Data<AppState>,
+    caller: crate::settings::OptionalAuth,
+) -> Result<impl Responder> {
     info!("Manually triggering graph refresh - returning current state");
 
     match state
@@ -254,17 +257,22 @@ pub async fn refresh_graph(state: web::Data<AppState>) -> Result<impl Responder>
         .await
     {
         Ok(Ok(graph_data)) => {
+            // ADR-060: the caller's view's counts, so hidden nodes are not counted.
+            let counts = crate::handlers::graph_access::visible_counts(
+                &graph_data,
+                crate::handlers::graph_access::caller_pubkey(&caller),
+                visionclaw_domain::utils::visibility_filter::filter_enabled(),
+            );
             debug!(
-                "Retrieved current graph state with {} nodes and {} edges",
-                graph_data.nodes.len(),
-                graph_data.edges.len()
+                "Retrieved current graph state with {} nodes and {} edges (caller view)",
+                counts.nodes, counts.edges
             );
 
             ok_json!(json!({
                 "status": "success",
                 "message": "Graph data retrieved successfully",
-                "nodes_count": graph_data.nodes.len(),
-                "edges_count": graph_data.edges.len()
+                "nodes_count": counts.nodes,
+                "edges_count": counts.edges
             }))
         }
         Ok(Err(e)) => {

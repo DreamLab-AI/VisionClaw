@@ -68,6 +68,16 @@ pub enum SsspPayload {
     Visible(super::visible_analytics::VisibleSsspResult),
 }
 
+/// An APSP result, whole-graph or visible-only (see [`SsspPayload`]).
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum ApspPayload {
+    /// Whole graph, indexed by position.
+    Whole(APSPResult),
+    /// Visible nodes only, rows keyed by `node_ids`.
+    Visible(super::visible_analytics::VisibleApspResult),
+}
+
 /// A connected-components result, whole-graph or visible-only (see [`SsspPayload`]).
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
@@ -92,7 +102,7 @@ pub struct SSSPResponse {
 #[serde(rename_all = "camelCase")]
 pub struct APSPResponse {
     pub success: bool,
-    pub result: Option<APSPResult>,
+    pub result: Option<ApspPayload>,
     pub error: Option<String>,
 }
 
@@ -165,26 +175,23 @@ pub async fn compute_sssp(
     // reaches the GPU actor (which also publishes to the stream every client receives). A
     // hidden source answers exactly as an id past the end of the graph.
     let full = match gated_view(&data, &caller).await {
-        Ok((graph, Some(visible))) => {
-            if !visible.contains(&(payload.source_idx as u32)) {
-                return error_json!(SSSPResponse {
+        Ok((_, Some(gate))) => {
+            return match super::visible_analytics::visible_sssp(
+                &gate,
+                payload.source_idx,
+                payload.max_distance,
+            ) {
+                Some(result) => ok_json!(SSSPResponse {
+                    success: true,
+                    result: Some(SsspPayload::Visible(result)),
+                    error: None,
+                }),
+                None => error_json!(SSSPResponse {
                     success: false,
                     result: None,
                     error: Some(sssp_source_out_of_range(payload.source_idx)),
-                });
-            }
-            return ok_json!(SSSPResponse {
-                success: true,
-                result: Some(SsspPayload::Visible(
-                    super::visible_analytics::visible_sssp(
-                        &graph,
-                        &visible,
-                        payload.source_idx,
-                        payload.max_distance,
-                    )
-                )),
-                error: None,
-            });
+                }),
+            };
         }
         Ok((graph, None)) => graph,
         Err(response) => return Ok(response),
@@ -257,8 +264,28 @@ pub async fn compute_sssp(
 pub async fn compute_apsp(
     data: web::Data<AppState>,
     payload: web::Json<APSPRequest>,
+    caller: crate::settings::OptionalAuth,
 ) -> Result<HttpResponse> {
     info!("API: Computing APSP");
+
+    // ADR-060: the GPU matrix is indexed by every position, hidden ones included. A caller whose
+    // view hides nodes gets the landmark bound over that view, rows keyed by visible node id.
+    match gated_view(&data, &caller).await {
+        Ok((_, Some(gate))) => {
+            return ok_json!(APSPResponse {
+                success: true,
+                result: Some(ApspPayload::Visible(
+                    super::visible_analytics::visible_apsp(
+                        &gate,
+                        payload.num_landmarks.unwrap_or(0),
+                    )
+                )),
+                error: None,
+            });
+        }
+        Ok((_, None)) => {}
+        Err(response) => return Ok(response),
+    }
 
     // ADR-2053: supervised path, see compute_sssp above.
     if let Some(ref gpu_manager) = data.gpu_manager_addr {
@@ -278,7 +305,7 @@ pub async fn compute_apsp(
                 );
                 ok_json!(APSPResponse {
                     success: true,
-                    result: Some(result),
+                    result: Some(ApspPayload::Whole(result)),
                     error: None,
                 })
             }
@@ -331,11 +358,11 @@ pub async fn compute_connected_components(
     // ADR-060: components of the caller's view, so no label joins two visible nodes through a
     // hidden one.
     let _full = match gated_view(&data, &caller).await {
-        Ok((graph, Some(visible))) => {
+        Ok((_, Some(gate))) => {
             return ok_json!(ConnectedComponentsResponse {
                 success: true,
                 result: Some(ComponentsPayload::Visible(
-                    super::visible_analytics::visible_components(&graph, &visible,)
+                    super::visible_analytics::visible_components(&gate)
                 )),
                 error: None,
             });
@@ -401,17 +428,17 @@ fn sssp_source_out_of_range(source_idx: usize) -> String {
 }
 
 /// `Ok((graph, None))` when the caller sees the whole graph (the GPU path serves them
-/// unchanged); `Ok((graph, Some(visible positions)))` when their view hides nodes; `Err` with
-/// a ready response when the graph cannot be read, since then no visibility decision is
-/// possible. The full graph comes back either way so the GPU path can decide whether its run
-/// may be published to the shared stream ([`stream_safe`](crate::handlers::graph_access::stream_safe)).
+/// unchanged); `Ok((graph, Some(gate)))` when their view hides nodes; `Err` with a ready
+/// response when the graph cannot be read, since then no visibility decision is possible. The
+/// full graph comes back either way so the GPU path can decide whether its run may be published
+/// to the shared stream ([`stream_safe`](crate::handlers::graph_access::stream_safe)).
 async fn gated_view(
     data: &web::Data<AppState>,
     caller: &crate::settings::OptionalAuth,
 ) -> std::result::Result<
     (
         std::sync::Arc<visionclaw_domain::models::graph::GraphData>,
-        Option<std::collections::HashSet<u32>>,
+        Option<crate::handlers::graph_access::CallerGate>,
     ),
     HttpResponse,
 > {
@@ -427,12 +454,11 @@ async fn gated_view(
                 "error": "Graph state not available"
             }))
         })?;
-    let view = crate::handlers::graph_access::caller_view(&graph, caller);
-    if std::sync::Arc::ptr_eq(&view, &graph) {
-        return Ok((graph, None));
-    }
-    let visible = crate::handlers::graph_access::visible_positions(&graph, &view);
-    Ok((graph, Some(visible)))
+    let gate = crate::handlers::graph_access::gate_for_graph(
+        &graph,
+        crate::handlers::graph_access::caller_pubkey(caller),
+    );
+    Ok((graph, gate))
 }
 
 /// Get shortest path statistics
@@ -655,12 +681,12 @@ pub async fn compute_point_to_point(
             // The GPU actor indexes the *full* graph, so a position in the view would name the
             // wrong source, and its run would route through hidden nodes and be published to
             // the shared stream.
-            if !std::sync::Arc::ptr_eq(&full_graph, &graph_data) {
-                let visible =
-                    crate::handlers::graph_access::visible_positions(&full_graph, &graph_data);
+            if let Some(gate) = crate::handlers::graph_access::gate_for_graph(
+                &full_graph,
+                crate::handlers::graph_access::caller_pubkey(&caller),
+            ) {
                 return match super::visible_analytics::visible_point_to_point(
-                    &full_graph,
-                    &visible,
+                    &gate,
                     payload.source_id,
                     payload.target_id,
                 ) {

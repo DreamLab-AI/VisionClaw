@@ -31,7 +31,7 @@ mod sssp_handlers;
 pub mod state;
 mod stress_handlers;
 pub mod types;
-mod visible_analytics;
+pub(crate) mod visible_analytics;
 mod visible_results;
 
 // Clustering handler (separate file, already existed)
@@ -79,17 +79,12 @@ pub async fn run_community_detection(
         Some(auth.pubkey.as_str()),
     )
     .await;
+    // ADR-060: a caller whose view hides nodes never reaches the whole-graph GPU run. Their
+    // communities, numbering and modularity are computed over the view on the CPU, so no
+    // grouping, label or score is shaped by a hidden node.
     let result = match gate {
-        Ok(gate) => community::run_gpu_community_detection(&app_state, &request)
-            .await
-            .map(|mut response| {
-                if let Some((_, visible)) = gate {
-                    response.communities =
-                        visible_results::gate_communities(response.communities, &visible);
-                    response.total_communities = response.communities.len();
-                }
-                response
-            }),
+        Ok(Some(gate)) => Ok(community::visible_community_response(&gate, &request)),
+        Ok(None) => community::run_gpu_community_detection(&app_state, &request).await,
         Err(e) => Err(e),
     };
     match result {
@@ -132,7 +127,7 @@ pub async fn run_anomaly_detection(
         )
         .await
         .map(|anomalies| match gate {
-            Some((_, visible)) => visible_results::gate_anomalies(anomalies, &visible),
+            Some(gate) => visible_results::gate_anomalies(anomalies, gate.slots()),
             None => anomalies,
         }),
         Err(e) => Err(e),

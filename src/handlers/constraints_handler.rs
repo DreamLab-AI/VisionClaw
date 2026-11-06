@@ -223,11 +223,58 @@ async fn remove_constraints(
     }))
 }
 
+/// The constraint set one caller may see. The GPU set names nodes by position; when `gate` is
+/// set (something is hidden from the caller) a constraint is kept only when every node it names
+/// is a visible position, and the groups are re-indexed over what is kept, so a constraint on a
+/// hidden node reads exactly as one that does not exist (ADR-060).
+fn visible_constraints(
+    set: visionclaw_domain::models::constraints::ConstraintSet,
+    gate: Option<&crate::handlers::graph_access::CallerGate>,
+) -> visionclaw_domain::models::constraints::ConstraintSet {
+    let Some(gate) = gate else {
+        return set;
+    };
+    let mut kept_index: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    let mut constraints = Vec::new();
+    for (i, c) in set.constraints.into_iter().enumerate() {
+        if c.node_indices.iter().all(|&n| gate.slots().contains(n)) {
+            kept_index.insert(i, constraints.len());
+            constraints.push(c);
+        }
+    }
+    let groups = set
+        .groups
+        .into_iter()
+        .filter_map(|(name, members)| {
+            let members: Vec<usize> = members
+                .iter()
+                .filter_map(|i| kept_index.get(i).copied())
+                .collect();
+            (!members.is_empty()).then_some((name, members))
+        })
+        .collect();
+    visionclaw_domain::models::constraints::ConstraintSet {
+        constraints,
+        groups,
+    }
+}
+
 async fn list_constraints(
     _req: HttpRequest,
     state: web::Data<AppState>,
+    caller: crate::settings::OptionalAuth,
 ) -> Result<HttpResponse, actix_web::Error> {
     info!("Constraint list request received");
+
+    let gate = match crate::handlers::graph_access::caller_gate(
+        &state.graph_service_addr,
+        crate::handlers::graph_access::caller_pubkey(&caller),
+    )
+    .await
+    {
+        Ok(gate) => gate,
+        Err(e) => return service_unavailable!(format!("Graph state not available: {}", e)),
+    };
 
     if let Some(gpu_addr) = state.get_gpu_compute_addr().await {
         use crate::actors::messages::GetConstraints;
@@ -235,6 +282,7 @@ async fn list_constraints(
 
         match gpu_addr.send(GetConstraints).await {
             Ok(Ok(gpu_constraints)) => {
+                let gpu_constraints = visible_constraints(gpu_constraints, gate.as_ref());
                 info!(
                     "Retrieved {} constraints from GPU compute actor",
                     gpu_constraints.constraints.len()
@@ -348,4 +396,60 @@ fn validate_single_constraint(constraint: &LegacyConstraintData) -> Result<(), S
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod visibility_tests {
+    use super::*;
+    use crate::handlers::graph_access::gate_for_graph_with;
+    use std::sync::Arc;
+    use visionclaw_domain::models::constraints::{Constraint, ConstraintSet};
+    use visionclaw_domain::models::graph::GraphData;
+    use visionclaw_domain::models::node::Node;
+
+    /// Nodes 0, 1 public and 2 hidden; the hidden 3 is the probe that keeps a gate in place for
+    /// the corpus without node 2, so both corpora are compared through the same path.
+    fn gate(with_hidden: bool) -> crate::handlers::graph_access::CallerGate {
+        let mut nodes: Vec<Node> = (0..4)
+            .map(|id| {
+                let mut n = Node::new_with_id(format!("n{id}"), None);
+                n.id = id;
+                if id < 2 {
+                    n.metadata.insert("public".into(), "true".into());
+                }
+                n
+            })
+            .collect();
+        if !with_hidden {
+            nodes.remove(2);
+        }
+        gate_for_graph_with(
+            &Arc::new(GraphData {
+                nodes,
+                ..GraphData::default()
+            }),
+            None,
+            true,
+        )
+        .unwrap()
+    }
+
+    fn set(with_hidden: bool) -> ConstraintSet {
+        let mut s = ConstraintSet::default();
+        s.add_to_group("pairs", Constraint::fixed_position(0, 0.0, 0.0, 0.0));
+        if with_hidden {
+            s.add_to_group("pairs", Constraint::separation(1, 2, 3.0));
+        }
+        s.add_to_group("pairs", Constraint::separation(0, 1, 2.0));
+        s
+    }
+
+    #[test]
+    fn a_constraint_on_a_hidden_node_reads_exactly_as_one_that_does_not_exist() {
+        let hidden =
+            serde_json::to_value(visible_constraints(set(true), Some(&gate(true)))).unwrap();
+        let absent =
+            serde_json::to_value(visible_constraints(set(false), Some(&gate(false)))).unwrap();
+        assert_eq!(hidden, absent);
+    }
 }

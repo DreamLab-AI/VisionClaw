@@ -3223,7 +3223,7 @@ impl Handler<GetGPUStatus> for ForceComputeActor {
 
 /// The node id of GPU slot `i`, or `None` when the slot has no mapping (the buffer outran the
 /// id map, e.g. mid-upload).
-fn slot_node_id(gpu_index_to_node_id: &[u32], i: usize) -> Option<u32> {
+pub(crate) fn slot_node_id(gpu_index_to_node_id: &[u32], i: usize) -> Option<u32> {
     gpu_index_to_node_id.get(i).copied()
 }
 

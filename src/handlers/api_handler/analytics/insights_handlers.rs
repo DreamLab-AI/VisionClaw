@@ -2,23 +2,63 @@ use actix_web::{web, HttpResponse, Result};
 use log::{error, info};
 use uuid::Uuid;
 
-use crate::actors::messages::GetGraphData;
 use crate::ok_json;
 use crate::AppState;
+use visionclaw_domain::models::graph::GraphData;
 
 use super::state::{ANOMALY_STATE, CLUSTERING_TASKS};
 use super::types::{GraphPattern, InsightsResponse};
 
-pub async fn get_ai_insights(app_state: web::Data<AppState>) -> Result<HttpResponse> {
+/// The part of the graph and of the latest stored clusters an insights reply may describe for
+/// one caller (ADR-060). `gate` is the caller's gate when something is hidden from them: then
+/// the counts are the view's and the clusters lose hidden members (a hidden-only cluster
+/// disappears), so a hidden node reads exactly as an absent one.
+fn insight_scope(
+    graph: Option<&std::sync::Arc<GraphData>>,
+    clusters: Option<&[super::Cluster]>,
+    gate: Option<&crate::handlers::graph_access::CallerGate>,
+) -> (
+    Option<std::sync::Arc<GraphData>>,
+    Option<Vec<super::Cluster>>,
+) {
+    match gate {
+        None => (graph.cloned(), clusters.map(<[super::Cluster]>::to_vec)),
+        Some(gate) => (
+            Some(std::sync::Arc::clone(gate.view())),
+            clusters.map(|c| super::visible_analytics::gate_clusters(c, gate)),
+        ),
+    }
+}
+
+pub async fn get_ai_insights(
+    app_state: web::Data<AppState>,
+    caller: crate::settings::OptionalAuth,
+) -> Result<HttpResponse> {
     info!("Generating AI insights for graph analysis");
 
-    let graph_data = match app_state.graph_service_addr.send(GetGraphData).await {
-        Ok(Ok(data)) => Some(data),
-        _ => None,
-    };
+    let graph = crate::handlers::graph_access::current_graph(&app_state.graph_service_addr)
+        .await
+        .ok();
+    // ADR-060: no graph means no visibility decision, so nothing graph-derived is said.
+    let gate = graph.as_ref().and_then(|g| {
+        crate::handlers::graph_access::gate_for_graph(
+            g,
+            crate::handlers::graph_access::caller_pubkey(&caller),
+        )
+    });
 
     let clustering_tasks = CLUSTERING_TASKS.lock().await;
     let anomaly_state = ANOMALY_STATE.lock().await;
+    let latest = clustering_tasks
+        .values()
+        .filter(|t| t.status == "completed")
+        .max_by_key(|t| t.started_at)
+        .and_then(|t| t.clusters.as_deref());
+    let (graph_data, latest_clusters) = if graph.is_some() {
+        insight_scope(graph.as_ref(), latest, gate.as_ref())
+    } else {
+        (None, None)
+    };
 
     let mut insights = vec![
         "Graph structure analysis shows balanced connectivity patterns".to_string(),
@@ -28,12 +68,7 @@ pub async fn get_ai_insights(app_state: web::Data<AppState>) -> Result<HttpRespo
     let mut patterns = vec![];
     let mut recommendations = vec![];
 
-    if let Some(latest_clusters) = clustering_tasks
-        .values()
-        .filter(|t| t.status == "completed")
-        .max_by_key(|t| t.started_at)
-        .and_then(|t| t.clusters.as_ref())
-    {
+    if let Some(latest_clusters) = latest_clusters.as_ref() {
         insights.push(format!(
             "Identified {} distinct semantic clusters",
             latest_clusters.len()
@@ -132,21 +167,25 @@ pub async fn get_ai_insights(app_state: web::Data<AppState>) -> Result<HttpRespo
     })
 }
 
-pub async fn get_realtime_insights(app_state: web::Data<AppState>) -> Result<HttpResponse> {
+pub async fn get_realtime_insights(
+    app_state: web::Data<AppState>,
+    caller: crate::settings::OptionalAuth,
+) -> Result<HttpResponse> {
     info!("Client requesting real-time AI insights");
 
-    let graph_data = app_state
-        .graph_service_addr
-        .send(GetGraphData)
+    let graph = crate::handlers::graph_access::current_graph(&app_state.graph_service_addr)
         .await
         .map_err(|e| {
             error!("Failed to get graph data: {}", e);
             actix_web::error::ErrorInternalServerError("Failed to get graph data")
-        })?
-        .map_err(|e| {
-            error!("Graph data error: {}", e);
-            actix_web::error::ErrorInternalServerError("Graph data error")
         })?;
+    // ADR-060: the density is the caller's view's.
+    let gate = crate::handlers::graph_access::gate_for_graph(
+        &graph,
+        crate::handlers::graph_access::caller_pubkey(&caller),
+    );
+    let (graph_data, _) = insight_scope(Some(&graph), None, gate.as_ref());
+    let graph_data = graph_data.unwrap_or(graph);
 
     let clustering_tasks = CLUSTERING_TASKS.lock().await;
     let anomaly_state = ANOMALY_STATE.lock().await;
@@ -302,4 +341,77 @@ pub async fn get_health_check(app_state: web::Data<AppState>) -> Result<HttpResp
         "timestamp": timestamp,
         "service": "analytics"
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::handlers::api_handler::analytics::Cluster;
+    use crate::handlers::graph_access::gate_for_graph_with;
+    use std::sync::Arc;
+    use visionclaw_domain::models::edge::Edge;
+    use visionclaw_domain::models::node::Node;
+
+    /// Public 0 and 1 joined by an edge; when `with_hidden`, a hidden 2 linked to both.
+    fn graph(with_hidden: bool) -> Arc<GraphData> {
+        let node = |id: u32, public: bool| {
+            let mut n = Node::new_with_id(format!("n{id}"), None);
+            n.id = id;
+            if public {
+                n.metadata.insert("public".into(), "true".into());
+            }
+            n
+        };
+        let mut g = GraphData {
+            nodes: vec![node(0, true), node(1, true)],
+            edges: vec![Edge::new(0, 1, 1.0)],
+            ..GraphData::default()
+        };
+        if with_hidden {
+            g.nodes.push(node(2, false));
+            g.edges.push(Edge::new(0, 2, 1.0));
+            g.edges.push(Edge::new(1, 2, 1.0));
+        }
+        Arc::new(g)
+    }
+
+    fn cluster(id: &str, nodes: Vec<u32>) -> Cluster {
+        Cluster {
+            id: id.into(),
+            label: format!("Cluster {id}"),
+            node_count: nodes.len() as u32,
+            coherence: 0.5,
+            color: "#000000".into(),
+            keywords: vec![],
+            centroid: None,
+            nodes,
+        }
+    }
+
+    fn scope(with_hidden: bool) -> String {
+        let g = graph(with_hidden);
+        let clusters = if with_hidden {
+            vec![cluster("a", vec![0, 1]), cluster("b", vec![2])]
+        } else {
+            vec![cluster("a", vec![0, 1])]
+        };
+        let gate = gate_for_graph_with(&g, None, true);
+        let (view, clusters) = insight_scope(Some(&g), Some(&clusters), gate.as_ref());
+        let view = view.unwrap();
+        format!(
+            "{} nodes, {} edges, clusters {}",
+            view.nodes.len(),
+            view.edges.len(),
+            serde_json::to_string(&clusters).unwrap()
+        )
+    }
+
+    #[test]
+    fn a_hidden_node_reads_in_insights_exactly_as_an_absent_one() {
+        assert_eq!(scope(true), scope(false));
+        assert!(
+            !scope(true).contains("\"b\""),
+            "a hidden-only cluster is not described"
+        );
+    }
 }

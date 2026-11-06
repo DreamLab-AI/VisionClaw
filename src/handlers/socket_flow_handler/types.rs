@@ -206,13 +206,19 @@ impl SocketFlowServer {
                     .send(crate::actors::messages::GetSettings)
                     .await
                 {
+                    // ADR-060: counts of this session's view, not the whole graph.
+                    let counts = crate::handlers::graph_access::visible_counts(
+                        &graph_data,
+                        caller_pubkey.as_deref(),
+                        visibility_filter_on,
+                    );
                     let state_sync = serde_json::json!({
                         "type": "state_sync",
                         "data": {
                             "graph": {
-                                "nodes_count": graph_data.nodes.len(),
-                                "edges_count": graph_data.edges.len(),
-                                "metadata_count": graph_data.metadata.len(),
+                                "nodes_count": counts.nodes,
+                                "edges_count": counts.edges,
+                                "metadata_count": counts.metadata,
                             },
                             "settings": {
                                 "version": settings.version,
@@ -241,10 +247,8 @@ impl SocketFlowServer {
                             generation: my_generation,
                         });
                         info!(
-                            "Sent state sync: {} nodes, {} edges, version: {}",
-                            graph_data.nodes.len(),
-                            graph_data.edges.len(),
-                            settings.version
+                            "Sent state sync: {} nodes, {} edges (session view), version: {}",
+                            counts.nodes, counts.edges, settings.version
                         );
                     }
 

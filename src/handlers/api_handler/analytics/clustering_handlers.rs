@@ -377,30 +377,31 @@ pub async fn run_dbscan_clustering(
 
 /// `clusters` as `pubkey` may see them. `None` when the graph cannot be read (no visibility
 /// decision is possible); `Some(None)` when the caller sees the whole graph (unchanged);
-/// `Some(Some((clusters, visible node count)))` otherwise.
+/// `Some(Some((clusters, visible node count)))` otherwise. Cluster members are node ids
+/// (DBSCAN translates GPU indices), so they are filtered by id ([`CallerGate::ids`]).
+///
+/// [`CallerGate::ids`]: crate::handlers::graph_access::CallerGate::ids
 async fn caller_clusters(
     app_state: &web::Data<AppState>,
     pubkey: &str,
     clusters: &[Cluster],
 ) -> Option<Option<(Vec<Cluster>, usize)>> {
-    let graph = crate::handlers::graph_access::current_graph(&app_state.graph_service_addr)
-        .await
-        .map_err(|e| {
-            warn!(
-                "clustering: graph unavailable for the visibility gate: {}",
-                e
-            )
-        })
-        .ok()?;
-    let view = crate::handlers::graph_access::caller_view_for(&graph, Some(pubkey));
-    if std::sync::Arc::ptr_eq(&view, &graph) {
-        return Some(None);
-    }
-    let visible: std::collections::HashSet<u32> = view.nodes.iter().map(|n| n.id).collect();
-    Some(Some((
-        super::visible_analytics::gate_clusters(clusters, &graph, &visible),
-        view.nodes.len(),
-    )))
+    let gate =
+        crate::handlers::graph_access::caller_gate(&app_state.graph_service_addr, Some(pubkey))
+            .await
+            .map_err(|e| {
+                warn!(
+                    "clustering: graph unavailable for the visibility gate: {}",
+                    e
+                )
+            })
+            .ok()?;
+    Some(gate.map(|gate| {
+        (
+            super::visible_analytics::gate_clusters(clusters, &gate),
+            gate.view().nodes.len(),
+        )
+    }))
 }
 
 pub(crate) async fn perform_clustering(

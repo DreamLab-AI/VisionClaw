@@ -231,7 +231,7 @@ pub async fn compute_sssp(
     )
     .await
     {
-        Ok(Some((view, _))) if !super::visible_results::sssp_source_visible(&view, source_node) => {
+        Ok(Some(gate)) if !gate.ids().contains(source_node) => {
             return Ok(sssp_compute_failed(
                 &crate::actors::graph_state_actor::source_not_found(source_node),
             ));

@@ -22,10 +22,60 @@ use crate::services::semantic_type_registry::{RelationshipForceConfig, SEMANTIC_
 use crate::AppState;
 use crate::{error_json, ok_json};
 
+/// The hierarchy-levels reply for one caller. The GPU answers per position; when `gate` is
+/// set (something is hidden from the caller) the levels are keyed by visible node id only and
+/// `maxLevel` / `levelCounts` are recounted over those, so a hidden node reads exactly as an
+/// absent one (ADR-060). With nothing hidden the reply is the GPU's, unchanged.
+fn hierarchy_levels_reply(
+    levels: crate::actors::messages::HierarchyLevels,
+    gate: Option<&crate::handlers::graph_access::CallerGate>,
+) -> serde_json::Value {
+    let Some(gate) = gate else {
+        return json!({
+            "status": "success",
+            "maxLevel": levels.max_level,
+            "nodeLevels": levels.node_levels,
+            "levelCounts": levels.level_counts
+        });
+    };
+    let node_levels: std::collections::BTreeMap<u32, i32> = levels
+        .node_levels
+        .iter()
+        .enumerate()
+        .filter_map(|(slot, &level)| gate.id_at_slot(slot).map(|id| (id, level)))
+        .collect();
+    let max_level = node_levels.values().copied().max().unwrap_or(-1).max(0);
+    let mut level_counts = vec![0usize; max_level as usize + 1];
+    for &l in node_levels.values().filter(|l| **l >= 0) {
+        level_counts[l as usize] += 1;
+    }
+    json!({
+        "status": "success",
+        "maxLevel": max_level,
+        "nodeLevels": node_levels,
+        "levelCounts": level_counts
+    })
+}
+
 /// Get hierarchy level assignments for all nodes
 /// GET /api/semantic-forces/hierarchy-levels
-pub async fn get_hierarchy_levels(state: web::Data<AppState>) -> impl Responder {
+pub async fn get_hierarchy_levels(
+    state: web::Data<AppState>,
+    caller: crate::settings::OptionalAuth,
+) -> impl Responder {
     info!("Hierarchy levels request received");
+
+    let gate = match crate::handlers::graph_access::caller_gate(
+        &state.graph_service_addr,
+        crate::handlers::graph_access::caller_pubkey(&caller),
+    )
+    .await
+    {
+        Ok(gate) => gate,
+        Err(e) => {
+            return error_json!(json!({ "error": "Graph state not available", "details": e }))
+        }
+    };
 
     let gpu_manager = match state.gpu_manager_addr.as_ref() {
         Some(manager) => manager,
@@ -36,14 +86,7 @@ pub async fn get_hierarchy_levels(state: web::Data<AppState>) -> impl Responder 
     };
 
     match gpu_manager.send(GetHierarchyLevels).await {
-        Ok(Ok(levels)) => {
-            ok_json!(json!({
-                "status": "success",
-                "maxLevel": levels.max_level,
-                "nodeLevels": levels.node_levels,
-                "levelCounts": levels.level_counts
-            }))
-        }
+        Ok(Ok(levels)) => ok_json!(hierarchy_levels_reply(levels, gate.as_ref())),
         Ok(Err(e)) => {
             error!("Failed to get hierarchy levels: {}", e);
             error_json!(json!({
@@ -421,4 +464,69 @@ pub fn config(cfg: &mut web::ServiceConfig) {
                 web::put().to(update_relationship_type),
             ),
     );
+}
+
+#[cfg(test)]
+mod hierarchy_gate_tests {
+    use super::*;
+    use crate::actors::messages::HierarchyLevels;
+    use crate::handlers::graph_access::gate_for_graph_with;
+    use std::sync::Arc;
+    use visionclaw_domain::models::graph::GraphData;
+    use visionclaw_domain::models::node::Node;
+
+    fn graph(with_hidden: bool) -> Arc<GraphData> {
+        let mut nodes: Vec<Node> = (0..2)
+            .map(|id| {
+                let mut n = Node::new_with_id(format!("n{id}"), None);
+                n.id = id;
+                n.metadata.insert("public".into(), "true".into());
+                n
+            })
+            .collect();
+        if with_hidden {
+            let mut n = Node::new_with_id("n2".to_string(), None);
+            n.id = 2;
+            nodes.push(n);
+        }
+        Arc::new(GraphData {
+            nodes,
+            ..GraphData::default()
+        })
+    }
+
+    /// The hidden node 2 sits at the deepest level; with it gone the GPU would report two
+    /// nodes at levels 0 and 1.
+    fn reply(with_hidden: bool) -> serde_json::Value {
+        let g = graph(with_hidden);
+        let levels = if with_hidden {
+            HierarchyLevels {
+                node_levels: vec![0, 1, 2],
+                max_level: 2,
+                level_counts: vec![1, 1, 1],
+            }
+        } else {
+            HierarchyLevels {
+                node_levels: vec![0, 1],
+                max_level: 1,
+                level_counts: vec![1, 1],
+            }
+        };
+        let gate = gate_for_graph_with(&g, None, true);
+        // The all-visible corpus has no gate, so key its reply the same way for comparison.
+        let gate = gate.or_else(|| {
+            let mut probe = (*g).clone();
+            let mut n = Node::new_with_id("probe".to_string(), None);
+            n.id = 99;
+            probe.nodes.push(n);
+            gate_for_graph_with(&Arc::new(probe), None, true)
+        });
+        hierarchy_levels_reply(levels, gate.as_ref())
+    }
+
+    #[test]
+    fn a_hidden_node_reads_in_hierarchy_levels_exactly_as_an_absent_one() {
+        assert_eq!(reply(true), reply(false));
+        assert_eq!(reply(true)["nodeLevels"], json!({ "0": 0, "1": 1 }));
+    }
 }
