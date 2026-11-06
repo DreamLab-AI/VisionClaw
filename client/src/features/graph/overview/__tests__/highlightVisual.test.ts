@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   highlightVisualFor, createHighlightVisual, edgeHighlightAlpha, edgeIsEmphasised,
   backgroundFromSetting, EMPHASIS_SCALE, EMPHASIS_BRIGHTEN, type GreyoutStyle,
+  linearBlendAlpha, srgbLuma, BLEND_REFERENCE_LINEAR,
 } from '../highlightVisual';
 import {
   HIGHLIGHT_SELECTED, HIGHLIGHT_HOVERED, HIGHLIGHT_SEARCH_HIT, HIGHLIGHT_FILTERED_OUT, HIGHLIGHT_FOCUS_NEIGHBOUR,
@@ -89,5 +90,43 @@ describe('backgroundFromSetting', () => {
     expect(m.r).toBeCloseTo(0.2158605, 5);
     expect(backgroundFromSetting('nonsense')).toEqual({ r: 0, g: 0, b: 0 });
     expect(backgroundFromSetting(undefined)).toEqual({ r: 0, g: 0, b: 0 });
+  });
+});
+
+describe('linear-space blend correction (ADR-2183 D3, WebGPURenderer)', () => {
+  // sidecar measurement: 0.8-linear grey over #101018
+  const lin = (s: number) => (s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4);
+  const srgb = (l: number) => (l <= 0.0031308 ? l * 12.92 : 1.055 * l ** (1 / 2.4) - 0.055);
+  const bg = srgbLuma('#101018');
+  const blendGl = (a: number, cLin: number) => a * srgb(cLin) + (1 - a) * bg;
+  const blendGpu = (a: number, cLin: number) => srgb(a * cLin + (1 - a) * lin(bg));
+
+  it('reproduces the measured WebGPURenderer brightening it corrects', () => {
+    // measured: 37/255 (WebGL) vs 82/255 (WebGPURenderer) at α 0.1, colour 0.8 linear
+    expect(Math.round(blendGl(0.1, 0.8) * 255)).toBeGreaterThanOrEqual(36);
+    expect(Math.round(blendGl(0.1, 0.8) * 255)).toBeLessThanOrEqual(38);
+    expect(Math.round(blendGpu(0.1, 0.8) * 255)).toBeGreaterThanOrEqual(81);
+    expect(Math.round(blendGpu(0.1, 0.8) * 255)).toBeLessThanOrEqual(83);
+  });
+
+  it('is exact for the reference colour and close for brighter / dimmer ones', () => {
+    for (const a of [0.05, 0.1, 0.2, 0.4]) {
+      const a2 = linearBlendAlpha(a, bg);
+      expect(a2).toBeLessThan(a);
+      expect(blendGpu(a2, BLEND_REFERENCE_LINEAR)).toBeCloseTo(blendGl(a, BLEND_REFERENCE_LINEAR), 6);
+      for (const c of [0.2, 0.8]) expect(Math.abs(blendGpu(a2, c) - blendGl(a, c)) * 255).toBeLessThan(8);
+    }
+  });
+
+  it('keeps 0 and 1, and is a no-op over a background brighter than the reference', () => {
+    expect(linearBlendAlpha(0, bg)).toBe(0);
+    expect(linearBlendAlpha(1, bg)).toBe(1);
+    expect(linearBlendAlpha(0.3, 0.95)).toBe(0.3);
+  });
+
+  it('srgbLuma reads CSS colours in sRGB', () => {
+    expect(srgbLuma('#000000')).toBeCloseTo(0, 6);
+    expect(srgbLuma('#ffffff')).toBeCloseTo(1, 6);
+    expect(srgbLuma('#808080')).toBeCloseTo(128 / 255, 2);
   });
 });

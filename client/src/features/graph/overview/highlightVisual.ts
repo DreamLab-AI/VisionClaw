@@ -11,6 +11,7 @@
  *
  * Pure TS, no React, no allocation in the per-node calls.
  */
+import * as THREE from 'three';
 import {
   highlightLevel,
   HIGHLIGHT_LEVEL_GREYED,
@@ -134,4 +135,42 @@ export function backgroundFromSetting(
   out.g = toLinear((n >> 8) & 255);
   out.b = toLinear(n & 255);
   return out;
+}
+
+// --- Backend blend-space correction (ADR-2183 D3) ---------------------------
+
+const srgbToLinear = (c: number): number => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+const linearToSrgb = (c: number): number => (c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055);
+
+/** Linear reference colour the correction is solved for: a mid-tone edge / node. */
+export const BLEND_REFERENCE_LINEAR = 0.5;
+
+/**
+ * `greyoutOpacity` means what it looks like on WebGLRenderer, which blends the
+ * overview layers in sRGB space. WebGPURenderer (WebGPU, and its WebGL2
+ * fallback) blends in linear space, so the same alpha looks far brighter over
+ * a dark background: measured in the browser sidecar, a 0.8 grey edge at α 0.1
+ * over #101018 reads 37/255 on WebGL and 82/255 on WebGPURenderer.
+ *
+ * Returns the alpha that, blended in linear space, reproduces the sRGB-space
+ * result for the reference colour over `backgroundSrgbLuma` (0–1). Exact for
+ * the reference colour, within a few 1/255 steps for brighter or dimmer ones.
+ */
+export function linearBlendAlpha(alpha: number, backgroundSrgbLuma: number, reference = BLEND_REFERENCE_LINEAR): number {
+  const a = clamp01(alpha);
+  if (a === 0 || a === 1) return a;
+  const bgS = clamp01(backgroundSrgbLuma);
+  const bgL = srgbToLinear(bgS);
+  const refS = linearToSrgb(reference);
+  if (reference - bgL <= 1e-6) return a; // background at least as bright as the reference: nothing to solve
+  const targetL = srgbToLinear(a * refS + (1 - a) * bgS);
+  return clamp01((targetL - bgL) / (reference - bgL));
+}
+
+/** sRGB luma (0–1) of a CSS colour, for linearBlendAlpha's background term. */
+export function srgbLuma(css: string): number {
+  const c = new THREE.Color();
+  try { c.set(css || '#000000'); } catch { return 0; }
+  const r = linearToSrgb(c.r), g = linearToSrgb(c.g), b = linearToSrgb(c.b); // THREE.Color holds linear
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }

@@ -17,6 +17,8 @@
  */
 import React, { createContext, useContext, useEffect, useMemo } from 'react';
 import { clearOverviewFaults } from './overviewLive';
+import { isWebGPURenderer } from '../../../rendering/rendererFactory';
+import { linearBlendAlpha, srgbLuma } from './highlightVisual';
 import { useFrame } from '@react-three/fiber';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { DEFAULT_GRAPH_VIEW } from '../../../api/settings/defaults';
@@ -57,6 +59,19 @@ interface Props {
   children?: React.ReactNode;
 }
 
+/**
+ * The greyed alpha the overview materials receive on the live backend
+ * (ADR-2183 D3): the setting's WebGL look, converted for WebGPURenderer's
+ * linear-space blending (highlightVisual.linearBlendAlpha).
+ */
+export function useBackendGreyoutOpacity(greyoutOpacity: number): number {
+  const background = useSettingsStore((s) => s.get<string>('visualisation.rendering.backgroundColor')) ?? '#000000';
+  return useMemo(
+    () => (isWebGPURenderer ? linearBlendAlpha(greyoutOpacity, srgbLuma(background)) : greyoutOpacity),
+    [greyoutOpacity, background],
+  );
+}
+
 export const OverviewLayer: React.FC<Props> = ({ plan, nodePositionsRef, nodeCount, knowledgeGemRef, children }) => {
   const stored = useSettingsStore((s) => s.get<GraphViewSettings>('visualisation.graphView'));
   const gv = useMemo(() => resolveGraphView(stored), [stored]);
@@ -88,6 +103,7 @@ export const OverviewLayer: React.FC<Props> = ({ plan, nodePositionsRef, nodeCou
   }, [plan, oe.enabled, oe.capacity]);
   useEffect(() => () => { resetOverviewEdgeReport(); clearOverviewFaults(); }, []);
 
+  const greyOpacity = useBackendGreyoutOpacity(gv.explore.greyoutOpacity);
   const edgeStyle = useMemo<OverviewEdgeStyle>(() => ({
     widthPx: oe.widthPx,
     maxWidthPx: oe.maxWidthPx,
@@ -95,16 +111,16 @@ export const OverviewLayer: React.FC<Props> = ({ plan, nodePositionsRef, nodeCou
     fadeFarPx: oe.fadeFarPx,
     minOpacity: oe.minOpacity,
     opacity: OVERVIEW_EDGE_OPACITY,
-    greyoutOpacity: gv.explore.greyoutOpacity,
-  }), [oe.widthPx, oe.maxWidthPx, oe.fadeNearPx, oe.fadeFarPx, oe.minOpacity, gv.explore.greyoutOpacity]);
+    greyoutOpacity: greyOpacity,
+  }), [oe.widthPx, oe.maxWidthPx, oe.fadeNearPx, oe.fadeFarPx, oe.minOpacity, greyOpacity]);
 
   const nodeStyle = useMemo(() => ({
     spriteSizePx: gv.nodes.spriteSizePx,
     nodeSize,
-    greyoutOpacity: gv.explore.greyoutOpacity,
+    greyoutOpacity: greyOpacity,
     background,
     halo: gv.nodes.bloomScope !== 'off',
-  }), [gv.nodes.spriteSizePx, gv.nodes.bloomScope, nodeSize, gv.explore.greyoutOpacity, background]);
+  }), [gv.nodes.spriteSizePx, gv.nodes.bloomScope, nodeSize, greyOpacity, background]);
 
   return (
     <OverviewTextureContext.Provider value={positions}>
