@@ -4,7 +4,7 @@ title: The XR client adopts the overview-first contract — sized points, screen
 date: 2026-11-06
 decision_status: accepted
 implementation_status: complete
-activation_status: staged
+activation_status: active
 supersedes: []
 superseded_by: []
 verified_commit: c7c78c88d6fbeaa91d873dc80e20d8ed163faffb
@@ -49,4 +49,4 @@ None yet. Required:
 
 ## Status at integration (2026-11-06)
 
-Complete in code and under headless GUT (660 tests, 0 failures) and the Rust suite. Shader compilation, visual quality and 90 fps on a headset are unverified until the HP deployment, so activation is staged.
+Complete in code and under headless GUT (660 tests, 0 failures) and the Rust suite. Headset receipt, 2026-11-06 on the HP (Godot 4.8-beta2, snapshot vc-809a859aa, backend main 809a859aa): OpenXR session focused, 88-90 fps (11.1 ms/frame) with all three volumes (knowledge 84 nodes, ontology 9,604, Codescape 4,817), zero script, parse, shader, heartbeat or reconnect errors over 15 minutes. Visual legibility of the rail and pages in the headset is still a human check. Activation is active.
