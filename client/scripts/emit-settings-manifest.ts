@@ -11,14 +11,22 @@
  */
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { buildManifest } from '../src/features/control-center/registry/manifest';
+import { buildManifest, buildIa } from '../src/features/control-center/registry/manifest';
 
 const OUT = resolve(__dirname, '../src/features/control-center/registry/settings-manifest.json');
+// ADR-2189 §2: one IA document, two committed copies (desktop + headset). The
+// registry parity test asserts both equal a fresh buildIa().
+const IA_OUTS = [
+  resolve(__dirname, '../src/features/control-center/registry/ia.json'),
+  resolve(__dirname, '../../xr-client/data/ia.json'),
+];
 
 const manifest = buildManifest();
 writeFileSync(OUT, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+const ia = `${JSON.stringify(buildIa(), null, 2)}\n`;
+for (const out of IA_OUTS) writeFileSync(out, ia, 'utf8');
 
 console.log(
   `[gen:manifest] wrote ${manifest.count} settings across ${manifest.groups.length} groups ` +
-    `(+${manifest.panels.length} panels) → ${OUT}`,
+    `(+${manifest.panels.length} panels) → ${OUT}; ia.json → ${IA_OUTS.join(', ')}`,
 );

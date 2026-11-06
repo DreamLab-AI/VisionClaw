@@ -1,17 +1,15 @@
 /**
- * Group 9 — Agents (id `agents`, hotkey 9, 41 fields).
+ * Source group — Agents (id `agents`). ADR-2189 places its fields under
+ * Agents & Governance › Agent operations / Agent appearance / Agent colours.
  *
- * Genuinely settings-manageable look-and-feel for the agent/swarm population.
- * The server resolves "visionclaw"|"agent"|"bots" → graphs.visionclaw
- * (app_settings.rs), so agent nodes/edges/labels read from
- * `visualisation.graphs.visionclaw.{nodes,edges,labels}.*` — real fields on the
- * Rust GraphSettings AND the client typed mirror. The per-type palette lives at
- * `visualisation.rendering.agentColors.*` — typed both sides (client
- * AgentColorsSettings ↔ server AgentColorsDTO) and consumed by
- * BotsShared.getVisionClawColors. `graphTypeVisuals.agent.*` are client-typed
- * behaviour knobs (consumed by GemNodes / AgentOverlay), mirroring the existing
- * `look` group's graphTypeVisuals.{knowledgeGraph,ontology} precedent; `swarmTint`
- * is a client-only toggle read by AgentOverlay.
+ * Agent node colour reads `visualisation.graphs.visionclaw.nodes.baseColor`
+ * (BotsShared.getVisionClawColors). The per-type palette lives at
+ * `visualisation.rendering.agentColors.*`, typed both sides (client
+ * AgentColorsSettings ↔ server AgentColorsDTO). `graphTypeVisuals.agent.*` are
+ * client-typed behaviour knobs consumed by AgentOverlay / TransientBeamsLayer.
+ * ADR-2189 deleted the visionclaw node-material, edge and label fields, the
+ * health-colour stops, swarm tint, membrane opacity and health bar: nothing
+ * read them (docs/audits/menus-2026-11-06.md §4).
  *
  * These paths POST-DATE the frozen WP5 baseline, so registry.test.ts asserts them
  * separately from the legacy zero-drift fixture (see test (c)/(c2)).
@@ -19,8 +17,6 @@
 import type { GroupData, RegistryField } from '../types';
 
 const N = 'visualisation.graphs.visionclaw.nodes.';
-const E = 'visualisation.graphs.visionclaw.edges.';
-const L = 'visualisation.graphs.visionclaw.labels.';
 const A = 'visualisation.graphTypeVisuals.agent.';
 // Knowledge-graph attention-heat knobs (client-typed graphTypeVisuals.knowledgeGraph.*).
 // Grouped with the agent-action beam controls because they share the same 0x23
@@ -34,20 +30,6 @@ const C = 'visualisation.rendering.agentColors.';
 const fields: RegistryField[] = [
   // Agent Nodes — visionclaw node material (Rust GraphSettings.nodes)
   { key: 'agentBaseColor', subgroup: 'Agent Nodes', label: 'Node Color', type: 'color', path: `${N}baseColor`, description: 'Base colour for agent capsule nodes' },
-  { key: 'agentNodeSize', subgroup: 'Agent Nodes', label: 'Node Size', type: 'slider', min: 0.1, max: 1, step: 0.05, path: `${N}nodeSize`, description: 'Global size gain for agent nodes (per-node magnitude also scales with workload)' },
-  { key: 'agentOpacity', subgroup: 'Agent Nodes', label: 'Node Opacity', type: 'slider', min: 0, max: 1, step: 0.05, path: `${N}opacity`, description: 'Agent node material opacity' },
-  { key: 'agentMetalness', subgroup: 'Agent Nodes', label: 'Metalness', type: 'slider', min: 0, max: 1, step: 0.05, path: `${N}metalness`, description: 'PBR metalness of agent node material' },
-  { key: 'agentRoughness', subgroup: 'Agent Nodes', label: 'Roughness', type: 'slider', min: 0, max: 1, step: 0.05, path: `${N}roughness`, description: 'PBR roughness of agent node material' },
-  // Agent Edges — visionclaw edge appearance (Rust GraphSettings.edges + client-only colorByType)
-  { key: 'agentEdgeColor', subgroup: 'Agent Edges', label: 'Edge Color', type: 'color', path: `${E}color`, description: 'Base colour for agent connection lines' },
-  { key: 'agentEdgeOpacity', subgroup: 'Agent Edges', label: 'Edge Opacity', type: 'slider', min: 0, max: 1, step: 0.05, path: `${E}opacity`, description: 'Agent connection line opacity' },
-  { key: 'agentEdgeWidth', subgroup: 'Agent Edges', label: 'Edge Thickness', type: 'slider', min: 0.02, max: 0.5, step: 0.01, path: `${E}baseWidth`, description: 'Base width of agent connection lines' },
-  { key: 'agentEdgeArrows', subgroup: 'Agent Edges', label: 'Show Arrows', type: 'toggle', path: `${E}enableArrows`, description: 'Draw directional arrowheads on agent edges' },
-  { key: 'agentEdgeColorByType', subgroup: 'Agent Edges', label: 'Colour edges by type', type: 'toggle', path: `${E}colorByType`, description: 'Colour each agent edge by its relationship type instead of the single base colour' },
-  // Agent Labels — visionclaw label text (Rust GraphSettings.labels)
-  { key: 'agentEnableLabels', subgroup: 'Agent Labels', label: 'Show Labels', type: 'toggle', path: `${L}enableLabels`, description: 'Display agent type/status labels' },
-  { key: 'agentLabelSize', subgroup: 'Agent Labels', label: 'Label Size', type: 'slider', min: 0.05, max: 3.0, step: 0.05, path: `${L}desktopFontSize`, description: 'Font size for agent labels' },
-  { key: 'agentLabelColor', subgroup: 'Agent Labels', label: 'Label Color', type: 'color', path: `${L}textColor`, description: 'Colour of agent label text' },
   // Agent Type Colours — per-type palette (rendering.agentColors, typed both sides via AgentColorsDTO)
   { key: 'agentColorCoordinator', subgroup: 'Agent Type Colours', label: 'Coordinator', type: 'color', path: `${C}coordinator`, description: 'Colour for coordinator agents' },
   { key: 'agentColorCoder', subgroup: 'Agent Type Colours', label: 'Coder', type: 'color', path: `${C}coder`, description: 'Colour for coder agents' },
@@ -60,22 +42,12 @@ const fields: RegistryField[] = [
   { key: 'agentColorDocumenter', subgroup: 'Agent Type Colours', label: 'Documenter', type: 'color', path: `${C}documenter`, description: 'Colour for documenter agents' },
   { key: 'agentColorQueen', subgroup: 'Agent Type Colours', label: 'Queen', type: 'color', path: `${C}queen`, description: 'Colour for the queen/orchestrator agent' },
   { key: 'agentColorDefault', subgroup: 'Agent Type Colours', label: 'Default / Other', type: 'color', path: `${C}default`, description: 'Fallback colour for agent types without a specific palette entry' },
-  // Health — four configurable health→glow stops (client-typed graphTypeVisuals.agent.healthColors;
-  // consumed by agentVisualConstants.healthGlowColor). Defaults preserve the historical six-tier ramp.
-  { key: 'agentHealthExcellent', subgroup: 'Health', label: 'Excellent (≥95%)', type: 'color', path: `${A}healthColors.excellent`, description: 'Glow colour for agents at ≥95% health' },
-  { key: 'agentHealthGood', subgroup: 'Health', label: 'Good (≥80%)', type: 'color', path: `${A}healthColors.good`, description: 'Glow colour for agents at ≥80% health' },
-  { key: 'agentHealthWarning', subgroup: 'Health', label: 'Warning (≥50%)', type: 'color', path: `${A}healthColors.warning`, description: 'Glow colour for agents at ≥50% health' },
-  { key: 'agentHealthCritical', subgroup: 'Health', label: 'Critical (<25%)', type: 'color', path: `${A}healthColors.critical`, description: 'Glow colour for agents below 25% health' },
-  // Behaviour — per-type agent visuals (client-typed graphTypeVisuals.agent + swarmTint)
-  { key: 'agentSwarmTint', subgroup: 'Behaviour', label: 'Swarm hue tint', type: 'toggle', path: `${A}swarmTint`, description: 'Hue-rotate each agent by a stable per-swarm offset so swarms read as related-but-distinct families' },
   { key: 'agentShowTrails', subgroup: 'Behaviour', label: 'Motion Trails', type: 'toggle', path: `${A}showTrails`, description: 'Draw a fading motion-trail ribbon behind each moving agent so the swarm reads as in motion' },
   { key: 'agentTrailLength', subgroup: 'Behaviour', label: 'Trail Length', type: 'slider', min: 8, max: 48, step: 1, path: `${A}trailLength`, description: 'Number of sampled positions retained in each agent trail (longer = more history)' },
   { key: 'agentBioluminescence', subgroup: 'Behaviour', label: 'Bioluminescent Intensity', type: 'slider', min: 0, max: 3, step: 0.05, path: `${A}bioluminescentIntensity`, description: 'Membrane bioluminescence of agent capsules' },
   { key: 'agentNucleusGlow', subgroup: 'Behaviour', label: 'Nucleus Glow', type: 'slider', min: 0, max: 2, step: 0.05, path: `${A}nucleusGlowIntensity`, description: 'Base emissive of the agent capsule core' },
   { key: 'agentBreathingSpeed', subgroup: 'Behaviour', label: 'Breathing Speed', type: 'slider', min: 0, max: 3, step: 0.05, path: `${A}breathingSpeed`, description: 'Rate of the idle/active breathing pulse' },
   { key: 'agentBreathingAmplitude', subgroup: 'Behaviour', label: 'Breathing Amplitude', type: 'slider', min: 0, max: 1, step: 0.05, path: `${A}breathingAmplitude`, description: 'Depth of the breathing pulse' },
-  { key: 'agentMembraneOpacity', subgroup: 'Behaviour', label: 'Membrane Opacity', type: 'slider', min: 0, max: 1, step: 0.05, path: `${A}membraneOpacity`, description: 'Opacity of the outer bioluminescent membrane' },
-  { key: 'agentShowHealthBar', subgroup: 'Behaviour', label: 'Show Health Bar', type: 'toggle', path: `${A}showHealthBar`, description: 'Draw the per-agent health bar beneath each node' },
   { key: 'agentBeamRadius', subgroup: 'Behaviour', label: 'Action Beam Radius', type: 'slider', min: 0.05, max: 1.5, step: 0.05, path: `${A}beamRadius`, description: 'Cylinder radius of embodied agent-action beams (0x23)' },
   { key: 'agentBeamOpacity', subgroup: 'Behaviour', label: 'Action Beam Opacity', type: 'slider', min: 0, max: 1, step: 0.05, path: `${A}beamOpacity`, description: 'Peak opacity of agent-action beams during their hold phase' },
   // Nameplate LOD — declutter dense swarms (client-typed graphTypeVisuals.agent; consumed by AgentNameplate).
@@ -96,11 +68,8 @@ export const agents: GroupData = {
   id: 'agents',
   label: 'Agents',
   description: 'Agent/swarm node, edge, label appearance and per-type behaviour visuals.',
-  hotkey: '9',
   loadPaths: [
     'visualisation.graphs.visionclaw.nodes',
-    'visualisation.graphs.visionclaw.edges',
-    'visualisation.graphs.visionclaw.labels',
     'visualisation.graphTypeVisuals',
     'visualisation.rendering',
   ],

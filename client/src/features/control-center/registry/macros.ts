@@ -1,5 +1,5 @@
 /**
- * Macro layer — 5 derived dials that write to existing FROZEN paths via a transfer
+ * Macro layer — the 5 dock dials (ADR-2189 names: Spread, Glow, Motion, Labels, Atmosphere), that write to existing FROZEN paths via a transfer
  * function over t ∈ [0..1], and read them back (`derive`) for their at-rest position.
  * No macro introduces a new path; every path here also appears as a RegistryField
  * (annotated `macro: '<id>'`). See spec §1.1.
@@ -7,7 +7,7 @@
 import type { LucideIcon } from 'lucide-react';
 // @ts-ignore - Atom exists in lucide-react but its type export lags the runtime.
 import { Atom } from 'lucide-react';
-import { Sun, Wind, Focus, CloudFog } from 'lucide-react';
+import { Sun, Wind, Tags, CloudFog } from 'lucide-react';
 import type { MacroDef } from './types';
 
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
@@ -17,69 +17,83 @@ const num = (get: (p: string) => unknown, path: string, fallback: number): numbe
 };
 
 const P = 'visualisation.graphs.knowledge.physics.';
-const L = 'visualisation.graphs.knowledge.labels.';
 const S = 'visualisation.sceneEffects.';
 
+const G = 'visualisation.graphView.';
+
+/** ADR-2186 overview-label budget range the Labels dial spans, on the registry slider's step grid. */
+const LABEL_BUDGET_MAX = 120;
+const LABEL_BUDGET_STEP = 5;
+
+/**
+ * The five dock dials (ADR-2189 §3). Ids are stable (`macro-<id>` test ids and the
+ * `macro:` field annotations key on them); labels carry the ADR-2189 names.
+ * `scope` marks the dials that write the shared physics document.
+ */
 export const MACROS: MacroDef[] = [
   {
     id: 'density',
-    label: 'Density',
+    // Was "Density": turning it up spreads nodes APART, so the old name read backwards.
+    label: 'Spread',
     icon: Atom,
+    scope: 'shared',
     apply: (t) => [
       { path: `${P}repelK`, value: 40 + t * 360 },        // 40 → 400
       { path: `${P}restLength`, value: 20 + t * 100 },     // 20 → 120
       { path: `${P}centerGravityK`, value: 0.4 - t * 0.3 }, // 0.40 → 0.10
     ],
     derive: (get) => clamp01((num(get, `${P}repelK`, 120) - 40) / 360),
+    describe: (get) => `repulsion ${Math.round(num(get, `${P}repelK`, 120))}, spacing ${Math.round(num(get, `${P}restLength`, 50))}`,
   },
   {
     id: 'luminosity',
-    label: 'Luminosity',
+    // Was "Luminosity". ADR-2182 limits bloom to emphasis, so the dial no longer
+    // switches global bloom on or off: it sets ambient light and glow strength. The
+    // glow scope (Look › Emphasis glow) decides what glows.
+    label: 'Glow',
     icon: Sun,
+    scope: 'browser',
     apply: (t) => [
-      { path: 'visualisation.glow.enabled', value: t > 0 },
-      { path: 'visualisation.glow.intensity', value: 1.5 * t },              // 0 → 1.5
-      { path: 'visualisation.rendering.ambientLightIntensity', value: 0.2 + t * 1.2 }, // 0.2 → 1.4
-      { path: 'visualisation.gemMaterial.emissiveIntensity', value: 1.2 * t }, // 0 → 1.2
+      { path: 'visualisation.glow.intensity', value: Math.round(1.5 * t * 20) / 20 },                 // 0 → 1.5, step 0.05
+      { path: 'visualisation.rendering.ambientLightIntensity', value: Math.round((0.2 + t * 1.2) * 10) / 10 }, // 0.2 → 1.4, step 0.1
     ],
     derive: (get) => clamp01(num(get, 'visualisation.glow.intensity', 0) / 1.5),
+    describe: (get) =>
+      `glow ${num(get, 'visualisation.glow.intensity', 0).toFixed(2)}, ambient light ${num(get, 'visualisation.rendering.ambientLightIntensity', 0.2).toFixed(1)}`,
   },
   {
     id: 'motion',
     label: 'Motion',
     icon: Wind,
+    scope: 'shared',
     apply: (t) => [
       { path: `${P}globalSpeed`, value: 0.05 + t * 1.95 }, // 0.05 → 2.0
       { path: `${P}damping`, value: 0.98 - t * 0.33 },     // 0.98 → 0.65 (inverse)
       { path: `${P}temperature`, value: 0.6 * t },         // 0 → 0.6
     ],
     derive: (get) => clamp01((num(get, `${P}globalSpeed`, 0.4) - 0.05) / 1.95),
+    describe: (get) => `speed ${num(get, `${P}globalSpeed`, 0.4).toFixed(2)}, damping ${num(get, `${P}damping`, 0.9).toFixed(2)}`,
   },
   {
     id: 'focus',
-    // Depth-of-field label focus. Turning the dial UP tightens the field: the
-    // label draw distance pulls IN (fewer, nearer labels) while the font grows
-    // for readability. It deliberately does NOT touch nodeFilter.* — writing the
-    // node filter on every drag tick re-ran useGraphFiltering over the whole
-    // corpus and popped nodes (and their labels) in/out as minConnections
-    // quantised and includeLinkedPages flipped at t=0.5, which was the "labels
-    // cycle on/off" redraw thrash. The draw distance also never rises above the
-    // 1200 shipped default, so max focus can't flood the scene with every label.
-    label: 'Focus',
-    icon: Focus,
+    // Was "Focus" (label draw distance + font size). ADR-2186 replaces distance
+    // culling with a priority-ranked budget, so the dial now sets how many of the
+    // most important nodes carry a label at overview zoom: 0 → 120, on the
+    // registry slider's step of 5 so the dial and the slider never disagree.
+    label: 'Labels',
+    icon: Tags,
+    scope: 'browser',
     apply: (t) => [
-      { path: `${L}labelDistanceThreshold`, value: 1200 - t * 900 },      // 1200 → 300 (tightens)
-      { path: `${L}desktopFontSize`, value: 0.25 + t * 0.35 },            // 0.25 → 0.6
+      { path: `${G}labels.budget`, value: Math.round((t * LABEL_BUDGET_MAX) / LABEL_BUDGET_STEP) * LABEL_BUDGET_STEP },
     ],
-    // Derive from the same continuous primary param the dial writes (as every
-    // other macro does) — not the old Math.round(minConnections) read, whose
-    // 5-step quantisation made the dial position snap and never match the drag.
-    derive: (get) => clamp01((1200 - num(get, `${L}labelDistanceThreshold`, 1200)) / 900),
+    derive: (get) => clamp01(num(get, `${G}labels.budget`, 40) / LABEL_BUDGET_MAX),
+    describe: (get) => `${Math.round(num(get, `${G}labels.budget`, 40))} overview labels`,
   },
   {
     id: 'atmosphere',
     label: 'Atmosphere',
     icon: CloudFog,
+    scope: 'browser',
     apply: (t) => [
       { path: `${S}enabled`, value: t > 0 },
       { path: `${S}particleOpacity`, value: 0.8 * t }, // 0 → 0.8
@@ -87,6 +101,7 @@ export const MACROS: MacroDef[] = [
       { path: `${S}fogOpacity`, value: 0.12 * t },     // 0 → 0.12
     ],
     derive: (get) => clamp01(num(get, `${S}particleOpacity`, 0) / 0.8),
+    describe: (get) => `particles ${Math.round(num(get, `${S}particleOpacity`, 0) * 100)}%, fog ${Math.round((num(get, `${S}fogOpacity`, 0) / 0.12) * 100)}%`,
   },
 ];
 

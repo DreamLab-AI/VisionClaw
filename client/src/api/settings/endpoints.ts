@@ -18,6 +18,7 @@ import type {
   ProfileIdResponse,
 } from './types';
 import { DEFAULT_PHYSICS_SETTINGS } from './defaults';
+import { stripRemovedPaths } from '../../store/settings/retiredPaths';
 import {
   transformApiToClientSettings,
   isVisualSettingsPath,
@@ -227,7 +228,10 @@ export const getSettingsByPaths = async (
       allSettings = _cachedAllSettings;
     } else {
       const response = await axios.get(`${API_BASE}/api/settings/all`);
-      allSettings = transformApiToClientSettings(response.data);
+      // ADR-2189: the server document may still carry settings the menus no longer
+      // have (e.g. visionclaw.nodes.opacity on the shared GraphSettings struct). Drop
+      // them at the boundary so they never re-enter the store or localStorage.
+      allSettings = stripRemovedPaths(transformApiToClientSettings(response.data));
       _cachedAllSettings = allSettings;
       _cachedAllTimestamp = now;
     }

@@ -1,5 +1,5 @@
 /**
- * Group 11 — Provenance (id `provenance`, hotkey 11, 4 fields).
+ * Source group — Provenance (id `provenance`). registry/placement.ts (ADR-2189) decides which section shows each field.
  *
  * Phase-1 W-G client surface for the assertion-version provenance subsystem
  * (ADR-049). Both fields are CLIENT-ONLY and DEFAULT-OFF: they gate whether the
@@ -56,7 +56,6 @@ export const provenance: GroupData = {
   id: 'provenance',
   label: 'Provenance',
   description: 'Client-only overlays for assertion-version attribution and governance-gate status chips.',
-  hotkey: '11',
   loadPaths: ['provenance'],
   fields,
 };

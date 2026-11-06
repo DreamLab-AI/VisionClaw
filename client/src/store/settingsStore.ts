@@ -5,6 +5,7 @@ import { createCoreSlice } from './settings/coreSlice'
 import { createPhysicsSlice } from './settings/physicsSlice'
 import { createPersistenceSlice } from './settings/persistenceSlice'
 import { collectPathsFromSettings, migrateGraphSettingsKey } from './settings/settingsHelpers'
+import { stripRemovedPaths } from './settings/retiredPaths'
 import { createLogger } from '../utils/loggerConfig'
 import { debugState } from '../utils/clientDebugState'
 import {
@@ -53,8 +54,12 @@ export const useSettingsStore = create<SettingsState>()(
         // Receive-side migration (ADR-2041 rename; server alias retired by
         // ADR-2115): map a persisted `visualisation.graphs.logseq` object onto
         // `visualisation.graphs.knowledge` before it reaches the store.
-        const persistedSettings = migrateGraphSettingsKey(
-          (persisted.partialSettings as import('./settings/settingsTypes').DeepPartial<import('../features/settings/config/settings').Settings>) || {},
+        // ADR-2189: drop settings the menus deleted (no reader anywhere), so a blob
+        // written by an older client loads and the stale keys are not re-persisted.
+        const persistedSettings = stripRemovedPaths(
+          migrateGraphSettingsKey(
+            (persisted.partialSettings as import('./settings/settingsTypes').DeepPartial<import('../features/settings/config/settings').Settings>) || {},
+          ),
         );
 
         return {
