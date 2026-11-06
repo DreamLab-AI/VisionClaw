@@ -38,6 +38,7 @@ import * as THREE from 'three';
 import { BotsEdge, BotsAgent } from '../types/BotsTypes';
 import { CHAIN_PAYMENT_COLOR, CHAIN_PAYMENT_EDGE_TYPE } from '../chain/chainPayments';
 import { agentMarkerPosition } from '../agentMarkerPass';
+import { setLineDrawCount } from './lineDrawCount';
 
 /* R3F maps three.js props onto JSX host elements (args, position, rotation, intensity...);
    these are not DOM properties. react/no-unknown-property is not enforced in this config. */
@@ -176,7 +177,6 @@ function createEdgeBuffers(capacity: number): EdgeLayerBuffers {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  geometry.setDrawRange(0, 0);
   const material = new THREE.LineBasicMaterial({
     vertexColors: true,
     transparent: true,
@@ -187,6 +187,7 @@ function createEdgeBuffers(capacity: number): EdgeLayerBuffers {
   });
   const line = new THREE.LineSegments(geometry, material);
   line.frustumCulled = false;
+  setLineDrawCount(line, 0);
   return { line, geometry, material, positions, colors, capacity };
 }
 
@@ -328,7 +329,7 @@ export const AgentCollabEdges: React.FC<AgentCollabEdgesProps> = ({ edges, agent
 
     (b.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
     (b.geometry.attributes.color as THREE.BufferAttribute).needsUpdate = true;
-    b.geometry.setDrawRange(0, w * 2);
+    setLineDrawCount(b.line, w * 2);
   });
 
   return <primitive object={buffersRef.current.line} />;

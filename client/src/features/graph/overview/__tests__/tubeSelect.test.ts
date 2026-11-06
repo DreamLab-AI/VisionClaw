@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildEdgeAdjacency, createTubeSelectScratch, emphasisNodes, selectTubeEdges, type GlassTubeLod,
+  buildEdgeAdjacency, createTubeSelectScratch, emphasisNodes, resolveTubeLod, selectTubeEdges, TUBE_BUDGET,
+  type GlassTubeLod,
 } from '../tubeSelect';
 import { fillEdgeFrame, createEdgeFrameBuffers, type EdgePlan } from '../../hooks/edgeBufferPlan';
 import {
@@ -115,5 +116,35 @@ describe('highlight tubes walk the selected node only (no O(E) scan)', () => {
     const pairs = (buf: number[], n: number) => Array.from({ length: n }, (_, k) => `${buf[k * 6]}-${buf[k * 6 + 3]}`).sort();
     expect(pairs(b.highlight, viaAdj)).toEqual(pairs(a.highlight, full));
     expect(b.highlight.length).toBe(3 * 6); // sized to the degree, not E
+  });
+});
+
+describe('resolveTubeLod (ADR-2181 D3: the tube layer never takes the full edge set while the overview is on)', () => {
+  const on = { enabled: true, glassAtCloseZoom: true, gemLodDistance: 90 };
+  const startup = { nodes: false, edges: false, faults: {} };
+
+  it('feeds the subset in the startup window (overview enabled, not yet live, not faulted)', () => {
+    // Feeding every edge here grew GlassEdges to its 65536 ceiling and warned on a 140k-edge graph.
+    expect(resolveTubeLod({ ...on, live: startup })).toEqual({ maxDistance: 90, budget: TUBE_BUDGET });
+  });
+
+  it('feeds the subset once the overview edges are live', () => {
+    expect(resolveTubeLod({ ...on, live: { nodes: true, edges: true, faults: {} } })).toEqual({ maxDistance: 90, budget: TUBE_BUDGET });
+  });
+
+  it('emphasis-only tubes when glass at close zoom is off', () => {
+    expect(resolveTubeLod({ ...on, glassAtCloseZoom: false, live: startup })).toEqual({ maxDistance: 0, budget: TUBE_BUDGET });
+  });
+
+  it('feeds every edge (null) when the overview edges are disabled', () => {
+    expect(resolveTubeLod({ ...on, enabled: false, live: startup })).toBeNull();
+  });
+
+  it('feeds every edge (null) when the overview edges faulted: the tubes are the fallback', () => {
+    expect(resolveTubeLod({ ...on, live: { nodes: true, edges: false, faults: { edges: 'material build failed' } } })).toBeNull();
+  });
+
+  it('a fault in another layer does not hand every edge to the tubes', () => {
+    expect(resolveTubeLod({ ...on, live: { nodes: false, edges: false, faults: { nodes: 'x', labels: 'y' } } })).not.toBeNull();
   });
 });

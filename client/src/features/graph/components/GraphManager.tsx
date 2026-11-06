@@ -38,7 +38,7 @@ import { setSharedNodePositions, setSharedNodeIdToIndexMap } from '../contexts/N
 import { OverviewLayer, resolveGraphView } from '../overview/OverviewLayer'
 import { useNodeEncodingSync } from '../overview/useNodeEncodingSync'
 import { useOverviewLive } from '../overview/overviewLive'
-import { TUBE_BUDGET, type GlassTubeLod } from '../overview/tubeSelect'
+import { resolveTubeLod, type GlassTubeLod } from '../overview/tubeSelect'
 import { setHoveredNodeEmphasis } from '../explore/filterRegistry'
 import type { GraphViewSettings } from '../../settings/config/settings'
 
@@ -94,13 +94,16 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   // close-zoom LOD (or nothing, when glassAtCloseZoom is off).
   const graphViewStored = useSettingsStore(s => s.settings?.visualisation?.graphView as GraphViewSettings | undefined)
   const graphView = useMemo(() => resolveGraphView(graphViewStored), [graphViewStored])
-  // Only once the overview edges are actually drawing (material built): until
-  // then, or if it fails, every edge stays a tube.
+  // Every edge becomes a tube only when the overview edges are off or faulted;
+  // while they are pending (startup) the tubes already take the subset.
   const overviewLive = useOverviewLive()
-  const tubeLod = useMemo<GlassTubeLod | null>(() => {
-    if (!graphView.overviewEdges.enabled || !overviewLive.edges) return null
-    return { maxDistance: graphView.overviewEdges.glassAtCloseZoom ? graphView.nodes.gemLodDistance : 0, budget: TUBE_BUDGET }
-  }, [graphView.overviewEdges.enabled, overviewLive.edges, graphView.overviewEdges.glassAtCloseZoom, graphView.nodes.gemLodDistance])
+  const edgesFault = overviewLive.faults.edges
+  const tubeLod = useMemo<GlassTubeLod | null>(() => resolveTubeLod({
+    enabled: graphView.overviewEdges.enabled,
+    live: { faults: { edges: edgesFault } },
+    glassAtCloseZoom: graphView.overviewEdges.glassAtCloseZoom,
+    gemLodDistance: graphView.nodes.gemLodDistance,
+  }), [graphView.overviewEdges.enabled, edgesFault, graphView.overviewEdges.glassAtCloseZoom, graphView.nodes.gemLodDistance])
 
   // Node-type visibility filtering + per-population partition.
   //

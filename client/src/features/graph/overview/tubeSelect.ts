@@ -1,6 +1,7 @@
 /**
  * Glass-tube subset (ADR-2181 D3): which plan edges are drawn as glass tubes
- * once the screen-space overview edges are live.
+ * while the screen-space overview edges are enabled (pending or live; see
+ * resolveTubeLod).
  *
  * Tubes are the close level of detail, so their CPU feed must scale with the
  * tube budget, never with E. The selection therefore walks a per-plan node →
@@ -23,6 +24,7 @@ import {
   HIGHLIGHT_FOCUS_NEIGHBOUR, HIGHLIGHT_HOVERED, HIGHLIGHT_SELECTED,
 } from '../state/highlightMask';
 import type { EdgePlan } from '../hooks/edgeBufferPlan';
+import type { LiveState } from './overviewLive';
 
 /** Close-zoom tube LOD. `maxDistance` 0 = emphasis tubes only. */
 export interface GlassTubeLod {
@@ -30,8 +32,30 @@ export interface GlassTubeLod {
   budget: number;
 }
 
-/** Tubes drawn at most while the overview edges are live. */
+/** Tubes drawn at most while the overview edges are enabled and not faulted. */
 export const TUBE_BUDGET = 4096;
+
+/**
+ * The tube LOD for the frame loop, or null to feed every edge as a tube.
+ *
+ * Null only when the overview edges are off or have faulted: then the tubes
+ * are the whole edge layer (the safety valve). While the overview edges are
+ * enabled and merely pending (positions not yet in the texture, material
+ * still building), the tubes already take the subset: feeding every edge in
+ * that window grew GlassEdges to its ceiling and warned on large graphs, only
+ * to shrink a few frames later. The trade-off is that the far edges are
+ * blank for those first frames instead of drawn as tubes.
+ */
+export function resolveTubeLod(s: {
+  enabled: boolean;
+  /** The overviewLive snapshot (useOverviewLive). Its `edges` flag is not read: pending counts. */
+  live: Pick<LiveState, 'faults'>;
+  glassAtCloseZoom: boolean;
+  gemLodDistance: number;
+}): GlassTubeLod | null {
+  if (!s.enabled || s.live.faults.edges !== undefined) return null;
+  return { maxDistance: s.glassAtCloseZoom ? s.gemLodDistance : 0, budget: TUBE_BUDGET };
+}
 
 const EMPHASIS = HIGHLIGHT_SELECTED | HIGHLIGHT_HOVERED | HIGHLIGHT_FOCUS_NEIGHBOUR;
 
