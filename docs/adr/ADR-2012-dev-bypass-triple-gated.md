@@ -165,3 +165,9 @@ out).
 ## Re-verification — 2026-10-31 (`493148a3c`)
 
 The only governed-path change since `4024ac777` is `493148a3c`: the `PROD_WS` nginx marker in `src/utils/auth.rs`'s `#[cfg(test)] mod nip98_proxy_tests` now includes `ws/presence`, matching `nginx.production.conf` after `6d412afa7`. It is a test-only change; production code and this record's decision are unchanged. `cargo test --lib` at `493148a3c` passed 1826, 0 failed. Re-run: `git diff 4024ac777..493148a3c -- src/utils/auth.rs`.
+
+## Accepted residual risk — 2026-11-06 (security review of the ADR-2184 REST visibility gate)
+
+The security review of the REST visibility gate (ADR-2184 precondition, branch `feat/gv-server`) found that the loopback gate's third condition is weaker than its name suggests. The check is `peer_addr().is_loopback()` (`src/middleware/auth_extractor.rs:36-56`, `:200-220`), the TCP peer, not the original client. Behind a reverse proxy on the same host every client arrives from loopback, so with `DEV_AUTH_LOOPBACK=1` set, any client can present `Bearer dev-session-token` with an `X-Nostr-Pubkey` of its choosing and be treated as that pubkey: it reads that owner's private nodes on REST and `/wss` alike.
+
+Operator decision (2026-11-06): accepted as is for dev. Release builds compile the path out (ADR-2037, ADR-2086), so production is unaffected. The dev host must not be published through a same-host reverse proxy while `DEV_AUTH_LOOPBACK=1` is set. Revisit if a dev or staging host is ever exposed beyond the operator's LAN; the fix would be to gate on the forwarded client address from a trusted proxy, or to refuse the dev token whenever a `Forwarded` / `X-Forwarded-For` header is present.
