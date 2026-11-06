@@ -1,9 +1,6 @@
 //! Per-node analytics for a caller whose view hides nodes (ADR-060).
 //!
 //! The GPU analysers run over the whole graph, so a gated caller's request never reaches them.
-//! A GPU SSSP run may also be written to the shared `node_sssp` map behind wire slot 28; that
-//! happens only when the request sets `ComputeSSP::publish`, which callers set only when the
-//! graph hides nothing from anyone (`graph_access::stream_safe`).
 //!
 //! Every answer here is computed on the CPU over the caller's view
 //! ([`CallerGate::view`]) and keyed by node id, so a hidden node is indistinguishable from an

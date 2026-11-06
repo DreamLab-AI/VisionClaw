@@ -172,10 +172,10 @@ pub async fn compute_sssp(
     info!("API: Computing SSSP from node {}", payload.source_idx);
 
     // ADR-060: a caller whose view hides nodes gets a CPU answer over that view and never
-    // reaches the GPU actor (which also publishes to the stream every client receives). A
+    // reaches the GPU actor, which runs over the whole graph. A
     // hidden source answers exactly as an id past the end of the graph.
-    let full = match gated_view(&data, &caller).await {
-        Ok((_, Some(gate))) => {
+    match gated_view(&data, &caller).await {
+        Ok(Some(gate)) => {
             return match super::visible_analytics::visible_sssp(
                 &gate,
                 payload.source_idx,
@@ -193,7 +193,7 @@ pub async fn compute_sssp(
                 }),
             };
         }
-        Ok((graph, None)) => graph,
+        Ok(None) => {}
         Err(response) => return Ok(response),
     };
 
@@ -205,8 +205,6 @@ pub async fn compute_sssp(
             source_idx: payload.source_idx,
             max_distance: payload.max_distance,
             delta: payload.delta,
-            // Only a run over a graph that hides nothing from anyone reaches node_sssp.
-            publish: crate::handlers::graph_access::stream_safe(&full),
         };
 
         match gpu_manager.send(msg).await {
@@ -271,7 +269,7 @@ pub async fn compute_apsp(
     // ADR-060: the GPU matrix is indexed by every position, hidden ones included. A caller whose
     // view hides nodes gets the landmark bound over that view, rows keyed by visible node id.
     match gated_view(&data, &caller).await {
-        Ok((_, Some(gate))) => {
+        Ok(Some(gate)) => {
             return ok_json!(APSPResponse {
                 success: true,
                 result: Some(ApspPayload::Visible(
@@ -283,7 +281,7 @@ pub async fn compute_apsp(
                 error: None,
             });
         }
-        Ok((_, None)) => {}
+        Ok(None) => {}
         Err(response) => return Ok(response),
     }
 
@@ -357,8 +355,8 @@ pub async fn compute_connected_components(
 
     // ADR-060: components of the caller's view, so no label joins two visible nodes through a
     // hidden one.
-    let _full = match gated_view(&data, &caller).await {
-        Ok((_, Some(gate))) => {
+    match gated_view(&data, &caller).await {
+        Ok(Some(gate)) => {
             return ok_json!(ConnectedComponentsResponse {
                 success: true,
                 result: Some(ComponentsPayload::Visible(
@@ -367,7 +365,7 @@ pub async fn compute_connected_components(
                 error: None,
             });
         }
-        Ok((graph, None)) => graph,
+        Ok(None) => {}
         Err(response) => return Ok(response),
     };
 
@@ -427,21 +425,13 @@ fn sssp_source_out_of_range(source_idx: usize) -> String {
     )
 }
 
-/// `Ok((graph, None))` when the caller sees the whole graph (the GPU path serves them
-/// unchanged); `Ok((graph, Some(gate)))` when their view hides nodes; `Err` with a ready
-/// response when the graph cannot be read, since then no visibility decision is possible. The
-/// full graph comes back either way so the GPU path can decide whether its run may be published
-/// to the shared stream ([`stream_safe`](crate::handlers::graph_access::stream_safe)).
+/// `Ok(None)` when the caller sees the whole graph (the GPU path serves them unchanged);
+/// `Ok(Some(gate))` when their view hides nodes; `Err` with a ready response when the graph
+/// cannot be read, since then no visibility decision is possible.
 async fn gated_view(
     data: &web::Data<AppState>,
     caller: &crate::settings::OptionalAuth,
-) -> std::result::Result<
-    (
-        std::sync::Arc<visionclaw_domain::models::graph::GraphData>,
-        Option<crate::handlers::graph_access::CallerGate>,
-    ),
-    HttpResponse,
-> {
+) -> std::result::Result<Option<crate::handlers::graph_access::CallerGate>, HttpResponse> {
     let graph = crate::handlers::graph_access::current_graph(&data.graph_service_addr)
         .await
         .map_err(|e| {
@@ -458,7 +448,7 @@ async fn gated_view(
         &graph,
         crate::handlers::graph_access::caller_pubkey(caller),
     );
-    Ok((graph, gate))
+    Ok(gate)
 }
 
 /// Get shortest path statistics
@@ -739,7 +729,6 @@ pub async fn compute_point_to_point(
                     source_idx,
                     max_distance: None,
                     delta: None,
-                    publish: crate::handlers::graph_access::stream_safe(&full_graph),
                 };
 
                 match gpu_manager.send(msg).await {

@@ -33,11 +33,6 @@ pub struct ComputeSSP {
     /// Smaller deltas reduce work per iteration at the cost of more iterations.
     #[serde(default)]
     pub delta: Option<f32>,
-    /// Unread. It asked for the run to be written to the shared `node_sssp` map behind wire
-    /// slot 28; that map had no live reader and was removed (2026-11-06), so no run is ever
-    /// shared. Its callers (`graph_access::stream_safe`) are removed with it separately.
-    #[serde(default)]
-    pub publish: bool,
 }
 
 /// APSP computation parameters
