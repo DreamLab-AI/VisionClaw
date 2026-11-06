@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { isWebGPURenderer } from '../rendererFactory';
 import { createLogger } from '../../utils/loggerConfig';
 
 const logger = createLogger('GemNodeMaterial');
@@ -30,7 +29,7 @@ export interface GemMaterialResult {
 }
 
 // ---------------------------------------------------------------------------
-// Base gem material — MeshStandardMaterial that works on both renderers.
+// Base gem material — MeshStandardMaterial.
 // Cheaper fragment shader than MeshPhysical (no clearcoat/sheen/iridescence);
 // per-node glow comes from emissive + the TSL emissiveNode below.
 // This is always available as the synchronous fallback.
@@ -38,31 +37,27 @@ export interface GemMaterialResult {
 
 export function createGemNodeMaterial(): GemMaterialResult {
   const uniforms = { time: { value: 0 }, glowStrength: { value: 1.5 } };
-  logger.info('[GemNodeMaterial] creating, isWebGPURenderer=', isWebGPURenderer);
 
-  // WebGPU: mid-tone crystalline base so iridescence has reflected light to modulate.
+  // Mid-tone crystalline base so iridescence has reflected light to modulate.
   // Emissive kept subtle — the per-instance TSL emissiveNode provides the glow.
-  // WebGL: classic glass gem with transmission.
   const material = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(isWebGPURenderer ? 0.35 : 0.88, isWebGPURenderer ? 0.38 : 0.92, isWebGPURenderer ? 0.5 : 1.0),
+    color: new THREE.Color(0.35, 0.38, 0.5),
     // Translucent but cheap: FrontSide (no backface fragment doubling) +
     // depthWrite:true (depth-test rejects occluded fragments, bounding overdraw).
     // transparent:true reactivates the Fresnel opacityNode (createTslGemMaterial)
     // for the glassy crystalline rim. This is the middle ground between the
     // original DoubleSide+depthWrite:false glass (correct blend, full overdraw)
     // and fully opaque — restores the look without the overdraw that tanked fps.
-    roughness: isWebGPURenderer ? 0.08 : 0.08,
-    metalness: isWebGPURenderer ? 0.15 : 0.0,
+    roughness: 0.08,
+    metalness: 0.15,
     transparent: true,
-    opacity: isWebGPURenderer ? 0.85 : 0.7,
+    opacity: 0.85,
     side: THREE.FrontSide,
     depthWrite: true,
-    emissive: new THREE.Color(isWebGPURenderer ? 0.03 : 0.15, isWebGPURenderer ? 0.04 : 0.18, isWebGPURenderer ? 0.1 : 0.3),
-    emissiveIntensity: isWebGPURenderer ? 0.4 : 0.3,
-    // envMapIntensity scales reflected-environment light. GraphCanvas installs
-    // scene.environment (drei PMREM) on BOTH backends, so the WebGL gem now
-    // reflects the same as WebGPU (parity, task #50). Previously gated to WebGPU
-    // for no hard reason, leaving WebGL gems flat and non-reflective.
+    emissive: new THREE.Color(0.03, 0.04, 0.1),
+    emissiveIntensity: 0.4,
+    // envMapIntensity scales reflected-environment light (GraphCanvas installs
+    // scene.environment, a drei PMREM).
     envMapIntensity: 1.8,
   });
 
@@ -76,7 +71,7 @@ export function createGemNodeMaterial(): GemMaterialResult {
 }
 
 // ---------------------------------------------------------------------------
-// TSL metadata-driven material (WebGPU only)
+// TSL metadata-driven material
 //
 // Reads per-instance metadata from a 2D DataTexture (WxH grid, RGBA, Float):
 //   .r = quality   (0-1)  → emissive glow brightness
@@ -106,8 +101,6 @@ export async function createTslGemMaterial(
   texWidth: number,
   texHeight: number,
 ): Promise<boolean> {
-  if (!isWebGPURenderer) return false;
-
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Three.js TSL module exports are complex node builder types with no stable public API
     const tslMod = await import('three/tsl') as any;
@@ -188,7 +181,7 @@ export async function createTslGemMaterial(
 }
 
 // ---------------------------------------------------------------------------
-// TSL GPU instance transform (WebGPU only)
+// TSL GPU instance transform
 //
 // Task #54: move the per-instance position + uniform scale off the CPU. Instead
 // of composing a mat4 on the CPU every frame (makeScale + setPosition +
@@ -208,7 +201,7 @@ export async function createTslGemMaterial(
 /**
  * Augment a MeshStandardMaterial so the GPU derives each instance's transform
  * (position + uniform scale) from a transform DataTexture sampled by
- * instanceIndex. No-op off WebGPU (the WebGL path keeps the instanceMatrix).
+ * instanceIndex.
  *
  * @param transformTexture RGBA float texture, texel i = (x, y, z, scale).
  * @param texWidth  texture width (texels)
@@ -221,8 +214,6 @@ export async function applyTslInstanceTransform(
   texWidth: number,
   texHeight: number,
 ): Promise<boolean> {
-  if (!isWebGPURenderer) return false;
-
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Three.js TSL module exports are complex node builder types with no stable public API
     const tslMod = await import('three/tsl') as any;

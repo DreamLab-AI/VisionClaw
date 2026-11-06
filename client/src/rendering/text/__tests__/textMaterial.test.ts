@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import { createTextUniforms, createTslTextMaterial } from '../createTextMaterial';
-import { labelsUseDomFallback } from '../../../features/graph/components/InstancedLabels';
+import { overviewFaultNoticeText } from '../../../features/graph/overview/overviewLive';
 
 function glyphGeometry(cap = 8): THREE.InstancedBufferGeometry {
   const g = new THREE.InstancedBufferGeometry();
@@ -12,7 +12,7 @@ function glyphGeometry(cap = 8): THREE.InstancedBufferGeometry {
   return g;
 }
 
-describe('glyph labels on WebGPU (ADR-2186 D4)', () => {
+describe('glyph labels (ADR-2186 D4)', () => {
   it('the TSL glyph material builds over the shared glyph layout', async () => {
     const tex = new THREE.Texture();
     const u = createTextUniforms(tex);
@@ -30,10 +30,8 @@ describe('glyph labels on WebGPU (ADR-2186 D4)', () => {
     expect(createTextUniforms(tex)).not.toBe(createTextUniforms(tex));
   });
 
-  it('the DOM layer draws only on WebGPU and only while the glyph material is not ready', () => {
-    expect(labelsUseDomFallback(false, 'ready')).toBe(false);
-    expect(labelsUseDomFallback(true, 'ready')).toBe(false); // 0 DOM labels
-    expect(labelsUseDomFallback(true, 'building')).toBe(true);
-    expect(labelsUseDomFallback(true, 'failed')).toBe(true);
+  it('a glyph fault is reported on the canvas notice, without the gem fallback clause', () => {
+    expect(overviewFaultNoticeText({ labels: 'link failed' })).toBe('Overview labels failed on this GPU');
+    expect(overviewFaultNoticeText({ labels: 'x', edges: 'y' })).toContain('drawing gems and glass tubes instead');
   });
 });

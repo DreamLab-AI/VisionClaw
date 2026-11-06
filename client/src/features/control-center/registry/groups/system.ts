@@ -16,8 +16,6 @@ const fields: RegistryField[] = [
   { key: 'rendererInfo', subgroup: 'Renderer', label: 'Renderer Info', type: 'readonly', path: 'rendererCapabilities', description: 'Active renderer backend and GPU info' },
   // Authentication
   { key: 'nostr', subgroup: 'Authentication', label: 'Nostr Login', type: 'nostr-button', path: 'auth.nostr', description: 'Connect with Nostr' },
-  { key: 'authEnabled', subgroup: 'Authentication', label: 'Auth Enabled', type: 'toggle', path: 'auth.enabled', description: 'Enable authentication' },
-  { key: 'authRequired', subgroup: 'Authentication', label: 'Auth Required', type: 'toggle', path: 'auth.required', description: 'Require authentication' },
   // Network
   { key: 'customBackendURL', subgroup: 'Network', label: 'Custom Backend URL', type: 'text', path: 'system.customBackendUrl', description: 'Override backend URL' },
   { key: 'streamChunkNodes', subgroup: 'Network', label: 'Stream Chunk Size (nodes)', type: 'slider', min: 100, max: 20000, step: 100, path: 'visualisation.graphs.knowledge.physics.streamChunkNodes', description: 'Most nodes in one position chunk. Each client is sent the nodes that changed since it last acknowledged, most-moved first, in chunks of this size; a new client\'s initial sync is simply every node in chunks. ~52 bytes per node (default 2500, about 130 KB). Applies live, to all clients' },

@@ -21,6 +21,7 @@ import * as THREE from 'three';
 
 type AnyRenderer = THREE.WebGLRenderer & {
   isWebGPURenderer?: boolean;
+  backend?: { isWebGPUBackend?: boolean; isWebGLBackend?: boolean };
   info?: {
     render?: { calls?: number; triangles?: number; points?: number; lines?: number };
     memory?: { geometries?: number; textures?: number };
@@ -275,6 +276,7 @@ class PerfController {
   private backendReport() {
     const out: Record<string, unknown> = {
       renderer: this.gl ? (this.gl.isWebGPURenderer ? 'WebGPURenderer' : this.gl.constructor?.name) : 'unknown',
+      backend: this.gl?.backend?.isWebGPUBackend ? 'webgpu' : this.gl?.backend?.isWebGLBackend ? 'webgl2' : 'unknown',
     };
     try {
       const tmp = document.createElement('canvas').getContext('webgl2');

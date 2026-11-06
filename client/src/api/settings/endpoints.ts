@@ -26,6 +26,8 @@ import {
   setNestedFromDotPath,
   getNestedValue,
   emptyAllSettings,
+  isServerRenderingPath,
+  storedClientPaths,
 } from './schemaMappings';
 
 const logger = createLogger('settingsApi');
@@ -61,6 +63,17 @@ axios.interceptors.request.use(async (config) => {
 let _cachedAllSettings: Record<string, unknown> | null = null;
 let _cachedAllTimestamp = 0;
 const CACHE_TTL_MS = 2000;
+let _storedServerPaths: Set<string> = new Set();
+
+/** Drop the cached /api/settings/all copy, so the next read sees the server's current state
+ * (a peer's broadcast must not be answered from a copy up to 2 s old). */
+export const invalidateSettingsCache = (): void => {
+  _cachedAllSettings = null;
+  _cachedAllTimestamp = 0;
+};
+
+/** The client paths the last /api/settings/all response actually stored (not defaults). */
+export const getStoredServerPaths = (): Set<string> => _storedServerPaths;
 
 // ============================================================================
 // Physics
@@ -232,6 +245,7 @@ export const getSettingsByPaths = async (
       // have (e.g. visionclaw.nodes.opacity on the shared GraphSettings struct). Drop
       // them at the boundary so they never re-enter the store or localStorage.
       allSettings = stripRemovedPaths(transformApiToClientSettings(response.data));
+      _storedServerPaths = storedClientPaths(response.data);
       _cachedAllSettings = allSettings;
       _cachedAllTimestamp = now;
     }
@@ -288,7 +302,7 @@ export const updateSettingByPath = async <T>(path: string, value: T): Promise<vo
   try {
     if (path.startsWith('visualisation.graphs.') && path.includes('.physics')) {
       await updatePhysics({ [path.split('.').pop()!]: value } as Partial<PhysicsSettings>);
-    } else if (path.startsWith('visualisation.rendering')) {
+    } else if (isServerRenderingPath(path)) {
       await updateRendering({ [path.split('.').pop()!]: value } as Partial<RenderingSettings>);
     } else if (path.startsWith('qualityGates')) {
       await updateQualityGates({ [path.split('.').pop()!]: value } as Partial<QualityGateSettings>);
@@ -312,6 +326,9 @@ export const updateSettingByPath = async <T>(path: string, value: T): Promise<vo
     } else {
       logger.warn(`Server update failed for "${path}", value persisted locally`, error);
     }
+    // Rethrow: the retry manager and setByPath record the loss; swallowing it made every
+    // retry look like a success.
+    throw error;
   }
 };
 
@@ -346,7 +363,7 @@ export const updateSettingsByPaths = async (
       const entry = physicsPatchEntry(path, value)!;
       mergeInto(physicsUpdates, entry);
       logger.debug(`[SETTINGS-DIAG] routing ${path} → physics ${JSON.stringify(entry)}`);
-    } else if (path.startsWith('visualisation.rendering.')) {
+    } else if (isServerRenderingPath(path)) {
       const key = path.split('.').pop()!;
       renderingUpdates[key] = value;
       logger.debug(`[SETTINGS-DIAG] routing ${path} → rendering.${key} = ${value}`);
@@ -388,8 +405,7 @@ export const updateSettingsByPaths = async (
 
 export const resetSettings = async (): Promise<void> => {
   localStorage.removeItem('graph-viz-settings-v2');
-  _cachedAllSettings = null;
-  _cachedAllTimestamp = 0;
+  invalidateSettingsCache();
   try {
     const defaultPhysics: Partial<PhysicsSettings> = {
       ...DEFAULT_PHYSICS_SETTINGS,

@@ -7,7 +7,7 @@ import {
 } from '../columnEncoder';
 import { DEFAULT_NODE_ENCODER, type EncodingContext } from '../../state/nodeEncoding';
 import { getDomainColor } from '../../utils/domainColors';
-import { ANALYTICS_STRIDE, ANALYTICS_CENTRALITY_OFFSET } from '../../../analytics/store/nodeAnalyticsStore';
+import { ANALYTICS_STRIDE, ANALYTICS_CENTRALITY_OFFSET } from '../../../analytics/analyticsLayout';
 import { exploreNodes, node } from './fixtures';
 
 const nodes = exploreNodes();

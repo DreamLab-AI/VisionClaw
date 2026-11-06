@@ -3,12 +3,9 @@ import React, { useRef, useMemo, useEffect, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
-import {
-  nodeAnalyticsStore,
-  ANALYTICS_STRIDE,
-  ANALYTICS_CLUSTER_OFFSET,
-  ANALYTICS_COMMUNITY_OFFSET,
-} from '../../analytics/store/nodeAnalyticsStore';
+import { nodeAnalyticsStore } from '../../analytics/store/nodeAnalyticsStore';
+import { ANALYTICS_STRIDE, ANALYTICS_CLUSTER_OFFSET, ANALYTICS_COMMUNITY_OFFSET } from '../../analytics/analyticsLayout';
+import { communityHsl } from '../state/analyticColours';
 
 // ============================================================================
 // Types
@@ -69,13 +66,12 @@ function getDomainHullColor(domain: string): string {
   return getDomainColor(domain);
 }
 
-// ADR-031 D6: Louvain community hull colour. Matches GemNodes' community node
-// hue (multiply-by-83 mod 360, HSL 0.65/0.5) so a hull and its member nodes
-// read as the same region.
+// ADR-031 D6: Louvain community hull colour, the community node colour
+// (state/analyticColours.communityHsl), so a hull and its member nodes read as
+// the same region.
 const _communityHullColor = new THREE.Color();
 function getCommunityHullColor(communityId: number): string {
-  const hue = ((communityId * 83) % 360) / 360;
-  return `#${_communityHullColor.setHSL(hue, 0.65, 0.5).getHexString()}`;
+  return `#${_communityHullColor.setHSL(...communityHsl(communityId)).getHexString()}`;
 }
 
 interface ClusterPoint {

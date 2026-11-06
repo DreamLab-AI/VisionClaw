@@ -1,6 +1,7 @@
 import { createLogger } from '../utils/loggerConfig';
 import { settingsApi } from '../api/settingsApi';
 import { SettingsPath } from '../features/settings/config/settings';
+import { useSettingsSyncStatus } from './settingsSyncStatus';
 
 interface BatchOperation {
   path: SettingsPath;
@@ -86,6 +87,7 @@ export class SettingsRetryManager {
         await settingsApi.updateSettingsByPaths(batchOps.map(op => ({ path: op.path, value: op.value })));
 
         // On success, remove all paths from retry queue
+        useSettingsSyncStatus.getState().markSaved(batchOps.map((op) => op.path));
         batchOps.forEach(({ path }: { path: SettingsPath }) => {
           this.retryQueue.delete(path);
           logger.info(`Successfully retried update for path: ${path}`);
@@ -105,6 +107,7 @@ export class SettingsRetryManager {
       try {
         await settingsApi.updateSettingByPath(update.path, update.value);
         this.retryQueue.delete(update.path);
+        useSettingsSyncStatus.getState().markSaved([update.path]);
         logger.info(`Successfully retried update for path: ${update.path}`);
       } catch (error) {
         update.lastAttempt = Date.now();
@@ -187,6 +190,7 @@ export class SettingsRetryManager {
     try {
       await settingsApi.updateSettingByPath(update.path, update.value);
       this.retryQueue.delete(path);
+      useSettingsSyncStatus.getState().markSaved([path]);
       logger.info(`Successfully retried update for path: ${path}`);
       return true;
     } catch (error) {

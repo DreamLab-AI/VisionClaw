@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 858cf136fa89bf9fdc3475ac3b409b3a3783308f
+verified_commit: 5d1b2d04d2d15698b98c2847ddd465ff9ce2ee96
 verified_paths: [crates/visionclaw-splat, src/handlers/splat_handler.rs, client/src/features/splats, xr-client/rust/src/frame_budget.rs, xr-client/rust/src/splat_governor.rs, xr-client/rust/src/splat_sort.rs, xr-client/rust/src/splat_loader.rs, xr-client/materials/splat.gdshader, xr-client/scripts/splat_volume.gd]
 owner: jjohare
 review_trigger: The first splat frame on either client, any three.js bump past 0.183, a Spark release with WebGPURenderer support (sparkjsdev/spark#394), or the first headset session with `XR_SPLATS=1`.
@@ -156,6 +156,13 @@ In the first headset session the scene loaded (the cached `xr-1` matched its ser
 - **Toggle.** A `Splat` button sits in the Session volume row beside KG, Onto and Code (`splat_toggle`). The first press builds the volume live and stores `xr.splat_scene = true`; later presses show or hide it like a graph volume (hidden withdraws the splat demand; hiding while entered leaves first; showing a failed scene retries). The stored choice outranks `XR_SPLATS`. The splat volume stays out of `VOLUME_ORDER`, focus and the connection gate: it has no server.
 - **Visible state.** Its face reads `Splat off`, `Splat …` (loading), `Splat` or `Splat ×` (failed). The Layout page's Splat Scene group shows whenever the scene is on; its button is disabled with "Loading splat scene…" or the failure reason until a variant has loaded, then Enter/Leave as before.
 - **Evidence.** Headless GUT, Godot 4.6.1, worktree build of the gdext library: 602 tests, 599 passing, 3 pending pixel tests, 0 failing; four new tests cover the toggle faces, the Layout group states, the Session row's width with the longest faces, and build/hide/reshow/remember through `GraphScene`. Not yet seen in the headset.
+
+## Amendment (2026-11-06): one desktop renderer, one splat backend
+
+The operator decided on 2026-11-06 that the desktop runs only `WebGPURenderer`, with its built-in WebGL2 fallback (`client/src/rendering/rendererFactory.ts`). There is no `WebGLRenderer` for Spark to run on, and Spark does not run under `WebGPURenderer` (#394). This supersedes Decision 3's WebGL path:
+- **One backend.** The three `GaussianSplat` addon draws on both backends. Its source documents the `forceWebGL` fallback of `WebGPURenderer` as supported (`examples/jsm/objects/GaussianSplat.js:83`), but its GPU sort and SH compute run only on the WebGPU backend. `client/src/features/splats/sparkBackend.ts` and the `@sparkjsdev/spark` dependency are deleted, and so is the backend-kind choice (`pickBackendKind`).
+- **Variant path (Decision 5).** It is chosen from the live backend (`selectBackend.renderPathFor`): the WebGPU backend prefers `desktop-hi`, and the WebGL2 backend takes `desktop`.
+- **Unverified.** No splat frame has been drawn on either backend, and the WebGL2-backend frame time against the `desktop` acceptance target is unmeasured.
 
 ## Verification
 

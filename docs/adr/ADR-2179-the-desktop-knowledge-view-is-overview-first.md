@@ -45,7 +45,7 @@ acceptance_boundary: "Context comes from a 2026-11-05 gap study against Cosmogra
    - ADR-2184 node table and encoding;
    - ADR-2185 linked filter widgets;
    - ADR-2186 label budget;
-   - ADR-2187 cosmos.gl 2D overview spike.
+   - ADR-2187 cosmos.gl 2D overview spike (rejected 2026-11-06).
    Each one cites the property it serves. Rejecting one does not block the others, except where a record names a dependency: ADR-2185 depends on ADR-2183 and ADR-2184.
 3. **Performance is measured, not asserted.** Every performance claim in the suite carries a receipt row from ADR-2171 Decision 3, on a named host with a real GPU. The browser sidecar is not a benchmark host. If ADR-2171 is rejected, this suite adopts its Decision 3 measurement method as its own precondition.
 4. **What the suite leaves alone:**
@@ -63,7 +63,7 @@ acceptance_boundary: "Context comes from a 2026-11-05 gap study against Cosmogra
   1. ADR-2180 and the ADR-2181 cap notice, which are cheap;
   2. ADR-2181, ADR-2182 and ADR-2183;
   3. ADR-2184, ADR-2185 and ADR-2186.
-  ADR-2187 can run in parallel as a reference.
+  ADR-2187 was to run in parallel as a reference; it was rejected on 2026-11-06, unbuilt.
 
 ## Verification
 None yet (`implementation_status: none`). The acceptance scenarios run on the live graph (≥ 9.5k nodes, ≥ 140k edges), on a named host with a real GPU, with screenshots and an ADR-2171 receipt:

@@ -706,6 +706,11 @@ impl SettingsRepository for SqliteSettingsRepository {
             _ => None,
         };
         seed_physics_from_blob(physics_row, quality_gates.as_ref(), &mut settings);
+        let rendering_row = match self.get_setting(RENDERING_ROW).await {
+            Ok(Some(SettingValue::Json(json))) => Some(json),
+            _ => None,
+        };
+        seed_rendering_from_blob(rendering_row, &mut settings);
         Ok(Some(settings))
     }
 
@@ -1047,6 +1052,22 @@ fn stage_row_entry(entry: &serde_json::Value) -> RepoResult<(String, Option<Stri
 /// `apply_physics_patch` is the store and a frozen leaf can never win over it. A row that does
 /// not load as physics is logged and leaves the snapshot as it was, so the load never fails
 /// because of it.
+/// The row PUT /api/settings/rendering stores the rendering document under (settings audit
+/// 2026-11-06: before it, the PUT only reached the actor's memory and was lost on restart).
+pub const RENDERING_ROW: &str = "rendering";
+
+/// The stored `rendering` row replaces the snapshot's rendering settings. A row that does not
+/// load as RenderingSettings is logged and leaves the snapshot as it was.
+fn seed_rendering_from_blob(row: Option<serde_json::Value>, settings: &mut crate::config::AppFullSettings) {
+    let Some(blob) = row.filter(|r| r.is_object()) else {
+        return;
+    };
+    match serde_json::from_value::<crate::config::RenderingSettings>(blob) {
+        Ok(rendering) => settings.visualisation.rendering = rendering,
+        Err(e) => log::warn!("stored rendering document is unusable ({e}); keeping the defaults"),
+    }
+}
+
 fn seed_physics_from_blob(
     row: Option<serde_json::Value>,
     quality_gates: Option<&serde_json::Value>,
@@ -1244,6 +1265,44 @@ mod layout_mode_snapshot_tests {
         assert_eq!(
             (p.layout_mode, p.repel_k),
             (LayoutMode::Hierarchical, 321.0)
+        );
+    }
+
+    /// Settings audit 2026-11-06: PUT /api/settings/rendering only updated the actor's memory
+    /// (`UpdateSettings` persists nothing), so ambient/direct light and the background reset on
+    /// every restart. The handler now stores a `rendering` row; the load must seed it.
+    #[tokio::test]
+    async fn a_stored_rendering_row_seeds_the_actor_load() {
+        use super::{SettingValue, SettingsRepository, SqliteSettingsRepository};
+        let repo = SqliteSettingsRepository::open(std::path::Path::new(":memory:"))
+            .await
+            .expect("open in-memory repo");
+        let mut rendering = serde_json::to_value(crate::config::RenderingSettings::default()).unwrap();
+        rendering["ambientLightIntensity"] = json!(0.7);
+        rendering["backgroundColor"] = json!("#102030");
+        repo.set_setting(super::RENDERING_ROW, SettingValue::Json(rendering), Some("test"))
+            .await
+            .unwrap();
+        let loaded = repo.load_all_settings().await.unwrap().unwrap();
+        let r = loaded.visualisation.rendering;
+        assert!((r.ambient_light_intensity - 0.7).abs() < 1e-6);
+        assert_eq!(r.background_color, "#102030");
+    }
+
+    /// A rendering row that does not load as RenderingSettings leaves the defaults in place.
+    #[tokio::test]
+    async fn an_unusable_rendering_row_never_fails_the_load() {
+        use super::{SettingValue, SettingsRepository, SqliteSettingsRepository};
+        let repo = SqliteSettingsRepository::open(std::path::Path::new(":memory:"))
+            .await
+            .expect("open in-memory repo");
+        repo.set_setting(super::RENDERING_ROW, SettingValue::Json(json!({"ambientLightIntensity": "loud"})), Some("test"))
+            .await
+            .unwrap();
+        let loaded = repo.load_all_settings().await.unwrap().unwrap();
+        assert_eq!(
+            loaded.visualisation.rendering.background_color,
+            crate::config::RenderingSettings::default().background_color
         );
     }
 }

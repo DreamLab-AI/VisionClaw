@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { isWebGPURenderer } from '../rendererFactory';
 import { createLogger } from '../../utils/loggerConfig';
 
 const logger = createLogger('AgentCapsuleMaterial');
@@ -30,7 +29,7 @@ export interface AgentCapsuleMaterialResult {
 }
 
 // ---------------------------------------------------------------------------
-// Shared agent capsule material — works on both renderers.
+// Shared agent capsule material.
 // ---------------------------------------------------------------------------
 
 export function createAgentCapsuleMaterial(): AgentCapsuleMaterialResult {
@@ -47,9 +46,8 @@ export function createAgentCapsuleMaterial(): AgentCapsuleMaterialResult {
     depthWrite: true,
     emissive: new THREE.Color(0.08, 0.4, 0.2),
     emissiveIntensity: 0.25,
-    // envMapIntensity scales reflected-environment light. GraphCanvas installs
-    // scene.environment (drei PMREM) on BOTH backends, so the WebGL capsule now
-    // reflects the same as WebGPU (parity, task #50). Previously gated to WebGPU.
+    // envMapIntensity scales reflected-environment light (GraphCanvas installs
+    // scene.environment, a drei PMREM).
     envMapIntensity: 1.8,
   });
 
@@ -66,7 +64,7 @@ export function createAgentCapsuleMaterial(): AgentCapsuleMaterialResult {
 }
 
 // ---------------------------------------------------------------------------
-// TSL metadata-driven material (WebGPU only)
+// TSL metadata-driven material
 //
 // Mirrors createTslGemMaterial in GemNodeMaterial.ts: reads per-instance
 // metadata from the same 2D DataTexture (RGBA float = quality, authority,
@@ -81,8 +79,6 @@ export async function createTslAgentCapsuleMaterial(
   texWidth: number,
   texHeight: number,
 ): Promise<boolean> {
-  if (!isWebGPURenderer) return false;
-
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Three.js TSL module exports are complex node builder types with no stable public API
     const tslMod = await import('three/tsl') as any;

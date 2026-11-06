@@ -1,5 +1,5 @@
 
-// Gem material factories (WebGPU + WebGL compatible)
+// Gem material factories (TSL-augmented PBR, WebGPURenderer on either backend)
 export { createGemNodeMaterial, createTslGemMaterial, disposeGemMaterial, createGemGeometry } from './GemNodeMaterial';
 export type { GemMaterialResult } from './GemNodeMaterial';
 export { createCrystalOrbMaterial, createCrystalOrbGeometry } from './CrystalOrbMaterial';

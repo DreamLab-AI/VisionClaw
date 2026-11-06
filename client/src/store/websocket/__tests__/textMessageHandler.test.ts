@@ -63,9 +63,11 @@ vi.mock('../../../services/nostrAuthService', () => ({
 }));
 
 const mockGetSettingsByPaths = vi.fn();
+const mockInvalidateSettingsCache = vi.fn();
 vi.mock('../../../api/settingsApi', () => ({
   settingsApi: {
     getSettingsByPaths: (...args: unknown[]) => mockGetSettingsByPaths(...args),
+    invalidateSettingsCache: () => mockInvalidateSettingsCache(),
   },
 }));
 
@@ -156,6 +158,10 @@ describe('handleTextMessage — settingsUpdated (ADR-2047)', () => {
 
     expect(mockGetSectionPaths).toHaveBeenCalledWith('physics');
     expect(mockGetSettingsByPaths).toHaveBeenCalledWith(['visualisation.graphs.knowledge.physics']);
+    // the peer's write must be read fresh, not from the 2 s /api/settings/all cache
+    expect(mockInvalidateSettingsCache).toHaveBeenCalled();
+    expect(mockInvalidateSettingsCache.mock.invocationCallOrder[0])
+      .toBeLessThan(mockGetSettingsByPaths.mock.invocationCallOrder[0]);
 
     // Allow the settingsApi promise to resolve.
     await Promise.resolve();

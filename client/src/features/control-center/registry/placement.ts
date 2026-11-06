@@ -43,9 +43,9 @@ export const SECTION_DEFS: SectionDef[] = [
   {
     id: 'encode',
     label: 'Encode',
-    description: 'What colour, size, edges and labels mean.',
+    description: 'What colour, size and labels mean.',
     hotkey: '3',
-    subsections: ['Colour & size', 'Edges', 'Labels', 'Emphasis', 'Analytic overlays'],
+    subsections: ['Colour & size', 'Labels', 'Emphasis', 'Analytic overlays'],
   },
   {
     id: 'layout',
@@ -120,8 +120,10 @@ export const SUBGROUP_PLACEMENT: Record<string, Placement> = {
   'motion|Smooth Movement': ['look', 'Motion smoothing'],
 
   'look|Nodes': ['encode', 'Colour & size'],
-  'look|Edges': ['encode', 'Edges'],
-  'look|Graph-Type Visuals': ['encode', 'Edges'],
+  // Opacity, width and colour are appearance (settings audit 2026-11-06): they sit with the
+  // overview edge controls in Look › Edges, Edge Opacity beside the long-edge fade floor.
+  'look|Edges': ['look', 'Edges'],
+  'look|Graph-Type Visuals': ['look', 'Edges'],
   'look|Lighting & Rendering': ['look', 'Lighting'],
   'look|Selection': ['encode', 'Emphasis'],
   'look|Bloom / Glow': ['look', 'Emphasis glow'],
@@ -187,6 +189,15 @@ export const PATH_PLACEMENT: Record<string, Placement> = {
   'visualisation.graphView.explore.greyoutMix': ['encode', 'Emphasis'],
   // ADR-2189 §5: the removal escape hatch sits with the filters it applies to.
   'visualisation.graphView.explore.hideFiltered': ['explore', 'Filters'],
+};
+
+/**
+ * Within a subsection fields keep declaration order, except these: path → the path it is
+ * shown immediately before. Edge Opacity (declared in look.ts) sits right before the
+ * long-edge fade floor (graphView.ts), so the two opacity controls read as a pair.
+ */
+export const PATH_BEFORE: Record<string, string> = {
+  [`${K}edges.opacity`]: 'visualisation.graphView.overviewEdges.minOpacity',
 };
 
 /** Bespoke panels (not registry fields) and the section/subsection that hosts their launcher. */

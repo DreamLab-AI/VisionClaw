@@ -9,12 +9,12 @@
  * 3. Atmosphere plane: procedural nebula texture as far background (WASM)
  * 4. JS fallback: if WASM fails to load, renders lightweight JS particles
  *
- * Rendering uses InstancedMesh + MeshBasicMaterial which works on both
- * WebGL and WebGPU. Previous Points + ShaderMaterial approach used raw
- * GLSL (gl_PointSize, gl_PointCoord) incompatible with WebGPU.
+ * Rendering uses InstancedMesh + MeshBasicMaterial (WebGPURenderer draws no
+ * raw-GLSL ShaderMaterial or sized Points). The GLSL fog plane that only
+ * WebGLRenderer drew is gone; the WASM atmosphere plane is the background.
  *
  * Performance contract:
- *   - 3-4 draw calls maximum (particles + wisps + atmosphere + fog)
+ *   - 3 draw calls maximum (particles + wisps + atmosphere)
  *   - All Float32Arrays pre-allocated in useMemo
  *   - Zero per-frame GC pressure (reused typed array views from WASM)
  *   - InstancedMesh rendering: proven pattern from GemNodes/GlassEdges
@@ -24,7 +24,6 @@ import React, { useMemo, useRef, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useWasmSceneEffects } from '../../../hooks/useWasmSceneEffects';
-import { isWebGPURenderer } from '../../../rendering/rendererFactory';
 import { useSettingsStore } from '../../../store/settingsStore';
 import type { SceneEffectsSettings } from '../../settings/config/settings';
 
@@ -90,55 +89,7 @@ function hashNoise(x: number, y: number, seed: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// GLSL for fallback fog plane (WebGL only)
-// ---------------------------------------------------------------------------
-const fogVertexShader = /* glsl */ `
-varying vec2 vUv;
-void main() {
-  vUv = uv;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-}
-`;
-
-const fogFragmentShader = /* glsl */ `
-uniform float uTime;
-uniform float uOpacity;
-uniform vec3 uColorDeep;
-uniform vec3 uColorLight;
-varying vec2 vUv;
-
-float hash(vec2 p) {
-  float h = dot(p, vec2(127.1, 311.7));
-  return fract(sin(h) * 43758.5453123);
-}
-float noise(vec2 p) {
-  vec2 i = floor(p);
-  vec2 f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
-  float a = hash(i);
-  float b = hash(i + vec2(1.0, 0.0));
-  float c = hash(i + vec2(0.0, 1.0));
-  float d = hash(i + vec2(1.0, 1.0));
-  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-}
-float fbm(vec2 p) {
-  float v = 0.0; float a = 0.5;
-  for (int i = 0; i < 3; i++) { v += a * noise(p); p *= 2.0; a *= 0.5; }
-  return v;
-}
-void main() {
-  float t = uTime * 0.03;
-  float n = fbm(vUv * 3.0 + t);
-  float wisp = smoothstep(0.35, 0.65, n);
-  vec3 col = mix(uColorDeep, uColorLight, wisp);
-  float vig = 1.0 - length(vUv - 0.5) * 1.2;
-  vig = clamp(vig, 0.0, 1.0);
-  gl_FragColor = vec4(col, uOpacity * vig * 0.5);
-}
-`;
-
-// ---------------------------------------------------------------------------
-// WASM-powered particles (InstancedMesh — WebGPU + WebGL)
+// WASM-powered particles (InstancedMesh)
 //
 // WASM computes positions, opacities, sizes via Rust noise simulation.
 // This component maps WASM data to InstancedMesh matrices + instance colors.
@@ -236,7 +187,7 @@ const WasmParticleInstances: React.FC<WasmParticleInstancesProps> = ({
 };
 
 // ---------------------------------------------------------------------------
-// WASM-powered energy wisps (InstancedMesh — WebGPU + WebGL)
+// WASM-powered energy wisps (InstancedMesh)
 //
 // WASM computes positions, opacities, sizes, hues. This component maps
 // that data to InstancedMesh matrices and hue-shifted instance colors.
@@ -581,47 +532,6 @@ const FallbackWisps: React.FC<{ opacity: number; count: number }> = React.memo((
 FallbackWisps.displayName = 'FallbackWisps';
 
 // ---------------------------------------------------------------------------
-// JS Fallback: fog plane (WebGL only — GLSL ShaderMaterial)
-// ---------------------------------------------------------------------------
-const FallbackFogPlane: React.FC<{ opacity: number }> = React.memo(({ opacity }) => {
-  const matRef = useRef<THREE.ShaderMaterial>(null);
-  const uniforms = useMemo(
-    () => ({
-      uTime: { value: 0 },
-      uOpacity: { value: opacity },
-      uColorDeep: { value: new THREE.Color('#0a0a1e') },
-      uColorLight: { value: new THREE.Color('#12122e') },
-    }),
-    // Deps intentionally narrowed; react-hooks/exhaustive-deps is not enforced in this config.
-    [],
-  );
-
-  useFrame(({ clock }) => {
-    if (matRef.current) {
-      matRef.current.uniforms.uTime.value = clock.elapsedTime;
-      matRef.current.uniforms.uOpacity.value = opacity;
-    }
-  });
-
-  return (
-    <mesh position={[0, 0, -80]} renderOrder={-20}>
-      <planeGeometry args={[300, 300]} />
-      <shaderMaterial
-        ref={matRef}
-        vertexShader={fogVertexShader}
-        fragmentShader={fogFragmentShader}
-        uniforms={uniforms}
-        transparent
-        depthWrite={false}
-        blending={THREE.AdditiveBlending}
-        side={THREE.FrontSide}
-      />
-    </mesh>
-  );
-});
-FallbackFogPlane.displayName = 'FallbackFogPlane';
-
-// ---------------------------------------------------------------------------
 // Main component — NO WebGPU gate: WASM simulation drives InstancedMesh
 // rendering on all backends. Fallback only used when WASM fails to load.
 // ---------------------------------------------------------------------------
@@ -642,7 +552,6 @@ const WasmSceneEffects: React.FC<WasmSceneEffectsProps> = ({
   const storeSettings = useSettingsStore(s => s.get<SceneEffectsSettings>('visualisation.sceneEffects'));
   const resolvedParticleColor = particleColorProp || storeSettings?.particleColor || DEFAULT_PARTICLE_COLOR;
   const resolvedWispColor = wispColorProp || storeSettings?.wispColor || DEFAULT_WISP_COLOR;
-  const resolvedFogOpacity = storeSettings?.fogOpacity ?? 0.05;
 
   const { ready, failed, particles, atmosphere, wisps, update } = useWasmSceneEffects({
     particleCount,
@@ -663,7 +572,7 @@ const WasmSceneEffects: React.FC<WasmSceneEffectsProps> = ({
 
   const clamped = Math.max(0, Math.min(1, intensity));
 
-  // WASM path: Rust noise simulation -> InstancedMesh rendering (WebGL + WebGPU)
+  // WASM path: Rust noise simulation -> InstancedMesh rendering
   if (ready && particles) {
     return (
       <group name="wasm-scene-effects">
@@ -688,10 +597,6 @@ const WasmSceneEffects: React.FC<WasmSceneEffectsProps> = ({
             color={resolvedWispColor}
           />
         )}
-        {/* Fog plane: GLSL ShaderMaterial — WebGL only */}
-        {atmosphereEnabled && !isWebGPURenderer && (
-          <FallbackFogPlane opacity={resolvedFogOpacity + clamped * 0.1} />
-        )}
       </group>
     );
   }
@@ -699,14 +604,12 @@ const WasmSceneEffects: React.FC<WasmSceneEffectsProps> = ({
   // JS fallback: only when WASM fails to load (not renderer-dependent)
   if (failed || !ready) {
     const particleOpacity = 0.15 + clamped * 0.35;
-    const fogOpacity = resolvedFogOpacity + clamped * 0.1;
     const wispOpacity = 0.2 + clamped * 0.4;
 
     return (
       <group name="wasm-scene-effects-fallback" renderOrder={-1}>
         <FallbackParticles opacity={particleOpacity} />
         {wispsEnabled && <FallbackWisps opacity={wispOpacity} count={wispCount} />}
-        {atmosphereEnabled && !isWebGPURenderer && <FallbackFogPlane opacity={fogOpacity} />}
       </group>
     );
   }

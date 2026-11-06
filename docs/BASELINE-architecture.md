@@ -1,7 +1,7 @@
 ---
 title: VisionClaw Current Architecture Baseline
 doc_id: VC-BASELINE
-version: 0.4.4
+version: 0.4.5
 status: draft-for-ratification
 verified_commit: 
 date: 2026-08-31
@@ -21,6 +21,7 @@ sources:
   - crates/visionclaw-protocol/src/protocols/binary_settings_protocol.rs
   - src/utils/binary_protocol.rs
 changelog:
+  - "0.4.5 (2026-11-06): one desktop renderer: WebGPURenderer only, with its WebGL2 backend as the fallback (TSL materials only, BloomNode only, linear blend everywhere, Lightformer studio into CubeRenderTarget); splats one backend (three GaussianSplat addon; Spark removed, ADR-2170 amended); graph-view suite status per ADR (2179/2181/2182 partial) with its remaining gaps, and ADR-2187 rejected; ADR-2184 node table is typed arrays (apache-arrow removed). No invariant changed."
   - "0.4.4 (2026-11-06): ADR-2189 menus: explore, Memory explorer and node detail are tabs of one right-hand drawer; the timeline Diff checkbox and provenance.diffMode are one control; one edge colour per graph mode; Show Clusters/Communities merged into colour scheme. Corrects 0.4.3: non-physics server buckets are stored under one key each and reach every viewer, they do not follow the account."
   - "0.4.3 (2026-11-06): ADR-2189 accepted (partial: desktop built, XR HUD not): one seven-section menu information architecture for desktop and XR, generated from the settings registry as ia.json; 40 settings nothing read were deleted with tolerant loading on both sides; one client write path. Note under XR + React clients. No invariant changed."
   - "0.4.2 (2026-11-05): ADR-2179 to ADR-2187 (proposed, not built): desktop graph-view upgrade suite note under XR + React clients (overview-first contract, knowledge-body fit, screen-space edges, sprite nodes, highlight mask, client-side node table, crossfilter widgets, label budget, cosmos.gl reference spike). No invariant changed."
@@ -285,47 +286,72 @@ owning ADR (the Protocol Registry becomes its owner).
   any splat work). `postprocessing` stays at 6.38.2: no release of it allows
   three 0.187 (6.39.5 caps at `< 0.187.0`), and `@react-three/postprocessing`
   is not imported by `client/src`, so the peer-range breach is dormant.
-- **Splats (proposed, ADR-2170, not built).** No splat library covers both of the
-  web client's renderer paths. `rendererFactory.ts` picks `WebGPURenderer` or a
-  clean `WebGLRenderer` and never WebGPURenderer's WebGL2 backend
-  (`client/src/rendering/rendererFactory.ts:38-40,141-147`).
-  - **Proposed backends:** the three `GaussianSplat` addon (`three/addons`, r186 or later, WebGPURenderer-only;
-    three is now at 0.187.0, see above) on the WebGPU path;
-    Spark 2.4 (`@sparkjsdev/spark`, WebGL2-only) on the WebGL path.
-  - **Shared rules:** both serve offline-converted SPZ LOD variants from a
-    content-addressed cache. A splat scene is a scene-level volume or environment,
-    never per-node geometry.
-- **Desktop graph-view upgrade (proposed, ADR-2179 to ADR-2187, not built).**
+- **One renderer (2026-11-06).** The desktop canvas runs only three's
+  `WebGPURenderer` (`client/src/rendering/rendererFactory.ts`). Where WebGPU is
+  missing, or the WebGPU init hangs past 5 s, it runs on three's own WebGL2
+  backend (`WebGPURenderer.getFallback` → `WebGLBackend`). The
+  `visionclaw-force-webgl` localStorage override maps to `forceWebGL: true`.
+  - **One dialect.** Every material is TSL, which the backend compiles to WGSL
+    or GLSL, so there are no GLSL `ShaderMaterial` twins and no
+    `onBeforeCompile` injections.
+  - **Post-processing** is `RenderPipeline` + `BloomNode` only
+    (`rendering/GemPostProcessing.tsx`), with the `emphasis`, `scene` and
+    `off` bloom scopes.
+  - **Environment.** The environment map is a Lightformer studio rendered into
+    three/webgpu's `CubeRenderTarget` (`rendering/StudioEnvironment.tsx`);
+    drei's `<Environment>` (a `WebGLCubeRenderTarget`) does not bind on the
+    WebGL2 backend.
+  - **Blend space.** Blending is linear on both backends, so `greyoutOpacity`
+    needs no per-backend correction (ADR-2183 D3).
+  - **No silent skip.** A material that fails to build, a draw that throws on
+    3 frames, a WebGPU pipeline failure or a WebGL2 link failure faults its
+    layer (`rendering/renderFaults.ts`, `overview/overviewLive.ts`). The canvas
+    notice (`OverviewEdgeNotice`) names the failed layer.
+  - **Not drawn any more.** The GLSL fog plane that only `WebGLRenderer` drew is
+    gone (the WASM atmosphere plane remains).
+- **Splats (ADR-2170, built, no frame verified).** One backend, the three
+  `GaussianSplat` addon, runs under `WebGPURenderer` on either backend.
+  `features/splats/selectBackend.ts` picks the variant tier from the live
+  backend: `desktop-hi` on WebGPU, `desktop` on WebGL2, where the addon has
+  no GPU sort. Spark, which needs `WebGLRenderer`, is removed (ADR-2170
+  amendment, 2026-11-06). Variants are offline-converted SPZ from a
+  content-addressed cache. A splat scene is a scene-level volume or
+  environment, never per-node geometry.
+- **Desktop graph view (ADR-2179 to ADR-2186; ADR-2187 rejected).** ADR-2180 and
+  ADR-2183 to ADR-2186 are complete; ADR-2179, ADR-2181 and ADR-2182 are partial
+  (no performance receipts; the real WebGPU backend unverified).
   ADR-2179 holds the desktop knowledge view to four properties:
   - a legible overview at the default fit;
   - edges carry the structure;
   - interactive filters grey out rather than remove;
   - no silent render-side truncation.
 
-  Today's gaps against those properties, observed live on 2026-11-05:
-  - the all-bodies camera fit (ADR-2135, `sceneFitBounds.ts:57-74`) shrinks the
-    knowledge graph to a few dozen pixels when the memory cloud is on;
-  - world-space glass-tube edges are sub-pixel at fit and capped at 65,536
-    (`GlassEdges.tsx:39-40`) against a live 147,048;
-  - `useGraphFiltering.ts:116` removes nodes from the render set;
-  - colour has no column binding and there is no legend;
-  - WebGPU labels fall back to DOM (`InstancedLabels.tsx:302-304`).
-
-  Each record decides one fix:
+  Each record decides one part:
   - ADR-2180: knowledge-body fit;
-  - ADR-2181: screen-space, length-faded edges with data-sized capacity;
+  - ADR-2181: screen-space, length-faded overview edges with data-sized
+    capacity (`overview/OverviewEdgeLines.tsx`; one fade formula,
+    `overview/edgeStyle.ts` `fadeAlphaWith`, which the TSL shader evaluates and
+    the tests pin on numbers);
   - ADR-2182: sprite nodes with gems as close-zoom detail and glow for emphasis;
   - ADR-2183: a per-node highlight mask;
-  - ADR-2184: a client-side Arrow node table built from the existing graph load
-    (no new read path) driving colour, size and legend;
+  - ADR-2184: a client-side node table of typed arrays built in a worker from
+    the existing graph load (no new read path), driving colour, size and legend;
   - ADR-2185: linked timeline, histogram, category and search widgets over it;
-  - ADR-2186: a priority-ranked label budget on one drawing path;
-  - ADR-2187: a time-boxed cosmos.gl (MIT) 2D reference route. The CC BY-NC
-    Cosmograph library is excluded.
+  - ADR-2186: a priority-ranked label budget on one drawing path (TSL glyph
+    quads; no DOM label layer).
 
-  WebGPU has no sized point or line primitives, so sprites and wide lines are
-  instanced quads (three `PointsNodeMaterial` on `Sprite`, `Line2NodeMaterial`).
-  Performance claims use ADR-2171's GPU-timestamp receipt.
+  Remaining gaps (2026-11-06):
+  - With overview edges off (`graphView.overviewEdges.enabled`, off in the dev
+    backend's stored settings), the glass tubes carry every edge and clip at
+    65,536 (`GlassEdges.tsx`), against a live 140,352. The clip is reported
+    only as a console warning, not on the canvas notice.
+  - No ADR-2171 GPU-timestamp receipt exists for the suite.
+
+  ADR-2187, the cosmos.gl 2D reference spike, was rejected on 2026-11-06: the
+  overview-first upgrade covers the need, and a second renderer would work
+  against consolidation. Sizes and widths in pixels are instanced TSL quads,
+  because WebGPU has no sized point or line primitives. Performance claims use
+  ADR-2171's GPU-timestamp receipt.
 - **Menus: one information architecture (ADR-2189, accepted; desktop built).**
   Every control lives in one of seven sections, in this order on both clients:
   Layers, Explore, Encode, Layout, Look, Agents & Governance, System (desktop

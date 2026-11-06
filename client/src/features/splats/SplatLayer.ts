@@ -1,14 +1,11 @@
 import type * as THREE from 'three';
 
-export type SplatBackendKind = 'core-addon' | 'spark';
-
 /**
- * One loaded splat cloud behind a renderer-specific backend (ADR-2170
- * decision 3). Both backends read the served SPZ v3 bytes. The caller places,
+ * One loaded splat cloud (ADR-2170 decision 3, three's GaussianSplat addon
+ * under WebGPURenderer), read from the served SPZ v3 bytes. The caller places,
  * scales and fades `root`; the layer never animates its own transform.
  */
 export interface SplatLayer {
-  readonly kind: SplatBackendKind;
   /** group holding the splats, in the asset's own units; placed by the caller */
   readonly root: THREE.Group;
   /** decode the SPZ bytes and build the GPU resources; resolves once drawable */

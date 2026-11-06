@@ -9,22 +9,21 @@
  * per-edge width, on-screen-length alpha fade and grey-out added. Unlit,
  * alpha-blended, no depth write.
  *
- * Two dialects of the same maths:
- *   - WebGL (WebGLRenderer): a GLSL3 ShaderMaterial with texelFetch.
- *   - WebGPU (WebGPURenderer): a MeshBasicNodeMaterial whose vertexNode is
- *     built in TSL with textureLoad; per-instance data rides on
- *     InstancedBufferAttributes read through `instancedBufferAttribute`, the
- *     pattern the memory cloud's sprites already run on this backend
- *     (cloudSprites.ts).
- * The fade and width maps mirror features/graph/overview/edgeStyle.ts.
+ * One TSL material (MeshBasicNodeMaterial with a vertexNode, textureLoad),
+ * which WebGPURenderer compiles to WGSL or, on its WebGL2 backend, to GLSL.
+ * Per-instance data rides on InstancedBufferAttributes read through
+ * `instancedBufferAttribute` (the memory cloud's sprites use the same pattern,
+ * cloudSprites.ts). The on-screen length fade is edgeStyle.fadeAlphaWith, the
+ * same function the CPU evaluates; the width map mirrors edgeStyle.edgeWidthPx.
  *
- * Instance attributes (both dialects):
+ * Instance attributes:
  *   aEdge   vec2  (srcIndex, tgtIndex) render indices
  *   aColor  vec3  linear RGB (edge-type colour)
  *   aWidth  float width in CSS px (edgeWidthPx of the weight)
  * Quad vertex `position`: x = side (−1 | +1), y = endpoint (0 = src, 1 = tgt).
  */
 import * as THREE from 'three';
+import { fadeAlphaWith, tslScalarOps } from '../../features/graph/overview/edgeStyle';
 
 export interface OverviewEdgeUniformValues {
   posTex: THREE.Texture;
@@ -47,7 +46,7 @@ export interface OverviewEdgeUniformValues {
   near: number;
 }
 
-/** Live uniforms shared by both dialects: write `.value`, never replace the object. */
+/** Live uniforms: write `.value`, never replace the object. */
 export interface OverviewEdgeUniforms {
   uPos: { value: THREE.Texture };
   uTexWidth: { value: number };
@@ -101,143 +100,11 @@ export function createOverviewEdgeGeometry(capacity: number): THREE.InstancedBuf
   return geo;
 }
 
-// ---------------------------------------------------------------------------
-// WebGL: GLSL3
-// ---------------------------------------------------------------------------
-
-export const OVERVIEW_EDGE_VERTEX_GLSL = /* glsl */ `
-precision highp float;
-precision highp int;
-precision highp sampler2D;
-
-uniform sampler2D uPos;
-uniform float uTexWidth;
-uniform vec2 uResolution;
-uniform float uDpr;
-uniform float uFadeNear;
-uniform float uFadeFar;
-uniform float uMinOpacity;
-uniform float uOpacity;
-uniform float uGreyOpacity;
-uniform float uNear;
-
-in vec2 aEdge;
-in vec3 aColor;
-in float aWidth;
-
-out vec3 vColor;
-out float vAlpha;
-out float vSide;
-out float vHalfWidth;
-out float vAlong;
-
-vec4 fetchNode(float idx) {
-  int i = int(idx + 0.5);
-  int w = int(uTexWidth + 0.5);
-  return texelFetch(uPos, ivec2(i % w, i / w), 0);
-}
-
-float fadeAlpha(float lenPx) {
-  if (!(lenPx > uFadeNear)) return 1.0;
-  if (!(uFadeFar > uFadeNear) || lenPx >= uFadeFar) return uMinOpacity;
-  float t = (lenPx - uFadeNear) / (uFadeFar - uFadeNear);
-  return 1.0 + (uMinOpacity - 1.0) * t;
-}
-
-void main() {
-  vec4 a = fetchNode(aEdge.x);
-  vec4 b = fetchNode(aEdge.y);
-  vec4 va = viewMatrix * vec4(a.xyz, 1.0);
-  vec4 vb = viewMatrix * vec4(b.xyz, 1.0);
-  // Trim to the near plane (LineMaterial does the same), or drop the edge.
-  float zn = -uNear * 1.0001;
-  bool aBehind = va.z > zn;
-  bool bBehind = vb.z > zn;
-  if (aBehind && bBehind) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vAlpha = 0.0; return; }
-  if (aBehind) va.xyz = mix(va.xyz, vb.xyz, (zn - va.z) / (vb.z - va.z));
-  if (bBehind) vb.xyz = mix(vb.xyz, va.xyz, (zn - vb.z) / (va.z - vb.z));
-  vec4 ca = projectionMatrix * va;
-  vec4 cb = projectionMatrix * vb;
-  vec2 half_ = uResolution * 0.5;
-  vec2 sa = (ca.xy / ca.w) * half_;
-  vec2 sb = (cb.xy / cb.w) * half_;
-  vec2 d = sb - sa;
-  float lenPx = length(d);
-  vec2 dir = lenPx > 1e-4 ? d / lenPx : vec2(1.0, 0.0);
-  vec2 nrm = vec2(-dir.y, dir.x);
-
-  bool greyed = a.w < 0.5 || b.w < 0.5;
-  bool emph = !greyed && (a.w > 1.5 || b.w > 1.5);
-  float width = max(aWidth + (emph ? 1.0 : 0.0), 1.0 / max(uDpr, 1.0));
-  // +1 px of feather so a 1 px line is antialiased, not aliased.
-  float halfW = 0.5 * width + 0.5;
-
-  vec4 c = position.y < 0.5 ? ca : cb;
-  c.xy += nrm * position.x * halfW / half_ * c.w;
-  gl_Position = c;
-
-  float alpha = fadeAlpha(lenPx) * uOpacity;
-  if (greyed) alpha = min(alpha, uGreyOpacity);
-  if (emph) alpha = 1.0;
-  vColor = aColor;
-  vAlpha = alpha;
-  vSide = position.x;
-  vHalfWidth = halfW;
-  vAlong = position.y * lenPx;
-}
-`;
-
-export const OVERVIEW_EDGE_FRAGMENT_GLSL = /* glsl */ `
-precision highp float;
-// GLSL3 ShaderMaterial: three declares no output for us (WebGLProgram.js:778).
-layout(location = 0) out highp vec4 fragColor;
-uniform float uDashed;
-uniform float uDash;
-uniform float uGap;
-uniform float uUseTint;
-uniform vec3 uTint;
-in vec3 vColor;
-in float vAlpha;
-in float vSide;
-in float vHalfWidth;
-in float vAlong;
-void main() {
-  if (vAlpha <= 0.0) discard;
-  if (uDashed > 0.5 && mod(vAlong, uDash + uGap) > uDash) discard;
-  // distance from the centre line in px; fade the outer half pixel
-  float px = abs(vSide) * vHalfWidth;
-  float feather = clamp(vHalfWidth - px, 0.0, 1.0);
-  vec3 col = uUseTint > 0.5 ? uTint : vColor;
-  fragColor = vec4(col, vAlpha * feather);
-  fragColor = linearToOutputTexel(fragColor);
-}
-`;
-
-export function createGlslOverviewEdgeMaterial(uniforms: OverviewEdgeUniforms): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    name: 'OverviewEdgeMaterial',
-    glslVersion: THREE.GLSL3,
-    uniforms: uniforms as unknown as Record<string, THREE.IUniform>,
-    vertexShader: OVERVIEW_EDGE_VERTEX_GLSL,
-    fragmentShader: OVERVIEW_EDGE_FRAGMENT_GLSL,
-    transparent: true,
-    depthWrite: false,
-    depthTest: true,
-    blending: THREE.NormalBlending,
-    // the extruded quad's winding flips with the on-screen direction
-    side: THREE.DoubleSide,
-  });
-}
-
-// ---------------------------------------------------------------------------
-// WebGPU: TSL
-// ---------------------------------------------------------------------------
-
 /**
- * Build the WebGPU material. Async because three/webgpu and three/tsl are
- * loaded on demand (as everywhere else on this path). The uniform objects in
- * `uniforms` are wrapped with `uniform()` nodes that read them each frame, so
- * callers update `.value` the same way on both dialects.
+ * Build the material. Async because three/webgpu and three/tsl are loaded on
+ * demand (as everywhere else on this path). The uniform objects in `uniforms`
+ * are wrapped with `uniform()` nodes that read them each frame, so callers
+ * update `.value` and never rebuild.
  */
 export async function createTslOverviewEdgeMaterial(
   uniforms: OverviewEdgeUniforms,
@@ -317,9 +184,7 @@ export async function createTslOverviewEdgeMaterial(
       const c = select(positionGeometry.y.lessThan(0.5), ca, cb).toVar();
       c.xy.addAssign(nrm.mul(positionGeometry.x).mul(halfW).div(half).mul(c.w));
       out.assign(c);
-      // fade (mirrors edgeStyle.fadeAlpha)
-      const t = clamp(lenPx.sub(u.fadeNear).div(max(u.fadeFar.sub(u.fadeNear), 1e-4)), 0, 1);
-      const fade = select(lenPx.greaterThan(u.fadeNear), float(1).add(u.minOpacity.sub(1).mul(t)), float(1));
+      const fade = fadeAlphaWith(tslScalarOps(T), lenPx, u.fadeNear, u.fadeFar, u.minOpacity);
       const alpha = fade.mul(u.opacity).toVar();
       If(greyed, () => { alpha.assign(min(alpha, u.grey)); });
       If(emph, () => { alpha.assign(1); });

@@ -115,14 +115,14 @@ export function useGraphFiltering(
   const greyedNodeIds = useMemo(() => {
     const out = new Set<string>();
     for (const node of scopedNodes) {
-      if (isGreyedByNodeFilter(node, f, connectionCountMap, hierarchyMap)) out.add(String(node.id));
+      if (isGreyedByNodeFilter(node, f, connectionCountMap)) out.add(String(node.id));
     }
     if (f.enabled || f.minConnections > 0 || f.minMaturityRank > 0) {
       logger.debug(`[NodeFilter] ${out.size}/${scopedNodes.length} nodes greyed (quality>=${f.qualityThreshold}, authority>=${f.authorityThreshold}, mode=${f.filterMode})`);
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopedNodes, connectionCountMap, hierarchyMap, f.enabled, f.qualityThreshold, f.authorityThreshold,
+  }, [scopedNodes, connectionCountMap, f.enabled, f.qualityThreshold, f.authorityThreshold,
       f.filterByQuality, f.filterByAuthority, f.filterMode, f.minConnections, f.minMaturityRank]);
 
   // Write the mask after render; an empty set clears the source, so the default

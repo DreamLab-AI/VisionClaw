@@ -22,10 +22,10 @@ const EXPECTED_GROUP_COUNTS: Record<string, number> = {
   motion: 84,
   look: 23,
   labels: 7,
-  quality: 29,
+  quality: 28, // RuVector Integration removed (dead, settings audit 2026-11-06)
   atmosphere: 32,
   ai: 2,
-  system: 19,
+  system: 17, // Auth Enabled / Auth Required removed (dead)
   agents: 26,
   provenance: 4,
   graphView: 21,
@@ -35,11 +35,11 @@ const EXPECTED_GROUP_COUNTS: Record<string, number> = {
 const EXPECTED_SECTION_COUNTS: Record<string, number> = {
   layers: 14,
   explore: 28,
-  encode: 24,
+  encode: 19, // edge width, opacity and the three mode colours moved to Look › Edges
   layout: 80,
-  look: 44,
+  look: 49,
   agents: 30,
-  system: 27,
+  system: 24,
 };
 
 /**
@@ -283,14 +283,16 @@ describe('control-center settings registry', () => {
   });
 
   it('(b3) ADR-2189 deleted every dead path: none is still a control', () => {
-    expect(DEAD_PATHS).toHaveLength(37);
+    // 37 from ADR-2189 + 4 from the 2026-11-06 settings audit (node opacity, RuVector, Auth x2)
+    expect(DEAD_PATHS).toHaveLength(41);
     // sizeScheme, edges.colorByType, edges.widthByWeight, and labels.desktopFontSize
     // (replaced by graphView.labels.fontPx when the render lane landed ADR-2186)
-    expect(REPLACED_PATHS).toHaveLength(4);
+    // + the five legacy visualisation.bloom.* paths (replaced by visualisation.glow.*, settings audit 2026-11-06)
+    expect(REPLACED_PATHS).toHaveLength(9);
     // generic knowledge edges.color (→ agent mode's edge colour), Show Clusters,
     // Show Communities (→ colour scheme = Cluster / Community)
     expect(MERGED_PATHS).toHaveLength(3);
-    expect(new Set(ADR_2189_REMOVED_PATHS).size).toBe(44);
+    expect(new Set(ADR_2189_REMOVED_PATHS).size).toBe(53);
     for (const [from, to] of Object.entries(RENAMED_PATHS)) {
       expect(ADR_2189_REMOVED_PATHS).toContain(from);
       expect(ALL_PATHS, to).toContain(to);
@@ -588,5 +590,49 @@ describe('control-center settings registry', () => {
     const dual = ALL_FIELDS.find((f) => f.path === 'visualisation.graphs.knowledge.physics.enableDualDiscLayout')!;
     expect(dual.description).toMatch(/centre/i);
     expect(dual.description).toMatch(/always/i);
+  });
+});
+
+describe('settings audit 2026-11-06: opacity, misfiled controls and dead controls', () => {
+  const ia = buildIa();
+  const where = (path: string) => {
+    for (const s of ia.sections) for (const sub of s.subsections) {
+      const f = sub.fields.find((x) => x.path === path);
+      if (f) return { section: s.id, subsection: sub.label, label: f.label, index: sub.fields.indexOf(f) };
+    }
+    return null;
+  };
+  const EDGE_OPACITY = 'visualisation.graphs.knowledge.edges.opacity';
+  const LONG_EDGE = 'visualisation.graphView.overviewEdges.minOpacity';
+
+  it('Edge Opacity sits next to the long-edge fade floor in Look › Edges', () => {
+    const a = where(EDGE_OPACITY)!;
+    const b = where(LONG_EDGE)!;
+    expect([a.section, a.subsection]).toEqual(['look', 'Edges']);
+    expect([b.section, b.subsection]).toEqual(['look', 'Edges']);
+    expect(Math.abs(a.index - b.index)).toBe(1);
+  });
+
+  it('the two labels say which is which', () => {
+    expect(where(EDGE_OPACITY)!.label).toMatch(/^Edge Opacity/);
+    expect(where(LONG_EDGE)!.label).not.toMatch(/Opacity/);
+    expect(where(LONG_EDGE)!.label).toMatch(/fade/i);
+  });
+
+  it('edge width and colour are Look concerns too (Encode keeps what edges mean)', () => {
+    for (const p of [
+      'visualisation.graphs.knowledge.edges.baseWidth',
+      'visualisation.graphTypeVisuals.knowledgeGraph.edgeColor',
+      'visualisation.graphTypeVisuals.ontology.edgeColor',
+      'visualisation.graphTypeVisuals.agent.edgeColor',
+    ]) expect(where(p)?.section, p).toBe('look');
+  });
+
+  it('dead controls are gone: RuVector Integration, Auth Enabled, Auth Required', () => {
+    for (const p of ['qualityGates.ruvectorEnabled', 'auth.enabled', 'auth.required']) {
+      expect(ALL_PATHS, p).not.toContain(p);
+      expect(DEAD_PATHS, p).toContain(p);
+    }
+    expect(DEAD_PATHS).toContain('visualisation.graphs.knowledge.nodes.opacity');
   });
 });

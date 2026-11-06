@@ -1,12 +1,12 @@
 import type * as THREE from 'three';
 import { createLogger } from '../../utils/loggerConfig';
 import { placementFor, type Sphere, type SplatMode } from './fit';
-import type { SplatBackendKind, SplatLayer } from './SplatLayer';
-import { createSplatLayer, pickBackendKind, renderPathFor } from './selectBackend';
+import type { SplatLayer } from './SplatLayer';
+import { createSplatLayer, renderPathFor } from './selectBackend';
 import { loadVariantBytes, SplatIntegrityError } from './splatCache';
 import { beginIn, beginOut, STEADY, stepFade, type Fade } from './transition';
 import type { SplatAsset, SplatVariant } from './types';
-import { chooseVariant } from './variants';
+import { chooseVariant, type RenderPath } from './variants';
 
 const logger = createLogger('SplatController');
 
@@ -33,7 +33,7 @@ type Pending =
   | { kind: 'replace'; request: SplatRequest; variant: SplatVariant; layer: SplatLayer };
 
 /**
- * Owns the one live splat layer of a scene: backend choice at mount, variant
+ * Owns the one live splat layer of a scene: variant path at mount, variant
  * choice, verified load, placement, transitions and disposal. No React and no
  * three scene knowledge beyond the `parent` it attaches to, which is always
  * scene level (never a graph node or the graph root).
@@ -47,21 +47,21 @@ export class SplatController {
   /** the load in progress, so a repeat request for the same blob never fetches twice */
   private inflight: { address: string; token: number; req: SplatRequest } | null = null;
   private disposed = false;
-  private readonly kind: SplatBackendKind;
+  private readonly path: RenderPath;
 
   constructor(
     private readonly gl: unknown,
     private readonly parent: THREE.Object3D,
     private readonly deps: SplatControllerDeps,
   ) {
-    this.kind = pickBackendKind(gl);
+    this.path = renderPathFor(gl);
   }
 
   /** Ask for a cloud (or none). Safe to call every time the request changes. */
   request(req: SplatRequest | null): void {
     if (this.disposed) return;
     if (req) {
-      const wanted = chooseVariant(req.asset, renderPathFor(this.kind));
+      const wanted = chooseVariant(req.asset, this.path);
       if (wanted && this.inflight?.address === wanted.address) {
         // same blob already loading: only the requested mode can differ
         this.inflight.req = req;
@@ -76,7 +76,7 @@ export class SplatController {
       this.deps.onStatus('idle', { variant: null });
       return;
     }
-    const variant = chooseVariant(req.asset, renderPathFor(this.kind));
+    const variant = chooseVariant(req.asset, this.path);
     if (!variant) {
       this.discardPendingLayer();
       if (this.layer) this.startSwap({ kind: 'remove' });
@@ -139,7 +139,7 @@ export class SplatController {
     try {
       const bytes = await (this.deps.loadBytes ?? loadVariantBytes)(variant);
       if (token !== this.token) return;
-      layer = await (this.deps.createLayer ?? createSplatLayer)(this.gl, this.kind);
+      layer = await (this.deps.createLayer ?? createSplatLayer)(this.gl);
       await layer.load(bytes);
       if (token !== this.token) {
         layer.dispose();

@@ -32,11 +32,11 @@ acceptance_boundary: "Node shape read in crates/visionclaw-domain/src/models/nod
 - **Isolation headers.** nginx sets COOP `same-origin` and COEP `require-corp` (`nginx.conf:87-88`), so any WebAssembly or worker asset must be served from our own origin.
 
 ## Decision
-1. **The table is built on the client from data already delivered.** The client builds one Apache Arrow node table in a worker. Its sources are:
+1. **The table is built on the client from data already delivered.** The client builds one node table of typed arrays in a worker (amended 2026-11-06; see the implementation note). Its sources are:
    - the existing `/api/graph/data` / `initialGraphLoad` node objects;
    - the analytics fields of the live position stream, joined by wire id and refreshed as frames arrive.
    **No new endpoint and no new read path.** The table therefore exposes nothing beyond what the client already receives.
-   A dedicated `/api/graph/table` Arrow endpoint is rejected for now: it would be a second read path that has to re-apply every gate.
+   A dedicated `/api/graph/table` endpoint is rejected for now: it would be a second read path that has to re-apply every gate.
    - **Precondition: the REST load must be gated.** The `/wss` `initialGraphLoad` path applies the `PUBKEY_VISIBILITY_FILTER` drop-set (`src/handlers/socket_flow_handler/position_updates.rs:64-72`). No visibility gate was found in the REST `/api/graph/data` handler (`src/handlers/api_handler/graph/mod.rs:217-312`), which filters by population and linked-page only, and the desktop loads from REST. Before this record is accepted, it must be shown, or made true, that the REST load applies the same visibility filter (ADR-2003). Whether private nodes reach that handler today is unverified.
 2. **Column typing.** Typed fields keep their types. `metadata` strings are typed per column by a declared schema (number, date, category, text), not by guessing per value. Unknown keys are text.
 3. **Missing columns are added as new keys, not new formats.** If a needed column (for example `last_commit`) is not on the load, the server adds it as a new key in the existing node object, under the ADR-2164 precedent. That change is recorded in `docs/PROTOCOL-registry.md`.
@@ -49,13 +49,22 @@ acceptance_boundary: "Node shape read in crates/visionclaw-domain/src/models/nod
 5. **Query engine.**
    - DuckDB-WASM (MIT) with Mosaic (BSD-3-Clause) is the query engine for ADR-2185's widgets.
    - It is loaded lazily, the first time a widget or SQL view opens. It is self-hosted under the client's own origin (no CDN, because of COEP) and runs in a worker.
-   - Encoding alone does not require DuckDB: it reads the Arrow table directly.
+   - Encoding alone does not require DuckDB: it reads the typed-array table directly.
    - The shipped bundle's size is measured and recorded before acceptance; the npm package (149 MB unpacked) contains several bundles.
 
 ## Consequences
 - **What users can do.** Encode the graph by maturity, recency, centrality, community or anything else on the node, with a legend. This is the precondition for ADR-2185.
 - **Payload.** The graph load may grow by the added columns. That cost is measured when columns are added.
 - **Ownership.** The schema in Decision 2 becomes a maintained artefact. It lives beside `client/src/types/` and is generated from Rust where the type exists (`cargo run --bin generate_types`).
+
+## Implementation notes
+- **D1 amended, 2026-11-06: the node table is typed arrays.** The worker builds and transfers one `NodeColumns` (`client/src/features/graph/explore/tableSchema.ts`, `buildTable.ts`, `nodeTable.worker.ts`), with rows aligned to the shared render index. The column types are:
+  - numeric and temporal: `Float64Array`, NaN = null;
+  - boolean: `Int8Array`, −1 = null;
+  - categorical: `Int32Array` codes into a dictionary, −1 = null;
+  - text: string array.
+
+  Encoding, the legend and the ADR-2185 widgets read these directly. An Apache Arrow form existed only as `toArrowTable`, which nothing called beyond its re-export, so it and the `apache-arrow` dependency are deleted. The operator decided this on 2026-11-06. The typed-array facts its test pinned are now pinned on the typed arrays themselves (`explore/__tests__/nodeTable.test.ts`). If a later consumer needs Arrow, for example a DuckDB/Mosaic view (D5), it converts at that boundary.
 
 ## Verification
 None yet. Each decision has its own check:

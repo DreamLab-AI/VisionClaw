@@ -107,17 +107,6 @@ export const DEFAULT_GLOW_SETTINGS = {
   environmentGlowStrength: 0.2
 };
 
-export const DEFAULT_BLOOM_SETTINGS = {
-  enabled: true,
-  intensity: 0.4,
-  // Threshold sits above the (now neutral-exposure) base lighting so only true
-  // emissive highlights bloom. At 0.3 the whole lit scene cleared the threshold
-  // and bloomed uniformly, swamping per-node emissive hue toward white.
-  threshold: 0.6,
-  radius: 0.3,
-  strength: 0.4
-};
-
 export const DEFAULT_HOLOGRAM_SETTINGS = {
   ringCount: 3,
   ringColor: '#00ffff',
