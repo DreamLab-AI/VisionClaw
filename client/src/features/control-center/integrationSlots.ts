@@ -11,6 +11,7 @@
  * |------------------------|------------|--------------------------------------------------------|
  * | requestFit(target)     | gv-render  | today's whole-graph fit (CAMERA_FIT_EVENT)             |
  * | FIT_TARGETS_SUPPORTED  | gv-render  | false: the Fit button offers no scope menu             |
+ * | LABEL_BUDGET_SUPPORTED | gv-render  | false: the Labels dial drives today's label distance   |
  * | useEdgeCapacityNotice  | gv-render  | returns null: no notice                                |
  * | ExplorePanel           | gv-explore | null: the Explore button opens Settings › Explore      |
  * | GraphLegend            | gv-explore | null: the Legend button is hidden                      |
@@ -34,8 +35,7 @@ export function requestFit(target: FitTarget): void {
   window.dispatchEvent(new CustomEvent(CAMERA_FIT_EVENT, { detail: { target } }));
 }
 
-/** True once `requestFit` honours its target, which enables the Fit scope menu. */
-export const FIT_TARGETS_SUPPORTED = false;
+export { FIT_TARGETS_SUPPORTED, LABEL_BUDGET_SUPPORTED } from './integrationFlags';
 
 /** ADR-2181: edges dropped because the overview edge capacity was reached. */
 export interface EdgeCapacityNotice {

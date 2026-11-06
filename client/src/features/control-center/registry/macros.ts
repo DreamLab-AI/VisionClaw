@@ -9,6 +9,7 @@ import type { LucideIcon } from 'lucide-react';
 import { Atom } from 'lucide-react';
 import { Sun, Wind, Tags, CloudFog } from 'lucide-react';
 import type { MacroDef } from './types';
+import { LABEL_BUDGET_SUPPORTED } from '../integrationFlags';
 
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
 const num = (get: (p: string) => unknown, path: string, fallback: number): number => {
@@ -18,6 +19,7 @@ const num = (get: (p: string) => unknown, path: string, fallback: number): numbe
 
 const P = 'visualisation.graphs.knowledge.physics.';
 const S = 'visualisation.sceneEffects.';
+const L = 'visualisation.graphs.knowledge.labels.';
 
 const G = 'visualisation.graphView.';
 
@@ -76,18 +78,31 @@ export const MACROS: MacroDef[] = [
   },
   {
     id: 'focus',
-    // Was "Focus" (label draw distance + font size). ADR-2186 replaces distance
-    // culling with a priority-ranked budget, so the dial now sets how many of the
-    // most important nodes carry a label at overview zoom: 0 → 120, on the
-    // registry slider's step of 5 so the dial and the slider never disagree.
+    // Was "Focus". ADR-2186 replaces distance culling with a priority-ranked budget:
+    // once the renderer reads it (LABEL_BUDGET_SUPPORTED) the dial sets how many of
+    // the most important nodes carry a label at overview zoom, 0 → 120 on the
+    // registry slider's step of 5. Until then it drives today's label controls:
+    // draw distance pulls in (1200 → 300) and the font grows (0.25 → 0.6), never
+    // touching nodeFilter.* (writing the filter per drag tick re-ran filtering over
+    // the whole corpus and popped labels in and out).
     label: 'Labels',
     icon: Tags,
     scope: 'browser',
-    apply: (t) => [
-      { path: `${G}labels.budget`, value: Math.round((t * LABEL_BUDGET_MAX) / LABEL_BUDGET_STEP) * LABEL_BUDGET_STEP },
-    ],
-    derive: (get) => clamp01(num(get, `${G}labels.budget`, 40) / LABEL_BUDGET_MAX),
-    describe: (get) => `${Math.round(num(get, `${G}labels.budget`, 40))} overview labels`,
+    apply: (t) =>
+      LABEL_BUDGET_SUPPORTED
+        ? [{ path: `${G}labels.budget`, value: Math.round((t * LABEL_BUDGET_MAX) / LABEL_BUDGET_STEP) * LABEL_BUDGET_STEP }]
+        : [
+            { path: `${L}labelDistanceThreshold`, value: 1200 - t * 900 },
+            { path: `${L}desktopFontSize`, value: 0.25 + t * 0.35 },
+          ],
+    derive: (get) =>
+      LABEL_BUDGET_SUPPORTED
+        ? clamp01(num(get, `${G}labels.budget`, 40) / LABEL_BUDGET_MAX)
+        : clamp01((1200 - num(get, `${L}labelDistanceThreshold`, 1200)) / 900),
+    describe: (get) =>
+      LABEL_BUDGET_SUPPORTED
+        ? `${Math.round(num(get, `${G}labels.budget`, 40))} overview labels`
+        : `labels within ${Math.round(num(get, `${L}labelDistanceThreshold`, 1200))} units, size ${num(get, `${L}desktopFontSize`, 0.4).toFixed(2)}`,
   },
   {
     id: 'atmosphere',

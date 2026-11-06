@@ -176,7 +176,7 @@ describe('ControlCenter shell', () => {
     expect(spread.getAttribute('aria-valuetext')).toMatch(/repulsion .*Changes the layout for everyone/);
     expect(screen.getByTestId('macro-luminosity').getAttribute('aria-label')).toBe('Glow');
     expect(screen.getByTestId('macro-focus').getAttribute('aria-label')).toBe('Labels');
-    expect(screen.getByTestId('macro-focus').getAttribute('aria-valuetext')).toMatch(/overview labels/);
+    expect(screen.getByTestId('macro-focus').getAttribute('aria-valuetext')).toMatch(/labels/);
     expect(screen.queryByTestId('macro-luminosity-shared')).toBeNull();
     expect(screen.getByTestId('macro-density-shared')).toBeInTheDocument();
   });
