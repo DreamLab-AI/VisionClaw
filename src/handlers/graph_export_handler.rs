@@ -139,6 +139,12 @@ pub async fn export_graph(
         _ => {}
     }
 
+    // Every share has a creator, so someone can always delete it (VC-19); an anonymous caller
+    // cannot create one.
+    if caller.0.is_none() {
+        return unauthorized!("Sharing a graph requires a signed-in caller");
+    }
+
     let graph = match handler.get_current_graph(&app_state, &caller).await {
         Ok(graph) => graph,
         Err(e) => {
@@ -301,12 +307,21 @@ pub async fn delete_shared_graph(
         }
     };
 
-    // Only the recorded creator may delete; anyone else, an anonymous caller and a share with
-    // no recorded creator get "not found", so the refusal does not confirm the share exists
-    // (review L1). The rule is the store's `delete_owned`.
+    // Only the recorded creator may delete, plus a power user for a legacy creator-less share;
+    // anyone else and an anonymous caller get "not found", so the refusal does not confirm the
+    // share exists (review L1). The rules are the store's `delete_owned` and `delete_unowned`.
+    let is_power_user = caller.0.as_ref().is_some_and(|u| u.is_power_user);
     let caller = caller.0.as_ref().map(|u| u.pubkey.as_str());
     let removed_graph = match handler.shares.delete_owned(share_id, caller).await {
-        Ok(removed) => removed,
+        Ok(Some(removed)) => Some(removed),
+        // A legacy share with no recorded creator (made before creators were required) may be
+        // deleted by a power user, so it is not undeletable forever. Any other refusal still
+        // reads as "not found".
+        Ok(None) if is_power_user => match handler.shares.delete_unowned(share_id).await {
+            Ok(removed) => removed,
+            Err(e) => return error_json!("Failed to update share store: {}", e),
+        },
+        Ok(None) => None,
         Err(e) => return error_json!("Failed to update share store: {}", e),
     };
 
