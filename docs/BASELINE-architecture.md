@@ -144,15 +144,16 @@ allow-list, on any dependency on `visionclaw-server`, and on a member with no
 declared layer.
 
 **Actor extraction is unfinished**: `src/actors/*.rs` holds **25** actor
-source files while `crates/visionclaw-actors/src` holds **11** counted
-recursively (4 at the top level — `lib.rs`, `supervisor.rs`, `voice_commands.rs`,
-`protected_settings_actor.rs` — plus 7 under `messages/`). The live supervisor
-tree still runs from `src/actors/`, not the crate (63 `.rs` files recursively). The count
+source files while `crates/visionclaw-actors/src` holds **10** counted
+recursively (3 at the top level — `lib.rs`, `supervisor.rs`, `voice_commands.rs` —
+plus 7 under `messages/`). The live supervisor
+tree still runs from `src/actors/`, not the crate (64 `.rs` files recursively, counted 2026-11-06). The count
 was 25, fell to 23 when `ADR-2045` deleted the two dead supervision files, and is 25 again
 (new files include `position_stream.rs`, ADR-2141, and `agent_demo_director.rs`, ADR-2142, both
 in the root), so the extraction gap has widened, not narrowed. The crate still carries its own copy
-of `supervisor.rs`, which the root crate no longer has, and `protected_settings_actor.rs` and
-`voice_commands.rs` exist in both trees.
+of `supervisor.rs`, which the root crate no longer has, and `voice_commands.rs` exists in
+both trees. `protected_settings_actor.rs`, formerly in both, was deleted from both on
+2026-11-06 (dead: started, never addressed).
 
 ### Actor system topology
 
