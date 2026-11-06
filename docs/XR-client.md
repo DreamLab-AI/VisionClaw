@@ -5,7 +5,7 @@ version: 0.1.33
 status: draft-for-ratification
 verified_commit: 
 changelog:
-  - "0.1.33 (2026-11-06): ADR-2189 XR side built (headless GUT evidence only, no headset). The HUD tab bar is the seven sections of `data/ia.json` (a byte-identical copy of the desktop's generated file from feat/gv-menus 600b2846b) plus Fit, Legend and Explore; a rail picks a section's pages (two levels). The Graph tab is split across Layers, Encode and Look; the splat controls move to Layers; a System › Headset page adds dwell, haptics and Low-cost visuals; Encode › Labels adds the label budget and label text size; Fit restores the arrangement after a two-hand turn or scale; Edges ± now sets the share of each volume's edges; view preferences (including Reduce motion, Low-cost visuals and colour mode) persist in `xr_prefs.cfg`. The HUD type filter stays population scoping (removes), per ADR-2189 §5. Supersedes the 'XR side not built' note of feat/gv-menus' 0.1.32. HUD structure section amended; Invariants and verified_commit untouched."
+  - "0.1.33 (2026-11-06): ADR-2189 XR side built (headless GUT evidence only, no headset). The HUD tab bar is the seven sections of `data/ia.json` (the desktop's generated file, merged from feat/gv-menus dadcc5aa2) plus Fit, Legend and Explore; a rail picks a section's pages (two levels). The Graph tab is split across Layers, Encode and Look; the splat controls move to Layers; a System › Headset page adds dwell, haptics and Low-cost visuals; Encode › Labels adds the label budget and label text size; Fit restores the arrangement after a two-hand turn or scale; Edges ± now sets the share of each volume's edges; view preferences (including Reduce motion, Low-cost visuals and colour mode) persist in `xr_prefs.cfg`. The HUD type filter stays population scoping (removes), per ADR-2189 §5. Supersedes the 'XR side not built' note of feat/gv-menus' 0.1.32. HUD structure section amended; Invariants and verified_commit untouched."
   - "0.1.32 (2026-11-06): ADR-2188 D1-D5 (partial; headless GUT and Rust unit evidence only, no GL render, no headset). Overview tier: pixel-floored impostors, screen-width length-faded ribbons, the dropped-edge readout in the HUD header, a per-slot highlight mask in Rust under which the received nodeFilter greys out instead of removing (the type filter stays population scoping and removes, ADR-2189 §5), emphasis by colour, size and outline (no bloom), and a priority-ranked label budget of 8 + 4 pinned. New section 'Overview-first rendering (ADR-2188)'; the Desktop-parity filter sentence is amended. Invariants and verified_commit untouched."
   - "0.1.31 (2026-11-05): ADR-2178 (proposed, partial, staged): the merged splat space. A staged splat asset (manifest `stage {metresPerUnit, focus}`) can be entered at viewer scale with the ontology volume hanging between the start and the focus; the other volumes hide. Layout page Merge button and scale steps (`xr.merged_splat_scale`). New section only; Current State, Invariants and verified_commit untouched."
   - "0.1.30 (2026-11-04): ADR-2170 HUD amendment: a Splat on/off toggle in the Session volume row (stored in `xr.splat_scene`, which outranks `XR_SPLATS`; the first press builds the volume live); the Layout page's Splat Scene group shows whenever the scene is on, with a loading or failure line until a variant lands. Headless GUT only."
@@ -256,7 +256,7 @@ SubViewport shown on a world-space, wand-grabbable quad — one source of truth 
 every control fits its page (`hud.gd:1-32`). Since ADR-2189 (2026-11-06) the tab
 bar is the seven shared sections, read from `data/ia.json`, then Fit, Legend and
 Explore (`hud.gd:506`); each section's pages are picked on a rail at the left of
-the page host (`hud.gd:1947`). See *Menu information architecture (ADR-2189)*. Page
+the page host (`hud.gd:1956`). See *Menu information architecture (ADR-2189)*. Page
 build order: `layers, query, pins, encode, key, layout, shapes, forces, look, swarm,
 session, headset, help` (`hud.gd:272` `TAB_ORDER`; `key` is the colour swatch legend,
 2026-09-08). Stable node paths are documented in-file (`hud.gd:20-32`) for rebases.
@@ -1064,8 +1064,8 @@ The desktop and the headset share one menu map: seven sections, each with named
 subsections, at most two levels deep (ADR-2188 §6). The map is `data/ia.json`,
 generated from the desktop settings registry by
 `client/scripts/emit-settings-manifest.ts`; a desktop Vitest test asserts this copy
-equals a fresh build. The copy committed here is byte-identical to feat/gv-menus
-`600b2846b` (sha256 `e46be5f8…`).
+equals a fresh build, and it arrives on this branch by merging feat/gv-menus
+(`dadcc5aa2`, sha256 `29053cd1…`), never by hand edit.
 
 - **What the headset takes from it.** Section ids, labels, order and hotkeys, the
   subsection names and the scope texts (`scripts/hud_ia.gd:88` `load_doc`). Its

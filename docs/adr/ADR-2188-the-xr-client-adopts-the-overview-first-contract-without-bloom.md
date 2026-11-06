@@ -33,6 +33,7 @@ acceptance_boundary: "Accepted on operator instruction 2026-11-06 ('fully implem
 3. **No bloom.** Emphasis in XR is by colour, size and outline, never glow.
 4. **Highlight mask.** The XR client keeps a per-node highlight byte, using the ADR-2183 semantics (selected, hovered, search hit, filtered-out greyed). Filters set in the XR menus write it.
 5. **Label budget.** ADR-2186's priority-ranked budget applies, with a smaller default budget suited to headset text legibility.
+   - *Set at implementation (accepted by the lead, 2026-11-06):* the default is 8 ranked labels plus up to 4 pinned ones (held, selected, hovered), so the label pool stays at 12 anchors (`xr-client/scripts/label_budget.gd`). The reason is draw calls more than legibility: each visible `Label3D` is its own draw call, and the scene measures 31–34 of PRD-008's 50. Ranked labels draw a title only and pinned ones title plus detail, so the worst case is 8 + 4 × 2 = 16 calls, down from 12 × 2 = 24 before. The desktop default is 40 + 40 + 100 (ADR-2186 D1). The operator can lower the budget in Encode › Labels (0–8).
 6. **Menus.** The XR HUD and radial menu expose the same information architecture as the desktop menus, as set by the menu-audit record (ADR-2189). Controls are reachable within two levels.
 
 ## Consequences

@@ -34,7 +34,7 @@ const FALLBACK_SECTIONS: Array = [
 ]
 const FALLBACK_SCOPES: Dictionary = {
 	"shared": "Changes the layout for everyone",
-	"server": "Saved to your account",
+	"server": "Saved on the server for every viewer",
 	"browser": "This browser only",
 }
 
