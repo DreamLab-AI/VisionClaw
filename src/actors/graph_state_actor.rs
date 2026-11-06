@@ -751,7 +751,7 @@ impl GraphStateActor {
         source_node_id: u32,
     ) -> Result<HashMap<u32, (f32, Vec<u32>)>, String> {
         if !self.node_map.contains_key(&source_node_id) {
-            return Err(format!("Source node {} not found", source_node_id));
+            return Err(source_not_found(source_node_id));
         }
 
         let mut distances: HashMap<u32, f32> = HashMap::new();
@@ -1140,6 +1140,12 @@ impl Handler<GetNodeIdMapping> for GraphStateActor {
         // Return empty map for backward compatibility with any remaining callers.
         NodeIdMapping(HashMap::new())
     }
+}
+
+/// The error for a shortest-path source that is not in the graph. `/sssp/compute` returns the
+/// same text for a source the caller cannot see, so the two are indistinguishable (ADR-060).
+pub(crate) fn source_not_found(source_node_id: u32) -> String {
+    format!("Source node {} not found", source_node_id)
 }
 
 impl Handler<ComputeShortestPaths> for GraphStateActor {

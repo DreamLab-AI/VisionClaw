@@ -202,8 +202,16 @@ pub async fn get_sssp_status(app_state: web::Data<AppState>) -> Result<HttpRespo
     }))
 }
 
+/// The `/sssp/compute` failure reply; a hidden source and a missing one share it.
+fn sssp_compute_failed(e: &str) -> HttpResponse {
+    HttpResponse::InternalServerError().json(serde_json::json!({
+        "success": false,
+        "error": format!("Failed to compute SSSP: {}", e),
+    }))
+}
+
 pub async fn compute_sssp(
-    _auth: crate::settings::auth_extractor::AuthenticatedUser,
+    auth: crate::settings::auth_extractor::AuthenticatedUser,
     app_state: web::Data<AppState>,
     request: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, actix_web::Error> {
@@ -214,6 +222,26 @@ pub async fn compute_sssp(
         .and_then(|v| v.as_u64())
         .map(|v| v as u32)
         .unwrap_or(0);
+
+    // ADR-060: a source the caller cannot see answers exactly as a missing one, and an
+    // unreadable graph fails closed. The run itself returns nothing per node.
+    match crate::handlers::graph_access::caller_gate(
+        &app_state.graph_service_addr,
+        Some(auth.pubkey.as_str()),
+    )
+    .await
+    {
+        Ok(Some((view, _))) if !super::visible_results::sssp_source_visible(&view, source_node) => {
+            return Ok(sssp_compute_failed(
+                &crate::actors::graph_state_actor::source_not_found(source_node),
+            ));
+        }
+        Ok(_) => {}
+        Err(e) => {
+            error!("Graph service communication error: {}", e);
+            return error_json!("Failed to communicate with graph service");
+        }
+    }
 
     use crate::actors::messages::ComputeShortestPaths;
     match app_state
@@ -233,10 +261,7 @@ pub async fn compute_sssp(
         }
         Ok(Err(e)) => {
             error!("Failed to compute SSSP: {}", e);
-            Ok(HttpResponse::InternalServerError().json(serde_json::json!({
-                "success": false,
-                "error": format!("Failed to compute SSSP: {}", e),
-            })))
+            Ok(sssp_compute_failed(&e))
         }
         Err(e) => {
             error!("Graph service communication error: {}", e);

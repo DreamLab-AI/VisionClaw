@@ -51,6 +51,27 @@ pub fn visible_positions(graph: &GraphData, view: &GraphData) -> HashSet<u32> {
         .collect()
 }
 
+/// The caller's view and visible positions, for a route whose result comes from a whole-graph
+/// actor. `Ok(None)` means nothing is hidden from this caller (filter off, or every node
+/// visible), so the result passes through untouched and the graph is not fetched when the filter
+/// is off. `Err` means the graph could not be read; the route must then answer with an error
+/// rather than an unfiltered result (fail closed).
+pub async fn caller_gate(
+    supervisor: &Addr<GraphServiceSupervisor>,
+    pubkey: Option<&str>,
+) -> Result<Option<(Arc<GraphData>, HashSet<u32>)>, String> {
+    if !visionclaw_domain::utils::visibility_filter::filter_enabled() {
+        return Ok(None);
+    }
+    let graph = current_graph(supervisor).await?;
+    let view = caller_view_for(&graph, pubkey);
+    if Arc::ptr_eq(&graph, &view) {
+        return Ok(None);
+    }
+    let visible = visible_positions(&graph, &view);
+    Ok(Some((view, visible)))
+}
+
 /// Fetch the current graph, or a message saying why it is unavailable.
 pub async fn current_graph(
     supervisor: &Addr<GraphServiceSupervisor>,

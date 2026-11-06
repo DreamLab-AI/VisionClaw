@@ -90,6 +90,30 @@ impl std::fmt::Display for PageRankClearResponse {
     }
 }
 
+/// The caller's visible positions, or `None` when nothing is hidden from them (ADR-060). The
+/// PageRank actor and its cache are shared by every caller, so the filter runs on the way out.
+async fn gate_for(
+    data: &web::Data<AppState>,
+    caller: &crate::settings::OptionalAuth,
+) -> Result<Option<std::collections::HashSet<u32>>, String> {
+    crate::handlers::graph_access::caller_gate(
+        &data.graph_service_addr,
+        caller.0.as_ref().map(|u| u.pubkey.as_str()),
+    )
+    .await
+    .map(|gate| gate.map(|(_, visible)| visible))
+}
+
+fn apply_gate(
+    result: PageRankResult,
+    gate: Option<std::collections::HashSet<u32>>,
+) -> PageRankResult {
+    match gate {
+        Some(visible) => super::visible_results::gate_pagerank(result, &visible),
+        None => result,
+    }
+}
+
 /// Compute PageRank centrality for all nodes in the graph
 ///
 /// # Use Cases
@@ -111,6 +135,7 @@ impl std::fmt::Display for PageRankClearResponse {
 /// ```
 pub async fn compute_pagerank(
     data: web::Data<AppState>,
+    caller: crate::settings::OptionalAuth,
     payload: web::Json<PageRankRequest>,
 ) -> Result<HttpResponse> {
     info!(
@@ -137,11 +162,18 @@ pub async fn compute_pagerank(
                     "PageRank computed successfully: {} nodes, converged={}, iterations={}",
                     result.stats.total_nodes, result.converged, result.iterations
                 );
-                ok_json!(PageRankResponse {
-                    success: true,
-                    result: Some(result),
-                    error: None,
-                })
+                match gate_for(&data, &caller).await {
+                    Ok(gate) => ok_json!(PageRankResponse {
+                        success: true,
+                        result: Some(apply_gate(result, gate)),
+                        error: None,
+                    }),
+                    Err(e) => error_json!(PageRankResponse {
+                        success: false,
+                        result: None,
+                        error: Some(e),
+                    }),
+                }
             }
             Ok(Err(e)) => {
                 error!("PageRank computation failed: {}", e);
@@ -178,7 +210,10 @@ pub async fn compute_pagerank(
 /// ```json
 /// GET /api/analytics/pagerank/result
 /// ```
-pub async fn get_pagerank_result(data: web::Data<AppState>) -> Result<HttpResponse> {
+pub async fn get_pagerank_result(
+    data: web::Data<AppState>,
+    caller: crate::settings::OptionalAuth,
+) -> Result<HttpResponse> {
     info!("API: Getting cached PageRank result");
 
     if let Some(ref pagerank_actor) = data.analytics.pagerank {
@@ -188,12 +223,20 @@ pub async fn get_pagerank_result(data: web::Data<AppState>) -> Result<HttpRespon
                     "Returning cached PageRank result: {} nodes",
                     result.stats.total_nodes
                 );
-                ok_json!(PageRankCacheResponse {
-                    success: true,
-                    cached: true,
-                    result: Some(result),
-                    error: None,
-                })
+                match gate_for(&data, &caller).await {
+                    Ok(gate) => ok_json!(PageRankCacheResponse {
+                        success: true,
+                        cached: true,
+                        result: Some(apply_gate(result, gate)),
+                        error: None,
+                    }),
+                    Err(e) => error_json!(PageRankCacheResponse {
+                        success: false,
+                        cached: false,
+                        result: None,
+                        error: Some(e),
+                    }),
+                }
             }
             Ok(None) => {
                 info!("No cached PageRank result available");
