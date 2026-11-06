@@ -244,6 +244,10 @@ var _beat_tap_button: Button = null
 var _beat_mic_button: Button = null
 var _bursts_button: Button = null
 var _mic_badge: Label = null
+# ADR-2188 D2 / ADR-2179 P4: "Edges N of M drawn" whenever a volume draws fewer
+# edges than its topology has. Hidden when nothing is dropped.
+const EDGE_BADGE_COLOR: Color = Color(1.0, 0.75, 0.3)
+var _edge_badge: Label = null
 var _beat_mic_on: bool = false
 var _bursts_on: bool = true
 
@@ -431,6 +435,11 @@ func _build_header() -> void:
 	_mic_badge.add_theme_color_override("font_color", MIC_BADGE_COLOR)
 	_mic_badge.visible = false
 	header.add_child(_mic_badge)
+	_edge_badge = _mk_label("", "Edges the graph has that are not drawn (triangle budget or an end not drawn); the heaviest are drawn first")
+	_edge_badge.name = "EdgeBadge"
+	_edge_badge.add_theme_color_override("font_color", EDGE_BADGE_COLOR)
+	_edge_badge.visible = false
+	header.add_child(_edge_badge)
 	header.add_child(_room_header)
 	header.add_child(spacer)
 	header.add_child(_fps_header)
@@ -1612,7 +1621,7 @@ func _type_toggle_btn(label: String, key: String) -> Button:
 	var b := _press_fire(Button.new()) as Button
 	b.custom_minimum_size = Vector2(0, BTN_H)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.set_meta(HINT_META, "Show / hide all %s nodes" % label.to_lower())
+	b.set_meta(HINT_META, "Show / grey out all %s nodes (ADR-2188: filters grey out, never remove)" % label.to_lower())
 	_style_type_toggle(b, label, true)
 	b.pressed.connect(func() -> void:
 		var now_visible: bool = not bool(_type_visible.get(key, true))
@@ -2250,6 +2259,20 @@ func _on_join_pressed() -> void:
 		_room_label.text = label
 	if _room_header != null:
 		_room_header.text = label
+
+
+## Dropped-edge readout (ADR-2188 D2): `text` from OverviewLod.edge_readout, empty
+## to hide. Unchanged text costs no HUD render (the Label skips identical text).
+func set_edge_readout(text: String) -> void:
+	if _edge_badge == null:
+		return
+	if _edge_badge.text != text:
+		_edge_badge.text = text
+	_edge_badge.visible = not text.is_empty()
+
+
+func edge_readout() -> String:
+	return _edge_badge.text if _edge_badge != null and _edge_badge.visible else ""
 
 
 func _on_mute_toggled(state: bool) -> void:

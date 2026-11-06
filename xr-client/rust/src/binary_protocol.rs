@@ -515,6 +515,26 @@ pub fn ids_for_class_mask(ids: &[u32], mask: i64, class_of: impl Fn(u32) -> Opti
 /// Edge pairs (flattened `[s0, t0, s1, t1, …]`) whose two endpoints both have a class in
 /// `mask`, heaviest first (stable on ties), at most `max` pairs. A volume draws only its own
 /// edges; a cross-volume edge belongs to the link layer (ADR-2164), not to either volume.
+/// Number of edges `edges_for_class_mask` would return with no cap: both ends in
+/// the volume's class mask. The dropped-edge readout (ADR-2188 D2) is this minus
+/// what the volume drew, so a cap never clips silently.
+pub fn edge_count_for_class_mask(flat: &[i32], mask: i64, class_of: impl Fn(u32) -> Option<u8>) -> usize {
+    if mask <= 0 {
+        return 0;
+    }
+    let inside = |id: i32| {
+        id >= 0
+            && class_of(id as u32)
+                .map(|c| c < 63 && mask & (1i64 << c) != 0)
+                .unwrap_or(false)
+    };
+    flat.as_chunks::<2>()
+        .0
+        .iter()
+        .filter(|p| inside(p[0]) && inside(p[1]))
+        .count()
+}
+
 pub fn edges_for_class_mask(
     flat: &[i32],
     weights: &[f32],
@@ -1586,10 +1606,54 @@ impl BinaryProtocolClient {
         }
     }
 
-    /// Nodes hidden by the received filter (as of the last node-buffer build).
+    /// Nodes the received filter excludes (as of the last node-buffer build). Since
+    /// ADR-2188 D4 they are greyed out, not removed.
     #[func]
     fn filter_hidden_count(&self) -> i64 {
         self.store.filter_hidden_count() as i64
+    }
+
+    /// Replace one highlight bit (ADR-2188 D4: 1 SELECTED, 2 HOVERED, 4 SEARCH_HIT,
+    /// 16 FOCUS_NEIGHBOUR) with exactly `ids`. FILTERED_OUT (8) belongs to the
+    /// filters and is ignored here. Returns whether any byte changed. Applied on the
+    /// per-frame pack path, so it never invalidates the pack plans.
+    #[func]
+    fn set_highlight_ids(&mut self, bit: i64, ids: PackedInt32Array) -> bool {
+        if !(0..=255).contains(&bit) {
+            return false;
+        }
+        let v: Vec<u32> = ids.as_slice().iter().filter(|&&x| x >= 0).map(|&x| x as u32).collect();
+        self.store.set_highlight_ids(bit as u8, &v)
+    }
+
+    /// Highlight flag byte of a node (0 when unknown).
+    #[func]
+    fn highlight_flags_of(&self, node_id: i64) -> i64 {
+        if node_id < 0 {
+            return 0;
+        }
+        self.store.highlight_flags_of(node_id as u32) as i64
+    }
+
+    /// ADR-2183 level of a node: 0 greyed out, 1 normal, 2 emphasised.
+    #[func]
+    fn highlight_level_of(&self, node_id: i64) -> i64 {
+        if node_id < 0 {
+            return 1;
+        }
+        self.store.highlight_level_of(node_id as u32) as i64
+    }
+
+    /// Nodes an interactive filter greys out (received filter or type filter).
+    #[func]
+    fn filtered_out_count(&self) -> i64 {
+        self.store.filtered_out_count() as i64
+    }
+
+    /// Changes whenever any highlight byte changes.
+    #[func]
+    fn highlight_version(&self) -> i64 {
+        self.store.highlight_version() as i64
     }
 
     /// Whether a received `nodeFilter` is active (`enabled` or the linked_page gate).
@@ -2334,6 +2398,12 @@ impl BinaryProtocolClient {
         PackedInt32Array::from(pairs.as_slice())
     }
 
+    /// Edges whose two ends are both in `mask`, before any cap (ADR-2188 D2).
+    #[func]
+    fn edge_count_for_mask(&self, mask: i64) -> i64 {
+        edge_count_for_class_mask(&self.edges_flat, mask, |id| self.node_class.get(&id).copied()) as i64
+    }
+
     /// Class code of a node (0 knowledge, 1 ontology, 2 agent, 3 plain), -1 when unknown.
     #[func]
     fn class_of(&self, node_id: i64) -> i64 {
@@ -2377,6 +2447,15 @@ impl BinaryProtocolClient {
     fn search_labels(&self, query: String, max: u32) -> PackedInt32Array {
         let ids = self.store.search_labels(&query, max as usize);
         let out: Vec<i32> = ids.into_iter().map(|id| id as i32).collect();
+        PackedInt32Array::from(out.as_slice())
+    }
+
+    /// Label candidates ordered by priority: centrality, then degree, then id; unknown,
+    /// unlabelled and greyed-out ids dropped (ADR-2186 D2/D3, ADR-2188 D5).
+    #[func]
+    fn rank_labels(&self, ids: PackedInt32Array) -> PackedInt32Array {
+        let v: Vec<u32> = ids.as_slice().iter().filter(|&&x| x >= 0).map(|&x| x as u32).collect();
+        let out: Vec<i32> = self.store.rank_label_candidates(&v).into_iter().map(|id| id as i32).collect();
         PackedInt32Array::from(out.as_slice())
     }
 

@@ -37,10 +37,10 @@ const EDGE_ROLES: Array[String] = ["edges", "ribbons"]
 ## Node size range passed to the packer (graph_scene's 0.7 .. 1.9 centrality lerp).
 const SIZE_LO := 0.7
 const SIZE_HI := 1.9
-## Most edges one volume draws (graph_scene EDGE_SAFETY_CEILING).
-const EDGE_CEILING := 20000
-
 const NodeLod := preload("res://scripts/node_lod.gd")
+## Edge limit (sized from this volume's edge count, bounded by the triangle-budget
+## ceiling) and the dropped-edge count: ADR-2188 D2.
+const OverviewLod := preload("res://scripts/overview_lod.gd")
 
 var conn: Node = null
 var mask: int = 0
@@ -55,6 +55,9 @@ var instances: Dictionary = {}
 var slot: int = 0
 ## Instance counts from the last pack, by role.
 var counts: Dictionary = {}
+## Edges with both ends in this volume's class mask, before any limit (read with
+## the pair list). `edge_total - drawn_edges()` is what the HUD reports as dropped.
+var edge_total: int = 0
 
 ## role → MultiMeshInstance3D whose mesh and material this source copies
 ## (GraphScene's own NodesMulti, EdgesMulti, … at wiring time).
@@ -122,7 +125,11 @@ func content_pairs() -> PackedInt32Array:
 	var now: int = Time.get_ticks_msec()
 	var gen: int = int(conn.generation)
 	if gen != _pairs_generation or _pairs_read_ms < 0 or now - _pairs_read_ms >= int(ID_REFRESH_SEC * 1000.0):
-		var fresh: PackedInt32Array = conn.edges_for_mask(mask, EDGE_CEILING)
+		# Unknown total (-1): ask for the ceiling and count what came back.
+		var total: int = int(conn.edge_count_for_mask(mask)) if conn.has_method("edge_count_for_mask") else -1
+		var fresh: PackedInt32Array = conn.edges_for_mask(mask,
+			OverviewLod.edge_draw_limit(total) if total >= 0 else OverviewLod.EDGE_DRAW_CEILING)
+		edge_total = total if total >= 0 else fresh.size() / 2
 		if fresh != _pairs:
 			_pairs = fresh
 		_pairs_generation = gen
@@ -160,6 +167,17 @@ func pack(cam_world: Vector3, node_ratio: float, edge_ratio: float, gem_cap: int
 	var e_mmi: MultiMeshInstance3D = instances["edges"]
 	var r_mmi: MultiMeshInstance3D = instances["ribbons"]
 	NodeLod.sync_edge_params(e_mmi.material_override, r_mmi.material_override)
+
+
+## Edges this volume drew in the last pack (near cylinders + far ribbons).
+func drawn_edges() -> int:
+	return int(counts.get("edges", 0)) + int(counts.get("ribbons", 0))
+
+
+## Edges this volume has but did not draw: the triangle-budget ceiling, or an end
+## that is not drawn (folded away). Never clipped silently (ADR-2179 P4).
+func dropped_edges() -> int:
+	return OverviewLod.dropped(edge_total, drawn_edges())
 
 
 ## Empty every instance buffer (volume hidden or connection offline).

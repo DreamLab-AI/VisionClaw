@@ -1,13 +1,15 @@
 extends "res://addons/gut/test.gd"
 
-# Characterisation of XR interactive filtering (ADR-2188 D4, ADR-2183 P3).
+# XR interactive filtering (ADR-2188 D4, ADR-2183 P3).
 # Drives the real gdext BinaryProtocolClient through the same doors the socket
 # uses (ingest_text / ingest / handle_settings_text, as graph_parity.gd routes a
 # settingsUpdated frame) and the HUD uses (set_type_visible).
 #
-# Pre-ADR-2188 behaviour, recorded before the change: the received nodeFilter and
-# the HUD type show/hide filter REMOVED nodes from the node buffer, and their
-# edges failed the both-endpoints-drawn test and vanished.
+# Before ADR-2188 (characterised in commit 8b48931ac, which this file pinned
+# first): the received nodeFilter and the HUD type show/hide filter REMOVED nodes
+# from the node buffer, and their edges vanished. Now an interactive filter greys
+# out: the node stays drawn (highlight level 0, custom.a = 0, desaturated colour)
+# and its edges stay drawn with the grey flag in custom.r.
 
 
 func _client() -> RefCounted:
@@ -72,24 +74,52 @@ func _edges(client: RefCounted) -> int:
 	return client.build_edge_buffer(PackedInt32Array([1, 2, 1, 3]), 1.0).size() / 16
 
 
-func test_received_node_filter_removes_the_node_and_its_edges() -> void:
+func _custom_a(buf: PackedFloat32Array, i: int) -> float:
+	return buf[i * 20 + 19]
+
+
+func test_received_node_filter_greys_the_node_and_keeps_its_edges() -> void:
 	var client := _client()
 	_seed(client)
 	assert_eq(_nodes(client), 3, "unfiltered: three nodes drawn")
 	assert_eq(_edges(client), 2, "unfiltered: both edges drawn")
 	client.handle_settings_text(_quality_filter())
-	assert_eq(_nodes(client), 2, "pre-ADR-2188: the weak node is removed")
-	assert_eq(_edges(client), 1, "pre-ADR-2188: its edge is removed with it")
-	assert_eq(int(client.filter_hidden_count()), 1)
+	var buf: PackedFloat32Array = client.build_node_buffer(PackedInt32Array([1, 2, 3]), 1.0, 0.7, 1.9)
+	assert_eq(buf.size() / 20, 3, "the weak node is still drawn")
+	assert_eq(int(client.highlight_level_of(2)), 0, "…greyed out")
+	assert_eq(_custom_a(buf, 1), 0.0, "custom.a carries the grey level to the shaders")
+	assert_eq(_custom_a(buf, 0), 1.0, "a passing node is normal")
+	assert_eq(int(client.filter_hidden_count()), 1, "the filter still counts what it excludes")
+	assert_eq(int(client.filtered_out_count()), 1)
+	var ebuf: PackedFloat32Array = client.build_edge_buffer(PackedInt32Array([1, 2, 1, 3]), 1.0)
+	assert_eq(ebuf.size() / 16, 2, "its edge stays")
+	assert_eq(ebuf[12], 1.0, "1-2 has a greyed end (custom.r)")
+	assert_eq(ebuf[16 + 12], 0.0, "1-3 does not")
 
 
-func test_type_filter_removes_the_class() -> void:
+func test_type_filter_greys_the_class_and_reshowing_restores_it() -> void:
 	var client := _client()
 	_seed(client)
 	assert_eq(_nodes(client), 3)
 	# Unflagged wire ids decode as class 3 (plain, binary_protocol.rs node_class_code).
 	client.set_type_visible(3, false)
-	assert_eq(_nodes(client), 0, "pre-ADR-2188: a hidden class is removed")
-	assert_eq(_edges(client), 0)
+	assert_eq(_nodes(client), 3, "a hidden class is greyed, not removed")
+	assert_eq(_edges(client), 2)
+	assert_eq(int(client.filtered_out_count()), 3)
 	client.set_type_visible(3, true)
 	assert_eq(_nodes(client), 3)
+	assert_eq(int(client.filtered_out_count()), 0)
+
+
+func test_selection_outranks_the_filter_and_search_does_not() -> void:
+	var client := _client()
+	_seed(client)
+	client.handle_settings_text(_quality_filter())
+	_nodes(client)
+	assert_eq(int(client.highlight_level_of(2)), 0)
+	assert_true(client.set_highlight_ids(4, PackedInt32Array([2])), "SEARCH_HIT written")
+	assert_eq(int(client.highlight_level_of(2)), 0, "a search hit cannot pull a filtered node back")
+	assert_true(client.set_highlight_ids(1, PackedInt32Array([2])), "SELECTED written")
+	assert_eq(int(client.highlight_level_of(2)), 2, "the selected node is emphasised even when filtered")
+	assert_false(client.set_highlight_ids(8, PackedInt32Array([1])), "FILTERED_OUT is the filters' bit")
+	assert_eq(int(client.highlight_level_of(1)), 1)

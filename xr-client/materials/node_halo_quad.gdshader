@@ -13,7 +13,8 @@ shader_type spatial;
 // (Invariants 1-2). The quad is billboarded with the main camera basis like the
 // node impostor, so both eyes agree. Instance layout = the node buffer
 // (render_store.rs): COLOR = node colour (raw, like gem.tres), COLOR.a = label
-// fade, INSTANCE_CUSTOM .r centrality / .g fold badge / .b query flag.
+// fade, INSTANCE_CUSTOM .r centrality / .g fold badge / .b query flag / .a
+// highlight level (ADR-2188 D4): a greyed-out node (level 0) draws no halo.
 render_mode blend_add, unshaded, cull_disabled, depth_draw_never, shadows_disabled, fog_disabled;
 
 // Parameters and defaults carried over from node_halo.gdshader / node_halo.tres.
@@ -38,6 +39,7 @@ varying float halo_alpha;
 varying float halo_cen;
 varying float halo_badge;
 varying float halo_query;
+varying float halo_level;
 
 void vertex() {
 	halo_tint = COLOR.rgb;
@@ -45,6 +47,7 @@ void vertex() {
 	halo_cen = INSTANCE_CUSTOM.r;
 	halo_badge = INSTANCE_CUSTOM.g;
 	halo_query = INSTANCE_CUSTOM.b;
+	halo_level = INSTANCE_CUSTOM.a;
 	float extra = (halo_badge > 0.5) ? badge_width : 0.0;
 	extra += (halo_query > 0.5) ? query_width : 0.0;
 	halo_r = 0.5 + halo_width + extra;
@@ -62,7 +65,7 @@ void vertex() {
 void fragment() {
 	// Projected radius ρ in mesh units: the quad spans [-halo_r, halo_r].
 	float rho = length(UV * 2.0 - 1.0) * halo_r;
-	if (rho > halo_r || rho < 0.5) {
+	if (rho > halo_r || rho < 0.5 || halo_level < 0.5) {
 		discard;
 	}
 	float q = rho / halo_r;

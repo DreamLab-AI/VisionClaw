@@ -59,6 +59,7 @@ pub(super) struct EdgePlanEntry {
     style: f32,
 }
 
+
 #[derive(Default)]
 pub(super) struct EdgePlan {
     valid: bool,
@@ -68,6 +69,9 @@ pub(super) struct EdgePlan {
     pairs: Vec<i32>,
     entries: Vec<EdgePlanEntry>,
     near: Vec<bool>,
+    /// Highlight-mask version the far ribbons were last emitted with (ADR-2188 D4):
+    /// a mask change re-emits the far tier's custom channel once, not every frame.
+    mask_version: u64,
 }
 
 /// Reused per-frame buffers: the pack never allocates in steady state.
@@ -156,7 +160,9 @@ impl RenderStore {
                 &mut buf
             };
             self.live_tint(e.id, slot, &mut col);
-            push_node(target, e.unit_size * scale_comp, pos, &col, &e.custom);
+            let mut custom = e.custom;
+            let m = crate::highlight::apply(&self.highlight, slot, &mut col, &mut custom);
+            push_node(target, e.unit_size * scale_comp * m, pos, &col, &custom);
             self.render_positions.push(pos);
         }
         self.scratch.node_buf = buf;
@@ -228,13 +234,24 @@ impl RenderStore {
             };
             let src: &[f32] = if e.faded { &self.faded_buf } else { &buf };
             let mut col = [src[o + 12], src[o + 13], src[o + 14], src[o + 15]];
+            let mut custom = [src[o + 16], src[o + 17], src[o + 18], src[o + 19]];
             self.live_tint(e.id, e.slot as usize, &mut col);
+            // Highlight mask (ADR-2188 D4) on the per-frame path, after the plan has
+            // recorded the unmasked instance: a mask write never invalidates a plan.
+            let m = crate::highlight::apply(&self.highlight, e.slot as usize, &mut col, &mut custom);
             let dst: &mut [f32] = if e.faded {
                 &mut self.faded_buf
             } else {
                 &mut buf
             };
             dst[o + 12..o + 16].copy_from_slice(&col);
+            dst[o + 16..o + 20].copy_from_slice(&custom);
+            if m != 1.0 {
+                // node_transform12: uniform scale on the diagonal.
+                dst[o] *= m;
+                dst[o + 5] *= m;
+                dst[o + 10] *= m;
+            }
         }
         self.scratch.node_buf = buf;
     }
@@ -411,7 +428,8 @@ impl RenderStore {
             }
         }
         let changed = sc.inst_near != self.edge_plan.near;
-        let rebuild_far = fresh || changed || sc.ribbon_stale;
+        let mask_changed = self.edge_plan.mask_version != self.highlight.version();
+        let rebuild_far = fresh || changed || sc.ribbon_stale || mask_changed;
         sc.ribbon_stale = false;
         sc.edge_near_buf.clear();
         if rebuild_far {
@@ -431,13 +449,14 @@ impl RenderStore {
             ) else {
                 continue;
             };
+            let grey = crate::highlight::edge_grey(&self.highlight, e.s as usize, e.t as usize);
             if near {
                 sc.edge_near_buf.extend_from_slice(&tf);
                 sc.edge_near_buf
-                    .extend_from_slice(&[0.0, 0.0, 0.0, e.style]);
+                    .extend_from_slice(&[grey, 0.0, 0.0, e.style]);
             } else {
                 self.ribbon_buf.extend_from_slice(&tf);
-                self.ribbon_buf.extend_from_slice(&[0.0, 0.0, 0.0, e.style]);
+                self.ribbon_buf.extend_from_slice(&[grey, 0.0, 0.0, e.style]);
                 sc.ribbon_entry.push(i as u32);
             }
         }
@@ -460,6 +479,7 @@ impl RenderStore {
             }
         }
         self.edge_plan.near.clone_from(&sc.inst_near);
+        self.edge_plan.mask_version = self.highlight.version();
     }
 
     /// Fold active: full pack (dedup + remap) and a per-frame split.

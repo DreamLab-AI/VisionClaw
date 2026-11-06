@@ -151,11 +151,14 @@ fn node_filter_hides_nodes_and_clearing_restores_them() {
         mode_and: true,
         ..NodeFilter::default()
     }));
+    // ADR-2188 D4: the filter greys out instead of removing (before 2026-11-06 the
+    // render ids were [1, 4]).
     s.build_node_buffer(&all, 1.0, 0.7, 1.9);
+    assert_eq!(s.render_ids(), &[1, 2, 3, 4], "filtered nodes stay drawn");
     assert_eq!(
-        s.render_ids(),
-        &[1, 4],
-        "low quality and linked_page hidden; agents exempt"
+        (1..=4).map(|id| s.highlight_level_of(id)).collect::<Vec<_>>(),
+        vec![1, 0, 0, 1],
+        "low quality and linked_page greyed; agents exempt"
     );
     assert_eq!(s.filter_hidden_count(), 2);
 
@@ -169,15 +172,17 @@ fn node_filter_hides_nodes_and_clearing_restores_them() {
         },
     );
     s.build_node_buffer(&ids(&[1, 4, 9]), 1.0, 0.7, 1.9);
-    assert_eq!(s.render_ids(), &[1, 4]);
+    assert_eq!(s.render_ids(), &[1, 4, 9]);
+    assert_eq!(s.highlight_level_of(9), 0, "a late node is greyed too");
 
     s.set_node_filter(None);
     s.build_node_buffer(&ids(&[1, 2, 3, 4, 9]), 1.0, 0.7, 1.9);
-    assert_eq!(s.render_ids().len(), 5, "clearing restores every node");
+    assert_eq!(s.render_ids().len(), 5);
+    assert_eq!(s.filtered_out_count(), 0, "clearing restores every node");
 }
 
 #[test]
-fn hidden_by_filter_nodes_drop_their_edges_and_search_hits() {
+fn filtered_nodes_keep_greyed_edges_and_drop_search_hits() {
     let mut s = RenderStore::new();
     s.upsert(1, [0.0; 3], 0, 0.0, 0.0);
     s.upsert(2, [0.0, 3.0, 0.0], 0, 0.0, 0.0);
@@ -197,13 +202,13 @@ fn hidden_by_filter_nodes_drop_their_edges_and_search_hits() {
     );
     s.set_node_filter(Some(NodeFilter::default())); // disabled, but linked_page gate on
     s.build_node_buffer(&ids(&[1, 2]), 1.0, 0.7, 1.9);
-    assert!(
-        s.build_edge_buffer(&[1, 2], 1.0).is_empty(),
-        "edge to a hidden node is not drawn"
-    );
+    // ADR-2188 D4: the edge to a filtered node stays, flagged grey in custom.r.
+    let e = s.build_edge_buffer(&[1, 2], 1.0);
+    assert_eq!(e.len(), 16, "edge to a greyed node is drawn");
+    assert_eq!(e[12], 1.0, "and greyed");
     assert!(
         s.search_labels("hidden", 5).is_empty(),
-        "hidden nodes are not search hits"
+        "filtered-out nodes are not search hits (a filter outranks search)"
     );
 }
 

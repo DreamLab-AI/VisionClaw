@@ -175,8 +175,8 @@ func route_text(json: String, msg_type: String) -> bool:
 	last_event = _client.handle_settings_text(json)
 	match str(last_event.get("kind", "")):
 		"node_filter":
-			# Rust already applied the filter to the render store; rebuild the draw
-			# domain so hidden nodes (and their edges) drop on the next frame.
+			# Rust already applied the filter to the render store; the next pack greys
+			# the excluded nodes and their edges (ADR-2188 D4: greyed, not removed).
 			_set_scene("_selection_dirty", true)
 			_notice("Node filter changed in another session — view updated")
 		"refetch":
