@@ -48,3 +48,8 @@ None yet. Each decision has its own check:
 - **D1/D2:** a screenshot at fit shows sprites, a screenshot at close zoom shows gems, and a scene inventory shows the gem mesh count within its budget.
 - **D4:** a receipt row and screenshot pair with global bloom against selective bloom on the live graph, with the cloud off.
 - **D5:** a main-thread profile of a settled graph shows no per-node loop.
+
+## Implementation notes
+- **Scope of the sprite LOD (2026-11-06).** Only the knowledge population becomes sprites at overview zoom with gems as the close LOD (`GemNodes` gem LOD, `client/src/features/graph/overview/gemLod.ts`). The ontology and agent populations keep full gems at every zoom: they are small, and their gem shape carries type meaning the sprites do not. Revisit if either grows to knowledge-graph size.
+- **No silent loss of the graph.** Gems beyond `gemLodDistance` are hidden only while the sprite layer is mounted with a built material and has not faulted (`overview/overviewLive.ts`). If the TSL material is still building, fails to build, or its draw faults (WebGPU `renderObject` guard, or a WebGL program that fails to link), every gem draws again and `OverviewEdgeNotice` names the failed layer.
+- **Grey-out across backends.** `explore.greyoutOpacity` keeps its WebGLRenderer (sRGB-blend) meaning; on WebGPURenderer, which blends in linear space, the overview layers receive `linearBlendAlpha(value, background)` (`overview/highlightVisual.ts`), measured in the browser sidecar to match within 4/255.
