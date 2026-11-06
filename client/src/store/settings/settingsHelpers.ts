@@ -35,9 +35,7 @@ export const ESSENTIAL_PATHS = [
   'visualisation.rendering.enableAntialiasing',
 
   // Quality gate settings - needed for cluster/anomaly/layout rendering
-  'qualityGates.showClusters',
   'qualityGates.showAnomalies',
-  'qualityGates.showCommunities',
   'visualisation.graphs.knowledge.physics.layoutMode',
 
   // Animation settings - needed for pulse/wave effects
