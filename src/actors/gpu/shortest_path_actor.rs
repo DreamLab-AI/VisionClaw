@@ -376,3 +376,31 @@ impl Handler<GetShortestPathStats> for ShortestPathActor {
         MessageResult(self.stats.clone())
     }
 }
+
+#[cfg(test)]
+mod apsp_verdict_tests {
+    use super::*;
+
+    /// Security review H1 (APSP) verdict: the only `ComputeAPSP` handler refuses
+    /// unconditionally, so `/analytics/pathfinding/apsp` (pathfinding.rs, via
+    /// GraphAnalyticsSupervisor) can return no landmark distances for any caller.
+    #[actix_rt::test]
+    async fn apsp_refuses_for_every_request() {
+        let mut actor = ShortestPathActor::new();
+        let mut ctx = Context::new();
+        for num_landmarks in [0, 4, 1_000] {
+            let r = Handler::handle(
+                &mut actor,
+                ComputeAPSP {
+                    num_landmarks,
+                    seed: None,
+                },
+                &mut ctx,
+            );
+            assert!(
+                r.is_err(),
+                "APSP returned data for {num_landmarks} landmarks"
+            );
+        }
+    }
+}
