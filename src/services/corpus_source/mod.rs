@@ -19,7 +19,7 @@
 //! `VAULT_ROOT` is set, `github` otherwise.
 
 mod github;
-mod history;
+pub(crate) mod history;
 mod local;
 
 pub use github::GitHubSource;
@@ -126,11 +126,11 @@ pub trait CorpusSource: Send + Sync {
         Ok(None)
     }
 
-    /// Real commit history per page, keyed by [`CorpusPage::path`], for the temporal node keys
-    /// (ADR-2184/2185). Empty by default, and the GitHub source's answer: its listing carries no
-    /// commit times. Never an error: a source that cannot read its history returns none, and
-    /// those nodes simply omit the keys.
-    async fn page_history(&self) -> HistoryMap {
+    /// Real commit history for `pages`, keyed by [`CorpusPage::path`], for the temporal node keys
+    /// (ADR-2184/2185). Empty by default. Never an error: a source that cannot read its history
+    /// returns none, and those nodes simply omit the keys.
+    async fn page_history(&self, pages: &[CorpusPage]) -> HistoryMap {
+        let _ = pages;
         HistoryMap::new()
     }
 }

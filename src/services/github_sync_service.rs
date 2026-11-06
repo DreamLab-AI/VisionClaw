@@ -374,15 +374,6 @@ impl GitHubSyncService {
             .map(|identity| self.kg_parser.page_name_to_id(&identity))
             .collect();
         let jev_suggester = visionclaw_jev::ingest::Suggester::from_env();
-        // One history read per sync, before any page is built.
-        let history = self.source.page_history().await;
-        let scope = SyncScope {
-            vault: vault_ctx,
-            knowledge_ids: &knowledge_ids,
-            vocabulary: vocabulary.as_ref(),
-            jev: jev_suggester.as_ref(),
-            history: &history,
-        };
 
         let force_full_sync = force_full_override
             || base_path_changed
@@ -415,6 +406,20 @@ impl GitHubSyncService {
         };
 
         let all_files_to_process = files_to_process.clone();
+
+        // One history read per sync, for the pages this sync builds (none when nothing changed).
+        let history = if files_to_process.is_empty() {
+            crate::services::corpus_source::HistoryMap::new()
+        } else {
+            self.source.page_history(&files_to_process).await
+        };
+        let scope = SyncScope {
+            vault: vault_ctx,
+            knowledge_ids: &knowledge_ids,
+            vocabulary: vocabulary.as_ref(),
+            jev: jev_suggester.as_ref(),
+            history: &history,
+        };
 
         // Clear the graph only on a full sync. On an incremental sync (SHA1
         // filter narrowed the file list), existing data must remain — otherwise

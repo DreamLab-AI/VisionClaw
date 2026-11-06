@@ -105,6 +105,67 @@ pub(crate) async fn git_history(root: &Path, base_paths: &[String]) -> Result<Hi
     Ok(parse_git_log(&output.stdout))
 }
 
+/// Paths per GitHub GraphQL history query. 100 aliases measured at 1 rate-limit point.
+pub(crate) const GRAPHQL_BATCH: usize = 100;
+
+/// One GraphQL query asking, for each path, its commit count and newest commit time on
+/// `branch`. Aliases are `p0..pN` in `paths` order; every literal is JSON-escaped, which GraphQL
+/// string syntax accepts.
+pub(crate) fn github_history_query(
+    owner: &str,
+    repo: &str,
+    branch: &str,
+    paths: &[String],
+) -> String {
+    let lit = |s: &str| serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string());
+    let aliases: Vec<String> = paths
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            format!(
+                "p{i}: history(first: 1, path: {}) {{ totalCount nodes {{ committedDate }} }}",
+                lit(p)
+            )
+        })
+        .collect();
+    format!(
+        "query {{ repository(owner: {}, name: {}) {{ object(expression: {}) {{ ... on Commit {{ {} }} }} }} }}",
+        lit(owner),
+        lit(repo),
+        lit(branch),
+        aliases.join(" ")
+    )
+}
+
+/// Read a [`github_history_query`] response. A path with no commits, or an alias missing from
+/// a partial response, gives no entry.
+pub(crate) fn parse_github_history(body: &serde_json::Value, paths: &[String]) -> HistoryMap {
+    let mut out = HistoryMap::new();
+    let Some(object) = body.pointer("/data/repository/object") else {
+        return out;
+    };
+    for (i, path) in paths.iter().enumerate() {
+        let Some(h) = object.get(format!("p{i}")) else {
+            continue;
+        };
+        let count = h.get("totalCount").and_then(|c| c.as_u64()).unwrap_or(0);
+        let at = h
+            .pointer("/nodes/0/committedDate")
+            .and_then(|d| d.as_str())
+            .and_then(|d| DateTime::parse_from_rfc3339(d).ok());
+        if let (Some(at), true) = (at, count > 0) {
+            out.insert(
+                path.clone(),
+                PageHistory {
+                    last_commit: at.with_timezone(&Utc),
+                    change_count: u32::try_from(count).unwrap_or(u32::MAX),
+                },
+            );
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,5 +212,70 @@ mod tests {
         let r = git_history(&dir, &["knowledge".to_string()]).await;
         std::fs::remove_dir_all(&dir).ok();
         assert!(r.is_err(), "{r:?}");
+    }
+
+    #[test]
+    fn the_github_query_escapes_every_literal_and_aliases_in_order() {
+        let q = github_history_query(
+            "o",
+            "r",
+            "main",
+            &["knowledge/A \"b\".md".into(), "working/C.md".into()],
+        );
+        assert!(
+            q.contains(r#"p0: history(first: 1, path: "knowledge/A \"b\".md")"#),
+            "{q}"
+        );
+        assert!(q.contains(r#"p1: history(first: 1, path: "working/C.md")"#));
+        assert!(q.contains(r#"repository(owner: "o", name: "r") { object(expression: "main")"#));
+    }
+
+    /// The shape of the live response from the 2026-11-06 probe of jjohare/visionGraph.
+    #[test]
+    fn a_github_response_gives_count_and_newest_commit() {
+        let body = serde_json::json!({"data": {"repository": {"object": {
+            "p0": {"totalCount": 3, "nodes": [{"committedDate": "2026-10-28T11:02:16Z"}]},
+            "p1": {"totalCount": 0, "nodes": []}
+        }}}});
+        let paths = vec![
+            "knowledge/A.md".to_string(),
+            "knowledge/New.md".to_string(),
+            "x.md".to_string(),
+        ];
+        let h = parse_github_history(&body, &paths);
+        assert_eq!(h.len(), 1, "no commits and a missing alias give no entry");
+        assert_eq!(h["knowledge/A.md"].change_count, 3);
+        assert_eq!(
+            wire_timestamp(&h["knowledge/A.md"].last_commit),
+            "2026-10-28T11:02:16Z"
+        );
+        assert!(parse_github_history(&serde_json::json!({"errors": []}), &paths).is_empty());
+    }
+
+    /// Live check of the query builder and parser against GitHub. Needs network and a token:
+    /// `GITHUB_TOKEN=… cargo test --lib live_github_history -- --ignored`.
+    #[tokio::test]
+    #[ignore = "needs network and GITHUB_TOKEN"]
+    async fn live_github_history_matches_the_probe() {
+        let token = std::env::var("GITHUB_TOKEN").expect("GITHUB_TOKEN");
+        let paths = vec![
+            "knowledge/.gitignore".to_string(),
+            "working/.gitattributes".to_string(),
+        ];
+        let query = github_history_query("jjohare", "visionGraph", "main", &paths);
+        let body: serde_json::Value = reqwest::Client::new()
+            .post("https://api.github.com/graphql")
+            .header("Authorization", format!("Bearer {token}"))
+            .header("User-Agent", "visionclaw-history-test")
+            .json(&serde_json::json!({ "query": query }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let h = parse_github_history(&body, &paths);
+        assert_eq!(h.len(), 2, "{body}");
+        assert!(h["knowledge/.gitignore"].change_count >= 3);
     }
 }

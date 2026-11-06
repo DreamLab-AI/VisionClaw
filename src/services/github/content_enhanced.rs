@@ -305,6 +305,73 @@ impl EnhancedContentAPI {
         Ok(response.text().await?)
     }
 
+    /// Commit history for `paths` (full repository paths, the listing's form) on the configured
+    /// branch, through batched GraphQL `history` queries, four in flight. A failed or timed-out
+    /// batch is skipped and its pages get no history; nothing here fails the sync.
+    pub async fn commit_history(
+        &self,
+        paths: &[String],
+    ) -> crate::services::corpus_source::HistoryMap {
+        use crate::services::corpus_source::history::{
+            github_history_query, parse_github_history, GRAPHQL_BATCH,
+        };
+        use futures::stream::{self, StreamExt};
+
+        let batches: Vec<Vec<String>> = paths
+            .chunks(GRAPHQL_BATCH)
+            .map(<[String]>::to_vec)
+            .collect();
+        let total = batches.len();
+        let results: Vec<_> = stream::iter(batches)
+            .map(|batch: Vec<String>| {
+                let client = Arc::clone(&self.client);
+                async move {
+                    let query = github_history_query(
+                        client.owner(),
+                        client.repo(),
+                        client.branch(),
+                        &batch,
+                    );
+                    let sent = client
+                        .client()
+                        .post("https://api.github.com/graphql")
+                        .header("Authorization", format!("Bearer {}", client.token()))
+                        .header("Accept", "application/vnd.github+json")
+                        .timeout(std::time::Duration::from_secs(60))
+                        .json(&serde_json::json!({ "query": query }))
+                        .send()
+                        .await;
+                    let body: Option<Value> = match sent {
+                        Ok(r) if r.status().is_success() => r.json().await.ok(),
+                        Ok(r) => {
+                            warn!("commit history batch: GitHub GraphQL status {}", r.status());
+                            None
+                        }
+                        Err(e) => {
+                            warn!("commit history batch failed: {}", e);
+                            None
+                        }
+                    };
+                    body.map(|b| parse_github_history(&b, &batch))
+                        .unwrap_or_default()
+                }
+            })
+            .buffer_unordered(4)
+            .collect()
+            .await;
+        let mut out = crate::services::corpus_source::HistoryMap::new();
+        for part in results {
+            out.extend(part);
+        }
+        info!(
+            "Commit history: {} of {} pages from {} GraphQL batches",
+            out.len(),
+            paths.len(),
+            total
+        );
+        out
+    }
+
     pub async fn get_file_content_last_modified(
         &self,
         file_path: &str,
