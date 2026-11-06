@@ -377,6 +377,7 @@ export const useWebSocketStore = create<WebSocketState>()(
           filter_by_authority: filter.filterByAuthority,
           filter_mode: filter.filterMode,
           include_linked_pages: filter.includeLinkedPages ?? false,
+          server_remove: filter.serverRemove ?? false,
         });
 
         logger.info('Filter update sent to server', filter);

@@ -843,6 +843,9 @@ export interface NodeFilterSettings {
   filterByAuthority?: boolean;
   filterMode?: 'and' | 'or';
   includeLinkedPages?: boolean;
+  /** Opt-in (default false): the server also removes non-matching nodes from
+   *  this client's graph on /wss. Off, the filter only greys (ADR-2183 D2). */
+  serverRemove?: boolean;
 }
 
 // Provenance overlay settings (W-G phase-1, client-only, default-off). Gate the

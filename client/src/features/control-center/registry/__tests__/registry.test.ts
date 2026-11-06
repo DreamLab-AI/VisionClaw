@@ -22,7 +22,7 @@ const EXPECTED_GROUP_COUNTS: Record<string, number> = {
   motion: 84,
   look: 23,
   labels: 7,
-  quality: 28,
+  quality: 29,
   atmosphere: 32,
   ai: 2,
   system: 19,
@@ -34,7 +34,7 @@ const EXPECTED_GROUP_COUNTS: Record<string, number> = {
 /** Fields per SECTION (ADR-2189): what the rail, the dock and hotkeys 1..7 open. */
 const EXPECTED_SECTION_COUNTS: Record<string, number> = {
   layers: 14,
-  explore: 27,
+  explore: 28,
   encode: 24,
   layout: 80,
   look: 44,
@@ -126,6 +126,13 @@ const GRAPH_VIEW_PATHS: string[] = [
   'labels.budget', 'labels.dynamicBudget', 'labels.selectedBudget', 'labels.fontPx',
 ].map((p) => `visualisation.graphView.${p}`);
 
+/**
+ * Node-filter paths that post-date the baseline: the opt-in server-side removal
+ * (ADR-2183 implementation notes, 2026-11-06). Routes to the nodeFilter bucket.
+ * Asserted in (c8).
+ */
+const NODE_FILTER_PATHS: string[] = ['nodeFilter.serverRemove'];
+
 const RETIRED_PATHS: string[] = [
   'visualisation.graphs.knowledge.physics.graphSeparationX',
   'visualisation.graphs.knowledge.tweening.lerpBase',   // replaced by tweening.responseMs (a time constant, lower = faster)
@@ -155,7 +162,7 @@ const MERGE_ADDED_PATHS: string[] = ['visualisation.graphTypeVisuals.agent.edgeC
 const TOTAL_FIELDS =
   168 - RETIRED_PATHS.length - LEGACY_REMOVED.length + EXPECTED_GROUP_COUNTS.agents + EXPECTED_GROUP_COUNTS.provenance
   + WAVE1_LAYOUT_PATHS.length + MEMORY_EXPLORER_PATHS.length + NETWORK_PATHS.length + SEMANTIC_PATHS.length + TWEENING_PATHS.length
-  + LAYOUT_MODE_PATHS.length + GRAPH_VIEW_PATHS.length + MERGE_ADDED_PATHS.length;
+  + LAYOUT_MODE_PATHS.length + GRAPH_VIEW_PATHS.length + MERGE_ADDED_PATHS.length + NODE_FILTER_PATHS.length;
 
 /**
  * Frozen client-only paths introduced by the W-G phase-1 Decisions/Provenance
@@ -351,7 +358,7 @@ describe('control-center settings registry', () => {
     // post-date WP5 and are asserted independently.
     const migratedPaths = ALL_PATHS.filter(
       (p) =>
-        !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p) && !networkSet.has(p) && !semanticSet.has(p) && !tweeningSet.has(p) && !layoutModeSet.has(p) && !graphViewSet.has(p) && !MERGE_ADDED_PATHS.includes(p),
+        !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p) && !networkSet.has(p) && !semanticSet.has(p) && !tweeningSet.has(p) && !layoutModeSet.has(p) && !graphViewSet.has(p) && !MERGE_ADDED_PATHS.includes(p) && !NODE_FILTER_PATHS.includes(p),
     );
     const migratedSet = new Set(migratedPaths);
 
@@ -366,6 +373,15 @@ describe('control-center settings registry', () => {
     expect(migratedSet.size).toBe(legacySet.size);
     // no duplicate paths within the whole registry
     expect(ALL_PATHS.length).toBe(new Set(ALL_PATHS).size);
+  });
+
+  it('(c8) the server-removal opt-in is a nodeFilter path, disjoint from legacy', () => {
+    const legacySet = new Set(legacyPaths());
+    for (const p of NODE_FILTER_PATHS) {
+      expect(ALL_PATHS).toContain(p);
+      expect(legacySet.has(p)).toBe(false);
+      expect(serverBucketFor(p)).toBe('nodeFilter');
+    }
   });
 
   it('(c1) the layout mode is the stored physics field, not a quality gate (ADR-2140)', () => {

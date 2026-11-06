@@ -3,6 +3,7 @@
 // Also houses the transform from flat API response to nested client structure
 
 import type { AllSettings, PhysicsSettings, ConstraintSettings, RenderingSettings, NodeFilterSettings } from './types';
+import { NODE_FILTER_DEFAULTS } from '../../features/graph/explore/nodeFilter';
 import {
   DEFAULT_GLOW_SETTINGS,
   DEFAULT_BLOOM_SETTINGS,
@@ -104,18 +105,11 @@ export function transformApiToClientSettings(
     // showCentrality / showSSSP gates) rather than dropping every default.
     qualityGates: { ...DEFAULT_QUALITY_GATES, ...(apiResponse.qualityGates || {}) },
     nodeFilter: {
-      ...{
-        enabled: true,
-        // Conservative public-demo default: approximately the top quality decile.
-        qualityThreshold: 0.9,
-        authorityThreshold: 0.5,
-        filterByQuality: true,
-        filterByAuthority: false,
-        filterMode: 'or' as const,
-        includeLinkedPages: false,
-        minConnections: 0,
-        minMaturity: 'off',
-      },
+      // The shipped defaults (explore/nodeFilter.ts NODE_FILTER_DEFAULTS, mirrored
+      // by NodeFilterSettings::default()); the persisted server document wins.
+      ...NODE_FILTER_DEFAULTS,
+      minConnections: 0,
+      minMaturity: 'off',
       ...(apiResponse.nodeFilter || {}),
     }
   };

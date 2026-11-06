@@ -510,6 +510,7 @@ export interface SettingsUpdatedWireMessage extends BaseWebSocketMessage {
     filterByAuthority?: boolean;
     filterMode?: string;
     includeLinkedPages?: boolean;
+    serverRemove?: boolean;
   };
 }
 

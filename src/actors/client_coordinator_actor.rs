@@ -63,6 +63,10 @@ pub struct ClientFilter {
     pub max_nodes: Option<usize>,
     pub filtered_node_ids: std::collections::HashSet<u32>,
     pub include_linked_pages: bool,
+    /// Opt-in: remove nodes that fail the quality / authority predicates from
+    /// this client's stream. Off, the predicates only grey on the client
+    /// (ADR-2183 D2) and the server applies the population scope alone.
+    pub server_remove: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,9 +78,10 @@ pub enum FilterMode {
 impl Default for ClientFilter {
     fn default() -> Self {
         Self {
-            // DEFAULT FILTER ENABLED: Fresh clients get quality-filtered sparse dataset
-            enabled: true,
-            quality_threshold: 0.9,
+            // The shipped node-filter defaults (NodeFilterSettings::default()).
+            // A fresh client is never thinned: removal needs `server_remove`.
+            enabled: false,
+            quality_threshold: 0.4,
             authority_threshold: 0.5,
             filter_by_quality: true,
             filter_by_authority: false,
@@ -84,6 +89,7 @@ impl Default for ClientFilter {
             max_nodes: None,
             filtered_node_ids: std::collections::HashSet::new(),
             include_linked_pages: false,
+            server_remove: false,
         }
     }
 }
@@ -1563,6 +1569,7 @@ impl Handler<UpdateClientFilter> for ClientCoordinatorActor {
             client.filter.filter_by_authority = msg.filter_by_authority;
             client.filter.filter_mode = filter_mode;
             client.filter.include_linked_pages = msg.include_linked_pages;
+            client.filter.server_remove = msg.server_remove;
 
             info!(
                 "Updated filter for client {}: enabled={}, quality_threshold={}",

@@ -33,6 +33,9 @@ pub struct UserFilter {
     pub filter_by_authority: bool,
     pub filter_mode: String,
     pub max_nodes: Option<i64>,
+    /// Opt-in server-side removal; absent in records written before it existed.
+    #[serde(default)]
+    pub server_remove: bool,
 }
 use crate::ports::settings_repository::{SettingValue, SettingsRepository};
 use crate::AppState;
@@ -1119,6 +1122,7 @@ pub async fn update_node_filter_settings(
             "filterByAuthority": settings.filter_by_authority,
             "filterMode": settings.filter_mode,
             "includeLinkedPages": settings.include_linked_pages,
+            "serverRemove": settings.server_remove,
         },
         "updatedBy": auth.pubkey,
         "timestamp": chrono::Utc::now().timestamp_millis()

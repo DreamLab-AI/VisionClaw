@@ -1,8 +1,7 @@
 /**
  * Node-filter settings split into REMOVAL and GREY-OUT (ADR-2183 D2, D4).
  *
- * The predicates are those useGraphFiltering applied before ADR-2183, unchanged
- * (characterised in hooks/__tests__/useGraphFiltering.characterisation.test.ts):
+ * The split (characterised in hooks/__tests__/useGraphFiltering.test.ts):
  *
  *  - removal (population scope, D4): the linked_page gate. The server applies the
  *    same `include_linked_pages` scope, so the client gate only mirrors it and may
@@ -11,9 +10,14 @@
  *  - grey-out (interactive, D2): quality / authority (AND / OR), minConnections and
  *    minMaturity.
  *
- * The OR arm is ported as-is: a disabled predicate passes vacuously, so under the
- * server default (quality on, authority off, OR) nothing is greyed. That matches
- * the server's `client_filter.rs` and is reported, not "fixed", here.
+ * Semantics (ADR-2183 implementation notes, 2026-11-06): only ENABLED predicates
+ * combine. AND greys a node that fails any enabled predicate, OR greys one that
+ * fails every enabled predicate, and with no predicate enabled nothing is greyed.
+ * (Before, a disabled predicate passed vacuously, so OR with quality alone greyed
+ * nothing.) A node with no authored score is neutral to that predicate (quality
+ * and authority alike). The server (`src/actors/client_filter.rs`) and XR
+ * (`xr-client/rust/src/settings_sync.rs`) copies apply the same rule, pinned by
+ * the shared fixture `tests/node-filter-parity.json`.
  */
 import type { Node as GraphNode } from '../managers/graphDataManager';
 import type { NodeFilterSettings } from '../../settings/config/settings';
@@ -24,9 +28,11 @@ export const MATURITY_RANK: Readonly<Record<string, number>> = Object.freeze({
   draft: 1, developing: 2, emerging: 3, growing: 4, established: 5, mature: 6,
 });
 
-/** Settings with the client fallbacks useGraphFiltering has always used. */
+/** Settings with the client fallbacks applied. */
 export interface ResolvedNodeFilter {
   enabled: boolean;
+  /** Opt-in: the server also REMOVES non-matching nodes from this client's graph. */
+  serverRemove: boolean;
   qualityThreshold: number;
   authorityThreshold: number;
   filterByQuality: boolean;
@@ -40,18 +46,42 @@ export interface ResolvedNodeFilter {
 /** The node-filter fields read here (the store hands back a deep partial). */
 export type NodeFilterInput = Partial<Pick<NodeFilterSettings,
   'enabled' | 'qualityThreshold' | 'authorityThreshold' | 'filterByQuality' | 'filterByAuthority'
-  | 'filterMode' | 'includeLinkedPages' | 'minConnections' | 'minMaturity'>>;
+  | 'filterMode' | 'includeLinkedPages' | 'minConnections' | 'minMaturity' | 'serverRemove'>>;
+
+/**
+ * Shipped node-filter defaults, mirrored by `NodeFilterSettings::default()`
+ * (src/settings/models.rs) and the registry. Off by default: the live-corpus
+ * analysis found the authored quality score greys hubs (Metaverse 0.35, degree
+ * 882) and is no better than random above 0.5. Switched on, 0.4 greys only the
+ * bottom authored band (0.35: 744 of 9,688 nodes, mostly drafts).
+ */
+export const NODE_FILTER_DEFAULTS = Object.freeze({
+  enabled: false,
+  serverRemove: false,
+  qualityThreshold: 0.4,
+  authorityThreshold: 0.5,
+  filterByQuality: true,
+  filterByAuthority: false,
+  filterMode: 'or' as const,
+  includeLinkedPages: false,
+});
+
+const toScore = (v: unknown): number | undefined => {
+  const n = typeof v === 'string' ? parseFloat(v) : typeof v === 'number' ? v : NaN;
+  return Number.isFinite(n) ? n : undefined;
+};
 
 export function resolveNodeFilter(s: NodeFilterInput | undefined | null): ResolvedNodeFilter {
   const rawMin = s?.minMaturity ?? '';
   return {
-    enabled: s?.enabled ?? false,
-    qualityThreshold: s?.qualityThreshold ?? 0.7,
-    authorityThreshold: s?.authorityThreshold ?? 0.5,
-    filterByQuality: s?.filterByQuality ?? true,
-    filterByAuthority: s?.filterByAuthority ?? false,
-    filterMode: s?.filterMode ?? 'or',
-    includeLinkedPages: s?.includeLinkedPages ?? false,
+    enabled: s?.enabled ?? NODE_FILTER_DEFAULTS.enabled,
+    serverRemove: s?.serverRemove ?? NODE_FILTER_DEFAULTS.serverRemove,
+    qualityThreshold: s?.qualityThreshold ?? NODE_FILTER_DEFAULTS.qualityThreshold,
+    authorityThreshold: s?.authorityThreshold ?? NODE_FILTER_DEFAULTS.authorityThreshold,
+    filterByQuality: s?.filterByQuality ?? NODE_FILTER_DEFAULTS.filterByQuality,
+    filterByAuthority: s?.filterByAuthority ?? NODE_FILTER_DEFAULTS.filterByAuthority,
+    filterMode: s?.filterMode ?? NODE_FILTER_DEFAULTS.filterMode,
+    includeLinkedPages: s?.includeLinkedPages ?? NODE_FILTER_DEFAULTS.includeLinkedPages,
     minConnections: s?.minConnections ?? 0,
     minMaturityRank: rawMin && rawMin !== 'off' ? MATURITY_RANK[rawMin] ?? 0 : 0,
   };
@@ -72,14 +102,14 @@ export function isRemovedByScope(node: GraphNode, f: Pick<ResolvedNodeFilter, 'i
 }
 
 /**
- * True when an interactive node-filter predicate greys this node out. Identical
- * to the removal predicate useGraphFiltering applied before ADR-2183.
+ * True when an interactive node-filter predicate greys this node out
+ * (ADR-2183 D2). See the module comment for the combination rule.
  */
 export function isGreyedByNodeFilter(
   node: GraphNode,
   f: ResolvedNodeFilter,
   connectionCountMap: ReadonlyMap<string, number>,
-  hierarchyMap: ReadonlyMap<string, HierarchyNode>,
+  _hierarchyMap: ReadonlyMap<string, HierarchyNode>, // kept for callers; authority no longer falls back to depth
 ): boolean {
   const id = String(node.id);
   if (f.minConnections > 0 && (connectionCountMap.get(id) || 0) < f.minConnections) return true;
@@ -92,22 +122,18 @@ export function isGreyedByNodeFilter(
 
   if (!f.enabled) return false;
 
-  // Authored score first (pages: quality_score; ontology: qualityScore); unscored
-  // nodes fall back to degree / 10.
-  let quality: unknown = node.metadata?.quality_score ?? node.metadata?.quality ?? node.metadata?.qualityScore;
-  if (typeof quality === 'string') quality = parseFloat(quality);
-  if (quality === undefined || quality === null || Number.isNaN(quality)) {
-    quality = Math.min(1.0, (connectionCountMap.get(id) || 0) / 10);
+  // Each enabled predicate's verdict; a disabled one contributes nothing.
+  const verdicts: boolean[] = [];
+  if (f.filterByQuality) {
+    // Authored score (pages: quality_score; ontology: qualityScore). Unscored is neutral.
+    const q = toScore(node.metadata?.quality_score ?? node.metadata?.quality ?? node.metadata?.qualityScore);
+    verdicts.push(q === undefined || q >= f.qualityThreshold);
   }
-  let authority: unknown = node.metadata?.authority ?? node.metadata?.authorityScore;
-  if (authority === undefined || authority === null) {
-    authority = Math.max(0, 1.0 - (hierarchyMap.get(id)?.depth ?? 0) * 0.2);
+  if (f.filterByAuthority) {
+    // The server's key is authority_score. Unscored is neutral, as for quality.
+    const a = toScore(node.metadata?.authority_score ?? node.metadata?.authority ?? node.metadata?.authorityScore);
+    verdicts.push(a === undefined || a >= f.authorityThreshold);
   }
-  const passesQuality = !f.filterByQuality || (quality as number) >= f.qualityThreshold;
-  const passesAuthority = !f.filterByAuthority || (authority as number) >= f.authorityThreshold;
-
-  if (f.filterMode === 'and') return !passesQuality || !passesAuthority;
-  // OR: a disabled predicate passes vacuously (see the module comment).
-  if (f.filterByQuality || f.filterByAuthority) return !passesQuality && !passesAuthority;
-  return false;
+  if (verdicts.length === 0) return false;
+  return f.filterMode === 'and' ? verdicts.some((p) => !p) : verdicts.every((p) => !p);
 }

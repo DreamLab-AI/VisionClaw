@@ -2565,7 +2565,7 @@ impl RenderStore {
             let by_filter = match f {
                 Some(f) if self.node_kind.get(&id) != Some(&KIND_AGENT) => {
                     let inp = self.filter_inputs.get(&id).copied().unwrap_or_default();
-                    !f.passes(&inp, self.degree_of(id))
+                    !f.passes(&inp)
                 }
                 _ => false,
             };

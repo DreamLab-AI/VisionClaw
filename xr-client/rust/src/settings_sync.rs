@@ -25,8 +25,9 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 /// The `nodeFilter` fields XR applies. Field defaults are the desktop's
-/// (`useGraphFiltering.ts`: `storeNodeFilter?.x ?? default`), because a peer's
-/// `nodeFilter` frame replaces the whole object on the desktop too.
+/// (`nodeFilter.ts` `NODE_FILTER_DEFAULTS`), because a peer's `nodeFilter`
+/// frame replaces the whole object on the desktop too. `serverRemove` is the
+/// server's business (it decides what the stream carries) and is not read here.
 /// `minConnections` / `minMaturity` are desktop-only and never on the wire.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NodeFilter {
@@ -44,7 +45,7 @@ impl Default for NodeFilter {
     fn default() -> Self {
         Self {
             enabled: false,
-            quality_threshold: 0.7,
+            quality_threshold: 0.4,
             authority_threshold: 0.5,
             filter_by_quality: true,
             filter_by_authority: false,
@@ -85,30 +86,33 @@ impl NodeFilter {
         }
     }
 
-    /// Desktop `visibleNodes` predicate, minus the hierarchy-expansion and
-    /// degree/maturity gates XR does not carry. `degree` feeds the desktop's
-    /// quality fallback (`min(1, degree / 10)`) for an unscored node; an
-    /// unscored authority falls back to `1 - depth * 0.2` with depth 0 (XR has
-    /// no hierarchy map), i.e. 1.0.
-    pub fn passes(&self, inp: &FilterInputs, degree: u32) -> bool {
+    /// Desktop `isGreyedByNodeFilter` predicate (negated), minus the
+    /// hierarchy-expansion and degree/maturity gates XR does not carry. Only
+    /// enabled checks combine (AND: all pass; OR: one passes; none enabled:
+    /// pass), as on the desktop and server (`tests/node-filter-parity.json`).
+    /// An unscored quality or authority is neutral to its check.
+    pub fn passes(&self, inp: &FilterInputs) -> bool {
         if !self.include_linked_pages && inp.linked_page {
             return false;
         }
         if !self.enabled {
             return true;
         }
-        let quality = inp
-            .quality
-            .unwrap_or_else(|| (degree as f32 / 10.0).min(1.0));
-        let authority = inp.authority.unwrap_or(1.0);
-        let pq = !self.filter_by_quality || quality >= self.quality_threshold;
-        let pa = !self.filter_by_authority || authority >= self.authority_threshold;
+        let mut checks = [None, None];
+        if self.filter_by_quality {
+            checks[0] = Some(inp.quality.is_none_or(|q| q >= self.quality_threshold));
+        }
+        if self.filter_by_authority {
+            checks[1] = Some(inp.authority.is_none_or(|a| a >= self.authority_threshold));
+        }
+        let mut enabled = checks.iter().flatten().peekable();
+        if enabled.peek().is_none() {
+            return true;
+        }
         if self.mode_and {
-            pq && pa
-        } else if self.filter_by_quality || self.filter_by_authority {
-            pq || pa
+            enabled.all(|&p| p)
         } else {
-            true
+            enabled.any(|&p| p)
         }
     }
 }
@@ -565,79 +569,91 @@ mod tests {
             quality: Some(x),
             ..Default::default()
         };
-        // Desktop + server quirk, pinned deliberately: in OR mode a disabled
-        // authority check counts as a pass, so the default quality-only OR filter
-        // admits everything (`useGraphFiltering.ts` notes OR "neutralises" it).
-        let or_default = NodeFilter {
+        // Quality alone tests quality, in OR as in AND (no vacuous authority pass).
+        let or_on = NodeFilter {
             enabled: true,
+            quality_threshold: 0.7,
             ..NodeFilter::default()
         };
-        assert!(or_default.passes(&q(0.0), 0));
-        // Quality-only gating needs AND mode.
-        let on = NodeFilter {
+        assert!(!or_on.passes(&q(0.69)));
+        assert!(or_on.passes(&q(0.7)));
+        let and_on = NodeFilter {
             mode_and: true,
-            ..or_default
+            ..or_on
         };
-        assert!(on.passes(&q(0.7), 0));
-        assert!(!on.passes(&q(0.69), 0));
-        // Unscored quality → min(1, degree/10).
-        assert!(!on.passes(&FilterInputs::default(), 6));
-        assert!(on.passes(&FilterInputs::default(), 7));
-        // OR with both checks off passes everything.
+        assert!(!and_on.passes(&q(0.69)));
+        // Unscored quality is neutral (no degree fallback).
+        assert!(or_on.passes(&FilterInputs::default()));
+        // No check enabled passes everything, in either mode.
         let none = NodeFilter {
             filter_by_quality: false,
-            ..or_default
+            ..or_on
         };
-        assert!(none.passes(&q(0.0), 0));
-        // AND requires both; unscored authority is 1.0.
-        let and = NodeFilter {
+        assert!(none.passes(&q(0.0)));
+        assert!(NodeFilter {
+            mode_and: true,
+            ..none
+        }
+        .passes(&q(0.0)));
+        // Unscored authority is neutral.
+        let auth = NodeFilter {
             filter_by_authority: true,
             authority_threshold: 0.6,
-            ..on
+            ..none
         };
-        assert!(and.passes(&q(0.9), 0));
-        assert!(!and.passes(
-            &FilterInputs {
-                quality: Some(0.9),
-                authority: Some(0.5),
-                linked_page: false
-            },
-            0
-        ));
-        // OR with both checks on passes on either.
-        let or = NodeFilter {
-            filter_by_authority: true,
-            authority_threshold: 0.6,
-            ..or_default
-        };
-        assert!(or.passes(
-            &FilterInputs {
-                quality: Some(0.1),
-                authority: Some(0.6),
-                linked_page: false
-            },
-            0
-        ));
-        assert!(!or.passes(
-            &FilterInputs {
-                quality: Some(0.1),
-                authority: Some(0.5),
-                linked_page: false
-            },
-            0
-        ));
+        assert!(auth.passes(&q(0.0)));
         // linked_page gate applies even with the filter disabled.
         let off = NodeFilter::default();
         let stub = FilterInputs {
             linked_page: true,
             ..Default::default()
         };
-        assert!(!off.passes(&stub, 50));
+        assert!(!off.passes(&stub));
         assert!(NodeFilter {
             include_linked_pages: true,
             ..off
         }
-        .passes(&stub, 0));
+        .passes(&stub));
+    }
+
+    /// The fixture the desktop (`nodeFilter.test.ts`) and server
+    /// (`client_filter.rs`) tests load too.
+    #[test]
+    fn filter_predicate_matches_the_shared_parity_fixture() {
+        let v: Value =
+            serde_json::from_str(include_str!("../../../tests/node-filter-parity.json")).unwrap();
+        let score = |m: &Value, k: &str| {
+            m.get(k)
+                .and_then(Value::as_str)
+                .map(|s| s.parse::<f32>().unwrap())
+        };
+        for c in v["cases"].as_array().unwrap() {
+            let f = NodeFilter::from_settings(&c["filter"]);
+            let greyed: Vec<u64> = v["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|n| {
+                    let m = &n["metadata"];
+                    !f.passes(&FilterInputs {
+                        quality: score(m, "quality_score"),
+                        authority: score(m, "authority_score"),
+                        linked_page: false,
+                    })
+                })
+                .map(|n| n["id"].as_u64().unwrap())
+                .collect();
+            let want: Vec<u64> = c["greyed"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x.as_u64().unwrap())
+                .collect();
+            assert_eq!(greyed, want, "case: {}", c["name"]);
+            if c["default"].as_bool() == Some(true) {
+                assert_eq!(f, NodeFilter::default(), "XR default = shipped default");
+            }
+        }
     }
 
     // --- filter ack / graphUpdated ----------------------------------------
