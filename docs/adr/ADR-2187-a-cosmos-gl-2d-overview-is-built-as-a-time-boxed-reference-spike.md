@@ -2,7 +2,7 @@
 id: ADR-2187
 title: A cosmos.gl 2D overview fed with server positions is built as a time-boxed reference spike, and the Cosmograph product library is not used
 date: 2026-11-05
-decision_status: accepted
+decision_status: rejected
 implementation_status: none
 activation_status: inactive
 supersedes: []
@@ -11,7 +11,7 @@ verified_commit: 4adab22f02a09dfddc29b59b7d1f0213d5b3e948
 verified_paths: []
 relates: [ADR-2135, ADR-2179, ADR-2181, ADR-2182, ADR-2184]
 owner: jjohare
-review_trigger: "The spike's exit review (keep as a route, or delete); a cosmos.gl release adding WebGPU or 3D to the MIT engine; any change to Cosmograph's licence."
+review_trigger: "Rejected 2026-11-06. Reopen only if the overview-first view (ADR-2179..2186) fails its acceptance on the live graph; a cosmos.gl release adding WebGPU to the MIT engine does not by itself reopen it."
 repo: visionclaw
 domain: BASELINE-architecture
 evidence_class: source
@@ -19,6 +19,13 @@ acceptance_boundary: "cosmos.gl 3.6.0 source and package metadata read on 2026-1
 ---
 
 # ADR-2187 — A cosmos.gl 2D overview fed with server positions is built as a time-boxed reference spike, and the Cosmograph product library is not used
+
+## Rejection (2026-11-06)
+The operator rejected this record on 2026-11-06, before any spike was built (`implementation_status: none`):
+- **The need is covered.** The overview-first upgrade (ADR-2179 to ADR-2186) is built in our own renderer: screen-space edges, sized sprites, the highlight mask, the column encoding and the label budget. That makes the Cosmograph-style comparison this spike was for unnecessary.
+- **It contradicts consolidation.** cosmos.gl runs on luma.gl over WebGL2, in its own canvas. A second desktop renderer works against the same day's decision that the desktop has one renderer, `WebGPURenderer` with its WebGL2 fallback (BASELINE-architecture, desktop client).
+
+The text below is kept as the rationale that was weighed. It is not policy, and no code may cite it as a reason to add a second renderer.
 
 ## Context
 - **What the reference looks like.** The owner's reference for the target look is Cosmograph.
