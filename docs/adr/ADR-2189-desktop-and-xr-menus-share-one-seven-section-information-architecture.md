@@ -7,15 +7,15 @@ implementation_status: partial
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: b018ca0f3785421eae4731cb3099775474b25463
-verified_paths: [client/src/features/control-center/registry/placement.ts, client/src/features/control-center/registry/manifest.ts, client/src/features/control-center/registry/ia.json, xr-client/data/ia.json, client/src/store/settings/retiredPaths.ts, client/src/features/control-center/state/settingWrites.ts, client/src/features/control-center/integrationSlots.ts, client/src/features/control-center/integrationFlags.ts, client/src/features/control-center/macros/MacroBar.tsx]
+verified_commit: d3f132049eb80ec6cf6de888e75c3419a2f10df5
+verified_paths: [client/src/features/control-center/registry/placement.ts, client/src/features/control-center/registry/manifest.ts, client/src/features/control-center/registry/ia.json, xr-client/data/ia.json, client/src/store/settings/retiredPaths.ts, client/src/features/control-center/state/settingWrites.ts, client/src/features/control-center/integrationSlots.ts, client/src/features/control-center/drawer/RightDrawer.tsx, client/src/features/control-center/macros/MacroBar.tsx]
 relates: [ADR-2179, ADR-2180, ADR-2181, ADR-2182, ADR-2183, ADR-2184, ADR-2185, ADR-2186, ADR-2187, ADR-2188]
 owner: jjohare
 review_trigger: "The render and explore lanes land the ADR-2180..2186 settings; a new registry group is proposed; a headset session finds a control more than two levels deep."
 repo: visionclaw
 domain: XR-client
 evidence_class: source+test
-acceptance_boundary: "Accepted on operator instruction on 2026-11-06. Desktop implemented and verified by tsc, the full Vitest suite (181 files, 1750 tests), vite build, narrow cargo tests for the three removed server fields, and elementsFromPoint probes of a worktree dev build at 1280x900 and 1024x768 (0 occluded or off-screen controls, against 7 and 12 before; 0 of 31 at 1024x768 with a section open). The XR HUD is not built. Every server bucket is stored under a constant key, so server-saved settings reach every viewer; the UI says so. The render and explore lanes are merged and wired (requestFit, OverviewEdgeNotice, ExplorePanel, GraphLegend, clearAllFilters, useActiveFilterCount, hideFiltered)."
+acceptance_boundary: "Accepted on operator instruction on 2026-11-06. Desktop implemented and verified by tsc, the full Vitest suite (185 files, 1769 tests), vite build, narrow cargo tests for the three removed server fields, and elementsFromPoint probes of a worktree dev build at 1280x900 and 1024x768 (0 occluded or off-screen controls, against 7 and 12 before; 0 of 31 at 1024x768 with a section open; 0 with the memory cloud on across the explore, memory and node drawer tabs at both sizes). The XR HUD is not built. Every server bucket is stored under a constant key, so server-saved settings reach every viewer; the UI says so. The render and explore lanes are merged and wired (requestFit, OverviewEdgeNotice, ExplorePanel, GraphLegend, clearAllFilters, useActiveFilterCount, hideFiltered)."
 ---
 
 # ADR-2189 — Desktop and XR menus share one seven-section information architecture
@@ -312,7 +312,7 @@ Desktop built on `feat/gv-menus` (rebased onto the integration branch; final wir
 
 **Not built yet**
 - The XR HUD reading `ia.json`, its GUT parity test, and persisting the XR view preferences.
-- The edge-colour merge (one colour per graph mode), the cluster/community toggles becoming Colour by options, the timeline Diff checkbox merge, and routing the Memory explorer panel through `useSettingField`. These need renderer or explore-panel changes owned by other lanes. The three edge colours sit together in Encode › Edges with labels that say which mode each one serves.
+- The render lane's deletion of the reads listed under "Merges" below (GemNodes, ClusterHulls, GraphManager, GlassEdges). Until then the retired fields stay in the client types as optional `@deprecated`; their stored values are already stripped.
 - §5 filter behaviour: built by gv-explore. Filters grey out by default, and Explore › Filters › "Hide filtered nodes" (`graphView.explore.hideFiltered`) removes them instead. The older server-side node filter stays, labelled "Filter on server (hides nodes for every viewer)".
 - §4 warnings region: the voice-support warning became a dot on the Status chip and a note in its flyout, not a top-centre overlay (at 1024 px a top-centre warning covered the settings panel header). Toasts are transient and sit at the top centre.
 
@@ -328,4 +328,18 @@ Desktop built on `feat/gv-menus` (rebased onto the integration branch; final wir
 - The Labels dial drives the ADR-2186 budget. The Glow dial's readout names the bloom scope it applies to.
 - `knowledge.labels.desktopFontSize` lost its reader in the render merge, so it was retired with the other removed paths (41 in all).
 - The probe on the wired build found 0 controls covered at 1280x900 (60 controls, explore drawer open) and at 1024x768 (23 controls, drawer open, dials folded into the Dials menu).
+
+**Drawer and merges (closed 2026-11-06, `d3f132049`)**
+- One right-hand drawer (`control-center/drawer/RightDrawer.tsx`) holds the explore panel, the Memory explorer and node detail as tabs. Before, the Memory explorer (absolute, top-right) and node detail (fixed, z 1100) covered the explore drawer and each other with the memory cloud on.
+  - Tablist with arrow, Home and End keys. Esc inside the drawer closes the active tab. Focus moves in when a control opens the drawer and returns to that control on close.
+  - A node selection opens the Node tab without taking focus and is announced in a polite live region. This closes the NodeDetailPanel part of audit finding 15. Closing the Node tab deselects the node and returns to the tab shown before it.
+  - The Memory tab exists while the embedding cloud is on. It is shown when the cloud is switched on and the drawer is closed.
+  - Each tab panel has its own error boundary. The live probe found that an agent-marker selection (no `neighbors`) made NodeDetailPanel throw, and inside the control centre that took the dock down. The payload is now normalised, and both cases have tests.
+- The Memory explorer writes through `useSettingFieldGroup`, the group form of `useSettingField` on the one write path. Its inner Explore tab is now Browse, so it does not clash with the drawer tab.
+- The timeline Diff checkbox writes `provenance.diffMode`, and the timeline store follows the setting from either surface. Both surfaces are labelled "Timeline diff".
+- Merges (`store/settings/retiredPaths.ts` `MERGED_PATHS`; 44 removed paths in all):
+  - One edge colour per graph mode: `graphTypeVisuals.{knowledgeGraph,ontology,agent}.edgeColor`. The generic `graphs.knowledge.edges.color` only ever showed in agent mode. It is retired and its stored value moves to `agent.edgeColor` (`RENAMED_PATHS`), without overwriting an existing value.
+  - `qualityGates.showClusters` and `showCommunities` coloured nothing: nodes take cluster or community colour only from the colour scheme. They are retired; Colour scheme = Cluster / Community (or Explore › Colour by) is the control. The Ask box's "show clusters" now sets colour scheme = cluster.
+  - `showClusters` defaulted to on, which alone kept analytics ingestion running. The ingestion gate in `nodeAnalyticsStore.ts` now names the real consumers (the ADR-2186 label budget and ADR-2184 explore columns), with a test.
+  - The renderer reads to delete went to gv-render as file:line lists: GemNodes.tsx:707-708 and :950, ClusterHulls.tsx:222-226, GraphManager.tsx:713-719 (agent branch), GlassEdges.tsx:349/389/396/415/449/459, GlassEdgeMaterial.ts:127.
 
