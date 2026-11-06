@@ -55,6 +55,11 @@ export function useControlCenterHotkeys(): void {
       // owns its own Esc; the dock has an explicit toggle, so Esc is scoped to
       // the panel and left inert otherwise (canvas/global Esc handlers survive).
       if (e.key === 'Escape') {
+        // Focus inside the right-hand drawer: the drawer owns Esc (its own
+        // bubble-phase handler closes the active tab). This listener runs in the
+        // capture phase, so without this it would close the settings panel, or
+        // close the drawer a second time (node tab → previous tab → closed).
+        if (e.target instanceof Element && e.target.closest('[data-testid="right-drawer"]')) return;
         if (ui.openPanel) {
           // A Radix Select dropdown (or any popper-positioned overlay) open inside
           // the panel owns Escape first — it should close only itself, not the whole
