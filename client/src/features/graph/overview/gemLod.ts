@@ -15,10 +15,17 @@ export const GEM_BUDGET = 4096;
 export interface GemLodScratch {
   idx: Uint32Array;
   dist: Float32Array;
+  slot: Uint32Array;
+  /** Distance comparator over `dist`, created once per scratch. */
+  byDist: (a: number, b: number) => number;
 }
 
 export function createGemLodScratch(): GemLodScratch {
-  return { idx: new Uint32Array(0), dist: new Float32Array(0) };
+  const s: GemLodScratch = {
+    idx: new Uint32Array(0), dist: new Float32Array(0), slot: new Uint32Array(0),
+    byDist: (a, b) => s.dist[a] - s.dist[b],
+  };
+  return s;
 }
 
 export interface GemLodInput {
@@ -49,6 +56,7 @@ export function selectGemLod(input: GemLodInput, out: Uint8Array, scratch: GemLo
   if (scratch.idx.length < n) {
     scratch.idx = new Uint32Array(n);
     scratch.dist = new Float32Array(n);
+    scratch.slot = new Uint32Array(n);
   }
   const idx = scratch.idx;
   const dist = scratch.dist;
@@ -74,10 +82,10 @@ export function selectGemLod(input: GemLodInput, out: Uint8Array, scratch: GemLo
     return forcedCount + cand;
   }
   const order = idx.subarray(0, cand);
-  // Sort candidate slots by distance: sort positions 0..cand-1 via their distances.
-  const slot = new Uint32Array(cand);
+  // Sort candidate slots by distance (grow-only scratch, comparator made once).
+  const slot = scratch.slot.subarray(0, cand);
   for (let k = 0; k < cand; k++) slot[k] = k;
-  slot.sort((a, b) => dist[a] - dist[b]);
+  slot.sort(scratch.byDist);
   for (let k = 0; k < budget; k++) out[order[slot[k]]] = 1;
   return forcedCount + budget;
 }

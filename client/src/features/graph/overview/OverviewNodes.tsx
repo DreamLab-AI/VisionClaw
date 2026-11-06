@@ -30,6 +30,7 @@ import { nodeEncoding } from '../state/nodeEncoding';
 import { highlightMask, highlightLevel, HIGHLIGHT_LEVEL_EMPHASISED } from '../state/highlightMask';
 import { EMPHASIS_SCALE, backgroundFromSetting } from './highlightVisual';
 import { useOverviewMaterial } from './useOverviewMaterial';
+import { setOverviewLive } from './overviewLive';
 import type { NodePositionTexture } from './nodePositionTexture';
 import type { GemNodesHandle } from '../components/GemNodes';
 
@@ -95,6 +96,12 @@ export const OverviewNodes: React.FC<Props> = ({ positions, sourceRef, style }) 
   const [haloCapacity, setHaloCapacity] = useState(64);
   const sprites = useSpriteMesh(positions, capacity, false, 2);
   const halo = useSpriteMesh(positions, haloCapacity, true, 3);
+  // Gems hide beyond the LOD distance only while these sprites really draw.
+  const spritesLive = sprites.mesh !== null;
+  useEffect(() => {
+    setOverviewLive('nodes', spritesLive);
+    return () => setOverviewLive('nodes', false);
+  }, [spritesLive]);
   const last = useRef({ colorVersion: -1, encVersion: -1, count: -1, spritePx: -1, nodeSize: -1, geo: null as unknown, maskVersion: -1, haloGeo: null as unknown });
 
   useFrame(() => {

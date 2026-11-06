@@ -19,6 +19,7 @@ import {
 } from '../../../rendering/materials/OverviewEdgeMaterial';
 import { edgeWidthPx } from './edgeStyle';
 import { useOverviewMaterial } from './useOverviewMaterial';
+import { setOverviewLive } from './overviewLive';
 import type { NodePositionTexture } from './nodePositionTexture';
 
 export interface OverviewEdgeData {
@@ -56,9 +57,11 @@ interface Props {
   visible: boolean;
   renderOrder?: number;
   name?: string;
+  /** Publish this batch as the live overview edges (the asserted batch only). */
+  publishLive?: boolean;
 }
 
-export const OverviewEdgeLines: React.FC<Props> = ({ positions, data, style, visible, renderOrder = 1, name = 'overview-edges' }) => {
+export const OverviewEdgeLines: React.FC<Props> = ({ positions, data, style, visible, renderOrder = 1, name = 'overview-edges', publishLive = false }) => {
   const { size, gl } = useThree();
   const capacity = data ? Math.max(1, 2 ** Math.ceil(Math.log2(Math.max(1, data.count)))) : 1;
   const geometry = useMemo(() => createOverviewEdgeGeometry(capacity), [capacity]);
@@ -96,6 +99,14 @@ export const OverviewEdgeLines: React.FC<Props> = ({ positions, data, style, vis
     m.raycast = () => {};
     return m;
   }, [geometry, material, name, renderOrder]);
+
+  // Tubes shrink to close zoom only while these edges really draw.
+  const live = publishLive && mesh !== null && visible;
+  useEffect(() => {
+    if (!publishLive) return;
+    setOverviewLive('edges', live);
+    return () => setOverviewLive('edges', false);
+  }, [publishLive, live]);
 
   // Instance attributes: only when the data or the width mapping changes.
   useEffect(() => {

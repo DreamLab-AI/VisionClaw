@@ -34,6 +34,7 @@ import { highlightMask, HIGHLIGHT_SELECTED, HIGHLIGHT_HOVERED } from '../state/h
 import { highlightVisualFor, createHighlightVisual, backgroundFromSetting, type GreyoutStyle } from '../overview/highlightVisual';
 import { selectGemLod, createGemLodScratch, cameraMoved, GEM_BUDGET } from '../overview/gemLod';
 import { PositionSnapshot } from '../hooks/edgeBufferPlan';
+import { isOverviewLive } from '../overview/overviewLive';
 import { DEFAULT_GRAPH_VIEW } from '../../../api/settings/defaults';
 import type { GraphViewSettings } from '../../settings/config/settings';
 import { agentStatusActivity } from '../../bots/agentVisualConstants';
@@ -238,6 +239,7 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
   const lodFrameRef = useRef(0);
   const lodVersionRef = useRef(0);
   const lodSumRef = useRef(-1);
+  const lodActiveRef = useRef(false);
   // ADR-2182 D5: the per-node transform write runs only when its inputs change.
   const posSnapshotRef = useRef(new PositionSnapshot());
   const lastWriteRef = useRef({ scaleHash: '', lodVersion: -1, visCount: -1, gpu: false, mesh: null as THREE.InstancedMesh | null, waving: false });
@@ -997,7 +999,10 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
     // selected / hovered; every other knowledge node is an overview sprite only.
     // Re-selected on a structural change, or when the camera has moved, at most
     // every LOD_EVERY frames.
-    const lodMesh = dominant === 'knowledge_graph';
+    // Only while the overview sprites are live (mounted, material built): until
+    // then, or if they fail to build, every gem stays drawn.
+    const lodMesh = dominant === 'knowledge_graph' && isOverviewLive('nodes');
+    if (lodMesh !== lodActiveRef.current) { lodActiveRef.current = lodMesh; lodDirtyRef.current = true; lodVersionRef.current++; }
     if (lodMesh) {
       let flags = lodFlagsRef.current;
       let forced = lodForcedRef.current;

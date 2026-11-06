@@ -631,7 +631,7 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
 
     // ADR-2186 D5: the layout runs with the label selection (LABEL_REFRESH_MS,
     // ≈4 Hz, and on camera stop); between refreshes only positions are patched.
-    if (!labelDue && nodeGlyphMapRef.current.length > 0) return;
+    if (!labelDue) return;
 
     // Reuse rawPositions captured above (same drawn-array snapshot for consistency)
     const rawPositionsForLayout = rawPositions;

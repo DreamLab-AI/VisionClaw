@@ -72,9 +72,22 @@ interface GlassEdgesProps {
  * capped at `budget`. Writes edge indices to `out` and returns their count.
  * `scratch` holds squared distances (grow-only, caller-owned).
  */
+export interface TubeSelectScratch {
+  slot: Uint32Array;
+  dist: Float32Array;
+  byDist: (a: number, b: number) => number;
+}
+
+/** Grow-only scratch for selectCloseTubes; the comparator is created once. */
+export function createTubeSelectScratch(): TubeSelectScratch {
+  const s: TubeSelectScratch = { slot: new Uint32Array(0), dist: new Float32Array(0), byDist: (a, b) => s.dist[a] - s.dist[b] };
+  return s;
+}
+
 export function selectCloseTubes(
   pts: ArrayLike<number>, edgeCount: number, camX: number, camY: number, camZ: number,
   maxDistance: number, budget: number, out: Int32Array, scratch: Float32Array,
+  sort: TubeSelectScratch = createTubeSelectScratch(),
 ): number {
   const lim2 = maxDistance > 0 ? maxDistance * maxDistance : 0;
   if (lim2 === 0 || budget <= 0) return 0;
@@ -93,9 +106,15 @@ export function selectCloseTubes(
   // Keep the `budget` nearest. Candidates are gathered in edge order up to
   // out.length (the caller sizes it at 4× the budget), so the scan is bounded;
   // this sort runs at the LOD cadence only, never per frame.
-  const order = Array.from({ length: n }, (_, k) => k).sort((a, b) => scratch[a] - scratch[b]).slice(0, budget);
-  order.sort((a, b) => a - b);
-  for (let k = 0; k < budget; k++) out[k] = out[order[k]];
+  if (sort.slot.length < n) { sort.slot = new Uint32Array(n); sort.dist = new Float32Array(n); }
+  sort.dist.set(scratch.subarray(0, n));
+  const slot = sort.slot.subarray(0, n);
+  for (let k = 0; k < n; k++) slot[k] = k;
+  slot.sort(sort.byDist);
+  const keep = slot.subarray(0, budget);
+  keep.sort(); // back to edge order
+  // keep[k] >= k (ascending distinct slots), so compacting in place is safe
+  for (let k = 0; k < budget; k++) out[k] = out[keep[k]];
   return budget;
 }
 
@@ -271,7 +290,7 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
     bloomRef.current = bloom;
     const lastPtsRef = useRef<{ pts: number[]; len: number } | null>(null);
     const lastColorsRef = useRef<{ colors: Float32Array; count: number } | null>(null);
-    const selRef = useRef<{ idx: Int32Array; dist: Float32Array; count: number }>({ idx: new Int32Array(0), dist: new Float32Array(0), count: 0 });
+    const selRef = useRef<{ idx: Int32Array; dist: Float32Array; count: number; sort: TubeSelectScratch }>({ idx: new Int32Array(0), dist: new Float32Array(0), count: 0, sort: createTubeSelectScratch() });
     const lodCamRef = useRef({ x: NaN, y: NaN, z: NaN, frame: 0, lod: null as GlassTubeLod | null });
     const edgeRevealRef = useRef(0);
     const totalEdgesRef = useRef(0);
@@ -563,7 +582,7 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
           const cap = Math.min(edgeCount, Math.max(0, l.budget) * 4 + 1);
           if (sel.idx.length < cap) { sel.idx = new Int32Array(cap); sel.dist = new Float32Array(cap); }
           sel.count = selectCloseTubes(newPts, edgeCount, camera.position.x, camera.position.y, camera.position.z,
-            l.maxDistance, l.budget, sel.idx, sel.dist);
+            l.maxDistance, l.budget, sel.idx, sel.dist, sel.sort);
           const activeMesh = ensureCapacity(Math.max(1, sel.count));
           computeInstanceMatrices(activeMesh, newPts, capacityRef.current, undefined, len, radiusFactorsRef.current, sel.idx, sel.count);
           lodCamRef.current.x = camera.position.x; lodCamRef.current.y = camera.position.y; lodCamRef.current.z = camera.position.z;

@@ -36,6 +36,7 @@ import { nodePageUrl } from '../utils/pageLinks'
 import { setSharedNodePositions, setSharedNodeIdToIndexMap } from '../contexts/NodePositionContext'
 import { OverviewLayer, resolveGraphView } from '../overview/OverviewLayer'
 import { useNodeEncodingSync } from '../overview/useNodeEncodingSync'
+import { useOverviewLive } from '../overview/overviewLive'
 import { TUBE_BUDGET, type GlassTubeLod } from './GlassEdges'
 import { highlightMask, HIGHLIGHT_SELECTED } from '../state/highlightMask'
 import type { GraphViewSettings } from '../../settings/config/settings'
@@ -92,10 +93,13 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   // close-zoom LOD (or nothing, when glassAtCloseZoom is off).
   const graphViewStored = useSettingsStore(s => s.settings?.visualisation?.graphView as GraphViewSettings | undefined)
   const graphView = useMemo(() => resolveGraphView(graphViewStored), [graphViewStored])
+  // Only once the overview edges are actually drawing (material built): until
+  // then, or if it fails, every edge stays a tube.
+  const overviewLive = useOverviewLive()
   const tubeLod = useMemo<GlassTubeLod | null>(() => {
-    if (!graphView.overviewEdges.enabled) return null
+    if (!graphView.overviewEdges.enabled || !overviewLive.edges) return null
     return { maxDistance: graphView.overviewEdges.glassAtCloseZoom ? graphView.nodes.gemLodDistance : 0, budget: TUBE_BUDGET }
-  }, [graphView.overviewEdges.enabled, graphView.overviewEdges.glassAtCloseZoom, graphView.nodes.gemLodDistance])
+  }, [graphView.overviewEdges.enabled, overviewLive.edges, graphView.overviewEdges.glassAtCloseZoom, graphView.nodes.gemLodDistance])
 
   // Node-type visibility filtering + per-population partition.
   //

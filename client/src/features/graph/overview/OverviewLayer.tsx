@@ -107,7 +107,7 @@ export const OverviewLayer: React.FC<Props> = ({ plan, nodePositionsRef, nodeCou
 
   return (
     <OverviewTextureContext.Provider value={positions}>
-      <OverviewEdgeLines positions={positions} data={edgeData} style={edgeStyle} visible={oe.enabled} />
+      <OverviewEdgeLines positions={positions} data={edgeData} style={edgeStyle} visible={oe.enabled} publishLive />
       <OverviewNodes positions={positions} sourceRef={knowledgeGemRef} style={nodeStyle} />
       {children}
     </OverviewTextureContext.Provider>
