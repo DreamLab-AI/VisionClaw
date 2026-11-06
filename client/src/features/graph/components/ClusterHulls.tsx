@@ -219,11 +219,10 @@ export const ClusterHulls: React.FC<ClusterHullsProps> = ({
   const analyticsRef = useRef<Float32Array | null>(null);
 
   // ---- Early exit if feature is disabled ----
-  // Respect both the visual clusterHulls.enabled toggle AND qualityGates.showClusters
+  // ADR-2189 merge A: hulls follow visualisation.clusterHulls.enabled only
+  // (Show Clusters is retired; colour by cluster is the colour scheme).
   const clusterHullsEnabled = settings?.visualisation?.clusterHulls?.enabled;
-  const showClusters = settings?.qualityGates?.showClusters;
-  // If qualityGates.showClusters is explicitly false, disable hulls even if clusterHulls.enabled is true
-  const enabled = showClusters === false ? false : clusterHullsEnabled;
+  const enabled = clusterHullsEnabled;
   const opacity = settings?.visualisation?.clusterHulls?.opacity ?? 0.08;
   const padding = settings?.visualisation?.clusterHulls?.padding ?? 0.15;
   const maxHulls = settings?.visualisation?.clusterHulls?.maxHulls ?? DEFAULT_MAX_HULLS;

@@ -266,7 +266,7 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
 
     /** Allocate or grow the mesh to `targetCapacity`. Disposes the old mesh. */
     const reallocate = useCallback((targetCapacity: number): THREE.InstancedMesh => {
-      const initialColor = colorOverride || settings?.color || undefined;
+      const initialColor = colorOverride || undefined;
       const initialOpacity = settings?.opacity;
       const { mesh: nextMesh, uniforms: nextUniforms } = allocateMesh(
         targetCapacity,
@@ -306,14 +306,14 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
         );
       }
       return nextMesh;
-    }, [colorOverride, settings?.color, settings?.opacity, edgeRadius]);
+    }, [colorOverride, settings?.opacity, edgeRadius]);
 
     // Initial mesh allocation: small placeholder until first non-empty points.
     const { mesh, uniforms } = useMemo(() => {
       const { mesh: m, uniforms: u } = allocateMesh(
         EDGE_INITIAL,
         edgeRadius,
-        colorOverride || settings?.color || undefined,
+        colorOverride || undefined,
         settings?.opacity,
       );
       meshRef.current = m;
@@ -332,7 +332,7 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
           const { mesh: bigger, uniforms: biggerUniforms } = allocateMesh(
             targetCapacity,
             edgeRadius,
-            colorOverride || settings?.color || undefined,
+            colorOverride || undefined,
             settings?.opacity,
           );
           m.geometry.dispose();
@@ -366,7 +366,7 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
         if (instanceColorsActiveRef.current) {
           mat.color.setRGB(1, 1, 1);
         } else {
-          const targetColor = colorOverride || settings?.color;
+          const targetColor = colorOverride;
           if (targetColor) mat.color.set(targetColor);
         }
       }
@@ -376,7 +376,7 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
         mat.opacity = settings.opacity;
       }
       mat.needsUpdate = true;
-    }, [colorOverride, settings?.color, settings?.opacity, mesh]);
+    }, [colorOverride, settings?.opacity, mesh]);
 
     // Read glow settings for edge emissive values.
     // Stored in a ref so useCallback closures always read the latest value

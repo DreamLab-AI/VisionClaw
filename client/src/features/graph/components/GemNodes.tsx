@@ -704,8 +704,8 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
       colorScheme === 'community' || colorScheme === 'cluster' ||
       colorScheme === 'centrality' || colorScheme === 'sssp';
     if (analyticsFrameRef.current % 30 === 1 &&
-        (analyticColorScheme || qualityGates?.showClusters || qualityGates?.showAnomalies ||
-         qualityGates?.showCommunities || qualityGates?.showCentrality || qualityGates?.showSSSP)) {
+        (analyticColorScheme || qualityGates?.showAnomalies ||
+         qualityGates?.showCentrality || qualityGates?.showSSSP)) {
       const buf = nodeAnalyticsStore.getIndexedBuffer(props.nodeIdToIndexMap);
       if (buf) {
         analyticsRef.current = buf;
@@ -947,7 +947,7 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
     }
 
     // --- Colour cache: recompute + upload only when colour inputs change -----
-    const colorHash = `${nodeCount}-${connectionCountMap.size}-${colorScheme}-${cyclicIds?.size ?? ''}-${baseNodeColor ?? ''}-${selectedNodeId ?? ''}-${ssspResult ? 's' : ''}-${qualityGates?.showClusters ? 1 : 0}${qualityGates?.showAnomalies ? 1 : 0}${qualityGates?.showCommunities ? 1 : 0}${qualityGates?.showCentrality ? 1 : 0}${qualityGates?.showSSSP ? 1 : 0}-${analyticsVersionRef.current}-${heatEnabled ? 1 : 0}-${timelineVersion}-e${encVersion}-m${maskVersion}-${_greyStyle.greyoutMix}-${backgroundHex ?? ''}`;
+    const colorHash = `${nodeCount}-${connectionCountMap.size}-${colorScheme}-${cyclicIds?.size ?? ''}-${baseNodeColor ?? ''}-${selectedNodeId ?? ''}-${ssspResult ? 's' : ''}-${qualityGates?.showAnomalies ? 1 : 0}${qualityGates?.showCentrality ? 1 : 0}${qualityGates?.showSSSP ? 1 : 0}-${analyticsVersionRef.current}-${heatEnabled ? 1 : 0}-${timelineVersion}-e${encVersion}-m${maskVersion}-${_greyStyle.greyoutMix}-${backgroundHex ?? ''}`;
     if (colorHash !== prevColorHashRef.current) {
       prevColorHashRef.current = colorHash;
       const ectx = encodingCtxRef.current;
