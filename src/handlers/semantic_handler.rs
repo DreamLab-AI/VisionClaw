@@ -250,8 +250,23 @@ fn visible_ids(
     if Arc::ptr_eq(&view, graph) {
         None
     } else {
-        Some(view.nodes.iter().map(|n| n.id).collect())
+        Some(visible_positions(graph, &view))
     }
+}
+
+/// The analyser answers in positions of `graph.nodes`, which equal node ids only while the graph
+/// is compact (a `remove_node` leaves a gap until the next reload). A position counts as visible
+/// only when its node is in the caller's view AND its id is its position, so any drift fails
+/// closed rather than letting a hidden node through under a visible node's number.
+fn visible_positions(graph: &GraphData, view: &GraphData) -> HashSet<u32> {
+    let seen: HashSet<u32> = view.nodes.iter().map(|n| n.id).collect();
+    graph
+        .nodes
+        .iter()
+        .enumerate()
+        .filter(|(i, n)| n.id as usize == *i && seen.contains(&n.id))
+        .map(|(i, _)| i as u32)
+        .collect()
 }
 
 /// The error the analyser gives for a source id past the end of the graph.
@@ -315,8 +330,12 @@ fn gate_shortest_path(
         computation_time_ms,
     } = result;
     if let Some(visible) = visible {
+        // A reconstruction that failed part-way returns a path that does not reach the source;
+        // the distance still counts the missing hops, so such a target is dropped too.
         paths.retain(|target, path| {
-            visible.contains(target) && path.iter().all(|n| visible.contains(n))
+            path.first() == Some(&source_node)
+                && path.last() == Some(target)
+                && path.iter().all(|n| visible.contains(n))
         });
         distances.retain(|target, _| *target == source_node || paths.contains_key(target));
     }
@@ -478,6 +497,38 @@ mod response_gate_tests {
         targets.sort_unstable();
         assert_eq!(targets, vec![0, 1, 2]);
         assert!(out.paths.is_empty(), "paths were not asked for");
+    }
+
+    #[test]
+    fn a_partial_path_does_not_vouch_for_its_distance() {
+        let mut r = sssp();
+        // Reconstruction stopped at 2: the visible tail hides how 4 was really reached.
+        r.paths.insert(4, vec![2, 4]);
+        let out = gate_shortest_path(r, Some(&visible()), true);
+        assert!(!out.distances.contains_key(&4));
+        assert!(!out.paths.contains_key(&4));
+    }
+
+    #[test]
+    fn a_position_whose_node_id_drifted_counts_as_hidden() {
+        use visionclaw_domain::models::node::Node;
+        // `new_with_id` treats id 0 as "allocate one", so the id is set explicitly.
+        let node = |id: u32| {
+            let mut n = Node::new_with_id(format!("n{id}"), None);
+            n.id = id;
+            n
+        };
+        // Position 1 holds node id 2 (node 1 was removed); position 2 holds node id 3.
+        let graph = GraphData {
+            nodes: vec![node(0), node(2), node(3)],
+            ..GraphData::default()
+        };
+        let view = GraphData {
+            nodes: vec![node(0), node(2)],
+            ..GraphData::default()
+        };
+        let v = visible_positions(&graph, &view);
+        assert_eq!(v, [0].into_iter().collect::<HashSet<u32>>());
     }
 
     #[test]
