@@ -186,7 +186,11 @@ pub async fn share_graph(
 
     match handler
         .serialization_service
-        .create_shared_graph(&graph, &request)
+        .create_shared_graph(
+            &graph,
+            &request,
+            caller.0.as_ref().map(|u| u.pubkey.clone()),
+        )
         .await
     {
         Ok((shared_graph, share_response)) => {
@@ -284,9 +288,20 @@ pub async fn publish_graph(
     })))
 }
 
+/// Whether `caller` may delete `share`: only its recorded creator. An anonymous caller, any
+/// other caller, and a share with no recorded creator are refused (fail closed), and the
+/// refusal reads as "not found" so it does not confirm the share exists (review L1).
+pub(crate) fn may_delete_share(
+    share: &visionclaw_domain::models::graph_export::SharedGraph,
+    caller: Option<&str>,
+) -> bool {
+    matches!((share.creator_id.as_deref(), caller), (Some(owner), Some(c)) if owner == c)
+}
+
 pub async fn delete_shared_graph(
     handler: web::Data<GraphExportHandler>,
     path: web::Path<String>,
+    caller: crate::settings::OptionalAuth,
 ) -> ActixResult<HttpResponse> {
     let share_id = match Uuid::parse_str(&path.into_inner()) {
         Ok(id) => id,
@@ -297,7 +312,11 @@ pub async fn delete_shared_graph(
 
     let removed_graph = {
         let mut shared_graphs = handler.shared_graphs.write().await;
-        shared_graphs.remove(&share_id)
+        let caller = caller.0.as_ref().map(|u| u.pubkey.as_str());
+        match shared_graphs.get(&share_id) {
+            Some(share) if may_delete_share(share, caller) => shared_graphs.remove(&share_id),
+            _ => None,
+        }
     };
 
     match removed_graph {
@@ -382,4 +401,36 @@ mod tests {
     //     let resp = test::call_service(&app, req).await;
     //     assert!(resp.status().is_success() || resp.status().is_server_error());
     // }
+}
+
+#[cfg(test)]
+mod share_owner_tests {
+    use super::may_delete_share;
+    use visionclaw_domain::models::graph_export::ExportFormat;
+    use visionclaw_domain::models::graph_export::{NewSharedGraph, SharedGraph};
+
+    fn share(creator: Option<&str>) -> SharedGraph {
+        SharedGraph::new(NewSharedGraph {
+            title: "t".into(),
+            description: None,
+            creator_id: creator.map(str::to_string),
+            file_path: "/tmp/x".into(),
+            file_size: 0,
+            compressed: true,
+            original_format: ExportFormat::Json,
+            node_count: 0,
+            edge_count: 0,
+        })
+    }
+
+    #[test]
+    fn only_the_creator_may_delete_a_share() {
+        assert!(may_delete_share(&share(Some("a")), Some("a")));
+        assert!(!may_delete_share(&share(Some("a")), Some("b")));
+        assert!(!may_delete_share(&share(Some("a")), None));
+        assert!(
+            !may_delete_share(&share(None), Some("a")),
+            "an unattributed share is nobody's to delete"
+        );
+    }
 }
