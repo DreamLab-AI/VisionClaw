@@ -141,6 +141,23 @@ pub struct NodeFilterSettings {
     /// in `filter_update`). The XR client never sends it, so it only greys.
     #[serde(default)]
     pub server_remove: bool,
+
+    /// Grey nodes with fewer connections than this (0 = off). Applied by each client
+    /// (nodeFilter.ts); stored here so it survives a reload and reaches other viewers.
+    #[serde(default)]
+    pub min_connections: u32,
+
+    /// Grey nodes below this ontology maturity stage ("off" = no floor). Client-applied,
+    /// like `min_connections`. One of [`MATURITY_STAGES`] or "off".
+    #[serde(default = "default_min_maturity")]
+    pub min_maturity: String,
+}
+
+/// The maturity stages a `min_maturity` floor may name, lowest first (client MATURITY_RANK).
+pub const MATURITY_STAGES: [&str; 6] = ["draft", "developing", "emerging", "growing", "established", "mature"];
+
+fn default_min_maturity() -> String {
+    "off".to_string()
 }
 
 impl Default for NodeFilterSettings {
@@ -158,6 +175,8 @@ impl Default for NodeFilterSettings {
             filter_mode: "or".to_string(),
             include_linked_pages: false,
             server_remove: false,
+            min_connections: 0,
+            min_maturity: default_min_maturity(),
         }
     }
 }
@@ -205,6 +224,34 @@ pub struct SettingsProfile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Settings audit 2026-11-06: the Min Connections and Min Ontology Maturity filters were
+    /// dropped by serde on every PUT (no such fields), so they never survived a reload.
+    #[test]
+    fn node_filter_keeps_min_connections_and_min_maturity() {
+        let body = serde_json::json!({
+            "enabled": true, "qualityThreshold": 0.4, "authorityThreshold": 0.5,
+            "filterByQuality": true, "filterByAuthority": false, "filterMode": "or",
+            "minConnections": 7, "minMaturity": "draft"
+        });
+        let f: NodeFilterSettings = serde_json::from_value(body).unwrap();
+        assert_eq!((f.min_connections, f.min_maturity.as_str()), (7, "draft"));
+        let out = serde_json::to_value(&f).unwrap();
+        assert_eq!(out["minConnections"], 7);
+        assert_eq!(out["minMaturity"], "draft");
+    }
+
+    /// A document stored before the fields existed reads as "no degree floor, no maturity floor".
+    #[test]
+    fn node_filter_without_the_new_fields_reads_their_defaults() {
+        let stored = serde_json::json!({
+            "enabled": false, "qualityThreshold": 0.4, "authorityThreshold": 0.5,
+            "filterByQuality": false, "filterByAuthority": false, "filterMode": "and"
+        });
+        let f: NodeFilterSettings = serde_json::from_value(stored).unwrap();
+        assert_eq!((f.min_connections, f.min_maturity.as_str()), (0, "off"));
+        assert_eq!(NodeFilterSettings::default().min_maturity, "off");
+    }
 
     /// ADR-2189: documents stored before `gnnPhysics` and `maxNodeCount` were removed, and PUTs
     /// from older clients, still deserialise; the retired keys are dropped.
