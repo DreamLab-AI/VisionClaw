@@ -30,7 +30,7 @@ describe('getSettingsByPaths drops ADR-2189 removed paths from the server docume
         visual: {
           nodes: { baseColor: '#123456', perNodeGlow: true, enableMetadataShape: true, sizeScheme: 'degree' },
           edges: { opacity: 0.2, colorByType: false, widthByWeight: false },
-          labels: { desktopFontSize: 0.5, textOutlineWidth: 0.01 },
+          labels: { labelDistanceThreshold: 700, desktopFontSize: 0.5, textOutlineWidth: 0.01 },
           graphTypeVisuals: { ontology: { ringTintByClass: false, glowStrength: 2 }, agent: { swarmTint: false, beamOpacity: 0.5 } },
         },
         qualityGates: { autoAdjust: false, gnnPhysics: true, maxNodeCount: 5000 },
@@ -40,7 +40,7 @@ describe('getSettingsByPaths drops ADR-2189 removed paths from the server docume
     for (const p of ADR_2189_REMOVED_PATHS) expect(at(all, p), p).toBeUndefined();
     expect(at(all, 'visualisation.graphs.knowledge.nodes.baseColor')).toBe('#123456');
     expect(at(all, 'visualisation.graphs.knowledge.edges.opacity')).toBe(0.2);
-    expect(at(all, 'visualisation.graphs.knowledge.labels.desktopFontSize')).toBe(0.5);
+    expect(at(all, 'visualisation.graphs.knowledge.labels.labelDistanceThreshold')).toBe(700);
     expect(at(all, 'visualisation.graphTypeVisuals.ontology.glowStrength')).toBe(2);
     expect(at(all, 'visualisation.graphTypeVisuals.agent.beamOpacity')).toBe(0.5);
     expect(at(all, 'qualityGates.autoAdjust')).toBe(false);

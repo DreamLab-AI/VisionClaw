@@ -10,7 +10,6 @@ import { Atom } from 'lucide-react';
 import { Sun, Wind, Tags, CloudFog } from 'lucide-react';
 import type { MacroDef } from './types';
 import { scopeFor, strongestScope } from './manifest';
-import { LABEL_BUDGET_SUPPORTED } from '../integrationFlags';
 
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
 const num = (get: (p: string) => unknown, path: string, fallback: number): number => {
@@ -20,7 +19,6 @@ const num = (get: (p: string) => unknown, path: string, fallback: number): numbe
 
 const P = 'visualisation.graphs.knowledge.physics.';
 const S = 'visualisation.sceneEffects.';
-const L = 'visualisation.graphs.knowledge.labels.';
 
 const G = 'visualisation.graphView.';
 
@@ -50,8 +48,9 @@ const MACRO_DEFS: Array<Omit<MacroDef, 'scope'>> = [
   {
     id: 'luminosity',
     // Was "Luminosity". ADR-2182 limits bloom to emphasis, so the dial no longer
-    // switches global bloom on or off: it sets ambient light and glow strength. The
-    // glow scope (Look › Emphasis glow) decides what glows.
+    // switches bloom on or off: it sets glow strength and ambient light. What glows
+    // is graphView.nodes.bloomScope (Look › Emphasis glow): emphasised nodes by
+    // default, the whole scene, or nothing.
     label: 'Glow',
     icon: Sun,
     apply: (t) => [
@@ -59,8 +58,11 @@ const MACRO_DEFS: Array<Omit<MacroDef, 'scope'>> = [
       { path: 'visualisation.rendering.ambientLightIntensity', value: Math.round((0.2 + t * 1.2) * 10) / 10 }, // 0.2 → 1.4, step 0.1
     ],
     derive: (get) => clamp01(num(get, 'visualisation.glow.intensity', 0) / 1.5),
-    describe: (get) =>
-      `glow ${num(get, 'visualisation.glow.intensity', 0).toFixed(2)}, ambient light ${num(get, 'visualisation.rendering.ambientLightIntensity', 0.2).toFixed(1)}`,
+    describe: (get) => {
+      const scope = get(`${G}nodes.bloomScope`);
+      const what = scope === 'scene' ? 'whole scene' : scope === 'off' ? 'glow off' : 'emphasised nodes';
+      return `glow ${num(get, 'visualisation.glow.intensity', 0).toFixed(2)} (${what}), ambient light ${num(get, 'visualisation.rendering.ambientLightIntensity', 0.2).toFixed(1)}`;
+    },
   },
   {
     id: 'motion',
@@ -76,30 +78,17 @@ const MACRO_DEFS: Array<Omit<MacroDef, 'scope'>> = [
   },
   {
     id: 'focus',
-    // Was "Focus". ADR-2186 replaces distance culling with a priority-ranked budget:
-    // once the renderer reads it (LABEL_BUDGET_SUPPORTED) the dial sets how many of
-    // the most important nodes carry a label at overview zoom, 0 → 120 on the
-    // registry slider's step of 5. Until then it drives today's label controls:
-    // draw distance pulls in (1200 → 300) and the font grows (0.25 → 0.6), never
-    // touching nodeFilter.* (writing the filter per drag tick re-ran filtering over
-    // the whole corpus and popped labels in and out).
+    // Was "Focus" (label draw distance + font size). ADR-2186 replaced distance
+    // culling with a priority-ranked budget: the dial sets how many of the most
+    // important nodes carry a label at overview zoom, 0 → 120, on the registry
+    // slider's step of 5 so the dial and the slider never disagree.
     label: 'Labels',
     icon: Tags,
-    apply: (t) =>
-      LABEL_BUDGET_SUPPORTED
-        ? [{ path: `${G}labels.budget`, value: Math.round((t * LABEL_BUDGET_MAX) / LABEL_BUDGET_STEP) * LABEL_BUDGET_STEP }]
-        : [
-            { path: `${L}labelDistanceThreshold`, value: 1200 - t * 900 },
-            { path: `${L}desktopFontSize`, value: 0.25 + t * 0.35 },
-          ],
-    derive: (get) =>
-      LABEL_BUDGET_SUPPORTED
-        ? clamp01(num(get, `${G}labels.budget`, 40) / LABEL_BUDGET_MAX)
-        : clamp01((1200 - num(get, `${L}labelDistanceThreshold`, 1200)) / 900),
-    describe: (get) =>
-      LABEL_BUDGET_SUPPORTED
-        ? `${Math.round(num(get, `${G}labels.budget`, 40))} overview labels`
-        : `labels within ${Math.round(num(get, `${L}labelDistanceThreshold`, 1200))} units, size ${num(get, `${L}desktopFontSize`, 0.4).toFixed(2)}`,
+    apply: (t) => [
+      { path: `${G}labels.budget`, value: Math.round((t * LABEL_BUDGET_MAX) / LABEL_BUDGET_STEP) * LABEL_BUDGET_STEP },
+    ],
+    derive: (get) => clamp01(num(get, `${G}labels.budget`, 40) / LABEL_BUDGET_MAX),
+    describe: (get) => `${Math.round(num(get, `${G}labels.budget`, 40))} overview labels`,
   },
   {
     id: 'atmosphere',

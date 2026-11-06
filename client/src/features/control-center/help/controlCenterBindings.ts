@@ -19,9 +19,9 @@ export const SECTION_BINDINGS: Binding[] = REGISTRY.map((g) => ({
 }));
 
 export const CONTROL_CENTRE_BINDINGS: Binding[] = [
-  { keys: '/', description: 'Explore: open the explore panel and focus its search', group: 'Control centre' },
+  { keys: '/', description: 'Open the explore panel and search the graph', group: 'Control centre' },
   { keys: '?', description: 'Show this list of keyboard shortcuts', group: 'Control centre' },
-  { keys: 'Esc', description: 'Close the settings panel', group: 'Control centre' },
+  { keys: 'Esc', description: 'Close the settings panel or the explore panel', group: 'Control centre' },
   { keys: 'Ctrl/⌘ + .', description: 'Hide or show the dock', group: 'Control centre' },
   { keys: 'Ctrl/⌘ + K', description: 'Command palette: search every setting and command', group: 'Control centre' },
 ];

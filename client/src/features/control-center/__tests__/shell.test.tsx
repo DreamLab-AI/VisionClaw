@@ -48,6 +48,8 @@ let ensureSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   useControlCenterUI.setState({
+    explorePanelOpen: false,
+    shortcutSheetOpen: false,
     openPanel: false,
     activeGroup: null,
     dockCollapsed: false,
@@ -154,12 +156,18 @@ describe('ControlCenter shell', () => {
     expect(await screen.findByTestId('shortcut-sheet')).toBeInTheDocument();
   });
 
-  it('"/" opens Explore (Settings › Explore until the explore panel lands)', () => {
+  it('"/" opens the explore panel drawer, and Esc closes it', () => {
     render(<ControlCenter showStats={false} enableBloom={false} />);
     act(() => {
       fireEvent.keyDown(window, { key: '/' });
     });
-    expect(useControlCenterUI.getState().activeGroup).toBe('explore');
+    expect(useControlCenterUI.getState().explorePanelOpen).toBe(true);
+    expect(screen.getByTestId('explore-drawer')).toBeInTheDocument();
+    expect(screen.getByTestId('explore-panel')).toBeInTheDocument();
+    act(() => {
+      fireEvent.keyDown(window, { key: 'Escape' });
+    });
+    expect(useControlCenterUI.getState().explorePanelOpen).toBe(false);
   });
 
   it('a collapsed dock is inert (out of the tab order), not only aria-hidden', () => {
@@ -182,15 +190,22 @@ describe('ControlCenter shell', () => {
     expect(screen.getByTestId('macro-density-shared')).toBeInTheDocument();
   });
 
-  it('hides Legend and Explore and keeps Fit working until the lanes land', () => {
+  it('Fit asks the camera for the stored scope; Legend and Explore are wired to the lane components', () => {
     render(<ControlCenter showStats={false} enableBloom={false} />);
-    expect(screen.queryByTestId('dock-legend')).toBeNull();
     const onFit = vi.fn();
     window.addEventListener('visionclaw:camera-fit', onFit);
     fireEvent.click(screen.getByTestId('dock-fit'));
     window.removeEventListener('visionclaw:camera-fit', onFit);
     expect(onFit).toHaveBeenCalledTimes(1);
-    // until gv-explore supplies the panel, Explore would only repeat section key 2
-    expect(screen.queryByTestId('dock-explore')).toBeNull();
+    // no target in the event = the stored graphView.fitTarget (ADR-2180)
+    expect((onFit.mock.calls[0][0] as CustomEvent).detail).toEqual({});
+    // the legend host is always mounted (GraphLegend installs the encoder)
+    expect(screen.getByTestId('legend-slot')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('dock-explore'));
+    expect(screen.getByTestId('explore-panel')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('explore-drawer-close'));
+    expect(screen.queryByTestId('explore-drawer')).toBeNull();
+    expect(screen.getByTestId('dock-legend')).toBeInTheDocument();
   });
+
 });

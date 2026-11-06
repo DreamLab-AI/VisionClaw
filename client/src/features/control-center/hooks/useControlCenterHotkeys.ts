@@ -7,7 +7,7 @@
  * | 1–7            | open SettingsPanel to that section (ADR-2189, registry order) |
  * | /              | Explore: the explore panel (or Settings › Explore) + search |
  * | Cmd/Ctrl+.     | toggle dock (hero mode)                                   |
- * | Esc            | close the open SettingsPanel                              |
+ * | Esc            | close the SettingsPanel, else the explore drawer          |
  * | ?              | open the generated shortcut sheet                         |
  * | ←/→ ↑/↓        | (native to the focused dial/slider — not intercepted)     |
  *
@@ -18,14 +18,10 @@
 import { useEffect } from 'react';
 import { REGISTRY } from '../registry/settingsRegistry';
 import { useControlCenterUI } from '../state/useControlCenterUI';
-import { ExplorePanel } from '../integrationSlots';
-
-/** Focus the first search box in the open explore surface (panel, else the settings filter). */
+/** Focus the explore panel's search box (ADR-2185). */
 function focusExploreSearch(): void {
   const run = () => {
-    const el =
-      document.querySelector<HTMLInputElement>('[data-explore-search]') ??
-      document.querySelector<HTMLInputElement>('[data-testid="settings-panel"] input[type="search"], [data-testid="settings-panel"] input');
+    const el = document.querySelector<HTMLInputElement>('[data-testid="explore-drawer"] input[type="search"]');
     el?.focus();
   };
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => requestAnimationFrame(run));
@@ -74,6 +70,16 @@ export function useControlCenterHotkeys(): void {
           }
           e.preventDefault();
           ui.closePanel();
+          return;
+        }
+        // Then the explore drawer (same rule: an open popper or dialog owns Escape).
+        if (
+          ui.explorePanelOpen &&
+          !(typeof document !== 'undefined' &&
+            document.querySelector('[data-radix-popper-content-wrapper], [role="listbox"], [role="dialog"][data-state="open"]'))
+        ) {
+          e.preventDefault();
+          ui.setExplorePanelOpen(false);
         }
         return;
       }
@@ -89,11 +95,10 @@ export function useControlCenterHotkeys(): void {
         return;
       }
 
-      // / → Explore: the explore panel once gv-explore supplies it, else Settings › Explore.
+      // / → open the explore panel and focus its search.
       if (e.key === '/') {
         e.preventDefault();
-        if (ExplorePanel) ui.setExplorePanelOpen(true);
-        else ui.openGroup('explore');
+        ui.setExplorePanelOpen(true);
         focusExploreSearch();
         return;
       }

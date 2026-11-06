@@ -15,14 +15,14 @@
       "label": "Explore",
       "testid": "group-explore",
       "hotkey": "2",
-      "fieldCount": 26
+      "fieldCount": 27
     },
     {
       "id": "encode",
       "label": "Encode",
       "testid": "group-encode",
       "hotkey": "3",
-      "fieldCount": 27
+      "fieldCount": 26
     },
     {
       "id": "layout",
@@ -420,6 +420,19 @@
       "action": "refresh_graph"
     },
     {
+      "key": "hideFiltered",
+      "path": "visualisation.graphView.explore.hideFiltered",
+      "testid": "setting-visualisation.graphView.explore.hideFiltered",
+      "control": "toggle",
+      "group": "explore",
+      "sourceGroup": "graphView",
+      "subgroup": "Filters",
+      "scope": "server",
+      "label": "Hide filtered nodes",
+      "clientOnly": false,
+      "server": "visual"
+    },
+    {
       "key": "groupingMethod",
       "path": null,
       "testid": "setting-quality.groupingMethod",
@@ -790,22 +803,6 @@
       "label": "Show Labels",
       "clientOnly": false,
       "server": "visual"
-    },
-    {
-      "key": "labelSize",
-      "path": "visualisation.graphs.knowledge.labels.desktopFontSize",
-      "testid": "setting-visualisation.graphs.knowledge.labels.desktopFontSize",
-      "control": "slider",
-      "group": "encode",
-      "sourceGroup": "labels",
-      "subgroup": "Labels",
-      "scope": "server",
-      "label": "Label Size",
-      "clientOnly": false,
-      "server": "visual",
-      "min": 0.05,
-      "max": 3,
-      "step": 0.05
     },
     {
       "key": "labelColor",

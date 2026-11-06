@@ -28,14 +28,7 @@ import { useMacro } from './useMacro';
 import { useDockCompact } from './useDockCompact';
 import { useControlCenterUI } from '../state/useControlCenterUI';
 import { useEnsureMacroPathsLoaded } from '../state/useEnsureGroupLoaded';
-import {
-  requestFit,
-  FIT_TARGETS_SUPPORTED,
-  ExplorePanel,
-  GraphLegend,
-  useActiveFilterCount,
-  type FitTarget,
-} from '../integrationSlots';
+import { requestFit, useActiveFilterCount, type FitTarget } from '../integrationSlots';
 import { toast } from '../../design-system/components/Toast';
 
 const PHYSICS_ENABLED_PATH = 'visualisation.graphs.knowledge.physics.enabled';
@@ -196,25 +189,27 @@ const ResetLayoutButton: React.FC = () => {
   );
 };
 
-/** Fit (ADR-2180). The scope menu appears once gv-render honours the target. */
+/**
+ * Fit (ADR-2180): frames the stored fit scope (graphView.fitTarget). The chevron
+ * picks the scope, saves it and fits to it. Fit used to be a canvas button that
+ * the Status chip covered (audit finding 1).
+ */
 const FitButton: React.FC = () => {
-  const [stored] = useSettingField<FitTarget>(FIT_TARGET_PATH);
-  const [, setTarget] = useSettingField<FitTarget>(FIT_TARGET_PATH);
+  const [stored, setTarget] = useSettingField<FitTarget>(FIT_TARGET_PATH);
   const target: FitTarget = stored ?? 'knowledge';
 
   const fit = (
     <button
       type="button"
       data-testid="dock-fit"
-      aria-label={FIT_TARGETS_SUPPORTED ? `Fit view: ${FIT_TARGET_LABELS[target]}` : 'Fit view'}
-      title={FIT_TARGETS_SUPPORTED ? `Fit view · ${FIT_TARGET_LABELS[target]}` : 'Fit view: frame the graph'}
-      onClick={() => requestFit(target)}
+      aria-label={`Fit view: ${FIT_TARGET_LABELS[target]}`}
+      title={`Fit view · ${FIT_TARGET_LABELS[target]}`}
+      onClick={() => requestFit()}
       className={dockButton}
     >
       <Maximize2 size={15} aria-hidden="true" />
     </button>
   );
-  if (!FIT_TARGETS_SUPPORTED) return fit;
 
   return (
     <div className="flex items-center">
@@ -242,10 +237,9 @@ const FitButton: React.FC = () => {
   );
 };
 
-/** Legend toggle (ADR-2184). Hidden until gv-explore supplies the legend. */
+/** Legend toggle (ADR-2184): shows or hides the legend ControlCenter mounts. */
 const LegendToggle: React.FC = () => {
   const [shown, setShown] = useSettingField<boolean>(SHOW_LEGEND_PATH);
-  if (!GraphLegend) return null;
   return (
     <button
       type="button"
@@ -261,15 +255,11 @@ const LegendToggle: React.FC = () => {
   );
 };
 
-/**
- * Explore (ADR-2185): opens the explore panel. Hidden until gv-explore supplies
- * it, because until then it would only repeat the Explore section launcher (2).
- */
+/** Explore (ADR-2185): opens the explore panel; the badge counts active filters. */
 const ExploreButton: React.FC = () => {
   const count = useActiveFilterCount();
   const open = useControlCenterUI((s) => s.explorePanelOpen);
   const setOpen = useControlCenterUI((s) => s.setExplorePanelOpen);
-  if (!ExplorePanel) return null;
   const label = count > 0 ? `Explore (${count} active filter${count === 1 ? '' : 's'})` : 'Explore';
   return (
     <button

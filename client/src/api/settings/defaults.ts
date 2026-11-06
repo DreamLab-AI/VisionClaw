@@ -257,6 +257,8 @@ export const DEFAULT_GRAPH_VIEW = {
     colorBy: 'scheme',
     sizeBy: 'none',
     showLegend: true,
+    // ADR-2189 §5: filters grey out; true removes filtered nodes instead (useGraphFiltering).
+    hideFiltered: false,
     // ADR-2183 D3: cosmos.gl linkGreyoutOpacity 0.1.
     greyoutOpacity: 0.1,
     greyoutMix: 0.65,
@@ -327,7 +329,6 @@ export const DEFAULT_EDGES_SETTINGS = {
 };
 
 export const DEFAULT_LABELS_SETTINGS = {
-  desktopFontSize: 0.4,
   enableLabels: true,
   labelDistanceThreshold: 1200,
   textColor: '#676565',

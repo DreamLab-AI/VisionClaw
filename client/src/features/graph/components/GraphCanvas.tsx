@@ -38,6 +38,7 @@ import EchoPulseLayer from '../../control-center/echo/EchoPulseLayer';
 // Bi-temporal provenance timeline scrubber (ADR-049) — bottom-docked HTML
 // overlay, gated on the client-only provenance.enableTimeline flag (default off).
 import TimelineScrubber from './TimelineScrubber';
+import { OverviewEdgeNotice } from '../../control-center/integrationSlots';
 
 // Gaussian splat scenes (ADR-2170): a scene-level layer plus its info panel.
 import { SplatScene, SplatInfoPanel } from '../../splats';
@@ -419,6 +420,20 @@ const GraphCanvas: React.FC = () => {
 
             {/* ADR-2189 §4: Fit lives in the dock and the layout mode in the Status
                 flyout; the canvas no longer floats either over the chrome. */}
+
+            {/* ADR-2181: edge and node-buffer truncation notice (render lane), outside
+                the Canvas at the top centre: the warnings region (ADR-2189 §4), clear of
+                the dock, the timeline and the corner chips. */}
+            <OverviewEdgeNotice
+              style={{
+                left: '50%',
+                transform: 'translateX(-50%)',
+                top: 'var(--cc-edge, 1rem)',
+                bottom: 'auto',
+                zIndex: 40,
+                whiteSpace: 'nowrap',
+              }}
+            />
 
             {/* Bi-temporal provenance timeline (ADR-049) — bottom-docked overlay,
                 mounted only when the client-only provenance.enableTimeline flag is on. */}

@@ -223,6 +223,13 @@
               "path": null,
               "control": "action-button",
               "scope": "browser"
+            },
+            {
+              "key": "hideFiltered",
+              "label": "Hide filtered nodes",
+              "path": "visualisation.graphView.explore.hideFiltered",
+              "control": "toggle",
+              "scope": "server"
             }
           ],
           "panels": []
@@ -452,13 +459,6 @@
               "label": "Show Labels",
               "path": "visualisation.graphs.knowledge.labels.enableLabels",
               "control": "toggle",
-              "scope": "server"
-            },
-            {
-              "key": "labelSize",
-              "label": "Label Size",
-              "path": "visualisation.graphs.knowledge.labels.desktopFontSize",
-              "control": "slider",
               "scope": "server"
             },
             {

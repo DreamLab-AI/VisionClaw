@@ -97,7 +97,7 @@ const OLD_BLOB = {
           knowledge: {
             nodes: { baseColor: '#c25b5b', colorScheme: 'sssp', sizeScheme: 'fileSize', nodeSize: 0.25, perNodeGlow: true, enableMetadataShape: false },
             edges: { color: '#a30000', baseWidth: 0.04, opacity: 0.3, colorByType: true, widthByWeight: true },
-            labels: { desktopFontSize: 0.4, textOutlineColor: '#00ff40', textOutlineWidth: 0.0074725277 },
+            labels: { labelDistanceThreshold: 900, desktopFontSize: 0.4, textOutlineColor: '#00ff40', textOutlineWidth: 0.0074725277 },
           },
           visionclaw: {
             nodes: { baseColor: '#3498DB', nodeSize: 0.5, opacity: 0.9, metalness: 0.1, roughness: 0.6 },
@@ -144,7 +144,7 @@ describe('ADR-2189: an old persisted settings blob still loads', () => {
     expect(get(settings, 'visualisation.graphs.knowledge.nodes.baseColor')).toBe('#c25b5b');
     expect(get(settings, 'visualisation.graphs.knowledge.nodes.colorScheme')).toBe('sssp');
     expect(get(settings, 'visualisation.graphs.knowledge.edges.opacity')).toBe(0.3);
-    expect(get(settings, 'visualisation.graphs.knowledge.labels.desktopFontSize')).toBe(0.4);
+    expect(get(settings, 'visualisation.graphs.knowledge.labels.labelDistanceThreshold')).toBe(900);
     expect(get(settings, 'visualisation.graphs.visionclaw.nodes.baseColor')).toBe('#3498DB');
     expect(get(settings, 'visualisation.graphTypeVisuals.ontology.glowStrength')).toBe(1.8);
     expect(get(settings, 'visualisation.graphTypeVisuals.agent.beamRadius')).toBe(0.35);

@@ -21,21 +21,21 @@ const { resolve } = getBuiltin('path') as typeof import('path');
 const EXPECTED_GROUP_COUNTS: Record<string, number> = {
   motion: 84,
   look: 23,
-  labels: 8,
+  labels: 7,
   quality: 30,
   atmosphere: 32,
   ai: 2,
   system: 19,
   agents: 26,
   provenance: 4,
-  graphView: 20,
+  graphView: 21,
 };
 
 /** Fields per SECTION (ADR-2189): what the rail, the dock and hotkeys 1..7 open. */
 const EXPECTED_SECTION_COUNTS: Record<string, number> = {
   layers: 14,
-  explore: 26,
-  encode: 27,
+  explore: 27,
+  encode: 26,
   layout: 80,
   look: 44,
   agents: 30,
@@ -122,7 +122,7 @@ const GRAPH_VIEW_PATHS: string[] = [
   'overviewEdges.enabled', 'overviewEdges.widthPx', 'overviewEdges.maxWidthPx', 'overviewEdges.fadeNearPx',
   'overviewEdges.fadeFarPx', 'overviewEdges.minOpacity', 'overviewEdges.glassAtCloseZoom',
   'nodes.spriteSizePx', 'nodes.gemLodDistance', 'nodes.bloomScope',
-  'explore.colorBy', 'explore.sizeBy', 'explore.showLegend', 'explore.greyoutOpacity', 'explore.greyoutMix',
+  'explore.colorBy', 'explore.sizeBy', 'explore.showLegend', 'explore.hideFiltered', 'explore.greyoutOpacity', 'explore.greyoutMix',
   'labels.budget', 'labels.dynamicBudget', 'labels.selectedBudget', 'labels.fontPx',
 ].map((p) => `visualisation.graphView.${p}`);
 
@@ -271,8 +271,10 @@ describe('control-center settings registry', () => {
 
   it('(b3) ADR-2189 deleted every dead path: none is still a control', () => {
     expect(DEAD_PATHS).toHaveLength(37);
-    expect(REPLACED_PATHS).toHaveLength(3);
-    expect(new Set(ADR_2189_REMOVED_PATHS).size).toBe(40);
+    // sizeScheme, edges.colorByType, edges.widthByWeight, and labels.desktopFontSize
+    // (replaced by graphView.labels.fontPx when the render lane landed ADR-2186)
+    expect(REPLACED_PATHS).toHaveLength(4);
+    expect(new Set(ADR_2189_REMOVED_PATHS).size).toBe(41);
     for (const p of ADR_2189_REMOVED_PATHS) expect(ALL_PATHS, p).not.toContain(p);
     // the empty groups went with them
     expect(SOURCE_GROUPS.map((g) => g.id)).not.toContain('xr');

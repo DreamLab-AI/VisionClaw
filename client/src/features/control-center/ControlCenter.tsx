@@ -16,7 +16,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { MessageSquare, MoreHorizontal, Braces, Keyboard } from 'lucide-react';
+import { MessageSquare, MoreHorizontal, Braces, Keyboard, X } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { SpaceDriver } from '../../services/SpaceDriverService';
 import { useSettingsStore } from '../../store/settingsStore';
@@ -29,8 +29,7 @@ import { useControlCenterUI } from './state/useControlCenterUI';
 import { useControlCenterHotkeys } from './hooks/useControlCenterHotkeys';
 import { useRevealSetting } from './hooks/useRevealSetting';
 import { ShortcutSheet } from './help/ShortcutSheet';
-import { useSettingField } from './hooks/useSettingField';
-import { ExplorePanel, GraphLegend, useEdgeCapacityNotice } from './integrationSlots';
+import { ExplorePanel, GraphLegend } from './integrationSlots';
 import './styles/control-center.css';
 
 export const ControlCenter: React.FC<ControlPanelProps> = ({
@@ -129,7 +128,6 @@ export const ControlCenter: React.FC<ControlPanelProps> = ({
         </GlassDock>
       </div>
 
-      <EdgeCapacityNotice />
       <ExploreDrawer />
       <LegendSlot />
       <ShortcutSheet />
@@ -186,52 +184,66 @@ const MoreMenu: React.FC = () => {
   );
 };
 
-/** ADR-2181: say when the overview drops edges, and where the budget lives. */
-const EdgeCapacityNotice: React.FC = () => {
-  const notice = useEdgeCapacityNotice();
-  const openGroup = useControlCenterUI((s) => s.openGroup);
-  if (!notice) return null;
-  return (
-    <div
-      role="status"
-      data-testid="edge-capacity-notice"
-      className="cc-glass fixed left-1/2 -translate-x-1/2 flex items-center gap-2 rounded-full px-3 py-1 text-[11px] text-foreground"
-      style={{ bottom: 'var(--cc-dock-clearance, 9rem)', zIndex: 'var(--cc-z-chrome, 40)' as unknown as number, pointerEvents: 'auto' }}
-    >
-      Showing {notice.shown.toLocaleString()} of {notice.total.toLocaleString()} edges
-      <button type="button" onClick={() => openGroup('system')} className="underline hover:text-primary">
-        Edge budget
-      </button>
-    </div>
-  );
-};
-
-/** ADR-2185 explore panel: a right-hand drawer, once gv-explore supplies it. */
+/**
+ * ADR-2185 explore panel: a right-hand drawer opened from the dock (Explore) or
+ * '/'. The panel brings its own Clear filters (clearAllFilters); the drawer adds
+ * the close button. It ends above the dock, like the settings panel.
+ */
 const ExploreDrawer: React.FC = () => {
   const open = useControlCenterUI((s) => s.explorePanelOpen);
   const setOpen = useControlCenterUI((s) => s.setExplorePanelOpen);
-  if (!ExplorePanel || !open) return null;
-  const Panel = ExplorePanel;
+  if (!open) return null;
   return (
     <div
       data-testid="explore-drawer"
-      className="fixed right-4 top-4"
-      style={{ bottom: 'var(--cc-dock-clearance, 9rem)', zIndex: 'var(--cc-z-chrome, 40)' as unknown as number, pointerEvents: 'auto' }}
+      className="fixed flex flex-col items-end gap-1"
+      style={{
+        right: 'var(--cc-edge, 1rem)',
+        top: 'var(--cc-edge, 1rem)',
+        bottom: 'var(--cc-dock-clearance, 9rem)',
+        width: 'min(360px, calc(100vw - 2 * var(--cc-edge, 1rem)))',
+        zIndex: 'var(--cc-z-chrome, 40)' as unknown as number,
+        pointerEvents: 'auto',
+      }}
     >
-      <Panel onClose={() => setOpen(false)} />
+      <button
+        type="button"
+        data-testid="explore-drawer-close"
+        aria-label="Close explore panel"
+        onClick={() => setOpen(false)}
+        className="cc-glass flex items-center justify-center h-7 w-7 rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <X size={14} aria-hidden="true" />
+      </button>
+      <ExplorePanel style={{ width: '100%', maxHeight: '100%', overflowY: 'auto' }} />
     </div>
   );
 };
 
-/** ADR-2184 legend, shown while Encode › Show legend is on and gv-explore supplies it. */
+/**
+ * ADR-2184 legend. Always mounted: GraphLegend installs the colour/size encoder,
+ * so Encode › Colour by and Size by do nothing without it. It renders nothing
+ * while Encode › Show legend is off. It sits above the right-hand corner chips.
+ */
 const LegendSlot: React.FC = () => {
-  const [shown] = useSettingField<boolean>('visualisation.graphView.explore.showLegend');
-  if (!GraphLegend || !shown) return null;
-  const Legend = GraphLegend;
+  // Beside the explore drawer while it is open, never under it.
+  const drawerOpen = useControlCenterUI((s) => s.explorePanelOpen);
   return (
-    <div data-testid="legend-slot" style={{ pointerEvents: 'auto' }}>
-      <Legend />
-    </div>
+  <div
+    data-testid="legend-slot"
+    className="fixed"
+    style={{
+      right: drawerOpen ? 'calc(var(--cc-edge, 1rem) + min(360px, 100vw - 2rem) + 0.5rem)' : 'var(--cc-edge, 1rem)',
+      bottom: 'var(--cc-dock-clearance, 9rem)',
+      maxWidth: 'min(280px, 40vw)',
+      maxHeight: '40vh',
+      overflowY: 'auto',
+      zIndex: 'var(--cc-z-chrome, 40)' as unknown as number,
+      pointerEvents: 'auto',
+    }}
+  >
+    <GraphLegend />
+  </div>
   );
 };
 

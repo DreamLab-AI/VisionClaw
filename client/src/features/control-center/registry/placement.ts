@@ -185,6 +185,8 @@ export const PATH_PLACEMENT: Record<string, Placement> = {
   // ADR-2183: grey-out strength is emphasis, not encoding.
   'visualisation.graphView.explore.greyoutOpacity': ['encode', 'Emphasis'],
   'visualisation.graphView.explore.greyoutMix': ['encode', 'Emphasis'],
+  // ADR-2189 §5: the removal escape hatch sits with the filters it applies to.
+  'visualisation.graphView.explore.hideFiltered': ['explore', 'Filters'],
 };
 
 /** Bespoke panels (not registry fields) and the section/subsection that hosts their launcher. */

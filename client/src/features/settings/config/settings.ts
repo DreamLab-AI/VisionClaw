@@ -238,7 +238,6 @@ export interface AnimationSettings {
 
 // Label settings
 export interface LabelSettings {
-  desktopFontSize: number;
   enableLabels: boolean;
   labelDistanceThreshold?: number; // Max camera distance for visible labels (default 500)
   textColor: string;
@@ -603,6 +602,8 @@ export interface GraphViewSettings {
     /** Numeric column driving size, or 'none' for today's sizing. */
     sizeBy: string;
     showLegend: boolean;
+    /** Remove filtered-out nodes instead of greying them out (ADR-2189 §5, useGraphFiltering). */
+    hideFiltered: boolean;
     /** Alpha of a greyed-out edge. */
     greyoutOpacity: number;
     /** How far a greyed-out node's colour mixes toward the background (0..1). */

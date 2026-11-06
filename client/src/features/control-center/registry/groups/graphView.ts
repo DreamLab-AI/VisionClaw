@@ -53,6 +53,8 @@ const fields: RegistryField[] = [
   { key: 'sizeBy', subgroup: 'Explore', label: 'Size By', type: 'select', options: SIZE_BY_OPTIONS, path: `${G}explore.sizeBy`, description: 'Numeric node attribute that sets node size' },
   { key: 'showLegend', subgroup: 'Explore', label: 'Show Legend', type: 'toggle', path: `${G}explore.showLegend`, description: 'Show the legend for the active colour and size encodings' },
   { key: 'greyoutOpacity', subgroup: 'Explore', label: 'Filtered Edge Opacity', type: 'slider', min: 0, max: 1, step: 0.05, path: `${G}explore.greyoutOpacity`, description: 'Opacity of edges touching a filtered-out node' },
+  // ADR-2189 §5 / ADR-2183: filters grey out by default; this keeps the old removal for those who want it.
+  { key: 'hideFiltered', subgroup: 'Explore', label: 'Hide filtered nodes', type: 'toggle', path: `${G}explore.hideFiltered`, description: 'Remove filtered-out nodes from the view instead of greying them out' },
   { key: 'greyoutMix', subgroup: 'Explore', label: 'Filtered Node Fade', type: 'slider', min: 0, max: 1, step: 0.05, path: `${G}explore.greyoutMix`, description: 'How far filtered-out nodes fade toward the background' },
 
   // ADR-2186

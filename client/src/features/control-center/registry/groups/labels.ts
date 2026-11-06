@@ -9,7 +9,6 @@ const L = 'visualisation.graphs.knowledge.labels.';
 
 const fields: RegistryField[] = [
   { key: 'enableLabels', subgroup: 'Labels', label: 'Show Labels', type: 'toggle', path: `${L}enableLabels`, description: 'Display node labels' },
-  { key: 'labelSize', subgroup: 'Labels', label: 'Label Size', type: 'slider', min: 0.05, max: 3.0, step: 0.05, path: `${L}desktopFontSize`, description: 'Font size for labels' },
   { key: 'labelColor', subgroup: 'Labels', label: 'Label Color', type: 'color', path: `${L}textColor`, description: 'Color of label text' },
   { key: 'showMetadata', subgroup: 'Labels', label: 'Show Metadata', type: 'toggle', path: `${L}showMetadata`, description: 'Show domain, links, and quality info under labels' },
   { key: 'labelStandoff', subgroup: 'Labels', label: 'Label Standoff', type: 'slider', min: -1.0, max: 3.0, step: 0.05, path: `${L}textPadding`, description: 'Gap between node surface and label' },

@@ -58,13 +58,16 @@ export const DEAD_PATHS: readonly string[] = [
 ];
 
 /**
- * The 3 dead paths a newer control replaces (ADR-2189 §6 "Replace"):
+ * The dead paths a newer control replaces (ADR-2189 §6 "Replace"):
  * size-by is `visualisation.graphView.explore.sizeBy` (ADR-2184); edge colour
  * by type and width by weight are always on today (useEdgeBufferComputation.ts)
  * and become options of ADR-2181's edge encodings.
  */
 export const REPLACED_PATHS: readonly string[] = [
   `${K}nodes.sizeScheme`,
+  // replaced by visualisation.graphView.labels.fontPx when the render lane moved
+  // labels to the ADR-2186 budget (InstancedLabels sizes in CSS px)
+  `${K}labels.desktopFontSize`,
   `${K}edges.colorByType`,
   `${K}edges.widthByWeight`,
 ];
