@@ -97,13 +97,13 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   // Every edge becomes a tube only when the overview edges are off or faulted;
   // while they are pending (startup) the tubes already take the subset.
   const overviewLive = useOverviewLive()
-  const edgesFaulted = overviewLive.faults.edges !== undefined
+  const edgesFault = overviewLive.faults.edges
   const tubeLod = useMemo<GlassTubeLod | null>(() => resolveTubeLod({
     enabled: graphView.overviewEdges.enabled,
-    edgesFaulted,
+    live: { faults: { edges: edgesFault } },
     glassAtCloseZoom: graphView.overviewEdges.glassAtCloseZoom,
     gemLodDistance: graphView.nodes.gemLodDistance,
-  }), [graphView.overviewEdges.enabled, edgesFaulted, graphView.overviewEdges.glassAtCloseZoom, graphView.nodes.gemLodDistance])
+  }), [graphView.overviewEdges.enabled, edgesFault, graphView.overviewEdges.glassAtCloseZoom, graphView.nodes.gemLodDistance])
 
   // Node-type visibility filtering + per-population partition.
   //

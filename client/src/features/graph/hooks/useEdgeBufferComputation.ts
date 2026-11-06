@@ -51,10 +51,11 @@ export interface EdgeBufferComputationOptions {
   setEdgePoints: (pts: number[]) => void
   setHighlightEdgePoints: (pts: number[]) => void
   /**
-   * ADR-2181 D3: when set (the overview edges are live), the glass tubes are
-   * fed only the tube subset (overview/tubeSelect.ts): emphasis edges plus
-   * close-zoom edges, at most `budget`. Null feeds every edge (today's path,
-   * the safety valve when the overview layer is off or failed).
+   * ADR-2181 D3: when set (overview edges enabled and not faulted, pending or
+   * live; overview/tubeSelect.ts resolveTubeLod), the glass tubes are fed only
+   * the tube subset: emphasis edges plus close-zoom edges, at most `budget`.
+   * Null feeds every edge (the safety valve when the overview layer is off or
+   * failed).
    */
   tubeLod?: GlassTubeLod | null
 }

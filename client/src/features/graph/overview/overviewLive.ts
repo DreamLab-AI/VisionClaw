@@ -26,7 +26,7 @@ import { useSyncExternalStore } from 'react';
 
 export type OverviewLayerName = 'nodes' | 'edges' | 'inferred' | 'labels';
 
-interface LiveState {
+export interface LiveState {
   nodes: boolean;
   edges: boolean;
   /** Fault text per layer; absent = healthy. */

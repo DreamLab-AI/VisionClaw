@@ -1,6 +1,7 @@
 /**
  * Glass-tube subset (ADR-2181 D3): which plan edges are drawn as glass tubes
- * once the screen-space overview edges are live.
+ * while the screen-space overview edges are enabled (pending or live; see
+ * resolveTubeLod).
  *
  * Tubes are the close level of detail, so their CPU feed must scale with the
  * tube budget, never with E. The selection therefore walks a per-plan node →
@@ -23,6 +24,7 @@ import {
   HIGHLIGHT_FOCUS_NEIGHBOUR, HIGHLIGHT_HOVERED, HIGHLIGHT_SELECTED,
 } from '../state/highlightMask';
 import type { EdgePlan } from '../hooks/edgeBufferPlan';
+import type { LiveState } from './overviewLive';
 
 /** Close-zoom tube LOD. `maxDistance` 0 = emphasis tubes only. */
 export interface GlassTubeLod {
@@ -30,7 +32,7 @@ export interface GlassTubeLod {
   budget: number;
 }
 
-/** Tubes drawn at most while the overview edges are live. */
+/** Tubes drawn at most while the overview edges are enabled and not faulted. */
 export const TUBE_BUDGET = 4096;
 
 /**
@@ -46,11 +48,12 @@ export const TUBE_BUDGET = 4096;
  */
 export function resolveTubeLod(s: {
   enabled: boolean;
-  edgesFaulted: boolean;
+  /** The overviewLive snapshot (useOverviewLive). Its `edges` flag is not read: pending counts. */
+  live: Pick<LiveState, 'faults'>;
   glassAtCloseZoom: boolean;
   gemLodDistance: number;
 }): GlassTubeLod | null {
-  if (!s.enabled || s.edgesFaulted) return null;
+  if (!s.enabled || s.live.faults.edges !== undefined) return null;
   return { maxDistance: s.glassAtCloseZoom ? s.gemLodDistance : 0, budget: TUBE_BUDGET };
 }
 
