@@ -22,7 +22,9 @@ export interface GlowEffectParams {
 export function glowEffectParams(vis: { glow?: BloomLikeSettings } | undefined): GlowEffectParams {
   const glow = vis?.glow;
   return {
-    enabled: !!glow?.enabled,
+    // Same rule as GraphCanvas (`glow.enabled !== false`): an absent key means on, the
+    // shipped default; only an explicit false turns the effect off.
+    enabled: glow?.enabled !== false,
     strength: glow?.strength ?? glow?.intensity ?? 0.3,
     radius: glow?.radius ?? 0.2,
     threshold: glow?.threshold ?? 0.3,

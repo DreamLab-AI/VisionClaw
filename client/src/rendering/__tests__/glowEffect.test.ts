@@ -17,3 +17,12 @@ describe('glowEffectParams: the Emphasis glow controls are authoritative', () =>
     expect(p).toEqual({ enabled: true, strength: 0.9, radius: 0.45, threshold: 0.2 });
   });
 });
+
+describe('glowEffectParams: a missing enabled key reads the same way as GraphCanvas', () => {
+  // GraphCanvas mounts the pass when `glow.enabled !== false`; the effect must agree,
+  // or an absent key mounts a pass that then switches itself off.
+  it('treats an absent enabled key as on, matching the shipped default', () => {
+    expect(glowEffectParams({ glow: { intensity: 0.5 } }).enabled).toBe(true);
+    expect(glowEffectParams(undefined).enabled).toBe(true);
+  });
+});
