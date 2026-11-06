@@ -22,6 +22,7 @@ use crate::actors::messages::{
     ApplyInferences, ClearOntologyCaches, GetOntologyHealth, GetOntologyReport, LoadOntologyAxioms,
     OntologyHealth, UpdateOntologyMapping, ValidateOntology, ValidationMode,
 };
+use crate::adapters::oxigraph_ontology_repository::OxigraphOntologyRepository;
 use crate::handlers::api_handler::analytics::FEATURE_FLAGS;
 use crate::services::owl_validator::{PropertyGraph, RdfTriple, ValidationConfig};
 use crate::AppState;
@@ -599,6 +600,7 @@ pub async fn validate_ontology(
 
 pub async fn get_validation_report(
     state: web::Data<AppState>,
+    caller: crate::settings::OptionalAuth,
     query: web::Query<HashMap<String, String>>,
 ) -> impl Responder {
     // The report is cached under BOTH the job id and the ontology id, so accept
@@ -618,6 +620,16 @@ pub async fn get_validation_report(
         );
     }
 
+    // ADR-060: answer as if the caller's hidden classes were never stored.
+    let hidden = match crate::handlers::graph_access::caller_hidden_classes(
+        &state.graph_service_addr,
+        &caller,
+    )
+    .await
+    {
+        Ok(hidden) => hidden,
+        Err(e) => return Err(e),
+    };
     let report_msg = GetOntologyReport { report_id };
 
     let Some(ref ontology_addr) = state.ontology_actor_addr else {
@@ -630,6 +642,7 @@ pub async fn get_validation_report(
 
     match ontology_addr.send(report_msg).await {
         Ok(Ok(Some(report))) => {
+            let report = hidden.validation_report(report);
             // A job that is enqueued but not yet finished has a placeholder
             // report; surface it as 202 (pending) rather than 200 or 404.
             if report.graph_signature == "pending" {
@@ -851,6 +864,7 @@ pub async fn list_axioms(state: web::Data<AppState>) -> impl Responder {
 
 pub async fn get_inferences(
     state: web::Data<AppState>,
+    caller: crate::settings::OptionalAuth,
     query: web::Query<HashMap<String, String>>,
 ) -> impl Responder {
     info!("Retrieving inferred relationships");
@@ -862,6 +876,17 @@ pub async fn get_inferences(
     }
 
     let ontology_id = query.get("ontology_id").cloned();
+
+    // ADR-060: answer as if the caller's hidden classes were never stored.
+    let hidden = match crate::handlers::graph_access::caller_hidden_classes(
+        &state.graph_service_addr,
+        &caller,
+    )
+    .await
+    {
+        Ok(hidden) => hidden,
+        Err(e) => return Err(e),
+    };
 
     let Some(ref ontology_addr) = state.ontology_actor_addr else {
         let error_response =
@@ -877,6 +902,7 @@ pub async fn get_inferences(
 
     match ontology_addr.send(report_msg).await {
         Ok(Ok(Some(report))) => {
+            let report = hidden.validation_report(report);
             info!("Retrieved inferences from report: {}", report.id);
 
             let inferences = serde_json::json!({
@@ -1047,6 +1073,7 @@ pub async fn validate_graph(
 /// - Memoization is used for depth and descendant count calculations
 pub async fn get_hierarchy(
     state: web::Data<AppState>,
+    caller: crate::settings::OptionalAuth,
     _query: web::Query<HierarchyParams>,
 ) -> impl Responder {
     info!("Retrieving ontology class hierarchy");
@@ -1057,13 +1084,34 @@ pub async fn get_hierarchy(
         );
     }
 
+    // ADR-060: the hierarchy of the classes this caller may see.
+    let hidden = match crate::handlers::graph_access::caller_hidden_classes(
+        &state.graph_service_addr,
+        &caller,
+    )
+    .await
+    {
+        Ok(hidden) => hidden,
+        Err(e) => return Err(e),
+    };
+    answer_hierarchy(&state.ontology_repository, &hidden).await
+}
+
+/// [`get_hierarchy`] for a caller from whom `hidden` is hidden: their classes only, each with
+/// hidden parents and children removed. A class whose only parent is hidden becomes a root;
+/// nothing is re-parented across a hidden class.
+pub async fn answer_hierarchy(
+    repo: &OxigraphOntologyRepository,
+    hidden: &crate::services::ontology_visibility::HiddenClasses,
+) -> Result<HttpResponse, actix_web::Error> {
     // Call the async repository directly. The sync ListOwlClassesHandler wraps
     // this same call in `tokio::runtime::Handle::current().block_on` (queries.rs:97),
     // which panics with "Cannot start a runtime from within a runtime" when invoked
     // from this async actix worker — crashing the endpoint with an empty reply.
     // Going async-direct avoids the sync-over-async bridge entirely.
-    match state.ontology_repository.list_owl_classes().await {
+    match repo.list_owl_classes().await {
         Ok(classes) => {
+            let classes = hidden.classes(classes);
             info!("Building class hierarchy from {} classes", classes.len());
 
             let mut hierarchy_map: HashMap<String, ClassNode> = HashMap::new();
@@ -1213,6 +1261,7 @@ pub async fn get_hierarchy(
 
 pub async fn get_report_by_id(
     state: web::Data<AppState>,
+    caller: crate::settings::OptionalAuth,
     path: web::Path<String>,
 ) -> impl Responder {
     let report_id = path.into_inner();
@@ -1224,6 +1273,16 @@ pub async fn get_report_by_id(
         );
     }
 
+    // ADR-060: answer as if the caller's hidden classes were never stored.
+    let hidden = match crate::handlers::graph_access::caller_hidden_classes(
+        &state.graph_service_addr,
+        &caller,
+    )
+    .await
+    {
+        Ok(hidden) => hidden,
+        Err(e) => return Err(e),
+    };
     let report_msg = GetOntologyReport {
         report_id: Some(report_id.clone()),
     };
@@ -1238,6 +1297,7 @@ pub async fn get_report_by_id(
 
     match ontology_addr.send(report_msg).await {
         Ok(Ok(Some(report))) => {
+            let report = hidden.validation_report(report);
             if report.graph_signature == "pending" {
                 info!("Validation report {} still pending", report.id);
                 accepted!(report)
@@ -1564,7 +1624,7 @@ fn map_state_at_rows(sparql_json: &serde_json::Value) -> Vec<serde_json::Value> 
 /// dev bypass = `Bearer dev-session-token` + `X-Nostr-Pubkey`). Fails graceful:
 /// an empty provenance graph yields `assertions: []`, `count: 0`.
 pub async fn state_at(
-    _auth: crate::settings::auth_extractor::AuthenticatedUser,
+    auth: crate::settings::auth_extractor::AuthenticatedUser,
     state: web::Data<AppState>,
     params: web::Query<StateAtParams>,
 ) -> Result<HttpResponse, actix_web::Error> {
@@ -1608,7 +1668,23 @@ pub async fn state_at(
         recorded_as_of.map(|r| state_at_iso_utc(&r))
     );
 
-    match state.ontology_repository.sparql_select_json(query).await {
+    let caller = crate::settings::OptionalAuth(Some(auth));
+    // ADR-060: answer as if the caller's hidden classes were never stored.
+    let hidden = match crate::handlers::graph_access::caller_hidden_classes(
+        &state.graph_service_addr,
+        &caller,
+    )
+    .await
+    {
+        Ok(hidden) => hidden,
+        Err(e) => return Err(e),
+    };
+    let result = state
+        .ontology_repository
+        .sparql_select_json(query)
+        .await
+        .map(|json| hidden.sparql_json(json));
+    match result {
         Ok(sparql_json) if subjects_view => {
             let (subjects, earliest) = map_state_at_subjects(&sparql_json);
             let count = subjects.len();
@@ -1656,21 +1732,40 @@ pub struct ProvenanceParams {
 /// paths share the one ledger. Read-auth mirrors `/query` / `/state-at`.
 /// Fails graceful: an entity with no provenance yields `nodes: []`, `count: 0`.
 pub async fn get_provenance(
-    _auth: crate::settings::auth_extractor::AuthenticatedUser,
+    auth: crate::settings::auth_extractor::AuthenticatedUser,
     state: web::Data<AppState>,
     params: web::Query<ProvenanceParams>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let params = params.into_inner();
+    let caller = crate::settings::OptionalAuth(Some(auth));
+    // ADR-060: answer as if the caller's hidden classes were never stored.
+    let hidden = match crate::handlers::graph_access::caller_hidden_classes(
+        &state.graph_service_addr,
+        &caller,
+    )
+    .await
+    {
+        Ok(hidden) => hidden,
+        Err(e) => return Err(e),
+    };
+    answer_provenance(&state.ontology_repository, params.into_inner(), &hidden).await
+}
+
+/// [`get_provenance`] for a caller from whom `hidden` is hidden.
+pub async fn answer_provenance(
+    repo: &OxigraphOntologyRepository,
+    params: ProvenanceParams,
+    hidden: &crate::services::ontology_visibility::HiddenClasses,
+) -> Result<HttpResponse, actix_web::Error> {
     let Some(entity) = params.entity.filter(|e| !e.trim().is_empty()) else {
         return crate::bad_request!("Missing required query parameter 'entity' (URN/IRI)");
     };
     let depth = params.depth.unwrap_or(16).min(64);
 
     info!("provenance chain requested for entity={entity} (depth={depth})");
-    match state
-        .ontology_repository
+    match repo
         .provenance_for_entity(entity.clone(), depth)
         .await
+        .map(|chain| hidden.provenance_chain(chain))
     {
         Ok(chain) => ok_json!(serde_json::json!({
             "root": chain.root,
@@ -2006,5 +2101,157 @@ mod tests {
             ] }
         });
         assert!(map_state_at_rows(&doc).is_empty());
+    }
+}
+
+/// ADR-060 on the `/api/ontology` routes this module owns: a hidden class reads exactly as a
+/// class that was never stored. Fixture: `ontology_handler::hidden_class_tests::repo`.
+#[cfg(test)]
+mod hidden_class_tests {
+    use super::*;
+    use crate::handlers::ontology_handler::hidden_class_tests::{hidden, repo, HIDDEN, NEVER};
+    use crate::services::ontology_visibility::testing::{mentions, normalise, reply, sorted};
+    use crate::services::ontology_visibility::HiddenClasses;
+    use crate::services::owl_validator::{
+        ConstraintSummary, RdfTriple, Severity, ValidationReport, ValidationStatistics, Violation,
+    };
+
+    const ECHOES: &[(&str, &str)] = &[(HIDDEN, "<probe>"), (NEVER, "<probe>")];
+    const COMPANY: &str = "http://example.org/onto#Company";
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn hierarchy_drops_the_hidden_class_and_leaves_its_children_as_roots() {
+        let got = reply(answer_hierarchy(&*repo(true).await, &hidden()).await, &[]).await;
+        let never = reply(
+            answer_hierarchy(&*repo(false).await, &HiddenClasses::none()).await,
+            &[],
+        )
+        .await;
+        assert!(!mentions(&got.1, HIDDEN), "{}", got.1);
+        assert!(mentions(&got.1["data"]["rootClasses"], COMPANY));
+        assert_eq!((got.0, sorted(got.1)), (never.0, sorted(never.1)));
+    }
+
+    fn provenance(entity: &str) -> ProvenanceParams {
+        ProvenanceParams {
+            entity: Some(entity.to_string()),
+            depth: None,
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn provenance_of_a_hidden_class_is_the_unknown_entity_reply() {
+        let r = repo(true).await;
+        let got = reply(
+            answer_provenance(&*r, provenance(HIDDEN), &hidden()).await,
+            ECHOES,
+        )
+        .await;
+        let unknown = reply(
+            answer_provenance(&*r, provenance(NEVER), &hidden()).await,
+            ECHOES,
+        )
+        .await;
+        assert_eq!(got, unknown);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn provenance_of_a_visible_class_drops_links_to_the_hidden_one() {
+        let got = reply(
+            answer_provenance(&*repo(true).await, provenance(COMPANY), &hidden()).await,
+            &[],
+        )
+        .await;
+        let never = reply(
+            answer_provenance(
+                &*repo(false).await,
+                provenance(COMPANY),
+                &HiddenClasses::none(),
+            )
+            .await,
+            &[],
+        )
+        .await;
+        assert!(!mentions(&got.1, HIDDEN), "{}", got.1);
+        assert_eq!((got.0, sorted(got.1)), (never.0, sorted(never.1)));
+    }
+
+    /// `/state-at` rows: the SPARQL JSON passes through the caller's scrub before mapping.
+    #[test]
+    fn state_at_drops_assertions_about_the_hidden_class() {
+        let row = |subject: &str| {
+            let lit = |v: &str| serde_json::json!({ "type": "literal", "value": v });
+            serde_json::json!({
+                "subject": { "type": "uri", "value": subject },
+                "predicate": { "type": "uri", "value": "http://www.w3.org/2000/01/rdf-schema#label" },
+                "object": lit("x"),
+                "validFrom": lit("2026-01-01T00:00:00Z"),
+                "generatedAt": lit("2026-01-01T00:00:00Z"),
+                "activity": { "type": "uri", "value": "urn:a" },
+                "agent": { "type": "uri", "value": "did:nostr:a" },
+            })
+        };
+        let results = |rows: Vec<serde_json::Value>| serde_json::json!({ "head": { "vars": [] }, "results": { "bindings": rows } });
+        let got =
+            map_state_at_rows(&hidden().sparql_json(results(vec![row(COMPANY), row(HIDDEN)])));
+        assert_eq!(got, map_state_at_rows(&results(vec![row(COMPANY)])));
+    }
+
+    fn report(with_hidden: bool) -> ValidationReport {
+        let triple = |s: &str, o: &str| RdfTriple {
+            subject: s.to_string(),
+            predicate: "http://www.w3.org/2000/01/rdf-schema#subClassOf".to_string(),
+            object: o.to_string(),
+            is_literal: false,
+            datatype: None,
+            language: None,
+        };
+        let violation = |s: &str| Violation {
+            id: format!("v-{s}"),
+            severity: Severity::Warning,
+            rule: "label".to_string(),
+            message: "missing label".to_string(),
+            subject: Some(s.to_string()),
+            predicate: None,
+            object: None,
+            timestamp: chrono::DateTime::from_timestamp(1_700_000_000, 0).expect("time"),
+        };
+        let mut violations = vec![violation(COMPANY)];
+        let mut inferred = vec![triple(COMPANY, "http://example.org/onto#Org")];
+        if with_hidden {
+            violations.push(violation(HIDDEN));
+            inferred.push(triple(COMPANY, HIDDEN));
+            inferred.push(triple(HIDDEN, "http://example.org/onto#Org"));
+        }
+        ValidationReport {
+            id: "r1".to_string(),
+            timestamp: chrono::DateTime::from_timestamp(1_700_000_000, 0).expect("time"),
+            duration_ms: 1,
+            graph_signature: "sig".to_string(),
+            total_triples: 10,
+            violations,
+            inferred_triples: inferred,
+            statistics: ValidationStatistics::default(),
+            constraint_summary: ConstraintSummary::default(),
+        }
+    }
+
+    /// `/report`, `/reports/{id}` and `/inferences` all serve the cached report through
+    /// `HiddenClasses::validation_report`.
+    #[test]
+    fn reports_and_inferences_drop_violations_and_triples_naming_the_hidden_class() {
+        let json = |r: ValidationReport| {
+            let mut v = serde_json::to_value(r).expect("report serialises");
+            normalise(&mut v, &[]);
+            v
+        };
+        let got = json(hidden().validation_report(report(true)));
+        assert!(!mentions(&got, HIDDEN), "{got}");
+        assert_eq!(got, json(report(false)));
+        assert_eq!(
+            json(HiddenClasses::none().validation_report(report(true))),
+            json(report(true)),
+            "full access sees the report as computed"
+        );
     }
 }

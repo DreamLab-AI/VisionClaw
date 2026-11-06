@@ -7,12 +7,18 @@
 //! The vault markdown pages with OKF frontmatter ARE the knowledge graph nodes.
 //! Discovery happens via ontology semantics: class hierarchy traversal, Whelk EL++
 //! subsumption reasoning, and relationship fan-out (has-part, requires, enables, bridges-to).
+//!
+//! Every read takes the caller's [`HiddenClasses`] (ADR-060). Its inputs (classes, axioms,
+//! property signatures and the Whelk closure) are scrubbed before any answer is computed, so
+//! a hidden class reads exactly as one that was never stored: not found, absent from lists,
+//! hints, related notes and traversals, and `not_asserted` in `/check`.
 
 use crate::adapters::whelk_inference_engine::WhelkInferenceEngine;
+use crate::services::ontology_visibility::HiddenClasses;
 use crate::services::schema_service::SchemaService;
 use crate::types::ontology_tools::*;
 use log::info;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use visionclaw_domain::ports::inference_engine::InferenceEngine;
@@ -157,36 +163,7 @@ impl OntologyQueryService {
             )
         };
 
-        let of_type = |t: AxiomType| {
-            axioms
-                .iter()
-                .filter(move |a| a.axiom_type == t)
-                .map(|a| (a.subject.clone(), a.object.clone()))
-        };
-        let asserted: Vec<(String, String)> = of_type(AxiomType::SubClassOf).collect();
-        let index = SubsumptionIndex::new(
-            asserted.clone(),
-            hierarchy,
-            of_type(AxiomType::DisjointWith),
-        );
-        let relations = RelationIndex::new(
-            axioms
-                .iter()
-                .filter(|a| {
-                    matches!(
-                        a.axiom_type,
-                        AxiomType::ObjectPropertyAssertion | AxiomType::SomeValuesFrom
-                    ) && !axiom_property(a).is_empty()
-                })
-                .map(|a| {
-                    (
-                        a.subject.clone(),
-                        axiom_property(a).to_string(),
-                        a.object.clone(),
-                    )
-                }),
-            of_type(AxiomType::SubPropertyOf),
-        );
+        let (index, relations, asserted) = Self::indexes(&axioms, hierarchy);
         let generation = match &self.generation_source {
             GenerationSource::Fixed(g) => g.clone(),
             source => {
@@ -222,11 +199,86 @@ impl OntologyQueryService {
             fingerprint,
             index,
             relations,
-            asserted: asserted.into_iter().collect(),
+            asserted,
             generation,
         });
         *self.loaded.write().await = Some(fresh.clone());
         fresh
+    }
+
+    /// The subsumption and relation indexes, and the asserted `SubClassOf` pairs, over
+    /// `axioms` and the Whelk `hierarchy`.
+    fn indexes(
+        axioms: &[OwlAxiom],
+        hierarchy: Vec<(String, String)>,
+    ) -> (SubsumptionIndex, RelationIndex, HashSet<(String, String)>) {
+        let of_type = |t: AxiomType| {
+            axioms
+                .iter()
+                .filter(move |a| a.axiom_type == t)
+                .map(|a| (a.subject.clone(), a.object.clone()))
+        };
+        let asserted: Vec<(String, String)> = of_type(AxiomType::SubClassOf).collect();
+        let index = SubsumptionIndex::new(
+            asserted.clone(),
+            hierarchy,
+            of_type(AxiomType::DisjointWith),
+        );
+        let relations = RelationIndex::new(
+            axioms
+                .iter()
+                .filter(|a| {
+                    matches!(
+                        a.axiom_type,
+                        AxiomType::ObjectPropertyAssertion | AxiomType::SomeValuesFrom
+                    ) && !axiom_property(a).is_empty()
+                })
+                .map(|a| {
+                    (
+                        a.subject.clone(),
+                        axiom_property(a).to_string(),
+                        a.object.clone(),
+                    )
+                }),
+            of_type(AxiomType::SubPropertyOf),
+        );
+        (index, relations, asserted.into_iter().collect())
+    }
+
+    /// The loaded ontology as `hidden`'s caller may see it. With nothing hidden this is the
+    /// shared cached index ([`Self::loaded_for`] when the caller already holds the class list,
+    /// else [`Self::loaded`]). Otherwise it is built for this request from axioms and a Whelk
+    /// closure with every pair naming a hidden class removed, and is never cached, so the
+    /// shared index stays whole for full-access callers. The generation is the corpus's own.
+    async fn loaded_hiding(
+        &self,
+        hidden: &HiddenClasses,
+        classes: Option<&[OwlClass]>,
+    ) -> Arc<LoadedOntology> {
+        if hidden.is_empty() {
+            return match classes {
+                Some(classes) => self.loaded_for(classes).await,
+                None => self.loaded().await,
+            };
+        }
+        let generation = self.loaded().await.generation.clone();
+        let axioms = hidden.axioms(self.ontology_repo.get_axioms().await.unwrap_or_default());
+        let hierarchy = hidden.pairs(
+            self.whelk
+                .read()
+                .await
+                .get_subclass_hierarchy()
+                .await
+                .unwrap_or_default(),
+        );
+        let (index, relations, asserted) = Self::indexes(&axioms, hierarchy);
+        Arc::new(LoadedOntology {
+            fingerprint: 0,
+            index,
+            relations,
+            asserted,
+            generation,
+        })
     }
 
     /// ADR-2127 decision 3: the open-world scope every answer carries, so an
@@ -244,9 +296,10 @@ impl OntologyQueryService {
         &self,
         subject: &str,
         class: &str,
+        hidden: &HiddenClasses,
     ) -> Result<MembershipCheck, String> {
         info!("Ontology check_membership: '{}' ⊑ '{}'", subject, class);
-        let loaded = self.loaded().await;
+        let loaded = self.loaded_hiding(hidden, None).await;
         Ok(loaded
             .index
             .membership(subject, class, AnswerScope::open(loaded.generation.clone())))
@@ -262,17 +315,20 @@ impl OntologyQueryService {
         subject: &str,
         property: &str,
         object: &str,
+        hidden: &HiddenClasses,
     ) -> Result<RelationCheck, String> {
         info!(
             "Ontology check_relation: '{}' {} '{}'",
             subject, property, object
         );
-        let loaded = self.loaded().await;
-        let signatures: HashMap<String, PropertySignature> = self
+        let loaded = self.loaded_hiding(hidden, None).await;
+        let properties = self
             .ontology_repo
             .list_owl_properties()
             .await
-            .map_err(|e| format!("Failed to list properties: {}", e))?
+            .map_err(|e| format!("Failed to list properties: {}", e))?;
+        let signatures: HashMap<String, PropertySignature> = hidden
+            .properties(properties)
             .into_iter()
             .filter(|p| !p.domain.is_empty() || !p.range.is_empty())
             .map(|p| {
@@ -303,6 +359,7 @@ impl OntologyQueryService {
         start_iri: &str,
         max_depth: usize,
         rel_filter: Option<&[String]>,
+        hidden: &HiddenClasses,
     ) -> Result<TraversalResult, String> {
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
@@ -314,18 +371,22 @@ impl OntologyQueryService {
 
         // One snapshot for the whole walk: the classes are listed and the
         // index looked up once, not once per visited node.
-        let all_classes = self
-            .ontology_repo
-            .list_owl_classes()
-            .await
-            .unwrap_or_default();
-        let loaded = self.loaded_for(&all_classes).await;
+        let all_classes = hidden.classes(
+            self.ontology_repo
+                .list_owl_classes()
+                .await
+                .unwrap_or_default(),
+        );
+        let loaded = self.loaded_hiding(hidden, Some(&all_classes)).await;
 
         while let Some((current_iri, depth)) = queue.pop_front() {
             if depth > max_depth {
                 continue;
             }
-            match self.read_note_in(&loaded, &all_classes, &current_iri).await {
+            match self
+                .read_note_in(&loaded, &all_classes, &current_iri, hidden)
+                .await
+            {
                 Ok(note) => {
                     nodes.push(TraversalNode {
                         iri: note.iri.clone(),
@@ -385,6 +446,7 @@ impl OntologyQueryService {
         query: &str,
         limit: usize,
         domain_filter: Option<&str>,
+        hidden: &HiddenClasses,
     ) -> Result<Vec<DiscoveryResult>, String> {
         info!(
             "Ontology discover: query='{}', limit={}, domain={:?}",
@@ -392,11 +454,12 @@ impl OntologyQueryService {
         );
 
         // Step 1: Get all OWL classes
-        let classes = self
-            .ontology_repo
-            .list_owl_classes()
-            .await
-            .map_err(|e| format!("Failed to list classes: {}", e))?;
+        let classes = hidden.classes(
+            self.ontology_repo
+                .list_owl_classes()
+                .await
+                .map_err(|e| format!("Failed to list classes: {}", e))?,
+        );
 
         // Step 2: Keyword matching — score each class against query terms
         let query_terms: Vec<String> = query
@@ -437,10 +500,12 @@ impl OntologyQueryService {
 
         // Step 3: Whelk expansion — for top matches, include subclasses via inference
         let whelk = self.whelk.read().await;
-        let hierarchy: Vec<(String, String)> = whelk
-            .get_subclass_hierarchy()
-            .await
-            .unwrap_or_else(|_| Vec::new());
+        let hierarchy: Vec<(String, String)> = hidden.pairs(
+            whelk
+                .get_subclass_hierarchy()
+                .await
+                .unwrap_or_else(|_| Vec::new()),
+        );
 
         // Build parent->children and child->parents maps
         let mut children_of: HashMap<String, HashSet<String>> = HashMap::new();
@@ -525,31 +590,40 @@ impl OntologyQueryService {
     }
 
     /// Read a note with full ontology context: markdown, metadata, Whelk axioms, related notes.
-    pub async fn read_note(&self, iri: &str) -> Result<EnrichedNote, String> {
-        let all_classes = self
-            .ontology_repo
-            .list_owl_classes()
-            .await
-            .unwrap_or_default();
-        let loaded = self.loaded_for(&all_classes).await;
-        self.read_note_in(&loaded, &all_classes, iri).await
+    pub async fn read_note(
+        &self,
+        iri: &str,
+        hidden: &HiddenClasses,
+    ) -> Result<EnrichedNote, String> {
+        let all_classes = hidden.classes(
+            self.ontology_repo
+                .list_owl_classes()
+                .await
+                .unwrap_or_default(),
+        );
+        let loaded = self.loaded_hiding(hidden, Some(&all_classes)).await;
+        self.read_note_in(&loaded, &all_classes, iri, hidden).await
     }
 
-    /// [`Self::read_note`] against an already-loaded index and class list.
+    /// [`Self::read_note`] against an already-loaded index and class list, both already
+    /// scrubbed for `hidden`.
     async fn read_note_in(
         &self,
         loaded: &LoadedOntology,
         all_classes: &[OwlClass],
         iri: &str,
+        hidden: &HiddenClasses,
     ) -> Result<EnrichedNote, String> {
         info!("Ontology read_note: iri='{}'", iri);
 
         // Fetch OwlClass from Oxigraph
-        let class = self
-            .ontology_repo
-            .get_owl_class(iri)
-            .await
-            .map_err(|e| format!("Failed to get class: {}", e))?
+        let class = hidden
+            .class(
+                self.ontology_repo
+                    .get_owl_class(iri)
+                    .await
+                    .map_err(|e| format!("Failed to get class: {}", e))?,
+            )
             .ok_or_else(|| format!("Class not found: {}", iri))?;
 
         // ADR-2127: the closure (Whelk ∪ asserted) gives each axiom and each
@@ -579,11 +653,12 @@ impl OntologyQueryService {
         }
 
         // Asserted axioms from the repo
-        let asserted = self
-            .ontology_repo
-            .get_class_axioms(iri)
-            .await
-            .unwrap_or_default();
+        let asserted = hidden.axioms(
+            self.ontology_repo
+                .get_class_axioms(iri)
+                .await
+                .unwrap_or_default(),
+        );
 
         for axiom in &asserted {
             whelk_axioms.push(InferredAxiomSummary {
@@ -654,6 +729,7 @@ impl OntologyQueryService {
     pub async fn validate_and_execute_cypher(
         &self,
         cypher: &str,
+        hidden: &HiddenClasses,
     ) -> Result<CypherValidationResult, String> {
         info!(
             "Ontology validate_cypher: '{}'",
@@ -664,13 +740,16 @@ impl OntologyQueryService {
         let mut hints = Vec::new();
 
         // Get known classes and properties for validation
-        let classes = self
-            .ontology_repo
-            .list_owl_classes()
-            .await
-            .unwrap_or_default();
+        let classes = hidden.classes(
+            self.ontology_repo
+                .list_owl_classes()
+                .await
+                .unwrap_or_default(),
+        );
         let known_iris: HashSet<String> = classes.iter().map(|c| c.iri.clone()).collect();
-        let known_terms: HashMap<String, String> = classes
+        // Ordered, so the nearest-term hint breaks distance ties alphabetically rather than
+        // by hash order.
+        let known_terms: BTreeMap<String, String> = classes
             .iter()
             .filter_map(|c| {
                 c.preferred_term

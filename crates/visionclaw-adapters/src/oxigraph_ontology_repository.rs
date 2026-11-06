@@ -185,8 +185,9 @@ fn property_iri(p: &OwlProperty) -> String {
     }
 }
 
-/// Content-address an axiom: sha256(subject || predicate || object) → 12 hex chars.
-fn axiom_iri(a: &OwlAxiom) -> String {
+/// Content-address an axiom: sha256(subject || predicate || object) → 12 hex chars. This
+/// is the IRI the axiom's `vc:Axiom` record node is stored under.
+pub fn axiom_iri(a: &OwlAxiom) -> String {
     let mut hasher = Sha256::new();
     hasher.update(a.subject.as_bytes());
     hasher.update(format!("{:?}", a.axiom_type).as_bytes());
@@ -985,6 +986,201 @@ impl OxigraphOntologyRepository {
             "triples": triples,
             "truncated": truncated,
         }))
+    }
+
+    /// [`OntologyRepository::validate_ontology`] over the store as if every class in `hidden`,
+    /// and every axiom and domain naming one, had never been stored. The checks are store-wide
+    /// booleans, so the exclusion has to happen inside each query; an empty `hidden` runs the
+    /// unfiltered checks.
+    pub async fn validate_ontology_excluding(
+        &self,
+        hidden: &HashSet<String>,
+    ) -> RepoResult<ValidationReport> {
+        let hidden = hidden_literals(hidden);
+        // ADR-11 §D6 — UNIQUE-style constraint battery. Each ASK that
+        // returns true contributes one entry to errors.
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+
+        // 1. Duplicate OntologyClass IRI (impossible in RDF, but a class
+        //    declared twice with both `:OntologyClass` and `:OwlClass`
+        //    types is a smell — flag as warning).
+        let dup_class_q = format!(
+            "{PROLOGUE}\
+             SELECT (COUNT(?s) AS ?n)\n\
+             WHERE {{ GRAPH <{GRAPH_ONTOLOGY}> {{ ?s a <{T_VC_ONTOLOGY_CLASS}> . ?s a <{T_OWL_CLASS}> {} }} }}\n",
+            str_not_in("s", &hidden)
+        );
+        let (_v, rows) = self.run_select(dup_class_q).await?;
+        // (info — not an error)
+        if let Some(row) = rows.first() {
+            if let Some(Term::Literal(l)) = &row[0] {
+                let count: u64 = l.value().parse().unwrap_or(0);
+                if count > 0 {
+                    warnings.push(format!(
+                        "{count} class(es) declared as both vc:OntologyClass and owl:Class"
+                    ));
+                }
+            }
+        }
+
+        // 2. Axioms with subject IRI not present in the assert graph.
+        let dangling_subj_q = format!(
+            "{PROLOGUE}\
+             ASK FROM <{GRAPH_ONTOLOGY}> {{\n\
+               ?a a <{T_VC_AXIOM}> ; <{P_AXIOM_SUBJECT}> ?s .\n\
+               FILTER(isIRI(?s))\n\
+               FILTER NOT EXISTS {{ ?s ?p ?o }}\n\
+               {}\
+             }}\n",
+            axiom_not_naming("a", &hidden)
+        );
+        if self.run_ask(dangling_subj_q).await? {
+            errors.push("axiom with dangling subject IRI".to_string());
+        }
+
+        // 3. Axioms with unrecognised axiom_type.
+        let bad_type_q = format!(
+            "{PROLOGUE}\
+             ASK FROM <{GRAPH_ONTOLOGY}> {{\n\
+               ?a a <{T_VC_AXIOM}> ; <{P_AXIOM_TYPE}> ?t .\n\
+               {}\
+               FILTER(?t NOT IN (\"SubClassOf\", \"EquivalentClass\", \"DisjointWith\", \"ObjectPropertyAssertion\", \"DataPropertyAssertion\", \"SubPropertyOf\", \"TransitiveProperty\", \"SymmetricProperty\", \"InverseProperties\", \"SomeValuesFrom\"))\n\
+             }}\n",
+            axiom_not_naming("a", &hidden)
+        );
+        if self.run_ask(bad_type_q).await? {
+            errors.push("axiom with unrecognised axiom_type".to_string());
+        }
+
+        // 4. Property without a recognised rdf:type.
+        let bad_prop_q = format!(
+            "{PROLOGUE}\
+             ASK FROM <{GRAPH_ONTOLOGY}> {{\n\
+               ?p <{P_DOMAIN}> ?d .\n\
+               {}\
+               FILTER NOT EXISTS {{\n\
+                 ?p a ?t .\n\
+                 FILTER(?t IN (<{T_OWL_OBJECT_PROP}>, <{T_OWL_DATA_PROP}>, <{T_OWL_ANNOT_PROP}>))\n\
+               }}\n\
+             }}\n",
+            str_not_in("d", &hidden)
+        );
+        if self.run_ask(bad_prop_q).await? {
+            warnings.push("property with rdfs:domain but no rdf:type".to_string());
+        }
+
+        // 5. Class without rdfs:label (warning, not error).
+        let no_label_q = format!(
+            "{PROLOGUE}\
+             ASK FROM <{GRAPH_ONTOLOGY}> {{\n\
+               ?c a <{T_VC_ONTOLOGY_CLASS}> .\n\
+               {}\
+               FILTER NOT EXISTS {{ ?c <{P_LABEL}> ?l }}\n\
+             }}\n",
+            str_not_in("c", &hidden)
+        );
+        if self.run_ask(no_label_q).await? {
+            warnings.push("at least one OntologyClass missing rdfs:label".to_string());
+        }
+
+        let is_valid = errors.is_empty();
+        Ok(ValidationReport {
+            is_valid,
+            errors,
+            warnings,
+            timestamp: chrono::Utc::now(),
+        })
+    }
+
+    /// [`OntologyRepository::get_metrics`] counted over the store as if every class in
+    /// `hidden`, and every axiom and `rdfs:subClassOf` edge naming one, had never been stored.
+    /// An empty `hidden` counts everything.
+    pub async fn get_metrics_excluding(
+        &self,
+        hidden: &HashSet<String>,
+    ) -> RepoResult<OntologyMetrics> {
+        let hidden = hidden_literals(hidden);
+        // SPARQL 1.1 with aggregates cannot mix `FROM <iri>` (dataset clause)
+        // with `SELECT (COUNT…)`. Oxigraph's strict parser rejects it. The
+        // canonical form scopes the pattern via `GRAPH <iri> { … }` inside
+        // WHERE instead.
+        //
+        // 1. Class count.
+        let class_q = format!(
+            "{PROLOGUE}\
+             SELECT (COUNT(?s) AS ?n)\n\
+             WHERE {{ GRAPH <{GRAPH_ONTOLOGY}> {{ ?s a <{T_VC_ONTOLOGY_CLASS}> {} }} }}\n",
+            str_not_in("s", &hidden)
+        );
+        let class_count = scalar_count(&self.run_select(class_q).await?).unwrap_or(0);
+
+        // 2. Property count.
+        let prop_q = format!(
+            "{PROLOGUE}\
+             SELECT (COUNT(?s) AS ?n)\n\
+             WHERE {{ GRAPH <{GRAPH_ONTOLOGY}> {{ ?s a ?t .\n\
+                      FILTER(?t IN (<{T_OWL_OBJECT_PROP}>, <{T_OWL_DATA_PROP}>, <{T_OWL_ANNOT_PROP}>)) }} }}\n"
+        );
+        let property_count = scalar_count(&self.run_select(prop_q).await?).unwrap_or(0);
+
+        // 3. Axiom count.
+        let ax_q = format!(
+            "{PROLOGUE}\
+             SELECT (COUNT(?s) AS ?n)\n\
+             WHERE {{ GRAPH <{GRAPH_ONTOLOGY}> {{ ?s a <{T_VC_AXIOM}> {} }} }}\n",
+            axiom_not_naming("s", &hidden)
+        );
+        let axiom_count = scalar_count(&self.run_select(ax_q).await?).unwrap_or(0);
+
+        // 4. Branching factor: average number of direct sub-classes per
+        //    parent. COUNT children grouped by parent, then average.
+        let branch_q = format!(
+            "{PROLOGUE}\
+             SELECT (AVG(?children) AS ?avg) WHERE {{\n\
+               {{ SELECT ?parent (COUNT(?child) AS ?children)\n\
+                 WHERE {{ GRAPH <{GRAPH_ONTOLOGY}> {{ ?child <{P_SUBCLASS_OF}> ?parent {} {} }} }}\n\
+                 GROUP BY ?parent }}\n\
+             }}\n",
+            str_not_in("child", &hidden),
+            str_not_in("parent", &hidden)
+        );
+        let avg_branching = scalar_f32(&self.run_select(branch_q).await?).unwrap_or(0.0);
+
+        // 5. Max depth: iterative ASK loop. SPARQL property paths give
+        //    reachability via `subClassOf+` but not depth. We walk
+        //    increasing explicit-hop chains until ASK returns false.
+        //    Capped at MAX_DEPTH_CAP to bound runtime on cyclic data;
+        //    cycles in subClassOf are a constraint violation anyway.
+        const MAX_DEPTH_CAP: usize = 64;
+        let mut max_depth: usize = 0;
+        for depth in 1..=MAX_DEPTH_CAP {
+            let mut chained = String::new();
+            for k in 0..depth {
+                chained.push_str(&format!("?n{k} <{P_SUBCLASS_OF}> ?n{} .\n", k + 1));
+            }
+            for k in 0..=depth {
+                chained.push_str(&str_not_in(&format!("n{k}"), &hidden));
+            }
+            let ask = format!(
+                "{PROLOGUE}\
+                 ASK FROM <{GRAPH_ONTOLOGY}> {{\n{chained}\
+                 }}\n"
+            );
+            if self.run_ask(ask).await? {
+                max_depth = depth;
+            } else {
+                break;
+            }
+        }
+
+        Ok(OntologyMetrics {
+            class_count: class_count as usize,
+            property_count: property_count as usize,
+            axiom_count: axiom_count as usize,
+            max_depth,
+            average_branching_factor: avg_branching,
+        })
     }
 
     // ------------------------------------------------------------------
@@ -2677,91 +2873,7 @@ impl OntologyRepository for OxigraphOntologyRepository {
     }
 
     async fn validate_ontology(&self) -> RepoResult<ValidationReport> {
-        // ADR-11 §D6 — UNIQUE-style constraint battery. Each ASK that
-        // returns true contributes one entry to errors.
-        let mut errors = Vec::new();
-        let mut warnings = Vec::new();
-
-        // 1. Duplicate OntologyClass IRI (impossible in RDF, but a class
-        //    declared twice with both `:OntologyClass` and `:OwlClass`
-        //    types is a smell — flag as warning).
-        let dup_class_q = format!(
-            "{PROLOGUE}\
-             SELECT (COUNT(?s) AS ?n)\n\
-             WHERE {{ GRAPH <{GRAPH_ONTOLOGY}> {{ ?s a <{T_VC_ONTOLOGY_CLASS}> . ?s a <{T_OWL_CLASS}> }} }}\n"
-        );
-        let (_v, rows) = self.run_select(dup_class_q).await?;
-        // (info — not an error)
-        if let Some(row) = rows.first() {
-            if let Some(Term::Literal(l)) = &row[0] {
-                let count: u64 = l.value().parse().unwrap_or(0);
-                if count > 0 {
-                    warnings.push(format!(
-                        "{count} class(es) declared as both vc:OntologyClass and owl:Class"
-                    ));
-                }
-            }
-        }
-
-        // 2. Axioms with subject IRI not present in the assert graph.
-        let dangling_subj_q = format!(
-            "{PROLOGUE}\
-             ASK FROM <{GRAPH_ONTOLOGY}> {{\n\
-               ?a a <{T_VC_AXIOM}> ; <{P_AXIOM_SUBJECT}> ?s .\n\
-               FILTER(isIRI(?s))\n\
-               FILTER NOT EXISTS {{ ?s ?p ?o }}\n\
-             }}\n"
-        );
-        if self.run_ask(dangling_subj_q).await? {
-            errors.push("axiom with dangling subject IRI".to_string());
-        }
-
-        // 3. Axioms with unrecognised axiom_type.
-        let bad_type_q = format!(
-            "{PROLOGUE}\
-             ASK FROM <{GRAPH_ONTOLOGY}> {{\n\
-               ?a a <{T_VC_AXIOM}> ; <{P_AXIOM_TYPE}> ?t .\n\
-               FILTER(?t NOT IN (\"SubClassOf\", \"EquivalentClass\", \"DisjointWith\", \"ObjectPropertyAssertion\", \"DataPropertyAssertion\", \"SubPropertyOf\", \"TransitiveProperty\", \"SymmetricProperty\", \"InverseProperties\", \"SomeValuesFrom\"))\n\
-             }}\n"
-        );
-        if self.run_ask(bad_type_q).await? {
-            errors.push("axiom with unrecognised axiom_type".to_string());
-        }
-
-        // 4. Property without a recognised rdf:type.
-        let bad_prop_q = format!(
-            "{PROLOGUE}\
-             ASK FROM <{GRAPH_ONTOLOGY}> {{\n\
-               ?p <{P_DOMAIN}> ?d .\n\
-               FILTER NOT EXISTS {{\n\
-                 ?p a ?t .\n\
-                 FILTER(?t IN (<{T_OWL_OBJECT_PROP}>, <{T_OWL_DATA_PROP}>, <{T_OWL_ANNOT_PROP}>))\n\
-               }}\n\
-             }}\n"
-        );
-        if self.run_ask(bad_prop_q).await? {
-            warnings.push("property with rdfs:domain but no rdf:type".to_string());
-        }
-
-        // 5. Class without rdfs:label (warning, not error).
-        let no_label_q = format!(
-            "{PROLOGUE}\
-             ASK FROM <{GRAPH_ONTOLOGY}> {{\n\
-               ?c a <{T_VC_ONTOLOGY_CLASS}> .\n\
-               FILTER NOT EXISTS {{ ?c <{P_LABEL}> ?l }}\n\
-             }}\n"
-        );
-        if self.run_ask(no_label_q).await? {
-            warnings.push("at least one OntologyClass missing rdfs:label".to_string());
-        }
-
-        let is_valid = errors.is_empty();
-        Ok(ValidationReport {
-            is_valid,
-            errors,
-            warnings,
-            timestamp: chrono::Utc::now(),
-        })
+        self.validate_ontology_excluding(&HashSet::new()).await
     }
 
     async fn query_ontology(&self, query: &str) -> RepoResult<Vec<HashMap<String, String>>> {
@@ -2819,79 +2931,7 @@ impl OntologyRepository for OxigraphOntologyRepository {
     // ------------------------------------------------------------------
 
     async fn get_metrics(&self) -> RepoResult<OntologyMetrics> {
-        // SPARQL 1.1 with aggregates cannot mix `FROM <iri>` (dataset clause)
-        // with `SELECT (COUNT…)`. Oxigraph's strict parser rejects it. The
-        // canonical form scopes the pattern via `GRAPH <iri> { … }` inside
-        // WHERE instead.
-        //
-        // 1. Class count.
-        let class_q = format!(
-            "{PROLOGUE}\
-             SELECT (COUNT(?s) AS ?n)\n\
-             WHERE {{ GRAPH <{GRAPH_ONTOLOGY}> {{ ?s a <{T_VC_ONTOLOGY_CLASS}> }} }}\n"
-        );
-        let class_count = scalar_count(&self.run_select(class_q).await?).unwrap_or(0);
-
-        // 2. Property count.
-        let prop_q = format!(
-            "{PROLOGUE}\
-             SELECT (COUNT(?s) AS ?n)\n\
-             WHERE {{ GRAPH <{GRAPH_ONTOLOGY}> {{ ?s a ?t .\n\
-                      FILTER(?t IN (<{T_OWL_OBJECT_PROP}>, <{T_OWL_DATA_PROP}>, <{T_OWL_ANNOT_PROP}>)) }} }}\n"
-        );
-        let property_count = scalar_count(&self.run_select(prop_q).await?).unwrap_or(0);
-
-        // 3. Axiom count.
-        let ax_q = format!(
-            "{PROLOGUE}\
-             SELECT (COUNT(?s) AS ?n)\n\
-             WHERE {{ GRAPH <{GRAPH_ONTOLOGY}> {{ ?s a <{T_VC_AXIOM}> }} }}\n"
-        );
-        let axiom_count = scalar_count(&self.run_select(ax_q).await?).unwrap_or(0);
-
-        // 4. Branching factor: average number of direct sub-classes per
-        //    parent. COUNT children grouped by parent, then average.
-        let branch_q = format!(
-            "{PROLOGUE}\
-             SELECT (AVG(?children) AS ?avg) WHERE {{\n\
-               {{ SELECT ?parent (COUNT(?child) AS ?children)\n\
-                 WHERE {{ GRAPH <{GRAPH_ONTOLOGY}> {{ ?child <{P_SUBCLASS_OF}> ?parent }} }}\n\
-                 GROUP BY ?parent }}\n\
-             }}\n"
-        );
-        let avg_branching = scalar_f32(&self.run_select(branch_q).await?).unwrap_or(0.0);
-
-        // 5. Max depth: iterative ASK loop. SPARQL property paths give
-        //    reachability via `subClassOf+` but not depth. We walk
-        //    increasing explicit-hop chains until ASK returns false.
-        //    Capped at MAX_DEPTH_CAP to bound runtime on cyclic data;
-        //    cycles in subClassOf are a constraint violation anyway.
-        const MAX_DEPTH_CAP: usize = 64;
-        let mut max_depth: usize = 0;
-        for depth in 1..=MAX_DEPTH_CAP {
-            let mut chained = String::new();
-            for k in 0..depth {
-                chained.push_str(&format!("?n{k} <{P_SUBCLASS_OF}> ?n{} .\n", k + 1));
-            }
-            let ask = format!(
-                "{PROLOGUE}\
-                 ASK FROM <{GRAPH_ONTOLOGY}> {{\n{chained}\
-                 }}\n"
-            );
-            if self.run_ask(ask).await? {
-                max_depth = depth;
-            } else {
-                break;
-            }
-        }
-
-        Ok(OntologyMetrics {
-            class_count: class_count as usize,
-            property_count: property_count as usize,
-            axiom_count: axiom_count as usize,
-            max_depth,
-            average_branching_factor: avg_branching,
-        })
+        self.get_metrics_excluding(&HashSet::new()).await
     }
 
     // ------------------------------------------------------------------
@@ -3056,6 +3096,40 @@ impl OntologyRepository for OxigraphOntologyRepository {
         );
         self.run_update(update).await
     }
+}
+
+/// The hidden IRIs as sorted, escaped SPARQL string literals, for [`str_not_in`] and
+/// [`axiom_not_naming`]. Compared by `STR()`, so an IRI stored as an IRI or as a literal (an
+/// axiom subject that does not look like an IRI) is matched either way.
+fn hidden_literals(hidden: &HashSet<String>) -> Vec<String> {
+    let mut out: Vec<String> = hidden
+        .iter()
+        .map(|iri| format!("\"{}\"", escape_literal(iri)))
+        .collect();
+    out.sort();
+    out
+}
+
+/// `FILTER(STR(?var) NOT IN (…))` over the hidden literals; nothing when none are hidden.
+fn str_not_in(var: &str, hidden: &[String]) -> String {
+    if hidden.is_empty() {
+        return String::new();
+    }
+    format!("FILTER(STR(?{var}) NOT IN ({}))\n", hidden.join(", "))
+}
+
+/// Excludes the `vc:Axiom` record bound to `?var` when its subject or object is hidden;
+/// nothing when none are hidden.
+fn axiom_not_naming(var: &str, hidden: &[String]) -> String {
+    if hidden.is_empty() {
+        return String::new();
+    }
+    format!(
+        "FILTER NOT EXISTS {{ ?{var} ?{var}_ap ?{var}_ax . \
+         FILTER(?{var}_ap IN (<{P_AXIOM_SUBJECT}>, <{P_AXIOM_OBJECT}>) \
+         && STR(?{var}_ax) IN ({})) }}\n",
+        hidden.join(", ")
+    )
 }
 
 // ----------------------------------------------------------------------

@@ -167,6 +167,46 @@ pub async fn caller_gate(
     Ok(gate_for_graph(&graph, pubkey))
 }
 
+/// The ontology class IRIs this caller may not see: the `owl_class_iri` of every node in the
+/// whole graph that is not in the caller's view. The Oxigraph store still holds a formal class
+/// whose page is private, so every ontology read surface drops these IRIs (and every edge and
+/// axiom that names one) to make a hidden class read exactly as a class that was never stored.
+pub fn hidden_class_iris(gate: &CallerGate) -> HashSet<String> {
+    gate.graph
+        .nodes
+        .iter()
+        .filter(|n| !gate.ids.contains(n.id))
+        .filter_map(|n| n.owl_class_iri.clone())
+        .collect()
+}
+
+/// [`hidden_class_iris`] for a caller over the current graph. Empty when nothing is hidden
+/// from them (filter off, or full access). `Err` means the graph could not be read: the route
+/// must then refuse rather than serve the unfiltered store (fail closed).
+pub async fn caller_hidden_class_iris(
+    supervisor: &Addr<GraphServiceSupervisor>,
+    pubkey: Option<&str>,
+) -> Result<HashSet<String>, String> {
+    Ok(caller_gate(supervisor, pubkey)
+        .await?
+        .map(|gate| hidden_class_iris(&gate))
+        .unwrap_or_default())
+}
+
+/// [`caller_hidden_class_iris`] for an ontology route: the [`HiddenClasses`] its reads pass
+/// through. An unreadable graph answers 503 rather than the unfiltered store (fail closed).
+///
+/// [`HiddenClasses`]: crate::services::ontology_visibility::HiddenClasses
+pub async fn caller_hidden_classes(
+    supervisor: &Addr<GraphServiceSupervisor>,
+    caller: &crate::settings::OptionalAuth,
+) -> Result<crate::services::ontology_visibility::HiddenClasses, actix_web::Error> {
+    caller_hidden_class_iris(supervisor, caller_pubkey(caller))
+        .await
+        .map(Into::into)
+        .map_err(actix_web::error::ErrorServiceUnavailable)
+}
+
 /// Node, edge and metadata-row counts of what a caller may see.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct VisibleCounts {
@@ -313,5 +353,45 @@ mod visible_counts_tests {
             },
             "the filter off counts everything"
         );
+    }
+}
+
+#[cfg(test)]
+mod hidden_class_tests {
+    use super::*;
+    use visionclaw_domain::models::node::Node;
+
+    fn graph() -> Arc<GraphData> {
+        let node = |id: u32, public: bool, iri: Option<&str>| {
+            let mut n = Node::new_with_id(format!("n{id}"), None);
+            n.id = id;
+            n.owl_class_iri = iri.map(str::to_string);
+            n.metadata.insert("public".into(), public.to_string());
+            n
+        };
+        Arc::new(GraphData {
+            nodes: vec![
+                node(0, true, Some("urn:c:Visible")),
+                node(1, false, Some("urn:c:Hidden")),
+                node(2, false, None),
+            ],
+            ..GraphData::default()
+        })
+    }
+
+    #[test]
+    fn the_deny_list_is_the_class_iris_of_nodes_outside_the_view() {
+        let gate = gate_for_graph_with(&graph(), None, true).expect("two nodes are hidden");
+        let hidden = hidden_class_iris(&gate);
+        assert_eq!(
+            hidden,
+            HashSet::from(["urn:c:Hidden".to_string()]),
+            "only hidden nodes' class IRIs; a hidden node without one adds nothing"
+        );
+    }
+
+    #[test]
+    fn full_access_has_no_gate_so_no_deny_list() {
+        assert!(gate_for_graph_with(&graph(), None, false).is_none());
     }
 }

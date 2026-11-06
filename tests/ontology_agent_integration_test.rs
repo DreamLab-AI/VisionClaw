@@ -13,20 +13,34 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use actix::Actor;
 use visionclaw_domain::ports::inference_engine::InferenceEngine;
 use visionclaw_domain::ports::ontology_repository::{
     AxiomType, OntologyRepository, OwlAxiom, OwlClass,
 };
+use visionclaw_server::actors::graph_service_supervisor::GraphServiceSupervisor;
+use visionclaw_server::adapters::oxigraph_graph_repository::OxigraphGraphRepository;
 use visionclaw_server::adapters::whelk_inference_engine::WhelkInferenceEngine;
 use visionclaw_server::services::github_pr_service::GitHubPRService;
 use visionclaw_server::services::ontology_mutation_service::OntologyMutationService;
 use visionclaw_server::services::ontology_query_service::OntologyQueryService;
+use visionclaw_server::services::ontology_visibility::HiddenClasses;
 use visionclaw_server::services::proposal_spine::{InMemoryIdempotencyStore, InMemoryIntentLog};
 use visionclaw_server::services::schema_service::SchemaService;
 use visionclaw_server::test_helpers::create_test_ontology_repo;
 use visionclaw_server::types::ontology_tools::*;
 
 // ---------- Test Helpers ----------
+
+/// The graph supervisor every `/ontology-agent` route reads the caller's hidden classes
+/// through (ADR-060), registered as `main.rs` registers it, over an empty in-memory graph.
+fn graph_supervisor() -> actix::Addr<GraphServiceSupervisor> {
+    let store = oxigraph::store::Store::new().expect("in-memory store");
+    GraphServiceSupervisor::new(Arc::new(OxigraphGraphRepository::from_store(Arc::new(
+        store,
+    ))))
+    .start()
+}
 
 fn build_query_service() -> OntologyQueryService {
     let repo = create_test_ontology_repo();
@@ -87,7 +101,10 @@ fn test_agent_context() -> AgentContext {
 #[tokio::test]
 async fn test_discover_finds_matching_classes() {
     let service = build_query_service();
-    let results = service.discover("Person", 10, None).await.unwrap();
+    let results = service
+        .discover("Person", 10, None, &HiddenClasses::none())
+        .await
+        .unwrap();
     assert!(
         !results.is_empty(),
         "Should find at least one result for 'Person'"
@@ -99,7 +116,10 @@ async fn test_discover_finds_matching_classes() {
 #[tokio::test]
 async fn test_discover_respects_limit() {
     let service = build_query_service();
-    let results = service.discover("o", 2, None).await.unwrap();
+    let results = service
+        .discover("o", 2, None, &HiddenClasses::none())
+        .await
+        .unwrap();
     assert!(results.len() <= 2, "Should respect limit parameter");
 }
 
@@ -107,7 +127,7 @@ async fn test_discover_respects_limit() {
 async fn test_discover_nonexistent_returns_empty() {
     let service = build_query_service();
     let results = service
-        .discover("zzz_nonexistent_xyzzy", 10, None)
+        .discover("zzz_nonexistent_xyzzy", 10, None, &HiddenClasses::none())
         .await
         .unwrap();
     assert!(
@@ -120,7 +140,7 @@ async fn test_discover_nonexistent_returns_empty() {
 async fn test_discover_multi_term_query() {
     let service = build_query_service();
     let results = service
-        .discover("Company Organization", 10, None)
+        .discover("Company Organization", 10, None, &HiddenClasses::none())
         .await
         .unwrap();
     assert!(!results.is_empty(), "Multi-term query should match classes");
@@ -131,7 +151,10 @@ async fn test_discover_multi_term_query() {
 #[tokio::test]
 async fn test_read_note_existing_class() {
     let service = build_query_service();
-    let note = service.read_note("mv:Person").await.unwrap();
+    let note = service
+        .read_note("mv:Person", &HiddenClasses::none())
+        .await
+        .unwrap();
     assert_eq!(note.iri, "mv:Person");
     assert_eq!(note.preferred_term, "Person");
 }
@@ -139,7 +162,9 @@ async fn test_read_note_existing_class() {
 #[tokio::test]
 async fn test_read_note_missing_class_returns_error() {
     let service = build_query_service();
-    let result = service.read_note("mv:NonExistent").await;
+    let result = service
+        .read_note("mv:NonExistent", &HiddenClasses::none())
+        .await;
     assert!(result.is_err(), "Should error for missing class");
 }
 
@@ -149,7 +174,7 @@ async fn test_read_note_missing_class_returns_error() {
 async fn test_validate_cypher_known_label() {
     let service = build_query_service();
     let result = service
-        .validate_and_execute_cypher("MATCH (n:Person) RETURN n")
+        .validate_and_execute_cypher("MATCH (n:Person) RETURN n", &HiddenClasses::none())
         .await
         .unwrap();
     assert!(result.valid, "Person is a known class — should validate");
@@ -160,7 +185,7 @@ async fn test_validate_cypher_known_label() {
 async fn test_validate_cypher_unknown_label_with_hint() {
     let service = build_query_service();
     let result = service
-        .validate_and_execute_cypher("MATCH (n:Perzon) RETURN n")
+        .validate_and_execute_cypher("MATCH (n:Perzon) RETURN n", &HiddenClasses::none())
         .await
         .unwrap();
     assert!(!result.valid, "Perzon is not a known class — should fail");
@@ -179,7 +204,10 @@ async fn test_validate_cypher_unknown_label_with_hint() {
 async fn test_validate_cypher_builtin_labels_pass() {
     let service = build_query_service();
     let result = service
-        .validate_and_execute_cypher("MATCH (n:OwlClass) RETURN n LIMIT 10")
+        .validate_and_execute_cypher(
+            "MATCH (n:OwlClass) RETURN n LIMIT 10",
+            &HiddenClasses::none(),
+        )
         .await
         .unwrap();
     assert!(
@@ -423,7 +451,7 @@ async fn build_disjoint_query_service() -> OntologyQueryService {
 async fn test_empty_discover_is_labelled_open_with_its_generation() {
     let service = build_query_service().with_generation(Some("urn:gen:test".to_string()));
     let results = service
-        .discover("zzz_nonexistent_xyzzy", 10, None)
+        .discover("zzz_nonexistent_xyzzy", 10, None, &HiddenClasses::none())
         .await
         .unwrap();
     assert!(results.is_empty());
@@ -438,7 +466,10 @@ async fn test_empty_discover_is_labelled_open_with_its_generation() {
 #[tokio::test]
 async fn test_empty_traversal_is_labelled_open_with_its_generation() {
     let service = build_query_service().with_generation(Some("urn:gen:test".to_string()));
-    let traversal = service.traverse("mv:NonExistent", 2, None).await.unwrap();
+    let traversal = service
+        .traverse("mv:NonExistent", 2, None, &HiddenClasses::none())
+        .await
+        .unwrap();
     assert!(traversal.nodes.is_empty() && traversal.edges.is_empty());
     assert_eq!(
         traversal.scope,
@@ -450,7 +481,7 @@ async fn test_empty_traversal_is_labelled_open_with_its_generation() {
 async fn test_membership_in_a_disjoint_class_is_entailed_false() {
     let service = build_disjoint_query_service().await;
     let check = service
-        .check_membership("mv:Company", "mv:Person")
+        .check_membership("mv:Company", "mv:Person", &HiddenClasses::none())
         .await
         .unwrap();
     assert_eq!(check.verdict, Entailment::EntailedFalse);
@@ -469,21 +500,21 @@ async fn test_membership_in_a_disjoint_class_is_entailed_false() {
 async fn test_membership_distinguishes_asserted_inferred_and_silent() {
     let service = build_disjoint_query_service().await;
     let asserted = service
-        .check_membership("mv:Company", "mv:Organization")
+        .check_membership("mv:Company", "mv:Organization", &HiddenClasses::none())
         .await
         .unwrap();
     assert_eq!(asserted.verdict, Entailment::Entailed);
     assert_eq!(asserted.basis, Some(FactBasis::Asserted));
 
     let inferred = service
-        .check_membership("mv:Company", "mv:Agent")
+        .check_membership("mv:Company", "mv:Agent", &HiddenClasses::none())
         .await
         .unwrap();
     assert_eq!(inferred.verdict, Entailment::Entailed);
     assert_eq!(inferred.basis, Some(FactBasis::Inferred));
 
     let silent = service
-        .check_membership("mv:Technology", "mv:Person")
+        .check_membership("mv:Technology", "mv:Person", &HiddenClasses::none())
         .await
         .unwrap();
     assert_eq!(silent.verdict, Entailment::NotAsserted);
@@ -493,7 +524,10 @@ async fn test_membership_distinguishes_asserted_inferred_and_silent() {
 #[tokio::test]
 async fn test_read_and_traverse_carry_a_basis_on_every_edge() {
     let service = build_disjoint_query_service().await;
-    let note = service.read_note("mv:Company").await.unwrap();
+    let note = service
+        .read_note("mv:Company", &HiddenClasses::none())
+        .await
+        .unwrap();
     let basis_of = |iri: &str| {
         note.related_notes
             .iter()
@@ -512,7 +546,10 @@ async fn test_read_and_traverse_carry_a_basis_on_every_edge() {
         assert_eq!(ax.basis == FactBasis::Inferred, ax.is_inferred, "{ax:?}");
     }
 
-    let traversal = service.traverse("mv:Company", 1, None).await.unwrap();
+    let traversal = service
+        .traverse("mv:Company", 1, None, &HiddenClasses::none())
+        .await
+        .unwrap();
     let edge = |target: &str| {
         traversal
             .edges
@@ -527,7 +564,10 @@ async fn test_read_and_traverse_carry_a_basis_on_every_edge() {
 #[tokio::test]
 async fn test_discovery_results_carry_a_basis_matching_whelk_inferred() {
     let service = build_disjoint_query_service().await;
-    let results = service.discover("Organization", 10, None).await.unwrap();
+    let results = service
+        .discover("Organization", 10, None, &HiddenClasses::none())
+        .await
+        .unwrap();
     assert!(!results.is_empty());
     for r in &results {
         let expected = if r.whelk_inferred {
@@ -548,6 +588,7 @@ async fn test_http_answers_carry_open_scope_and_tri_valued_check() {
     let app = atest::init_service(
         App::new()
             .app_data(web::Data::new(service))
+            .app_data(web::Data::new(graph_supervisor()))
             .configure(configure_ontology_agent_routes),
     )
     .await;
@@ -620,21 +661,21 @@ async fn test_relation_check_is_tri_valued() {
     let service = build_relation_query_service().await;
 
     let asserted = service
-        .check_relation("mv:Vehicle", HAS_PART, "mv:Wheel")
+        .check_relation("mv:Vehicle", HAS_PART, "mv:Wheel", &HiddenClasses::none())
         .await
         .unwrap();
     assert_eq!(asserted.verdict, Entailment::Entailed);
     assert_eq!(asserted.basis, Some(FactBasis::Asserted));
 
     let inherited = service
-        .check_relation("mv:Car", HAS_PART, "mv:Part")
+        .check_relation("mv:Car", HAS_PART, "mv:Part", &HiddenClasses::none())
         .await
         .unwrap();
     assert_eq!(inherited.verdict, Entailment::Entailed);
     assert_eq!(inherited.basis, Some(FactBasis::Inferred));
 
     let contradicts_range = service
-        .check_relation("mv:Car", HAS_PART, "mv:Engine")
+        .check_relation("mv:Car", HAS_PART, "mv:Engine", &HiddenClasses::none())
         .await
         .unwrap();
     assert_eq!(contradicts_range.verdict, Entailment::EntailedFalse);
@@ -645,7 +686,12 @@ async fn test_relation_check_is_tri_valued() {
 
     // No declared signature for this property: silence, never false.
     let silent = service
-        .check_relation("mv:Car", "urn:p:requires", "mv:Engine")
+        .check_relation(
+            "mv:Car",
+            "urn:p:requires",
+            "mv:Engine",
+            &HiddenClasses::none(),
+        )
         .await
         .unwrap();
     assert_eq!(silent.verdict, Entailment::NotAsserted);
@@ -666,6 +712,7 @@ async fn test_http_check_with_a_property_is_the_relation_check_and_status_lists_
     let app = atest::init_service(
         App::new()
             .app_data(web::Data::new(service))
+            .app_data(web::Data::new(graph_supervisor()))
             .configure(configure_ontology_agent_routes),
     )
     .await;
@@ -762,7 +809,7 @@ async fn test_without_a_bundle_the_generation_is_the_store_digest_and_follows_re
     // A reload that changes the ontology changes the generation, and the
     // cached index follows it.
     let before = service
-        .check_membership("mv:Robot", "mv:Agent")
+        .check_membership("mv:Robot", "mv:Agent", &HiddenClasses::none())
         .await
         .unwrap();
     assert_eq!(before.verdict, Entailment::NotAsserted);
@@ -770,7 +817,7 @@ async fn test_without_a_bundle_the_generation_is_the_store_digest_and_follows_re
         .await
         .unwrap();
     let after = service
-        .check_membership("mv:Robot", "mv:Agent")
+        .check_membership("mv:Robot", "mv:Agent", &HiddenClasses::none())
         .await
         .unwrap();
     assert_eq!(after.verdict, Entailment::Entailed);
@@ -784,8 +831,14 @@ async fn test_read_note_is_unchanged_by_the_cached_index() {
     // The same note read twice (cache cold, then warm) is identical, and a
     // reload between reads is reflected.
     let service = build_disjoint_query_service().await;
-    let cold = service.read_note("mv:Company").await.unwrap();
-    let warm = service.read_note("mv:Company").await.unwrap();
+    let cold = service
+        .read_note("mv:Company", &HiddenClasses::none())
+        .await
+        .unwrap();
+    let warm = service
+        .read_note("mv:Company", &HiddenClasses::none())
+        .await
+        .unwrap();
     let key = |n: &EnrichedNote| {
         let mut r: Vec<(String, String, FactBasis)> = n
             .related_notes
@@ -802,7 +855,10 @@ async fn test_read_note_is_unchanged_by_the_cached_index() {
         (r, ax)
     };
     assert_eq!(key(&cold), key(&warm));
-    let incoming = service.read_note("mv:Organization").await.unwrap();
+    let incoming = service
+        .read_note("mv:Organization", &HiddenClasses::none())
+        .await
+        .unwrap();
     assert!(incoming.related_notes.iter().any(|r| r.iri == "mv:Company"
         && r.direction == "incoming"
         && r.basis == FactBasis::Asserted));

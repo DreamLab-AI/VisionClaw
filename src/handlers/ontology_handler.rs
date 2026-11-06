@@ -1,12 +1,22 @@
 // CQRS-Based Ontology Handler
 // Uses Ontology application layer for all OWL operations
+//
+// ADR-060: every read route answers for the caller. The route resolves the caller's
+// `HiddenClasses` (the class IRIs of graph pages hidden from them) and hands it to an
+// `answer_*` function, which passes what the store returns through the matching
+// `HiddenClasses` scrubber so a hidden class reads exactly as one never stored.
 
+use crate::adapters::oxigraph_ontology_repository::{axiom_iri, OxigraphOntologyRepository};
+use crate::handlers::graph_access::caller_hidden_classes;
 use crate::handlers::utils::execute_in_thread;
+use crate::services::ontology_visibility::HiddenClasses;
+use crate::settings::OptionalAuth;
 use crate::AppState;
 use crate::{error_json, not_found, ok_json};
 use actix_web::{web, HttpResponse};
 use log::{error, info};
 use serde::Deserialize;
+use std::sync::Arc;
 
 // Import CQRS handlers
 use crate::application::ontology::{
@@ -23,7 +33,7 @@ use crate::application::ontology::{
 use hexser::{DirectiveHandler, QueryHandler};
 use visionclaw_domain::models::graph::GraphData;
 use visionclaw_domain::ports::ontology_repository::{
-    InferenceResults, OwlAxiom, OwlClass, OwlProperty,
+    InferenceResults, OntologyRepository, OwlAxiom, OwlClass, OwlProperty,
 };
 
 #[derive(Debug, Deserialize)]
@@ -76,10 +86,20 @@ pub struct SaveGraphRequest {
 
 pub async fn get_ontology_graph(
     state: web::Data<AppState>,
+    caller: OptionalAuth,
+) -> Result<HttpResponse, actix_web::Error> {
+    let hidden = caller_hidden_classes(&state.graph_service_addr, &caller).await?;
+    answer_get_ontology_graph(&state.ontology_repository, &hidden).await
+}
+
+/// [`get_ontology_graph`] for a caller from whom `hidden` is hidden.
+pub async fn answer_get_ontology_graph(
+    repo: &Arc<OxigraphOntologyRepository>,
+    hidden: &HiddenClasses,
 ) -> Result<HttpResponse, actix_web::Error> {
     info!("Getting ontology graph via CQRS query");
 
-    let handler = LoadOntologyGraphHandler::new(state.ontology_repository.clone());
+    let handler = LoadOntologyGraphHandler::new(repo.clone());
 
     let result =
         execute_in_thread(move || handler.handle(LoadOntologyGraph).map_err(Box::new)).await;
@@ -87,7 +107,16 @@ pub async fn get_ontology_graph(
     match result {
         Ok(Ok(graph)) => {
             info!("Ontology graph loaded successfully via CQRS");
-            ok_json!(&*graph)
+            if hidden.is_empty() {
+                return ok_json!(&*graph);
+            }
+            match repo.get_axioms().await {
+                Ok(axioms) => ok_json!(hidden.graph(&graph, &axioms, axiom_iri)),
+                Err(e) => {
+                    error!("Failed to read axioms to scrub the ontology graph: {}", e);
+                    error_json!("Failed to load ontology graph", e.to_string())
+                }
+            }
         }
         Ok(Err(e)) => {
             error!("CQRS query failed to load ontology graph: {}", e);
@@ -137,12 +166,22 @@ pub async fn save_ontology_graph(
 
 pub async fn get_owl_class(
     state: web::Data<AppState>,
+    caller: OptionalAuth,
     iri: web::Path<String>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let class_iri = iri.into_inner();
+    let hidden = caller_hidden_classes(&state.graph_service_addr, &caller).await?;
+    answer_get_owl_class(&state.ontology_repository, iri.into_inner(), &hidden).await
+}
+
+/// [`get_owl_class`] for a caller from whom `hidden` is hidden.
+pub async fn answer_get_owl_class(
+    repo: &Arc<OxigraphOntologyRepository>,
+    class_iri: String,
+    hidden: &HiddenClasses,
+) -> Result<HttpResponse, actix_web::Error> {
     info!("Getting OWL class via CQRS query: iri={}", class_iri);
 
-    let handler = GetOwlClassHandler::new(state.ontology_repository.clone());
+    let handler = GetOwlClassHandler::new(repo.clone());
 
     let iri_clone = class_iri.clone();
     let result = execute_in_thread(move || {
@@ -150,7 +189,8 @@ pub async fn get_owl_class(
             .handle(GetOwlClass { iri: iri_clone })
             .map_err(Box::new)
     })
-    .await;
+    .await
+    .map(|r| r.map(|class| hidden.class(class)));
 
     match result {
         Ok(Ok(Some(class))) => {
@@ -174,12 +214,24 @@ pub async fn get_owl_class(
 
 pub async fn list_owl_classes(
     state: web::Data<AppState>,
+    caller: OptionalAuth,
+) -> Result<HttpResponse, actix_web::Error> {
+    let hidden = caller_hidden_classes(&state.graph_service_addr, &caller).await?;
+    answer_list_owl_classes(&state.ontology_repository, &hidden).await
+}
+
+/// [`list_owl_classes`] for a caller from whom `hidden` is hidden.
+pub async fn answer_list_owl_classes(
+    repo: &Arc<OxigraphOntologyRepository>,
+    hidden: &HiddenClasses,
 ) -> Result<HttpResponse, actix_web::Error> {
     info!("Listing all OWL classes via CQRS query");
 
-    let handler = ListOwlClassesHandler::new(state.ontology_repository.clone());
+    let handler = ListOwlClassesHandler::new(repo.clone());
 
-    let result = execute_in_thread(move || handler.handle(ListOwlClasses).map_err(Box::new)).await;
+    let result = execute_in_thread(move || handler.handle(ListOwlClasses).map_err(Box::new))
+        .await
+        .map(|r| r.map(|classes| hidden.classes(classes)));
 
     match result {
         Ok(Ok(classes)) => {
@@ -198,131 +250,6 @@ pub async fn list_owl_classes(
             error_json!("Internal server error")
         }
     }
-}
-
-pub async fn get_class_hierarchy(
-    state: web::Data<AppState>,
-) -> Result<HttpResponse, actix_web::Error> {
-    use serde::Serialize;
-    use std::collections::HashMap;
-
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct ClassNode {
-        iri: String,
-        label: String,
-        parent_iri: Option<String>,
-        children_iris: Vec<String>,
-        node_count: usize,
-        depth: usize,
-    }
-
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct ClassHierarchy {
-        root_classes: Vec<String>,
-        hierarchy: HashMap<String, ClassNode>,
-    }
-
-    let handler = ListOwlClassesHandler::new(state.ontology_repository.clone());
-    let result = execute_in_thread(move || handler.handle(ListOwlClasses).map_err(Box::new)).await;
-
-    let classes = match result {
-        Ok(Ok(c)) => c,
-        Ok(Err(e)) => return error_json!("Failed to list OWL classes", e.to_string()),
-        Err(e) => return error_json!("Internal server error", e),
-    };
-
-    let mut children_map: HashMap<String, Vec<String>> = HashMap::new();
-    let mut root_classes: Vec<String> = Vec::new();
-
-    for class in &classes {
-        if class.parent_classes.is_empty() {
-            root_classes.push(class.iri.clone());
-        }
-        for parent_iri in &class.parent_classes {
-            children_map
-                .entry(parent_iri.clone())
-                .or_default()
-                .push(class.iri.clone());
-        }
-    }
-
-    fn depth_of(iri: &str, classes: &[OwlClass], memo: &mut HashMap<String, usize>) -> usize {
-        if let Some(&d) = memo.get(iri) {
-            return d;
-        }
-        let d = classes
-            .iter()
-            .find(|c| c.iri == iri)
-            .map(|c| {
-                c.parent_classes
-                    .iter()
-                    .map(|p| depth_of(p, classes, memo) + 1)
-                    .max()
-                    .unwrap_or(0)
-            })
-            .unwrap_or(0);
-        memo.insert(iri.to_string(), d);
-        d
-    }
-
-    fn descendants(
-        iri: &str,
-        children_map: &HashMap<String, Vec<String>>,
-        memo: &mut HashMap<String, usize>,
-    ) -> usize {
-        if let Some(&n) = memo.get(iri) {
-            return n;
-        }
-        let n = children_map
-            .get(iri)
-            .map(|ch| {
-                ch.len()
-                    + ch.iter()
-                        .map(|c| descendants(c, children_map, memo))
-                        .sum::<usize>()
-            })
-            .unwrap_or(0);
-        memo.insert(iri.to_string(), n);
-        n
-    }
-
-    let mut depth_memo = HashMap::new();
-    let mut count_memo = HashMap::new();
-    let mut hierarchy: HashMap<String, ClassNode> = HashMap::new();
-
-    for class in &classes {
-        let depth = depth_of(&class.iri, &classes, &mut depth_memo);
-        let node_count = descendants(&class.iri, &children_map, &mut count_memo);
-        let children_iris = children_map.get(&class.iri).cloned().unwrap_or_default();
-        let parent_iri = class.parent_classes.first().cloned();
-        let label = class.label.clone().unwrap_or_else(|| {
-            class
-                .iri
-                .split('#')
-                .next_back()
-                .or_else(|| class.iri.split('/').next_back())
-                .unwrap_or(&class.iri)
-                .to_string()
-        });
-        hierarchy.insert(
-            class.iri.clone(),
-            ClassNode {
-                iri: class.iri.clone(),
-                label,
-                parent_iri,
-                children_iris,
-                node_count,
-                depth,
-            },
-        );
-    }
-
-    ok_json!(ClassHierarchy {
-        root_classes,
-        hierarchy
-    })
 }
 
 pub async fn add_owl_class(
@@ -426,12 +353,22 @@ pub async fn remove_owl_class(
 
 pub async fn get_owl_property(
     state: web::Data<AppState>,
+    caller: OptionalAuth,
     iri: web::Path<String>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let property_iri = iri.into_inner();
+    let hidden = caller_hidden_classes(&state.graph_service_addr, &caller).await?;
+    answer_get_owl_property(&state.ontology_repository, iri.into_inner(), &hidden).await
+}
+
+/// [`get_owl_property`] for a caller from whom `hidden` is hidden.
+pub async fn answer_get_owl_property(
+    repo: &Arc<OxigraphOntologyRepository>,
+    property_iri: String,
+    hidden: &HiddenClasses,
+) -> Result<HttpResponse, actix_web::Error> {
     info!("Getting OWL property via CQRS query: iri={}", property_iri);
 
-    let handler = GetOwlPropertyHandler::new(state.ontology_repository.clone());
+    let handler = GetOwlPropertyHandler::new(repo.clone());
 
     // The sync QueryHandler enters a nested block_on; it must run on a blocking
     // thread like every sibling here, or it panics with "Cannot start a runtime
@@ -443,7 +380,8 @@ pub async fn get_owl_property(
             .handle(GetOwlProperty { iri: iri_for_query })
             .map_err(Box::new)
     })
-    .await;
+    .await
+    .map(|r| r.map(|property| property.map(|p| hidden.property(p))));
 
     match result {
         Ok(Ok(Some(property))) => {
@@ -467,13 +405,24 @@ pub async fn get_owl_property(
 
 pub async fn list_owl_properties(
     state: web::Data<AppState>,
+    caller: OptionalAuth,
+) -> Result<HttpResponse, actix_web::Error> {
+    let hidden = caller_hidden_classes(&state.graph_service_addr, &caller).await?;
+    answer_list_owl_properties(&state.ontology_repository, &hidden).await
+}
+
+/// [`list_owl_properties`] for a caller from whom `hidden` is hidden.
+pub async fn answer_list_owl_properties(
+    repo: &Arc<OxigraphOntologyRepository>,
+    hidden: &HiddenClasses,
 ) -> Result<HttpResponse, actix_web::Error> {
     info!("Listing all OWL properties via CQRS query");
 
-    let handler = ListOwlPropertiesHandler::new(state.ontology_repository.clone());
+    let handler = ListOwlPropertiesHandler::new(repo.clone());
 
-    let result =
-        execute_in_thread(move || handler.handle(ListOwlProperties).map_err(Box::new)).await;
+    let result = execute_in_thread(move || handler.handle(ListOwlProperties).map_err(Box::new))
+        .await
+        .map(|r| r.map(|properties| hidden.properties(properties)));
 
     match result {
         Ok(Ok(properties)) => {
@@ -578,19 +527,30 @@ pub async fn update_owl_property(
 
 pub async fn get_class_axioms(
     state: web::Data<AppState>,
+    caller: OptionalAuth,
     iri: web::Path<String>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let class_iri = iri.into_inner();
+    let hidden = caller_hidden_classes(&state.graph_service_addr, &caller).await?;
+    answer_get_class_axioms(&state.ontology_repository, iri.into_inner(), &hidden).await
+}
+
+/// [`get_class_axioms`] for a caller from whom `hidden` is hidden.
+pub async fn answer_get_class_axioms(
+    repo: &Arc<OxigraphOntologyRepository>,
+    class_iri: String,
+    hidden: &HiddenClasses,
+) -> Result<HttpResponse, actix_web::Error> {
     info!("Getting class axioms via CQRS query: iri={}", class_iri);
 
-    let handler = GetClassAxiomsHandler::new(state.ontology_repository.clone());
+    let handler = GetClassAxiomsHandler::new(repo.clone());
 
     let result = execute_in_thread(move || {
         handler
             .handle(GetClassAxioms { class_iri })
             .map_err(Box::new)
     })
-    .await;
+    .await
+    .map(|r| r.map(|axioms| hidden.axioms(axioms)));
 
     match result {
         Ok(Ok(axioms)) => {
@@ -701,13 +661,24 @@ pub async fn remove_axiom(
 
 pub async fn get_inference_results(
     state: web::Data<AppState>,
+    caller: OptionalAuth,
+) -> Result<HttpResponse, actix_web::Error> {
+    let hidden = caller_hidden_classes(&state.graph_service_addr, &caller).await?;
+    answer_get_inference_results(&state.ontology_repository, &hidden).await
+}
+
+/// [`get_inference_results`] for a caller from whom `hidden` is hidden.
+pub async fn answer_get_inference_results(
+    repo: &Arc<OxigraphOntologyRepository>,
+    hidden: &HiddenClasses,
 ) -> Result<HttpResponse, actix_web::Error> {
     info!("Getting inference results via CQRS query");
 
-    let handler = GetInferenceResultsHandler::new(state.ontology_repository.clone());
+    let handler = GetInferenceResultsHandler::new(repo.clone());
 
-    let result =
-        execute_in_thread(move || handler.handle(GetInferenceResults).map_err(Box::new)).await;
+    let result = execute_in_thread(move || handler.handle(GetInferenceResults).map_err(Box::new))
+        .await
+        .map(|r| r.map(|results| hidden.inference_results(results)));
 
     match result {
         Ok(Ok(Some(results))) => {
@@ -777,10 +748,31 @@ pub async fn store_inference_results(
 
 pub async fn validate_ontology(
     state: web::Data<AppState>,
+    caller: OptionalAuth,
 ) -> Result<HttpResponse, actix_web::Error> {
+    let hidden = caller_hidden_classes(&state.graph_service_addr, &caller).await?;
+    answer_validate_ontology(&state.ontology_repository, &hidden).await
+}
+
+/// [`validate_ontology`] for a caller from whom `hidden` is hidden.
+pub async fn answer_validate_ontology(
+    repo: &Arc<OxigraphOntologyRepository>,
+    hidden: &HiddenClasses,
+) -> Result<HttpResponse, actix_web::Error> {
+    // A store-wide check cannot be filtered after the fact: run it over the store as this
+    // caller sees it.
+    if !hidden.is_empty() {
+        return match repo.validate_ontology_excluding(hidden.as_set()).await {
+            Ok(report) => ok_json!(report),
+            Err(e) => {
+                error!("Failed to validate ontology for a restricted caller: {}", e);
+                error_json!("Failed to validate ontology", e.to_string())
+            }
+        };
+    }
     info!("Validating ontology via CQRS query");
 
-    let handler = ValidateOntologyHandler::new(state.ontology_repository.clone());
+    let handler = ValidateOntologyHandler::new(repo.clone());
 
     let result =
         execute_in_thread(move || handler.handle(ValidateOntology).map_err(Box::new)).await;
@@ -952,12 +944,26 @@ pub fn cap_result_rows(
 }
 
 pub async fn query_ontology(
-    _auth: crate::settings::auth_extractor::AuthenticatedUser,
+    auth: crate::settings::auth_extractor::AuthenticatedUser,
     state: web::Data<AppState>,
     request: web::Json<QueryRequest>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let query = request.into_inner().query;
+    let caller = OptionalAuth(Some(auth));
+    let hidden = caller_hidden_classes(&state.graph_service_addr, &caller).await?;
+    answer_query_ontology(
+        &state.ontology_repository,
+        request.into_inner().query,
+        &hidden,
+    )
+    .await
+}
 
+/// [`query_ontology`] for a caller from whom `hidden` is hidden.
+pub async fn answer_query_ontology(
+    repo: &Arc<OxigraphOntologyRepository>,
+    query: String,
+    hidden: &HiddenClasses,
+) -> Result<HttpResponse, actix_web::Error> {
     // S1: reject mutating SPARQL on the read endpoint before it reaches the store.
     if let Err(reason) = validate_read_only_sparql(&query) {
         info!(
@@ -974,7 +980,7 @@ pub async fn query_ontology(
 
     info!("Querying ontology via CQRS query");
 
-    let handler = QueryOntologyHandler::new(state.ontology_repository.clone());
+    let handler = QueryOntologyHandler::new(repo.clone());
 
     let result =
         execute_in_thread(move || handler.handle(QueryOntology { query }).map_err(Box::new)).await;
@@ -983,7 +989,7 @@ pub async fn query_ontology(
         Ok(Ok(results)) => {
             // ADR-117 WS-0 backstop: cap rows + serialised bytes and surface an
             // explicit `truncated` flag instead of returning an unbounded array.
-            let (results, truncated) = cap_result_rows(results);
+            let (results, truncated) = cap_result_rows(hidden.query_rows(results));
             info!(
                 "Ontology query successful via CQRS: {} results (truncated={})",
                 results.len(),
@@ -1021,10 +1027,24 @@ pub async fn query_ontology(
 /// @ontology urn:ngm:class:sparql
 pub async fn sparql_query(
     state: web::Data<AppState>,
+    caller: OptionalAuth,
     request: web::Json<QueryRequest>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let query = request.into_inner().query;
+    let hidden = caller_hidden_classes(&state.graph_service_addr, &caller).await?;
+    answer_sparql_query(
+        &state.ontology_repository,
+        request.into_inner().query,
+        &hidden,
+    )
+    .await
+}
 
+/// [`sparql_query`] for a caller from whom `hidden` is hidden.
+pub async fn answer_sparql_query(
+    repo: &Arc<OxigraphOntologyRepository>,
+    query: String,
+    hidden: &HiddenClasses,
+) -> Result<HttpResponse, actix_web::Error> {
     if let Err(reason) = validate_read_only_sparql(&query) {
         info!(
             "Rejected non-read-only SPARQL on /ontology/sparql: {}",
@@ -1038,8 +1058,8 @@ pub async fn sparql_query(
     // read-only bound explicit and uniform across both read endpoints.
     let query = clamp_sparql_limit(&query);
 
-    match state.ontology_repository.sparql_select_json(query).await {
-        Ok(json) => ok_json!(json),
+    match repo.sparql_select_json(query).await {
+        Ok(json) => ok_json!(hidden.sparql_json(json)),
         Err(e) => {
             error!("SPARQL query failed: {}", e);
             error_json!("Failed to execute SPARQL query", e.to_string())
@@ -1056,9 +1076,19 @@ pub async fn sparql_query(
 /// `InferencePanel`.
 pub async fn get_inferred_graph(
     state: web::Data<AppState>,
+    caller: OptionalAuth,
 ) -> Result<HttpResponse, actix_web::Error> {
-    match state.ontology_repository.read_inferred_graph().await {
-        Ok(json) => ok_json!(json),
+    let hidden = caller_hidden_classes(&state.graph_service_addr, &caller).await?;
+    answer_get_inferred_graph(&state.ontology_repository, &hidden).await
+}
+
+/// [`get_inferred_graph`] for a caller from whom `hidden` is hidden.
+pub async fn answer_get_inferred_graph(
+    repo: &Arc<OxigraphOntologyRepository>,
+    hidden: &HiddenClasses,
+) -> Result<HttpResponse, actix_web::Error> {
+    match repo.read_inferred_graph().await {
+        Ok(json) => ok_json!(hidden.triples_json(json)),
         Err(e) => {
             error!("Failed to read inferred graph: {}", e);
             error_json!("Failed to read inferred graph", e.to_string())
@@ -1068,10 +1098,33 @@ pub async fn get_inferred_graph(
 
 pub async fn get_ontology_metrics(
     state: web::Data<AppState>,
+    caller: OptionalAuth,
 ) -> Result<HttpResponse, actix_web::Error> {
+    let hidden = caller_hidden_classes(&state.graph_service_addr, &caller).await?;
+    answer_get_ontology_metrics(&state.ontology_repository, &hidden).await
+}
+
+/// [`get_ontology_metrics`] for a caller from whom `hidden` is hidden.
+pub async fn answer_get_ontology_metrics(
+    repo: &Arc<OxigraphOntologyRepository>,
+    hidden: &HiddenClasses,
+) -> Result<HttpResponse, actix_web::Error> {
+    // Counts are of what survives: count over the store as this caller sees it.
+    if !hidden.is_empty() {
+        return match repo.get_metrics_excluding(hidden.as_set()).await {
+            Ok(metrics) => ok_json!(metrics),
+            Err(e) => {
+                error!(
+                    "Failed to get ontology metrics for a restricted caller: {}",
+                    e
+                );
+                error_json!("Failed to get ontology metrics", e.to_string())
+            }
+        };
+    }
     info!("Getting ontology metrics via CQRS query");
 
-    let handler = GetOntologyMetricsHandler::new(state.ontology_repository.clone());
+    let handler = GetOntologyMetricsHandler::new(repo.clone());
 
     let result =
         execute_in_thread(move || handler.handle(GetOntologyMetrics).map_err(Box::new)).await;
@@ -1231,5 +1284,383 @@ mod sparql_validation_tests {
     fn rejects_unknown_first_token() {
         assert!(validate_read_only_sparql("WITH <urn:g> WHERE {}").is_err());
         assert!(validate_read_only_sparql("   ").is_err());
+    }
+}
+
+/// ADR-060: every `/api/ontology` read answers for a caller as if the classes hidden from them
+/// had never been stored. `Secret` is hidden; `Nowhere` was never stored. "Never stored" is
+/// the same fixture built without `Secret` and without every edge and axiom that names it.
+#[cfg(test)]
+pub(crate) mod hidden_class_tests {
+    use super::*;
+    use crate::services::ontology_visibility::testing::{mentions, reply, sorted};
+    use oxigraph::store::Store;
+    use serde_json::Value;
+    use std::collections::HashSet;
+    use visionclaw_domain::ports::ontology_repository::AxiomType;
+
+    pub(crate) const HIDDEN: &str = "http://example.org/onto#Secret";
+    pub(crate) const NEVER: &str = "http://example.org/onto#Nowhere";
+    const ECHOES: &[(&str, &str)] = &[(HIDDEN, "<probe>"), (NEVER, "<probe>")];
+
+    fn iri(local: &str) -> String {
+        format!("http://example.org/onto#{local}")
+    }
+
+    fn class(local: &str, label: Option<&str>, parents: &[String]) -> OwlClass {
+        OwlClass {
+            iri: iri(local),
+            label: label.map(str::to_string),
+            parent_classes: parents.to_vec(),
+            ..OwlClass::default()
+        }
+    }
+
+    fn axiom(axiom_type: AxiomType, subject: &str, object: &str) -> OwlAxiom {
+        OwlAxiom {
+            id: None,
+            axiom_type,
+            subject: subject.to_string(),
+            object: object.to_string(),
+            annotations: Default::default(),
+        }
+    }
+
+    /// Agent ⊒ Org; Company; hasPart (domain Org, range Company); Org ⊑ owl:Thing inferred.
+    /// With the hidden class: Secret (unlabelled) ⊑ Org, Company ⊑ Secret, hasPart's domain
+    /// also Secret, Secret ⊑ Agent inferred, and a provenance record for Secret.
+    pub(crate) async fn repo(with_hidden: bool) -> Arc<OxigraphOntologyRepository> {
+        let store = Store::new().expect("in-memory store");
+        let repo = Arc::new(OxigraphOntologyRepository::from_store(Arc::new(store)));
+        let company_parents = if with_hidden {
+            vec![HIDDEN.to_string()]
+        } else {
+            Vec::new()
+        };
+        let mut classes = vec![
+            class("Agent", Some("Agent"), &[]),
+            class("Org", Some("Org"), &[iri("Agent")]),
+            class("Company", Some("Company"), &company_parents),
+        ];
+        let mut axioms = vec![axiom(AxiomType::SubClassOf, &iri("Org"), &iri("Agent"))];
+        let mut domain = vec![iri("Org")];
+        let mut inferred = vec![axiom(
+            AxiomType::SubClassOf,
+            &iri("Org"),
+            "http://www.w3.org/2002/07/owl#Thing",
+        )];
+        if with_hidden {
+            classes.push(class("Secret", None, &[iri("Org")]));
+            axioms.push(axiom(AxiomType::SubClassOf, HIDDEN, &iri("Org")));
+            axioms.push(axiom(AxiomType::SubClassOf, &iri("Company"), HIDDEN));
+            domain.push(HIDDEN.to_string());
+            inferred.push(axiom(AxiomType::SubClassOf, HIDDEN, &iri("Agent")));
+        }
+        for c in &classes {
+            repo.add_owl_class(c).await.expect("class stored");
+        }
+        for a in &axioms {
+            repo.add_axiom(a).await.expect("axiom stored");
+        }
+        repo.add_owl_property(&OwlProperty {
+            iri: iri("hasPart"),
+            domain,
+            range: vec![iri("Company")],
+            ..OwlProperty::default()
+        })
+        .await
+        .expect("property stored");
+        repo.store_inference_results(&InferenceResults {
+            timestamp: chrono::DateTime::from_timestamp(1_700_000_000, 0).expect("valid time"),
+            inferred_axioms: inferred,
+            inference_time_ms: 7,
+            reasoner_version: "whelk-test".to_string(),
+        })
+        .await
+        .expect("inference stored");
+        repo.emit_provenance(visionclaw_adapters::provenance_emitter::ActivityRecord {
+            activity_urn: "urn:visionclaw:execution:sha256-12-abcdefabcdef".to_string(),
+            agent_did: "did:nostr:abcdef".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            action: "ingest".to_string(),
+            derivation: "asserted".to_string(),
+            used: with_hidden.then(|| HIDDEN.to_string()),
+            generated: Some(iri("Company")),
+            informed_by: None,
+        })
+        .await
+        .expect("provenance stored");
+        if with_hidden {
+            repo.emit_provenance(visionclaw_adapters::provenance_emitter::ActivityRecord {
+                activity_urn: "urn:visionclaw:execution:sha256-12-feedfeedfeed".to_string(),
+                agent_did: "did:nostr:abcdef".to_string(),
+                timestamp: "2026-01-01T00:00:00Z".to_string(),
+                action: "ingest".to_string(),
+                derivation: "asserted".to_string(),
+                used: None,
+                generated: Some(HIDDEN.to_string()),
+                informed_by: None,
+            })
+            .await
+            .expect("provenance stored");
+        }
+        repo
+    }
+
+    pub(crate) fn hidden() -> HiddenClasses {
+        HiddenClasses::from(HashSet::from([HIDDEN.to_string()]))
+    }
+
+    fn none() -> HiddenClasses {
+        HiddenClasses::none()
+    }
+
+    /// The hidden caller's answer over the store holding `Secret`, and the full-access answer
+    /// over the store that never held it, both order-normalised.
+    async fn hidden_and_never_stored<F, Fut>(answer: F) -> ((u16, Value), (u16, Value))
+    where
+        F: Fn(Arc<OxigraphOntologyRepository>, HiddenClasses) -> Fut,
+        Fut: std::future::Future<Output = Result<HttpResponse, actix_web::Error>>,
+    {
+        let got = reply(answer(repo(true).await, hidden()).await, &[]).await;
+        let never = reply(answer(repo(false).await, none()).await, &[]).await;
+        ((got.0, sorted(got.1)), (never.0, sorted(never.1)))
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn get_class_of_a_hidden_iri_is_the_unknown_class_reply() {
+        let r = repo(true).await;
+        let got = reply(
+            answer_get_owl_class(&r, HIDDEN.to_string(), &hidden()).await,
+            ECHOES,
+        )
+        .await;
+        let unknown = reply(
+            answer_get_owl_class(&r, NEVER.to_string(), &hidden()).await,
+            ECHOES,
+        )
+        .await;
+        assert_eq!(got, unknown);
+        assert_eq!(got.0, 404);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn class_list_drops_the_hidden_class_and_every_parent_link_to_it() {
+        let (got, never) =
+            hidden_and_never_stored(|r, h| async move { answer_list_owl_classes(&r, &h).await })
+                .await;
+        assert!(!mentions(&got.1, HIDDEN), "{}", got.1);
+        assert!(mentions(&got.1, &iri("Company")));
+        assert_eq!(got, never);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn properties_drop_the_hidden_class_from_domain_and_range() {
+        let (got, never) =
+            hidden_and_never_stored(|r, h| async move { answer_list_owl_properties(&r, &h).await })
+                .await;
+        assert!(!mentions(&got.1, HIDDEN), "{}", got.1);
+        assert_eq!(got, never);
+        let (got, never) = hidden_and_never_stored(|r, h| async move {
+            answer_get_owl_property(&r, iri("hasPart"), &h).await
+        })
+        .await;
+        assert!(!mentions(&got.1, HIDDEN), "{}", got.1);
+        assert!(mentions(&got.1, &iri("Org")));
+        assert_eq!(got, never);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn class_axioms_of_a_hidden_class_are_the_unknown_reply_and_others_drop_it() {
+        let r = repo(true).await;
+        let got = reply(
+            answer_get_class_axioms(&r, HIDDEN.to_string(), &hidden()).await,
+            ECHOES,
+        )
+        .await;
+        let unknown = reply(
+            answer_get_class_axioms(&r, NEVER.to_string(), &hidden()).await,
+            ECHOES,
+        )
+        .await;
+        assert_eq!(got, unknown);
+        let (got, never) = hidden_and_never_stored(|r, h| async move {
+            answer_get_class_axioms(&r, iri("Org"), &h).await
+        })
+        .await;
+        assert!(!mentions(&got.1, HIDDEN), "{}", got.1);
+        assert_eq!(got, never);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn graph_drops_the_hidden_node_its_axiom_records_and_edges_without_id_gaps() {
+        let shape = |body: &Value| {
+            let nodes = body["data"]["nodes"].as_array().expect("nodes").clone();
+            let name_of = |id: &Value| {
+                nodes
+                    .iter()
+                    .find(|n| &n["id"] == id)
+                    .map(|n| n["metadataId"].as_str().unwrap_or_default().to_string())
+                    .unwrap_or_default()
+            };
+            let mut names: Vec<String> = nodes
+                .iter()
+                .map(|n| n["metadataId"].as_str().unwrap_or_default().to_string())
+                .collect();
+            names.sort();
+            let mut edges: Vec<(String, String, String)> = body["data"]["edges"]
+                .as_array()
+                .expect("edges")
+                .iter()
+                .map(|e| {
+                    (
+                        name_of(&e["source"]),
+                        name_of(&e["target"]),
+                        e["edgeType"].as_str().unwrap_or_default().to_string(),
+                    )
+                })
+                .collect();
+            edges.sort();
+            let mut ids: Vec<u64> = nodes.iter().filter_map(|n| n["id"].as_u64()).collect();
+            ids.sort_unstable();
+            (names, edges, ids)
+        };
+        let got = reply(
+            answer_get_ontology_graph(&repo(true).await, &hidden()).await,
+            &[],
+        )
+        .await;
+        let never = reply(
+            answer_get_ontology_graph(&repo(false).await, &none()).await,
+            &[],
+        )
+        .await;
+        assert!(!mentions(&got.1, HIDDEN), "the hidden class is gone");
+        let (names, edges, ids) = shape(&got.1);
+        assert_eq!((names, edges), {
+            let (n, e, _) = shape(&never.1);
+            (n, e)
+        });
+        assert_eq!(
+            ids,
+            (1..=ids.len() as u64).collect::<Vec<_>>(),
+            "ids are dense, so no gap marks a removed node"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn inference_results_drop_axioms_naming_the_hidden_class() {
+        let (got, never) =
+            hidden_and_never_stored(
+                |r, h| async move { answer_get_inference_results(&r, &h).await },
+            )
+            .await;
+        assert!(!mentions(&got.1, HIDDEN), "{}", got.1);
+        assert!(mentions(&got.1, &iri("Org")));
+        assert_eq!(
+            got.1["data"]["inferred_axioms"],
+            never.1["data"]["inferred_axioms"]
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn inferred_graph_drops_triples_and_axiom_records_naming_the_hidden_class() {
+        let got = reply(
+            answer_get_inferred_graph(&repo(true).await, &hidden()).await,
+            &[],
+        )
+        .await;
+        let never = reply(
+            answer_get_inferred_graph(&repo(false).await, &none()).await,
+            &[],
+        )
+        .await;
+        assert!(!mentions(&got.1, HIDDEN), "{}", got.1);
+        // Every triple except the run bookkeeping (whose content-addressed id counts the
+        // stored run's axioms) is the same as in the store that never held the class.
+        let records = |body: &Value| {
+            let mut t: Vec<String> = body["data"]["triples"]
+                .as_array()
+                .expect("triples")
+                .iter()
+                .filter(|t| {
+                    let s = t["s"].as_str().unwrap_or_default();
+                    let o = t["o"].as_str().unwrap_or_default();
+                    !s.starts_with("urn:ngm:inference:")
+                        && !o.starts_with("urn:ngm:inference:")
+                        && !s.contains("inference-meta")
+                })
+                .map(Value::to_string)
+                .collect();
+            t.sort();
+            t
+        };
+        assert!(!records(&never.1).is_empty());
+        assert_eq!(records(&got.1), records(&never.1));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn validate_reports_on_the_store_as_if_the_hidden_class_never_existed() {
+        let (got, never) =
+            hidden_and_never_stored(|r, h| async move { answer_validate_ontology(&r, &h).await })
+                .await;
+        assert_eq!(got, never);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn metrics_count_only_what_survives() {
+        let (got, never) =
+            hidden_and_never_stored(
+                |r, h| async move { answer_get_ontology_metrics(&r, &h).await },
+            )
+            .await;
+        assert_eq!(got, never);
+    }
+
+    const SUBCLASS_ROWS: &str = "SELECT ?c ?p WHERE { GRAPH <urn:ngm:graph:ontology:assert> \
+        { ?c <http://www.w3.org/2000/01/rdf-schema#subClassOf> ?p } }";
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn query_drops_rows_binding_the_hidden_class() {
+        let (got, never) = hidden_and_never_stored(|r, h| async move {
+            answer_query_ontology(&r, SUBCLASS_ROWS.to_string(), &h).await
+        })
+        .await;
+        assert!(!mentions(&got.1, HIDDEN), "{}", got.1);
+        assert!(mentions(&got.1, &iri("Agent")));
+        assert_eq!(got, never);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn sparql_drops_rows_binding_the_hidden_class() {
+        let (got, never) = hidden_and_never_stored(|r, h| async move {
+            answer_sparql_query(&r, SUBCLASS_ROWS.to_string(), &h).await
+        })
+        .await;
+        assert!(!mentions(&got.1, HIDDEN), "{}", got.1);
+        assert!(mentions(&got.1, &iri("Agent")));
+        assert_eq!(got, never);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn with_full_access_the_hidden_class_is_served_as_before() {
+        let r = repo(true).await;
+        let class = reply(
+            answer_get_owl_class(&r, HIDDEN.to_string(), &none()).await,
+            &[],
+        )
+        .await;
+        assert_eq!(class.0, 200);
+        let list = reply(answer_list_owl_classes(&r, &none()).await, &[]).await;
+        assert!(mentions(&list.1, HIDDEN));
+        let metrics = reply(answer_get_ontology_metrics(&r, &none()).await, &[]).await;
+        let native = r.get_metrics().await.expect("metrics");
+        assert_eq!(metrics.1["data"]["class_count"], native.class_count);
+        let rows = reply(
+            answer_sparql_query(&r, SUBCLASS_ROWS.to_string(), &none()).await,
+            &[],
+        )
+        .await;
+        assert!(mentions(&rows.1, HIDDEN));
     }
 }

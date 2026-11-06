@@ -54,6 +54,7 @@ pub mod ontology_pipeline_service;
 pub mod ontology_pull;
 pub mod ontology_query_service;
 pub mod ontology_reasoner;
+pub mod ontology_visibility;
 pub mod pathfinding;
 pub mod semantic_type_registry;
 pub mod speech_service;
