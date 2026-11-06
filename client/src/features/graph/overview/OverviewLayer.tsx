@@ -21,14 +21,14 @@ import { useSceneBlendsLinear } from '../../../rendering/blendSpace';
 import { srgbBlendAlpha, srgbLuma } from './highlightVisual';
 import { useFrame } from '@react-three/fiber';
 import { useSettingsStore } from '../../../store/settingsStore';
-import { DEFAULT_GRAPH_VIEW } from '../../../api/settings/defaults';
+import { DEFAULT_EDGES_SETTINGS, DEFAULT_GRAPH_VIEW } from '../../../api/settings/defaults';
 import type { GraphViewSettings } from '../../settings/config/settings';
 import { highlightMask } from '../state/highlightMask';
 import { resolveOverviewEdgeCapacity } from '../state/overviewEdgeCapacity';
 import type { EdgePlan } from '../hooks/edgeBufferPlan';
 import type { GemNodesHandle } from '../components/GemNodes';
 import { NodePositionTexture } from './nodePositionTexture';
-import { selectDrawnEdges } from './edgeStyle';
+import { selectDrawnEdges, overviewEdgeOpacity, OVERVIEW_EDGE_BASE_OPACITY } from './edgeStyle';
 import { publishOverviewEdgeReport, resetOverviewEdgeReport } from './overviewEdgeStore';
 import { OverviewEdgeLines, type OverviewEdgeData, type OverviewEdgeStyle } from './OverviewEdgeLines';
 import { OverviewNodes } from './OverviewNodes';
@@ -36,8 +36,8 @@ import { OverviewNodes } from './OverviewNodes';
 export const OverviewTextureContext = createContext<NodePositionTexture | null>(null);
 export const useOverviewPositionTexture = () => useContext(OverviewTextureContext);
 
-/** Base alpha of an overview edge before the length fade. */
-export const OVERVIEW_EDGE_OPACITY = 0.6;
+/** Base alpha of an overview edge at the shipped Edge Opacity default. */
+export const OVERVIEW_EDGE_OPACITY = OVERVIEW_EDGE_BASE_OPACITY;
 
 /** Resolve the stored graph-view settings with the shipped defaults under them. */
 export function resolveGraphView(gv: Partial<GraphViewSettings> | undefined): GraphViewSettings {
@@ -106,15 +106,19 @@ export const OverviewLayer: React.FC<Props> = ({ plan, nodePositionsRef, nodeCou
   useEffect(() => () => { resetOverviewEdgeReport(); clearOverviewFaults(); }, []);
 
   const greyOpacity = useBackendGreyoutOpacity(gv.explore.greyoutOpacity);
+  // The one Edge Opacity control (Look › Edges, and the chat) drives the
+  // overview lines as well as the close-zoom tubes.
+  const edgeOpacitySetting = useSettingsStore((s) => s.get<number>('visualisation.graphs.knowledge.edges.opacity'));
+  const edgeOpacity = overviewEdgeOpacity(edgeOpacitySetting, DEFAULT_EDGES_SETTINGS.opacity);
   const edgeStyle = useMemo<OverviewEdgeStyle>(() => ({
     widthPx: oe.widthPx,
     maxWidthPx: oe.maxWidthPx,
     fadeNearPx: oe.fadeNearPx,
     fadeFarPx: oe.fadeFarPx,
     minOpacity: oe.minOpacity,
-    opacity: OVERVIEW_EDGE_OPACITY,
+    opacity: edgeOpacity,
     greyoutOpacity: greyOpacity,
-  }), [oe.widthPx, oe.maxWidthPx, oe.fadeNearPx, oe.fadeFarPx, oe.minOpacity, greyOpacity]);
+  }), [oe.widthPx, oe.maxWidthPx, oe.fadeNearPx, oe.fadeFarPx, oe.minOpacity, edgeOpacity, greyOpacity]);
 
   const nodeStyle = useMemo(() => ({
     spriteSizePx: gv.nodes.spriteSizePx,

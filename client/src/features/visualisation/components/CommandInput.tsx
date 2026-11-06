@@ -8,7 +8,7 @@ import { commandRegistry } from '../../command-palette/CommandRegistry';
 import { planJevCommand, type JevReview } from '../../../services/jev/commandFlow';
 import { applySettingWrites, physicsWrites, type SettingWrite } from '../../control-center/state/settingWrites';
 import { MACROS_BY_ID } from '../../control-center/registry/macros';
-import { DEFAULT_PHYSICS_SETTINGS } from '../../../api/settings/defaults';
+import { DEFAULT_EDGES_SETTINGS, DEFAULT_PHYSICS_SETTINGS } from '../../../api/settings/defaults';
 
 interface CommandInputProps {
   isCollapsed: boolean;
@@ -144,6 +144,35 @@ async function dispatchToSettingsLLM(
   }
 }
 
+/** Edge Opacity slider range (registry look.ts `edgeOpacity`): 0 to 0.3. */
+const EDGE_OPACITY_MAX = 0.3;
+const EDGE_OPACITY_DEFAULT = DEFAULT_EDGES_SETTINGS.opacity;
+
+/**
+ * Edge opacity a chat command asks for, in the Edge Opacity setting's own
+ * units, or null when the command is not about edge transparency. A stated
+ * value is read as a fraction or percentage of the slider's range;
+ * "transparency"/"transparent" inverts it (70% transparent = 30% opaque).
+ * Without a number, fainter words halve the default and stronger words raise it.
+ */
+export function edgeOpacityFromCommand(lower: string): number | null {
+  if (!/\b(edges?|links?|lines?|connections?)\b/.test(lower)) return null;
+  const transparencyWords = /transparen|fainter|faint|subtle|lighter|dimmer|see.?through/;
+  const opacityWords = /opacit|opaque|visible|stronger|bolder|solid|darker/;
+  if (!transparencyWords.test(lower) && !opacityWords.test(lower)) return null;
+  const round = (v: number) => Math.round(Math.min(EDGE_OPACITY_MAX, Math.max(0, v)) * 1000) / 1000;
+  const match = lower.match(/(\d+\.?\d*)\s*(%|percent)?/);
+  if (match) {
+    let v = parseFloat(match[1]);
+    if (match[2] || v > 1) v = v / 100;
+    v = Math.min(1, Math.max(0, v));
+    const opacity = /transparen/.test(lower) ? 1 - v : v;
+    return round(opacity * EDGE_OPACITY_MAX);
+  }
+  const stronger = /less transparen|more opaque|more visible|stronger|bolder|solid|darker/.test(lower);
+  return round(stronger ? EDGE_OPACITY_DEFAULT * 1.6 : EDGE_OPACITY_DEFAULT * 0.5);
+}
+
 function parseCommandToActions(cmd: string): SettingsAction[] {
   const lower = cmd.toLowerCase();
   const actions: SettingsAction[] = [];
@@ -266,8 +295,16 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
     });
   }
 
-  // Node opacity
-  if (lower.includes('opacity') || lower.includes('transparent') || lower.includes('visible')) {
+  // Edge opacity: "edge transparency 70%", "make the links fainter". Must come
+  // before the node rule, which used to swallow every opacity request.
+  const edgeOpacityValue = edgeOpacityFromCommand(lower);
+  if (edgeOpacityValue !== null) {
+    actions.push({
+      description: `Setting edge opacity to ${edgeOpacityValue}`,
+      writes: [{ path: 'visualisation.graphs.knowledge.edges.opacity', value: edgeOpacityValue }],
+    });
+  } else if (lower.includes('opacity') || lower.includes('transparent') || lower.includes('visible')) {
+    // Node opacity
     const match = lower.match(/(\d+\.?\d*)/);
     let value = match ? parseFloat(match[1]) : 0.8;
     if (value > 1) value = value / 100;

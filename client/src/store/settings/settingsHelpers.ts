@@ -243,6 +243,16 @@ export function getSectionPaths(section: string): string[] {
     ]
   };
 
+  // The server's `visual` bucket (PUT /api/settings/visual) holds every
+  // visualisation.* path outside rendering and physics, so its broadcast
+  // re-reads all of those sections.
+  if (section === 'visual') {
+    return Object.values(sectionPathMap).flat().filter((p) =>
+      p.startsWith('visualisation.')
+      && !p.startsWith('visualisation.rendering')
+      && !p.includes('.physics'));
+  }
+
   return sectionPathMap[section] || [];
 }
 

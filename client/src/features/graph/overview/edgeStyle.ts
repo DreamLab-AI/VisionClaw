@@ -19,6 +19,24 @@ export function fadeAlpha(lenPx: number, nearPx: number, farPx: number, minOpaci
   return 1 + (min - 1) * t;
 }
 
+/** Overview line alpha at the shipped Edge Opacity default (ADR-2181 D2). */
+export const OVERVIEW_EDGE_BASE_OPACITY = 0.6;
+
+/**
+ * Overview line alpha from the one Edge Opacity setting
+ * (`visualisation.graphs.knowledge.edges.opacity`, the same control that sets
+ * the close-zoom glass tubes). Scaled so the shipped default reproduces
+ * OVERVIEW_EDGE_BASE_OPACITY, linear to 0 at 0, clamped to [0, 1]. A missing
+ * or non-finite setting gives the base alpha.
+ */
+export function overviewEdgeOpacity(setting: number | undefined, settingDefault: number): number {
+  if (typeof setting !== 'number' || !Number.isFinite(setting) || !(settingDefault > 0)) {
+    return OVERVIEW_EDGE_BASE_OPACITY;
+  }
+  const a = (setting / settingDefault) * OVERVIEW_EDGE_BASE_OPACITY;
+  return a < 0 ? 0 : a > 1 ? 1 : a;
+}
+
 /** Weight at which an edge reaches `maxWidthPx` (the tube mapping's 2× cap, squared). */
 export const WEIGHT_AT_MAX_WIDTH = 4;
 

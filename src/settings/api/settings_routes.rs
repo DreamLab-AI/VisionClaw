@@ -1464,7 +1464,7 @@ pub async fn get_visual_settings(
 /// Accepts partial JSON updates — deep merges with currently stored values.
 /// This is the persistence endpoint for all client-only visual settings.
 pub async fn update_visual_settings(
-    _state: web::Data<AppState>,
+    state: web::Data<AppState>,
     settings_repo: web::Data<Arc<SqliteSettingsRepository>>,
     body: web::Json<serde_json::Value>,
     auth: AuthenticatedUser,
@@ -1503,6 +1503,10 @@ pub async fn update_visual_settings(
         "Visual settings updated and persisted for user {}",
         auth.pubkey
     );
+    // ADR-2047: every write tells the other sessions. The visual bucket was
+    // missed, so an edit made by the settings assistant or another browser
+    // (edge opacity, glow, labels) never reached an open session.
+    broadcast_settings_change(&state, "visual", &auth.pubkey);
     HttpResponse::Ok().json(current)
 }
 
