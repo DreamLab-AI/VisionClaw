@@ -1,7 +1,7 @@
 ---
 title: Security Profiles & Flag Matrix
 doc_id: VC-SECURITY
-version: 0.1.5
+version: 0.1.6
 status: draft-for-ratification
 verified_commit: 
 sources:
@@ -108,7 +108,7 @@ Every path that carries node ids, labels, metadata or per-node values to a calle
 - **Routes gated by the sweep:** `GET /api/pages`, `GET /api/analytics/insights` and `/insights/realtime`, `POST /api/analytics/pathfinding/apsp`, `GET /api/semantic-forces/hierarchy-levels`, `GET /api/constraints/list`, and the `0x23` agent-action frames (`ClientManager::broadcast_agent_actions`, per-identity drop-set as for positions). Each has a test pairing a hidden node with an absent one. The sweep table with every path, its gate and its test is in the lane report.
 - **Shares.** A share is never created without an authenticated creator; its creator may delete it, and a power user may delete a legacy share recorded with no creator (`graph_export_handler.rs` `may_delete_share_as`).
 - **Metadata scrub.** Besides `topic_counts`, `is_subclass_of`, `belongs_to_domain` and `tags`, wikilinks to hidden pages are cut out of the authored `definition` (row and node). Plain frontmatter text (`domain`, `source_domain`) is still left alone, by design.
-- **Known gap, unfixed (highest severity found): the ontology store.** `vault/mod.rs:168-170` admits a formal class page with `public: false` into the KG (`public || owl-class`, test `public_false_plus_class_is_included_but_never_publishable`), and the sync comment says such a page is published only when `public: true` (`github_sync_service.rs:1767-1769`). `GraphData` hides it, but `/api/ontology-agent/{discover,read,traverse,query,validate,check}` (authenticated) and the `/api/ontology` GETs (anonymous under `RBAC_PUBLIC_READS=1`) serve the Oxigraph store, which records no `public` flag: labels and IRIs leak, and page bodies too where the store was seeded by `load_ontology`. This contradicts the stated policy. Proposed fix: deny-list, per caller, the IRIs (`owl_class_iri`, `class_iri`, `page_iri`) of graph nodes hidden from that caller, so a hidden class reads as an unknown one; the visible consequence is gaps in the class hierarchy.
+- **Ontology store, per-caller deny-list (0.1.6).** `vault/mod.rs:168-170` admits a formal class page with `public: false` into the KG, so the Oxigraph ontology store holds classes the graph hides. Every `/api/ontology` read and every `/api/ontology-agent/*` route now builds a per-caller deny-list of the class IRIs of graph nodes hidden from that caller (`graph_access::caller_hidden_classes`, which fails closed with 503 when the graph cannot be read) and scrubs through `services/ontology_visibility.rs` (`HiddenClasses`, a pass-through when the set is empty). A hidden class answers exactly as a class never stored (same status and body); the class hierarchy shows gaps where hidden classes were (operator decision). Tests: `ontology_agent_handler::hidden_class_tests`, `ontology_handler` hidden-class tests, `graph_access` deny-list tests. Residuals, not filtered faithfully: SPARQL `ASK`, aggregates, queries that do not project the class, and literal forms (both SPARQL routes are power-user only); Whelk inferences that passed through a hidden class; store-wide totals in validation reports and the `/inferred` run id; ontology nodes without `owl_class_iri` (stored under a slug-derived IRI the deny-list does not catch); `jev_nlq` and `natural_language_query_service`, which query the store outside these routes.
 
 ### Named validated profiles
 
