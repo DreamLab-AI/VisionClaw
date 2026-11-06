@@ -189,6 +189,8 @@ void main() {
 
 export const OVERVIEW_EDGE_FRAGMENT_GLSL = /* glsl */ `
 precision highp float;
+// GLSL3 ShaderMaterial: three declares no output for us (WebGLProgram.js:778).
+layout(location = 0) out highp vec4 fragColor;
 uniform float uDashed;
 uniform float uDash;
 uniform float uGap;
@@ -206,8 +208,8 @@ void main() {
   float px = abs(vSide) * vHalfWidth;
   float feather = clamp(vHalfWidth - px, 0.0, 1.0);
   vec3 col = uUseTint > 0.5 ? uTint : vColor;
-  gl_FragColor = vec4(col, vAlpha * feather);
-  #include <colorspace_fragment>
+  fragColor = vec4(col, vAlpha * feather);
+  fragColor = linearToOutputTexel(fragColor);
 }
 `;
 
@@ -222,6 +224,8 @@ export function createGlslOverviewEdgeMaterial(uniforms: OverviewEdgeUniforms): 
     depthWrite: false,
     depthTest: true,
     blending: THREE.NormalBlending,
+    // the extruded quad's winding flips with the on-screen direction
+    side: THREE.DoubleSide,
   });
 }
 
@@ -328,7 +332,8 @@ export async function createTslOverviewEdgeMaterial(
     return out;
   })();
 
-  const material = new W.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: true });
+  // DoubleSide: the extruded quad's winding flips with the on-screen direction.
+  const material = new W.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: true, side: THREE.DoubleSide });
   material.name = 'OverviewEdgeNodeMaterial';
   (material as unknown as { vertexNode: unknown }).vertexNode = vertex;
   const fragment = Fn(() => {

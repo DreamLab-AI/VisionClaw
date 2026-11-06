@@ -115,6 +115,8 @@ void main() {
 
 export const OVERVIEW_NODE_FRAGMENT_GLSL = /* glsl */ `
 precision highp float;
+// GLSL3 ShaderMaterial: three declares no output for us (WebGLProgram.js:778).
+layout(location = 0) out highp vec4 fragColor;
 uniform float uHalo;
 in vec3 vColor;
 in float vAlpha;
@@ -132,8 +134,8 @@ void main() {
     // thin darker rim for contrast
     col = mix(col, col * 0.45, smoothstep(0.62, 0.78, r));
   }
-  gl_FragColor = vec4(col, a);
-  #include <colorspace_fragment>
+  fragColor = vec4(col, a);
+  fragColor = linearToOutputTexel(fragColor);
 }
 `;
 
