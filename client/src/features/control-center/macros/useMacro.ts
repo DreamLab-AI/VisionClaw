@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { MacroDef } from '../registry/types';
 import { useSettingsStore } from '../../../store/settingsStore';
-import { autoSaveManager } from '../../../store/autoSaveManager';
+import { applySettingWrites } from '../state/settingWrites';
 import { emitEchoPulse } from '../echo/echoPulseBus';
 import { useControlCenterUI } from '../state/useControlCenterUI';
 
@@ -33,37 +33,20 @@ function getByPath(root: unknown, path: string): unknown {
 }
 
 function applyMacroWrites(writes: MacroWrites): void {
-  if (!writes.length) return;
-  const store = useSettingsStore.getState();
-
-  // Single immer batch: fans out to R3F once via the store's subscriber trie.
-  store.updateSettings((draft) => {
-    const root = draft as unknown as Record<string, unknown>;
-    for (const { path, value } of writes) {
-      const keys = path.split('.');
-      let cur = root;
-      for (let i = 0; i < keys.length - 1; i++) {
-        const next = cur[keys[i]];
-        if (!next || typeof next !== 'object') cur[keys[i]] = {};
-        cur = cur[keys[i]] as Record<string, unknown>;
-      }
-      cur[keys[keys.length - 1]] = value;
-    }
-  });
-
-  // Explicit per-path queue — verbatim to useSettingField, so each write lands
-  // in the exact same debounced PUT bucket as a manual edit of that field.
-  for (const { path, value } of writes) autoSaveManager.queueChange(path, value);
+  applySettingWrites(writes);
 }
 
 export interface MacroControl {
   value: number;
+  /** plain-language readout of what the dial sets (aria-valuetext) */
+  valueText: string;
   onChange: (t: number) => void;
   onCommit: (t: number) => void;
 }
 
 export function useMacro(macro: MacroDef): MacroControl {
   const value = useSettingsStore((s) => macro.derive((p) => getByPath(s.settings, p)));
+  const valueText = useSettingsStore((s) => macro.describe((p) => getByPath(s.settings, p)));
   const echoEnabled = useControlCenterUI((s) => s.echoPulseEnabled);
 
   // rAF coalescing: a pointer drag fires onChange many times per frame (often
@@ -118,5 +101,5 @@ export function useMacro(macro: MacroDef): MacroControl {
   // Flush-safe unmount: never invoke a store write after the dial is gone.
   useEffect(() => cancelPending, [cancelPending]);
 
-  return { value, onChange, onCommit };
+  return { value, valueText, onChange, onCommit };
 }

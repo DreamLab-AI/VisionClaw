@@ -1,5 +1,5 @@
 /**
- * Group 11 — Provenance (id `provenance`, hotkey 11, 4 fields).
+ * Source group — Provenance (id `provenance`). registry/placement.ts (ADR-2189) decides which section shows each field.
  *
  * Phase-1 W-G client surface for the assertion-version provenance subsystem
  * (ADR-049). Both fields are CLIENT-ONLY and DEFAULT-OFF: they gate whether the
@@ -44,11 +44,11 @@ const fields: RegistryField[] = [
   {
     key: 'diffMode',
     subgroup: 'Timeline',
-    label: 'Timeline Diff Mode',
+    label: 'Timeline diff',
     type: 'toggle',
     path: 'provenance.diffMode',
     default: false,
-    description: 'Start the timeline scrubber in two-instant diff mode: marks subjects added (green) or retracted (red) between t1 and t2, computed client-side from two state-at calls.',
+    description: 'Compare two instants: marks subjects added (green) or retracted (red) between t1 and t2. The same control as the Diff checkbox on the timeline scrubber.',
   },
 ];
 
@@ -56,7 +56,6 @@ export const provenance: GroupData = {
   id: 'provenance',
   label: 'Provenance',
   description: 'Client-only overlays for assertion-version attribution and governance-gate status chips.',
-  hotkey: '11',
   loadPaths: ['provenance'],
   fields,
 };

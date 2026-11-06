@@ -53,7 +53,16 @@ export interface NodeSelectionDetail {
  * Slide-in panel that displays details for the currently selected graph node.
  * Listens for 'visionclaw:node-selected' custom events dispatched by GraphManager.
  */
-export const NodeDetailPanel: React.FC = () => {
+export interface NodeDetailPanelProps {
+  /**
+   * Render inside the control centre's right-hand drawer (ADR-2189 §3): no fixed
+   * positioning or slide-in, no own close button (the drawer owns closing, Esc
+   * and focus). Standalone (the default) keeps the legacy slide-in panel.
+   */
+  embedded?: boolean;
+}
+
+export const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ embedded = false }) => {
   const [detail, setDetail] = useState<NodeSelectionDetail | null>(null);
   const [visible, setVisible] = useState(false);
   // W-G phase-1 client-only flag (default-off). When off, the attribution
@@ -70,7 +79,13 @@ export const NodeDetailPanel: React.FC = () => {
     const customEvent = event as CustomEvent<NodeSelectionDetail | null>;
     const payload = customEvent.detail;
     if (payload) {
-      setDetail(payload);
+      // Not every producer sends the full shape: an agent-marker selection
+      // (bots/agentSelection.ts) has no neighbors or connectionCount.
+      setDetail({
+        ...payload,
+        neighbors: Array.isArray(payload.neighbors) ? payload.neighbors : [],
+        connectionCount: typeof payload.connectionCount === 'number' ? payload.connectionCount : 0,
+      });
       setVisible(true);
     } else {
       setVisible(false);
@@ -145,9 +160,19 @@ export const NodeDetailPanel: React.FC = () => {
 
   return (
     <div
-      role="complementary"
-      aria-label="Node details"
-      style={{
+      role={embedded ? undefined : 'complementary'}
+      aria-label={embedded ? undefined : 'Node details'}
+      data-testid="node-detail-panel"
+      style={embedded ? {
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0,
+        height: '100%',
+        color: '#e0e0e0',
+        fontFamily: '"Inter", "Segoe UI", sans-serif',
+        fontSize: 13,
+        overflow: 'hidden',
+      } : {
         position: 'fixed',
         top: 0,
         right: visible ? 0 : -340,
@@ -188,6 +213,7 @@ export const NodeDetailPanel: React.FC = () => {
         }}>
           {detail.label}
         </h2>
+        {!embedded && (
         <button
           onClick={handleClose}
           aria-label="Close node details"
@@ -208,6 +234,7 @@ export const NodeDetailPanel: React.FC = () => {
         >
           x
         </button>
+        )}
       </div>
 
       {/* Content */}

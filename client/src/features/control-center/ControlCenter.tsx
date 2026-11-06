@@ -16,7 +16,8 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { MessageSquare } from 'lucide-react';
+import { MessageSquare, MoreHorizontal, Braces, Keyboard } from 'lucide-react';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { SpaceDriver } from '../../services/SpaceDriverService';
 import { useSettingsStore } from '../../store/settingsStore';
 import type { ControlPanelProps } from '../visualisation/components/ControlPanel/types';
@@ -27,6 +28,9 @@ import { SettingsPanel } from './panels/SettingsPanel';
 import { useControlCenterUI } from './state/useControlCenterUI';
 import { useControlCenterHotkeys } from './hooks/useControlCenterHotkeys';
 import { useRevealSetting } from './hooks/useRevealSetting';
+import { ShortcutSheet } from './help/ShortcutSheet';
+import { GraphLegend } from './integrationSlots';
+import { RightDrawer } from './drawer/RightDrawer';
 import './styles/control-center.css';
 
 export const ControlCenter: React.FC<ControlPanelProps> = ({
@@ -108,6 +112,7 @@ export const ControlCenter: React.FC<ControlPanelProps> = ({
       <div style={{ pointerEvents: 'auto' }}>
         <GlassDock collapsed={dockCollapsed} onToggleCollapsed={toggleDock}>
           <MacroBar />
+          <span aria-hidden="true" className="self-stretch w-px my-1 bg-border/50" />
           <button
             type="button"
             data-testid="control-center-ask"
@@ -120,8 +125,13 @@ export const ControlCenter: React.FC<ControlPanelProps> = ({
             <MessageSquare size={14} aria-hidden="true" />
             Ask
           </button>
+          <MoreMenu />
         </GlassDock>
       </div>
+
+      <RightDrawer />
+      <LegendSlot />
+      <ShortcutSheet />
 
       {/* Ask command input — the ported settings-assistant box. It is
           fixed-position and self-manages its own pointer events, and renders
@@ -134,5 +144,72 @@ export const ControlCenter: React.FC<ControlPanelProps> = ({
 };
 
 ControlCenter.displayName = 'ControlCenter';
+
+/** Overflow menu: destinations that are not settings (Codescape) and the shortcut sheet. */
+const MoreMenu: React.FC = () => {
+  const openSheet = useControlCenterUI((s) => s.setShortcutSheetOpen);
+  const item = 'flex items-center gap-2 rounded px-2 py-1.5 outline-none cursor-pointer data-[highlighted]:bg-white/10';
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          data-testid="dock-more"
+          aria-label="More"
+          className="flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:text-foreground hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <MoreHorizontal size={15} aria-hidden="true" />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          side="top"
+          align="end"
+          sideOffset={8}
+          className="cc-glass cc-glass--overlay rounded-md p-1 text-xs text-foreground shadow-lg"
+          style={{ zIndex: 'var(--cc-z-popover, 45)' as unknown as number }}
+        >
+          {/* Codescape (ADR-2143): the code-graph section served under /codescape/ on this
+              same port. A plain navigation, not a route: a separate bundle and process. */}
+          <DropdownMenu.Item asChild className={item}>
+            <a href="codescape/" data-testid="dock-codescape">
+              <Braces size={13} aria-hidden="true" /> Codescape (code graph)
+            </a>
+          </DropdownMenu.Item>
+          <DropdownMenu.Item className={item} onSelect={() => openSheet(true)} data-testid="dock-shortcuts">
+            <Keyboard size={13} aria-hidden="true" /> Keyboard shortcuts <span className="ml-auto pl-3 text-muted-foreground">?</span>
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+};
+
+/**
+ * ADR-2184 legend. Always mounted: GraphLegend installs the colour/size encoder,
+ * so Encode › Colour by and Size by do nothing without it. It renders nothing
+ * while Encode › Show legend is off. It sits above the right-hand corner chips.
+ */
+const LegendSlot: React.FC = () => {
+  // Beside the right-hand drawer while it is open, never under it.
+  const drawerOpen = useControlCenterUI((s) => s.drawerTab !== null);
+  return (
+  <div
+    data-testid="legend-slot"
+    className="fixed"
+    style={{
+      right: drawerOpen ? 'calc(var(--cc-edge, 1rem) + var(--cc-drawer-width, min(380px, 100vw - 2rem)) + 0.5rem)' : 'var(--cc-edge, 1rem)',
+      bottom: 'var(--cc-dock-clearance, 9rem)',
+      maxWidth: 'min(280px, 40vw)',
+      maxHeight: '40vh',
+      overflowY: 'auto',
+      zIndex: 'var(--cc-z-chrome, 40)' as unknown as number,
+      pointerEvents: 'auto',
+    }}
+  >
+    <GraphLegend />
+  </div>
+  );
+};
 
 export default ControlCenter;

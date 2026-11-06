@@ -57,7 +57,7 @@ export const AgentOpsSurface: React.FC = () => {
   const handleAgentSelect = useCallback((id: string) => setSelectedAgentId(id), []);
 
   return (
-    <div className="fixed bottom-6 left-4 z-40 flex flex-col items-start gap-2" style={{ pointerEvents: 'auto' }}>
+    <div className="relative flex flex-col items-start gap-2" data-corner-item="agents">
       {open && (
         <GlassPanel
           elevation="overlay"

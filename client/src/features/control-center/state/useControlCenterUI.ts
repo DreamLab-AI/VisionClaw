@@ -60,10 +60,16 @@ function prefersReducedMotion(): boolean {
   }
 }
 
+/** Tabs of the one right-hand drawer (ADR-2189 §3): explore, memory explorer, node detail. */
+export type DrawerTab = 'explore' | 'memory' | 'node';
+
+/** Fired when the node tab is closed, so GraphManager clears the selection. */
+export const NODE_DESELECT_EVENT = 'visionclaw:node-deselect';
+
 export interface ControlCenterUIState {
   /** Whether the slide-out SettingsPanel is open. */
   openPanel: boolean;
-  /** Active rail entry: a semantic group id ('motion'…'system') or a bespoke
+  /** Active rail entry: a section id ('layers'…'system', ADR-2189) or a bespoke
    *  panel id ('solid' | 'ontology'). Null when nothing is selected. */
   activeGroup: string | null;
   /** Dock collapsed to a single pill (Cmd/Ctrl+. hero mode). */
@@ -73,6 +79,13 @@ export interface ControlCenterUIState {
   /** Persisted width (px) of the docked SettingsPanel. User-resizable via the
    *  GlassPanel edge handle; clamped to [PANEL_MIN_WIDTH, PANEL_MAX_WIDTH]. */
   panelWidth: number;
+  /** Active tab of the right-hand drawer, or null when the drawer is closed. */
+  drawerTab: DrawerTab | null;
+  /** The tab that was showing before the current one, so closing the node tab
+   *  returns to it (explore or memory) instead of closing the drawer. */
+  previousDrawerTab: DrawerTab | null;
+  /** Generated keyboard-shortcut sheet open ('?'). */
+  shortcutSheetOpen: boolean;
 
   /** Open the panel to a group/panel id (used by hotkeys, rail, reveal). */
   openGroup: (id: string) => void;
@@ -86,14 +99,27 @@ export interface ControlCenterUIState {
   setEchoPulseEnabled: (enabled: boolean) => void;
   /** Set + persist the docked panel width (clamped). */
   setPanelWidth: (width: number) => void;
+  /** Show a drawer tab. Remembers the tab it replaces. */
+  openDrawer: (tab: DrawerTab) => void;
+  /**
+   * Close the active tab. Closing the node tab also deselects the node, and
+   * returns to the tab shown before it when there was one.
+   */
+  closeDrawer: () => void;
+  /** Close one tab if it is showing (e.g. memory when the cloud is switched off). */
+  dismissDrawerTab: (tab: DrawerTab) => void;
+  setShortcutSheetOpen: (open: boolean) => void;
 }
 
-export const useControlCenterUI = create<ControlCenterUIState>((set) => ({
+export const useControlCenterUI = create<ControlCenterUIState>((set, get) => ({
   openPanel: false,
   activeGroup: null,
   dockCollapsed: false,
   echoPulseEnabled: !prefersReducedMotion(),
   panelWidth: readStoredPanelWidth(),
+  drawerTab: null,
+  previousDrawerTab: null,
+  shortcutSheetOpen: false,
 
   openGroup: (id) => set({ openPanel: true, activeGroup: id }),
   closePanel: () => set({ openPanel: false }),
@@ -107,6 +133,30 @@ export const useControlCenterUI = create<ControlCenterUIState>((set) => ({
   toggleDock: () => set((s) => ({ dockCollapsed: !s.dockCollapsed })),
   setDockCollapsed: (collapsed) => set({ dockCollapsed: collapsed }),
   setEchoPulseEnabled: (enabled) => set({ echoPulseEnabled: enabled }),
+  openDrawer: (tab) =>
+    set((s) =>
+      s.drawerTab === tab
+        ? {}
+        : { drawerTab: tab, previousDrawerTab: s.drawerTab === 'node' ? s.previousDrawerTab : s.drawerTab },
+    ),
+  closeDrawer: () => {
+    const { drawerTab, previousDrawerTab } = get();
+    if (drawerTab === 'node') {
+      set({ drawerTab: previousDrawerTab, previousDrawerTab: null });
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(NODE_DESELECT_EVENT));
+      return;
+    }
+    set({ drawerTab: null, previousDrawerTab: null });
+  },
+  dismissDrawerTab: (tab) =>
+    set((s) => {
+      if (s.drawerTab === tab) {
+        const back = s.previousDrawerTab && s.previousDrawerTab !== tab ? s.previousDrawerTab : null;
+        return { drawerTab: back, previousDrawerTab: null };
+      }
+      return s.previousDrawerTab === tab ? { previousDrawerTab: null } : {};
+    }),
+  setShortcutSheetOpen: (open) => set({ shortcutSheetOpen: open }),
   setPanelWidth: (width) => {
     const w = clampPanelWidth(width);
     persistPanelWidth(w);

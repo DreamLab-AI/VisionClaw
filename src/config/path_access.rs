@@ -141,6 +141,11 @@ fn set_json_at_path(root: &mut Value, path: &str, value: Value) -> Result<(), St
     }
 
     if !validate_path_exists(root, &segments) {
+        // ADR-2189: a client that predates the removal may still write a retired key. The
+        // write is accepted and ignored, so an old client sees success rather than a 4xx.
+        if is_retired_setting_path(root, &segments) {
+            return Ok(());
+        }
         return Err(format!(
             "Path '{}' does not exist in the settings structure",
             path
@@ -294,6 +299,24 @@ fn camel_to_snake_case(s: &str) -> String {
     }
 
     result
+}
+
+/// Setting keys removed from the server model (ADR-2189), as `(parent key, retired key)` pairs
+/// in camelCase. `visualisation.graphs.<graph>.nodes.enableMetadataShape` was never read.
+const RETIRED_SETTING_KEYS: &[(&str, &str)] = &[("nodes", "enableMetadataShape")];
+
+/// True when `segments` names a retired key whose parent object still exists in `root`.
+fn is_retired_setting_path(root: &Value, segments: &[&str]) -> bool {
+    let Some((last, parent)) = segments.split_last() else {
+        return false;
+    };
+    let (Some(parent_key), last_camel) = (parent.last(), snake_to_camel_case(last)) else {
+        return false;
+    };
+    RETIRED_SETTING_KEYS
+        .iter()
+        .any(|(p, k)| *p == snake_to_camel_case(parent_key) && *k == last_camel)
+        && validate_path_exists(root, parent)
 }
 
 fn validate_path_exists(root: &Value, segments: &[&str]) -> bool {
@@ -497,6 +520,38 @@ mod tests {
         let result = settings.set_json_by_path("maxCount", Value::Bool(true));
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Type mismatch"));
+    }
+
+    #[test]
+    fn a_retired_key_path_is_accepted_and_ignored() {
+        #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+        #[serde(rename_all = "camelCase")]
+        struct Doc {
+            nodes: Nodes,
+        }
+        #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+        #[serde(rename_all = "camelCase")]
+        struct Nodes {
+            enable_hologram: bool,
+        }
+        let mut doc = Doc {
+            nodes: Nodes {
+                enable_hologram: true,
+            },
+        };
+        let before = doc.clone();
+        doc.set_json_by_path("nodes.enableMetadataShape", Value::Bool(true))
+            .expect("retired key is ignored, not rejected");
+        doc.set_json_by_path("nodes.enable_metadata_shape", Value::Bool(true))
+            .expect("snake_case spelling is ignored too");
+        assert_eq!(doc, before);
+        // Other unknown keys, and a retired key under a missing parent, still fail.
+        assert!(doc
+            .set_json_by_path("nodes.noSuchKey", Value::Bool(true))
+            .is_err());
+        assert!(doc
+            .set_json_by_path("missing.enableMetadataShape", Value::Bool(true))
+            .is_err());
     }
 
     #[test]

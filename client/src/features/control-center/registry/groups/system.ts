@@ -1,5 +1,5 @@
 /**
- * Group 8 — System & Developer (id `system`, hotkey 8, 17 fields).
+ * Source group — System & Developer (id `system`). registry/placement.ts (ADR-2189) decides which section shows each field.
  * Renderer toggle (Effects tab), authentication + network (System tab), and the
  * debug logging switches (Developer tab). the `stream*` settings are server physics
  * setting (physics bucket) shown under Network because it sets the per-client
@@ -40,7 +40,6 @@ export const system: GroupData = {
   id: 'system',
   label: 'System & Developer',
   description: 'Renderer backend, authentication, backend URL, and debug logging switches.',
-  hotkey: '8',
   loadPaths: ['auth', 'system', 'visualisation.graphs.knowledge.physics'],
   fields,
 };

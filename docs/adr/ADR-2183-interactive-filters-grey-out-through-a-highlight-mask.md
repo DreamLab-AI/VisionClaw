@@ -53,3 +53,11 @@ None yet. Each decision has its own check:
 - **D1/D2:** a unit test shows that the combinator over two predicates and a selection produces the expected mask.
 - **D2:** a scene inventory before and after a filter shows unchanged instance counts.
 - **D4:** a test shows that a node withheld by the visibility filter has no mask slot and no label.
+
+## Implementation notes
+- **Filter classification** (`client/src/features/graph/explore/nodeFilter.ts`, `hooks/useGraphFiltering.ts`):
+  - *Grey out* through the mask source `filter:settings`: the quality / authority predicates (AND / OR), `minConnections` and `minMaturity`.
+  - *Remove* from the render set: the `linked_page` gate and hierarchy collapse (D4). The `linked_page` gate is population scope, because the server applies the same `include_linked_pages` scope (`graphDataManager.setGraphData` already drops the stubs), so the client gate only mirrors it.
+- **The default greys nothing.** The OR arm is ported unchanged. Under the server default (quality on, authority off, OR) a disabled predicate passes vacuously, as it does in `src/actors/client_filter.rs:85-92`, so the 0.9 threshold greys nothing. This is characterised in `hooks/__tests__/useGraphFiltering.test.ts`. Changing the default is a separate product decision.
+- **Source names.** `filter:*` sources grey and `emph:*` sources emphasise. Explore widgets use `filter:explore:<widget>`. Every write goes through `explore/filterRegistry.ts`, which skips unchanged id sets.
+- **Hide filtered.** `visualisation.graphView.explore.hideFiltered` (default false) is the opt-in that removes nodes greyed by any filter source.

@@ -10,7 +10,6 @@ export const ESSENTIAL_PATHS = [
   'auth.enabled',
   'auth.required',
   'visualisation.rendering.context',
-  'xr.enabled',
   'xr.mode',
 
   'visualisation.graphs.knowledge.physics',
@@ -180,11 +179,7 @@ export function getSectionPaths(section: string): string[] {
       'visualisation.rendering.context'
     ],
     'xr': [
-      'xr.enabled',
-      'xr.mode',
-      'xr.enableHandTracking',
-      'xr.enableHaptics',
-      'xr.quality'
+      'xr.mode'
     ],
     'glow': [
       'visualisation.glow.enabled',
@@ -214,6 +209,9 @@ export function getSectionPaths(section: string): string[] {
     ],
     'clusterHulls': [
       'visualisation.clusterHulls'
+    ],
+    'graphView': [
+      'visualisation.graphView'
     ],
     'hologram': [
       'visualisation.hologram'
@@ -301,10 +299,6 @@ export function getAllAvailableSettingsPaths(): string[] {
     'visualisation.graphTypeVisuals.ontology',
     'visualisation.graphTypeVisuals.agent',
 
-    'xr.enableHandTracking',
-    'xr.enableHaptics',
-    'xr.quality',
-
     // Gem material
     'visualisation.gemMaterial',
 
@@ -313,6 +307,9 @@ export function getAllAvailableSettingsPaths(): string[] {
 
     // Cluster hulls
     'visualisation.clusterHulls',
+
+    // Graph-view overview (ADR-2179..2186)
+    'visualisation.graphView',
 
     // Animations
     'visualisation.animations',

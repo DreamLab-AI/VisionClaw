@@ -1,7 +1,7 @@
 ---
 title: VisionClaw Current Architecture Baseline
 doc_id: VC-BASELINE
-version: 0.4.2
+version: 0.4.4
 status: draft-for-ratification
 verified_commit: 
 date: 2026-08-31
@@ -21,6 +21,8 @@ sources:
   - crates/visionclaw-protocol/src/protocols/binary_settings_protocol.rs
   - src/utils/binary_protocol.rs
 changelog:
+  - "0.4.4 (2026-11-06): ADR-2189 menus: explore, Memory explorer and node detail are tabs of one right-hand drawer; the timeline Diff checkbox and provenance.diffMode are one control; one edge colour per graph mode; Show Clusters/Communities merged into colour scheme. Corrects 0.4.3: non-physics server buckets are stored under one key each and reach every viewer, they do not follow the account."
+  - "0.4.3 (2026-11-06): ADR-2189 accepted (partial: desktop built, XR HUD not): one seven-section menu information architecture for desktop and XR, generated from the settings registry as ia.json; 40 settings nothing read were deleted with tolerant loading on both sides; one client write path. Note under XR + React clients. No invariant changed."
   - "0.4.2 (2026-11-05): ADR-2179 to ADR-2187 (proposed, not built): desktop graph-view upgrade suite note under XR + React clients (overview-first contract, knowledge-body fit, screen-space edges, sprite nodes, highlight mask, client-side node table, crossfilter widgets, label budget, cosmos.gl reference spike). No invariant changed."
   - "0.4.1 (2026-11-01): ADR-2170 (proposed, not built): Gaussian splat rendering note under XR + React clients. No invariant changed."
   - "0.4.0 (2026-10-18): ADR-2143 A4/A5: Codescape served as its own compose service behind the dev nginx at /codescape/ on 3001; the frozen wire record extracted to crates/visionclaw-wire (re-exported by visionclaw-protocol); Codescape's only estate dependency is that crate and its CUDA PTX is a runtime artefact. Minor bump: subsystem paragraph and crate census updated; the one Codescape invariant is unchanged in kind"
@@ -318,6 +320,24 @@ owning ADR (the Protocol Registry becomes its owner).
   WebGPU has no sized point or line primitives, so sprites and wide lines are
   instanced quads (three `PointsNodeMaterial` on `Sprite`, `Line2NodeMaterial`).
   Performance claims use ADR-2171's GPU-timestamp receipt.
+- **Menus: one information architecture (ADR-2189, accepted; desktop built).**
+  Every control lives in one of seven sections, in this order on both clients:
+  Layers, Explore, Encode, Layout, Look, Agents & Governance, System (desktop
+  hotkeys 1-7). Group files under `client/src/features/control-center/registry/groups`
+  declare fields; `registry/placement.ts` places each in one section and
+  subsection, and `buildIa()` emits the same map to `registry/ia.json` and
+  `xr-client/data/ia.json` (a registry test pins both copies). Each control shows
+  where its value is stored: the physics document is shared by every viewer and
+  the headset; the other server buckets are each stored under one key, so they
+  reach every viewer too; the rest stay in the browser.
+  The explore panel, the Memory explorer and node detail are tabs of one
+  right-hand drawer (`control-center/drawer/RightDrawer.tsx`), so none covers
+  another. All client setting writes go through `state/settingWrites.ts`
+  (store batch, autosave queue, layout side effect). Settings removed because
+  nothing read them are dropped on rehydrate and at the settings API boundary
+  (`store/settings/retiredPaths.ts`), and the server ignores them in stored
+  documents and path updates (`PROTOCOL-registry.md`, settings wire removals).
+  The render and explore lanes connect through `control-center/integrationSlots.ts`.
 
 ### Trust boundaries
 

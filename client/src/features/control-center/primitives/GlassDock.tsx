@@ -5,7 +5,8 @@
  * takes `collapsed`/`onToggleCollapsed` as props.
  */
 
-import React from 'react';
+import React, { useLayoutEffect, useRef } from 'react';
+import { observeResize } from './observeResize';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '../../../utils/classNameUtils';
 import { GlassPanel } from './GlassPanel';
@@ -22,6 +23,26 @@ export interface GlassDockProps {
   id?: string;
 }
 
+/**
+ * Publish the dock's clearance (viewport bottom → dock top, plus a gap) as the
+ * `--cc-dock-clearance` CSS variable, so the settings panel and the Ask box end
+ * just above the dock at any viewport size or dock height (ADR-2189 §4).
+ */
+function useDockClearance(ref: React.RefObject<HTMLElement | null>, collapsed: boolean): void {
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || typeof window === 'undefined') return;
+    const root = document.documentElement;
+    const publish = () => {
+      const top = el.getBoundingClientRect().top;
+      const clearance = Math.max(0, Math.round(window.innerHeight - top + 8));
+      root.style.setProperty('--cc-dock-clearance', `${clearance}px`);
+    };
+    publish();
+    return observeResize(el, publish);
+  }, [ref, collapsed]);
+}
+
 export const GlassDock: React.FC<GlassDockProps> = ({
   collapsed,
   onToggleCollapsed,
@@ -30,6 +51,8 @@ export const GlassDock: React.FC<GlassDockProps> = ({
   id = 'control-center-dock',
 }) => {
   const toggleLabel = collapsed ? 'Expand control dock' : 'Collapse control dock';
+  const frameRef = useRef<HTMLDivElement>(null);
+  useDockClearance(frameRef, collapsed);
 
   return (
     // Shared tooltip context for the dock so the collapse toggle — and any
@@ -37,7 +60,8 @@ export const GlassDock: React.FC<GlassDockProps> = ({
     // on hover/focus without each mounting its own provider.
     <TooltipProvider delayDuration={300}>
       <div
-        className={cn('cc-dock-transition', 'fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-1', className)}
+        ref={frameRef}
+        className={cn('cc-dock-frame cc-dock-transition', className)}
         data-testid="control-center-dock"
       >
         <GlassPanel
@@ -48,8 +72,11 @@ export const GlassDock: React.FC<GlassDockProps> = ({
           aria-label="Control dock"
           data-scene-occluder={collapsed ? undefined : ''}
           aria-hidden={collapsed}
+          // A collapsed dock is invisible: `inert` also takes its controls out of
+          // the tab order and the accessibility tree (aria-hidden alone does not).
+          inert={collapsed}
           className={cn(
-            'flex items-center gap-3 px-4 py-2 transition-[opacity,transform]',
+            'cc-dock-body flex items-center gap-3 px-4 py-2 transition-[opacity,transform]',
             collapsed && 'pointer-events-none opacity-0 scale-95 translate-y-2 absolute'
           )}
         >

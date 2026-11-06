@@ -27,9 +27,6 @@ export const VIEWPORT_SETTINGS_PATTERNS = [
   
   
   'xr.mode',
-  'xr.quality',
-  'xr.renderScale',
-  'xr.enableHandTracking',
   'xr.handMeshEnabled',
   'xr.handRayEnabled',
   'xr.enableLightEstimation',

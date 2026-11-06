@@ -33,6 +33,8 @@ export interface RegistryField {
   max?: number;
   step?: number;
   options?: string[];
+  /** Display labels for `options` (stored value → label). Unlisted options show the stored value. */
+  optionLabels?: Record<string, string>;
   /** 'reset_layout' | 'refresh_graph' | 'toggle-webgpu' | 'toggle-agent-offsets' | 'run_clustering' */
   action?: string;
   description?: string;
@@ -42,16 +44,33 @@ export interface RegistryField {
   isPowerUserOnly?: boolean;
   /** id of a macro that co-drives this path (dims the row while macro active) */
   macro?: string;
+  /**
+   * Source group id (the group file that declares the field). Set by the section
+   * assembler; pathless test ids stay `setting-{sourceGroup}.{key}` so they do not
+   * change when a field moves section (ADR-2189).
+   */
+  sourceGroup?: string;
+  /** Storage scope for a pathless action whose effect is stored (e.g. reset_layout → shared). */
+  scope?: SettingScope;
 }
 
+/**
+ * Where a setting is stored, derived from its server bucket (ADR-2189 §2):
+ * `shared` — the one global physics document: it moves the layout for every viewer and the headset;
+ * `server` — a server document stored under one constant key (`visual`, `rendering`,
+ *            `quality_gates`, `node_filter`): every viewer loads it, so it is not per account;
+ * `browser` — this browser only (localStorage).
+ */
+export type SettingScope = 'shared' | 'server' | 'browser';
+
 export interface RegistryGroup {
-  /** 'motion' | 'look' | 'labels' | 'quality' | 'atmosphere' | 'xr' | 'ai' | 'system' */
+  /** Source groups: 'motion' | 'look' | … ; sections: 'layers' | 'explore' | … (ADR-2189). */
   id: string;
-  /** e.g. 'Motion & Forces' */
+  /** e.g. 'Layout' */
   label: string;
   icon: LucideIcon;
   description: string;
-  /** '1'..'8' — realises the old dead buttonKey badges */
+  /** Sections carry '1'..'7' (ADR-2189); source groups carry none. */
   hotkey?: string;
   /** coarse subtree paths for ensureLoaded() on first open */
   loadPaths: string[];
@@ -74,6 +93,10 @@ export interface MacroDef {
   apply: (t: number) => Array<{ path: string; value: number | boolean }>;
   /** read-back: derive dial position [0..1] from current settings */
   derive: (get: (path: string) => unknown) => number;
+  /** strongest scope over the paths `apply` writes (derived in macros.ts, never hand-set) */
+  scope: SettingScope;
+  /** plain-language readout of what the dial currently sets (the dial's aria-valuetext) */
+  describe: (get: (path: string) => unknown) => string;
 }
 
 export interface ManifestEntry {
@@ -81,8 +104,13 @@ export interface ManifestEntry {
   path: string | null;
   testid: string;
   control: ControlType;
+  /** section id (ADR-2189): the rail entry / hotkey that opens this control */
   group: string;
-  subgroup?: string;
+  /** the group file that declares the field */
+  sourceGroup: string;
+  /** subsection label within the section */
+  subgroup: string;
+  scope: SettingScope;
   label: string;
   min?: number;
   max?: number;

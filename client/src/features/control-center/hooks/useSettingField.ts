@@ -16,18 +16,9 @@
 
 import { useCallback, useState } from 'react';
 import { useSettingsStore } from '../../../store/settingsStore';
-import { autoSaveManager } from '../../../store/autoSaveManager';
-import { layoutApi } from '../../../api/layoutApi';
+import { applySettingWrites } from '../state/settingWrites';
 import type { Settings } from '../../../features/settings/config/settings';
-import { createLogger } from '../../../utils/loggerConfig';
 
-const logger = createLogger('useSettingField');
-
-// Mirrors UnifiedSettingsTabContent's LAYOUT_SETTING_PATHS exactly.
-const LAYOUT_SETTING_PATHS = new Set([
-  'visualisation.graphs.knowledge.physics.layoutMode',
-  'visualisation.graphs.knowledge.physics.layoutAlgorithm',
-]);
 
 function getValueFromPath(settings: unknown, path: string): unknown {
   if (!path) return undefined;
@@ -52,29 +43,8 @@ export function useSettingField<T = unknown>(path: string): [T | undefined, Sett
   const set = useCallback<SettingFieldSetter<T>>(
     (next) => {
       if (!path) return;
-
-      useSettingsStore.getState().updateSettings((draft) => {
-        const keys = path.split('.');
-        let current = draft as unknown as Record<string, unknown>;
-        for (let i = 0; i < keys.length - 1; i++) {
-          if (!current[keys[i]]) {
-            current[keys[i]] = {};
-          }
-          current = current[keys[i]] as Record<string, unknown>;
-        }
-        current[keys[keys.length - 1]] = next as unknown;
-      });
-
-      // updateSettings() already queues via autoSaveManager.queueChanges();
-      // the legacy panel additionally queues this single path explicitly —
-      // replicated verbatim so writes hit the exact same debounced PUT bucket.
-      autoSaveManager.queueChange(path, next);
-
-      if (LAYOUT_SETTING_PATHS.has(path) && typeof next === 'string') {
-        layoutApi.setMode(next, 800).catch((err) => {
-          logger.warn('[useSettingField] layoutApi.setMode failed:', err);
-        });
-      }
+      // The one write path (ADR-2189): store batch + autosave queue + layout side effect.
+      applySettingWrites([{ path, value: next }]);
     },
     [path]
   );
@@ -83,6 +53,27 @@ export function useSettingField<T = unknown>(path: string): [T | undefined, Sett
 }
 
 /** Read-only variant for fields that never write (e.g. renderer capabilities). */
+/**
+ * useSettingField for a settings object: the value at `prefix`, and a setter for
+ * one key under it. Writes go through the same single write path as
+ * useSettingField (applySettingWrites), so a surface that edits several sibling
+ * fields (the Memory explorer's `visualisation.embeddingCloud.*`) gets the same
+ * autosave, Sync and layout side effects as the settings panel.
+ */
+export function useSettingFieldGroup<T = Record<string, unknown>>(
+  prefix: string
+): [T | undefined, (key: string, value: unknown) => void] {
+  const value = useSettingsStore((state) => getValueFromPath(state.settings, prefix) as T | undefined);
+  const setKey = useCallback(
+    (key: string, next: unknown) => {
+      if (!prefix || !key) return;
+      applySettingWrites([{ path: `${prefix}.${key}`, value: next }]);
+    },
+    [prefix]
+  );
+  return [value, setKey];
+}
+
 export function useSettingFieldValue<T = unknown>(path: string): T | undefined {
   return useSettingsStore((state) => getValueFromPath(state.settings, path) as T | undefined);
 }

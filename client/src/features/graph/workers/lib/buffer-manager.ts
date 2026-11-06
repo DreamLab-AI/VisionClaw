@@ -122,13 +122,21 @@ export function initPositionBuffers(
   return { currentPositions: newCurrent, targetPositions: newTarget, velocities: newVel, preservedCount };
 }
 
-/** Copy currentPositions into a SharedArrayBuffer view (main-thread read path). */
+/**
+ * Copy currentPositions into a SharedArrayBuffer view (main-thread read path).
+ * Returns how many nodes did NOT fit (0 when the view holds them all), so a
+ * short buffer is never silent (ADR-2181 D4): the main thread grows the SAB
+ * from the delivered node count (graphWorkerProxy.ensureSharedCapacity) and
+ * reports any shortfall it could not cover in the canvas notice.
+ */
 export function syncToSharedBuffer(
   positionView: Float32Array | null,
   currentPositions: Float32Array | null,
-): void {
+): number {
   if (positionView && currentPositions) {
     const len = Math.min(currentPositions.length, positionView.length);
     positionView.set(currentPositions.subarray(0, len));
+    return Math.max(0, Math.ceil((currentPositions.length - len) / 3));
   }
+  return 0;
 }

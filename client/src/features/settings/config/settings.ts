@@ -9,15 +9,12 @@ export interface NodeSettings {
   // the semantic schemes. An analytic mode falls through to 'type' colouring for
   // nodes the server left without that signal, so no node goes dark.
   colorScheme?: 'type' | 'domain' | 'base' | 'community' | 'cluster' | 'centrality' | 'sssp' | 'cycles';
-  sizeScheme?: 'degree' | 'fileSize' | 'hybrid';
-  perNodeGlow?: boolean;
   metalness: number;
   opacity: number;
   roughness: number;
   nodeSize: number; 
   quality: 'low' | 'medium' | 'high';
   enableInstancing: boolean;
-  enableMetadataShape: boolean;
   enableMetadataVisualisation: boolean;
   enableImportance?: boolean;
   nodeTypeVisibility?: {
@@ -31,11 +28,11 @@ export interface NodeSettings {
 export interface EdgeSettings {
   arrowSize: number;
   baseWidth: number;
-  color: string;
+  /** @deprecated ADR-2189: merged into graphTypeVisuals.<mode>.edgeColor (one per
+   *  graph mode). Kept optional only until the renderer stops reading it. */
+  color?: string;
   enableArrows: boolean;
   opacity: number;
-  colorByType?: boolean;
-  widthByWeight?: boolean;
   widthRange: [number, number];
   quality: 'low' | 'medium' | 'high';
   enableFlowEffect: boolean;
@@ -243,12 +240,9 @@ export interface AnimationSettings {
 
 // Label settings
 export interface LabelSettings {
-  desktopFontSize: number;
   enableLabels: boolean;
   labelDistanceThreshold?: number; // Max camera distance for visible labels (default 500)
   textColor: string;
-  textOutlineColor: string;
-  textOutlineWidth: number;
   textResolution: number;
   textPadding: number;
   billboardMode: 'camera' | 'vertical';
@@ -447,7 +441,6 @@ export interface KnowledgeGraphVisualSettings {
 
 export interface OntologyVisualSettings {
   edgeColor?: string;  // default '#AA96DA'
-  ringTintByClass?: boolean;
   glowStrength?: number;
   orbitalRingCount?: number;
   orbitalRingSpeed?: number;
@@ -462,30 +455,17 @@ export interface OntologyVisualSettings {
 }
 
 export interface AgentVisualSettings {
-  membraneOpacity?: number;
+  /** The one edge colour for agent mode (ADR-2189; was the generic knowledge edges.color). */
+  edgeColor?: string;
   nucleusGlowIntensity?: number;
   breathingSpeed?: number;
   breathingAmplitude?: number;
   workloadInfluence?: number;
   tokenRateInfluence?: number;
   tokenRateCap?: number;
-  showHealthBar?: boolean;
   showTokenRate?: boolean;
   showTaskCount?: boolean;
   bioluminescentIntensity?: number;
-  /** Client-only: hue-rotate each agent's base colour by a stable per-swarm
-   *  offset so swarms read as related-but-distinct families (swarmTint, applySwarmTint).
-   *  No Rust field — persisted via localStorage like the other graphTypeVisuals. */
-  swarmTint?: boolean;
-  /** Client-only: four configurable health→glow stops (excellent/good/warning/
-   *  critical) consumed by agentVisualConstants.healthGlowColor. Defaults preserve
-   *  the historical six-tier ramp; ported from the legacy BotsControlPanel. */
-  healthColors?: {
-    excellent?: string;
-    good?: string;
-    warning?: string;
-    critical?: string;
-  };
   /** Client-only: action-beam (0x23 AGENT_ACTION) cylinder radius in world units,
    *  read by GraphManager → TransientBeamsLayer. Default 0.35. */
   beamRadius?: number;
@@ -587,6 +567,64 @@ export interface EmbeddingCloudSettings {
   cinematic?: boolean;           // show the cinematic director / beat sync / video export, default false
 }
 
+/** `explore.colorBy`: the 'scheme' sentinel or a node-table column name. */
+export type ExploreColorBy = 'scheme' | (string & {});
+
+/**
+ * Graph-view overview contract (ADR-2179..2186), under `visualisation.graphView`.
+ * Client-only: persisted in the server's opaque `visual` blob, no Rust type.
+ */
+export interface GraphViewSettings {
+  /** ADR-2180 fit scope: focus body, both graphs, or the whole scene (today's ADR-2135 fit). */
+  fitTarget: 'knowledge' | 'graphs' | 'scene';
+  /** ADR-2181 screen-space overview edges. */
+  overviewEdges: {
+    enabled: boolean;
+    widthPx: number;
+    maxWidthPx: number;
+    /** On-screen length (px) below which an edge is fully opaque. */
+    fadeNearPx: number;
+    /** On-screen length (px) at which an edge reaches minOpacity. */
+    fadeFarPx: number;
+    minOpacity: number;
+    /** 'auto' = edge count rounded up to a power of two; a number is a GPU budget. See resolveOverviewEdgeCapacity. */
+    capacity: 'auto' | number;
+    /** Keep glass tubes as the close-zoom / selection LOD. */
+    glassAtCloseZoom: boolean;
+  };
+  /** ADR-2182 sprite overview and gem LOD. */
+  nodes: {
+    spriteSizePx: number;
+    /** Camera distance (world units) inside which a node draws as a gem. */
+    gemLodDistance: number;
+    bloomScope: 'emphasis' | 'scene' | 'off';
+  };
+  /** ADR-2183/2184 encoding and grey-out. */
+  explore: {
+    /** 'scheme' (today's look under nodes.colorScheme) or a node-table column name (tableSchema.ts). */
+    colorBy: ExploreColorBy;
+    /** Numeric column driving size, or 'none' for today's sizing. */
+    sizeBy: string;
+    showLegend: boolean;
+    /** Remove filtered-out nodes instead of greying them out (ADR-2189 §5, useGraphFiltering). */
+    hideFiltered: boolean;
+    /** Alpha of a greyed-out edge. */
+    greyoutOpacity: number;
+    /** How far a greyed-out node's colour mixes toward the background (0..1). */
+    greyoutMix: number;
+  };
+  /** ADR-2186 label budget. */
+  labels: {
+    /** Overview tier: most important nodes at overview zoom. */
+    budget: number;
+    /** Dynamic tier: important nodes in the current viewport. */
+    dynamicBudget: number;
+    /** Selection tier: the selection and its neighbourhood. */
+    selectedBudget: number;
+    fontPx: number;
+  };
+}
+
 export interface VisualisationSettings {
 
   rendering: RenderingSettings;
@@ -608,6 +646,9 @@ export interface VisualisationSettings {
 
   // Embedding cloud layer (PCA-projected RuVector vector embeddings)
   embeddingCloud?: EmbeddingCloudSettings;
+
+  // Graph-view overview contract (ADR-2179..2186)
+  graphView?: GraphViewSettings;
 
   // Graph-type-specific visual settings
   graphTypeVisuals?: GraphTypeVisualsSettings;
@@ -739,17 +780,17 @@ export interface QualityGatesSettings {
   ontologyPhysics: boolean;
   /** @deprecated Read-only echo of `physics.layoutMode` in the legacy vocabulary; write the physics field. */
   layoutMode: 'force-directed' | 'dag-topdown' | 'dag-radial' | 'dag-leftright' | 'type-clustering' | 'spectral' | 'clustered';
-  showClusters: boolean;
+  /** @deprecated ADR-2189: merged into colour scheme = Cluster. */
+  showClusters?: boolean;
   showAnomalies: boolean;
-  showCommunities: boolean;
+  /** @deprecated ADR-2189: merged into colour scheme = Community. */
+  showCommunities?: boolean;
   /** Colour nodes by PageRank centrality (ADR-031 D2/D6, wire offset 48). */
   showCentrality: boolean;
   /** Colour nodes by SSSP distance from the active source (ADR-031 D6, wire offset 28). */
   showSSSP: boolean;
   ruvectorEnabled: boolean;
-  gnnPhysics: boolean;
   minFpsThreshold: number;
-  maxNodeCount: number;
   autoAdjust: boolean;
   // Ontology constraint weight (propagated to GPU actors). The semantic-force parameters are
   // NOT here: they are the physics settings' `semantic` group.
@@ -811,16 +852,6 @@ export interface NodeFilterSettings {
   includeLinkedPages?: boolean;
 }
 
-// Decision-record overlay settings (W-G phase-1, client-only, default-off).
-// Gate whether the graph surfaces governed dl:DecisionRecord overlays and
-// derived, bounded decision-chain reachability. Client-only: no server bucket.
-export interface DecisionsSettings {
-  /** Overlay derived, bounded decision-chain reachability (never asserted truth). */
-  showDecisionChains: boolean;
-  /** Highlight direct dl:precedentFor edges on the selected decision node. */
-  highlightPrecedents: boolean;
-}
-
 // Provenance overlay settings (W-G phase-1, client-only, default-off). Gate the
 // node-panel attribution section and the proposal-list governance-gate chips.
 // The Whelk chip reads as asserted-projection classifier consistency, never
@@ -856,7 +887,6 @@ export interface Settings {
   // Node filter settings for graph visualization
   nodeFilter?: NodeFilterSettings;
   // W-G phase-1 client-only decision-record overlays (default-off)
-  decisions?: DecisionsSettings;
   // W-G phase-1 client-only provenance/attribution overlays (default-off)
   provenance?: ProvenanceSettings;
   // Client-side tweening for server-authoritative positions

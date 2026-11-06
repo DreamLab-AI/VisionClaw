@@ -182,26 +182,13 @@ export const DEFAULT_QUALITY_GATES: QualityGateSettings = {
   gpuAcceleration: true,
   ontologyPhysics: false,
   layoutMode: 'force-directed',
-  showClusters: true,
   showAnomalies: true,
-  showCommunities: true,
   showCentrality: true,
   showSSSP: false,
   ruvectorEnabled: false,
-  gnnPhysics: false,
   minFpsThreshold: 30,
-  // Retained for settings-wire compatibility; graph selection is quality-only.
-  maxNodeCount: Number.MAX_SAFE_INTEGER,
   autoAdjust: true,
   ontologyStrength: 0.5,
-};
-
-// W-G phase-1 client-only overlay defaults. All fields DEFAULT-OFF: the governed
-// decision/provenance surfaces stay hidden until a user opts in via the Control
-// Center (Decisions / Provenance groups). Client-only — never PUT server-side.
-export const DEFAULT_DECISIONS_SETTINGS = {
-  showDecisionChains: false,
-  highlightPrecedents: false,
 };
 
 export const DEFAULT_PROVENANCE_SETTINGS = {
@@ -233,6 +220,56 @@ export const DEFAULT_EMBEDDING_CLOUD = {
   cinematic: false,
 };
 
+// ADR-2179..2186 graph-view overview. Client-only, persisted in the opaque
+// `visual` blob under `graphView`; the render/explore/menu lanes consume it.
+export const DEFAULT_GRAPH_VIEW = {
+  // ADR-2180 D1: the default fit frames the knowledge body only.
+  fitTarget: 'knowledge' as 'knowledge' | 'graphs' | 'scene',
+  overviewEdges: {
+    enabled: true,
+    widthPx: 1,
+    maxWidthPx: 3,
+    // ADR-2181 D2: cosmos.gl's linkVisibilityDistanceRange [50, 150] and
+    // linkVisibilityMinTransparency 0.25.
+    fadeNearPx: 50,
+    fadeFarPx: 150,
+    minOpacity: 0.25,
+    capacity: 'auto' as 'auto' | number,
+    glassAtCloseZoom: true,
+  },
+  nodes: {
+    spriteSizePx: 4,
+    // ADR-2182 D2. The focus-body fit (ADR-2180) of one graph of robust radius
+    // LIVE_GRAPH_RADIUS = 152 (triLayout.ts) at fov 75° sits at about
+    // 152 / tan(37.5°) ≈ 200 world units. A sphere of radius r at distance d
+    // covers ≈ 704·r/d px on a 1080 px viewport. The smallest knowledge gem is
+    // computeNodeScale ≈ 2.5 × nodeSize 0.4 = 1.0 world unit, so it reaches 8 px
+    // (twice the 4 px sprite, where gem facets start to read) at d ≈ 88. At 90
+    // the fit frame is all sprites and every gem drawn is at least ~8 px.
+    gemLodDistance: 90,
+    // ADR-2182 D4: glow only on selected / hovered / search hits.
+    bloomScope: 'emphasis' as 'emphasis' | 'scene' | 'off',
+  },
+  explore: {
+    // 'scheme' = DEFAULT_NODE_ENCODER under nodes.colorScheme (today's look); a column name is column-driven.
+    colorBy: 'scheme',
+    sizeBy: 'none',
+    showLegend: true,
+    // ADR-2189 §5: filters grey out; true removes filtered nodes instead (useGraphFiltering).
+    hideFiltered: false,
+    // ADR-2183 D3: cosmos.gl linkGreyoutOpacity 0.1.
+    greyoutOpacity: 0.1,
+    greyoutMix: 0.65,
+  },
+  labels: {
+    // ADR-2186 D1 tiers: overview, dynamic (viewport), selection.
+    budget: 40,
+    dynamicBudget: 40,
+    selectedBudget: 100,
+    fontPx: 13,
+  },
+};
+
 export const DEFAULT_ANIMATION_SETTINGS = {
   enableMotionBlur: false,
   enableNodeAnimations: true,
@@ -258,15 +295,12 @@ export const DEFAULT_NODES_SETTINGS = {
   // of the box. Nodes the server left unclustered (community_id 0) fall through
   // to per-type colouring in computeColor, so the default is never all-grey.
   colorScheme: 'community' as 'type' | 'domain' | 'base' | 'community' | 'cluster' | 'centrality' | 'sssp' | 'cycles',
-  sizeScheme: 'hybrid' as 'degree' | 'fileSize' | 'hybrid',
-  perNodeGlow: true,
   metalness: 0.1,
   opacity: 1.0,
   roughness: 0.6,
   nodeSize: 0.4,
   quality: 'high' as const,
   enableInstancing: true,
-  enableMetadataShape: false,
   enableMetadataVisualisation: true,
   nodeTypeVisibility: {
     knowledge: true,
@@ -278,11 +312,8 @@ export const DEFAULT_NODES_SETTINGS = {
 export const DEFAULT_EDGES_SETTINGS = {
   arrowSize: 0.02,
   baseWidth: 0.1,
-  color: '#ff0000',
   enableArrows: false,
   opacity: 0.15,
-  colorByType: true,
-  widthByWeight: true,
   widthRange: [0.3, 1.5] as [number, number],
   quality: 'high' as const,
   enableFlowEffect: false,
@@ -295,12 +326,9 @@ export const DEFAULT_EDGES_SETTINGS = {
 };
 
 export const DEFAULT_LABELS_SETTINGS = {
-  desktopFontSize: 0.4,
   enableLabels: true,
   labelDistanceThreshold: 1200,
   textColor: '#676565',
-  textOutlineColor: '#00ff40',
-  textOutlineWidth: 0.0074725277,
   textResolution: 32,
   textPadding: 0.3,
   billboardMode: 'camera' as const,
@@ -328,7 +356,6 @@ export const DEFAULT_GRAPH_TYPE_VISUALS = {
     attentionHeatHalfLife: 20,
   },
   ontology: {
-    ringTintByClass: true,
     glowStrength: 1.8,
     orbitalRingCount: 8,
     orbitalRingSpeed: 0.5,
@@ -342,25 +369,15 @@ export const DEFAULT_GRAPH_TYPE_VISUALS = {
     nebulaGlowIntensity: 0.7,
   },
   agent: {
-    membraneOpacity: 0.7,
     nucleusGlowIntensity: 0.6,
     breathingSpeed: 1.5,
     breathingAmplitude: 0.4,
     workloadInfluence: 0.3,
     tokenRateInfluence: 100,
     tokenRateCap: 0.5,
-    showHealthBar: true,
     showTokenRate: true,
     showTaskCount: false,
     bioluminescentIntensity: 0.6,
-    // Four configurable health→glow stops; defaults reproduce the historical
-    // six-tier ramp exactly (see agentVisualConstants.DEFAULT_HEALTH_COLORS).
-    healthColors: {
-      excellent: '#00FF00',
-      good: '#2ECC71',
-      warning: '#F39C12',
-      critical: '#E74C3C',
-    },
     // Action-beam (0x23) styling consumed by TransientBeamsLayer via GraphManager.
     beamRadius: 0.35,
     beamOpacity: 0.85,

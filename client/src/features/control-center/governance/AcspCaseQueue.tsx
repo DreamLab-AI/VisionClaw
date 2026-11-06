@@ -189,7 +189,7 @@ export const AcspCaseQueue: React.FC = () => {
   };
 
   return (
-    <div className="fixed bottom-20 left-4 z-40 flex flex-col items-start gap-2" style={{ pointerEvents: 'auto' }}>
+    <div className="relative flex flex-col items-start gap-2" data-corner-item="governance">
       {expanded && (
         <GlassPanel
           elevation="overlay"
@@ -233,7 +233,7 @@ export const AcspCaseQueue: React.FC = () => {
         className="cc-glass flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs text-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <Scale size={13} aria-hidden="true" />
-        ACSP
+        Governance
         <span
           className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px]"
           style={{

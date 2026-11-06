@@ -1249,12 +1249,11 @@ pub async fn update_quality_gate_settings(
     }
 
     info!(
-        "User {} updated quality gate settings: gpu={}, ontology={}, layout={}, maxNodeCount={}",
+        "User {} updated quality gate settings: gpu={}, ontology={}, layout={}",
         auth.pubkey,
         settings.gpu_acceleration,
         settings.ontology_physics,
-        settings.layout_mode,
-        settings.max_node_count
+        settings.layout_mode
     );
 
     // ADR-2140: the layout mode is `physics.layoutMode`. A client that still names it here (the
@@ -1938,6 +1937,50 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ADR-2179..2186: the graph-view settings live only in the opaque `visual` blob. A one-slider
+    /// patch under `graphView` must merge into the nested group without dropping its siblings,
+    /// and the mixed `'auto' | number` capacity must round-trip in either form.
+    #[test]
+    fn a_graph_view_patch_merges_into_the_visual_blob_without_dropping_siblings() {
+        let mut stored = serde_json::json!({
+            "glow": {"enabled": true},
+            "graphView": {
+                "fitTarget": "knowledge",
+                "overviewEdges": {"enabled": true, "widthPx": 1, "capacity": "auto"},
+                "labels": {"budget": 40, "dynamicBudget": 40, "selectedBudget": 100, "fontPx": 13}
+            }
+        });
+        deep_merge_json(
+            &mut stored,
+            serde_json::json!({"graphView": {"overviewEdges": {"widthPx": 2, "capacity": 131072}}}),
+        );
+        let gv = &stored["graphView"];
+        assert_eq!(gv["overviewEdges"]["widthPx"], 2, "the patched field");
+        assert_eq!(
+            gv["overviewEdges"]["capacity"], 131072,
+            "a number replaces 'auto'"
+        );
+        assert_eq!(
+            gv["overviewEdges"]["enabled"], true,
+            "sibling in the same group survives"
+        );
+        assert_eq!(gv["fitTarget"], "knowledge", "other graphView keys survive");
+        assert_eq!(gv["labels"]["budget"], 40, "other graphView groups survive");
+        assert_eq!(
+            stored["glow"]["enabled"], true,
+            "other visual buckets survive"
+        );
+
+        deep_merge_json(
+            &mut stored,
+            serde_json::json!({"graphView": {"overviewEdges": {"capacity": "auto"}}}),
+        );
+        assert_eq!(
+            stored["graphView"]["overviewEdges"]["capacity"], "auto",
+            "and back to 'auto'"
+        );
+    }
 
     #[test]
     fn a_nested_patch_changes_only_the_field_it_names() {

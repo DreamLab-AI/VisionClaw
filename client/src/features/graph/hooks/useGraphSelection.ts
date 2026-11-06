@@ -6,6 +6,12 @@
 import { useState, useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import type { GraphData, Node as GraphNode } from '../managers/graphDataManager'
+import {
+  highlightMask as sharedMask, type HighlightMask,
+  HIGHLIGHT_SELECTED, HIGHLIGHT_FOCUS_NEIGHBOUR, HIGHLIGHT_SEARCH_HIT,
+} from '../state/highlightMask'
+import { SOURCE, writeEmphasis } from '../explore/filterRegistry'
+import { exploreStore as sharedExploreStore, type ExploreStore } from '../explore/exploreStore'
 
 export interface GraphSelectionOptions {
   graphData: GraphData
@@ -13,6 +19,27 @@ export interface GraphSelectionOptions {
   nodePositionsRef: React.MutableRefObject<Float32Array | null>
   connectionCountMap: Map<string, number>
   camera: THREE.Camera
+  /** The highlight mask to emphasise on (tests inject their own). */
+  mask?: HighlightMask
+  /** The explore store whose widgets reflect the selection (ADR-2185 D3). */
+  explore?: ExploreStore
+}
+
+/**
+ * Every node whose label matches a search query, by the same three tiers the
+ * fly-to target is chosen with (prefix, substring, all words). Tiers are unioned,
+ * so the emphasis shows every hit, not only the one the camera flies to.
+ */
+export function searchHitIds(nodes: readonly GraphNode[], query: string): string[] {
+  const lq = query.trim().toLowerCase()
+  if (!lq) return []
+  const words = lq.includes(' ') ? lq.split(/\s+/).filter(w => w.length > 1) : []
+  const hits: string[] = []
+  for (const n of nodes) {
+    const label = (n.label || '').toLowerCase()
+    if (label.includes(lq) || (words.length > 0 && words.every(w => label.includes(w)))) hits.push(String(n.id))
+  }
+  return hits
 }
 
 export interface GraphSelectionReturn {
@@ -66,6 +93,8 @@ function extractAttribution(
 
 export function useGraphSelection(opts: GraphSelectionOptions): GraphSelectionReturn {
   const { graphData, nodeIdToIndexMap, nodePositionsRef, connectionCountMap, camera } = opts
+  const mask = opts.mask ?? sharedMask
+  const explore = opts.explore ?? sharedExploreStore
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const flyToTargetRef  = useRef<THREE.Vector3 | null>(null)
@@ -140,6 +169,28 @@ export function useGraphSelection(opts: GraphSelectionOptions): GraphSelectionRe
     }))
   }, [selectedNodeId, graphData.nodes, graphData.edges, connectionCountMap])
 
+  // ADR-2183: selection and its neighbourhood emphasise through the highlight mask.
+  // writeEmphasis skips unchanged sets, so graphData churn costs no recomposition.
+  useEffect(() => {
+    if (!selectedNodeId) {
+      writeEmphasis(SOURCE.SELECTION, HIGHLIGHT_SELECTED, null, mask)
+      writeEmphasis(SOURCE.NEIGHBOURS, HIGHLIGHT_FOCUS_NEIGHBOUR, null, mask)
+      explore.setGraphSelection(null)
+      return
+    }
+    const neighbours: string[] = []
+    for (const edge of graphData.edges) {
+      const src = String(edge.source)
+      const tgt = String(edge.target)
+      if (src === selectedNodeId) neighbours.push(tgt)
+      else if (tgt === selectedNodeId) neighbours.push(src)
+    }
+    writeEmphasis(SOURCE.SELECTION, HIGHLIGHT_SELECTED, [selectedNodeId], mask)
+    writeEmphasis(SOURCE.NEIGHBOURS, HIGHLIGHT_FOCUS_NEIGHBOUR, neighbours, mask)
+    // ADR-2185 D3: the widgets narrow to the selection and its neighbourhood.
+    explore.setGraphSelection([selectedNodeId, ...neighbours])
+  }, [selectedNodeId, graphData.edges, mask, explore])
+
   // Click-to-focus: when the selection changes (node click, neighbour click, or
   // search), ease the camera to look at + approach the node. Guarded by
   // lastFocusedIdRef so the constant graphData churn from the position stream
@@ -157,6 +208,11 @@ export function useGraphSelection(opts: GraphSelectionOptions): GraphSelectionRe
     const handleSearch = (event: Event) => {
       const { query, nodeId } = (event as CustomEvent).detail || {}
       let targetNode: GraphNode | undefined
+
+      // Search hits → SEARCH_HIT emphasis: every label match for a text query, or
+      // the one requested node.
+      const hits = query ? searchHitIds(graphData.nodes, String(query)) : nodeId ? [String(nodeId)] : []
+      writeEmphasis(SOURCE.SEARCH, HIGHLIGHT_SEARCH_HIT, hits, mask)
 
       if (nodeId) {
         targetNode = graphData.nodes.find(n => String(n.id) === nodeId)
@@ -185,7 +241,10 @@ export function useGraphSelection(opts: GraphSelectionOptions): GraphSelectionRe
       }
     }
 
-    const handleDeselect = () => setSelectedNodeId(null)
+    const handleDeselect = () => {
+      setSelectedNodeId(null)
+      writeEmphasis(SOURCE.SEARCH, HIGHLIGHT_SEARCH_HIT, null, mask)
+    }
 
     window.addEventListener('visionclaw:search', handleSearch)
     window.addEventListener('visionclaw:node-deselect', handleDeselect)
@@ -193,7 +252,7 @@ export function useGraphSelection(opts: GraphSelectionOptions): GraphSelectionRe
       window.removeEventListener('visionclaw:search', handleSearch)
       window.removeEventListener('visionclaw:node-deselect', handleDeselect)
     }
-  }, [graphData.nodes, nodeIdToIndexMap, connectionCountMap, camera, nodePositionsRef, selectedNodeId])
+  }, [graphData.nodes, nodeIdToIndexMap, connectionCountMap, camera, nodePositionsRef, selectedNodeId, mask])
 
   return { selectedNodeId, setSelectedNodeId, flyToTargetRef, flyToLookAtRef, flyToProgressRef }
 }

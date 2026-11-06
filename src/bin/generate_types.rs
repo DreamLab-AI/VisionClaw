@@ -91,7 +91,6 @@ export interface NodeSettings {
   quality: string;
   enable_instancing: boolean;
   enable_hologram: boolean;
-  enable_metadata_shape: boolean;
   enable_metadata_visualisation: boolean;
 }
 

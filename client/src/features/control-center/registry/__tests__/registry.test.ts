@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { REGISTRY, ALL_FIELDS, ALL_PATHS, testIdFor } from '../settingsRegistry';
-import { buildManifest, serverBucketFor } from '../manifest';
-import { MACRO_PATHS } from '../macros';
+import { REGISTRY, ALL_FIELDS, ALL_PATHS, SOURCE_GROUPS, testIdFor } from '../settingsRegistry';
+import { buildManifest, buildIa, serverBucketFor, scopeFor, scopeForField, PANELS } from '../manifest';
+import { SECTION_DEFS, placeField } from '../placement';
+import { ADR_2189_REMOVED_PATHS, DEAD_PATHS, REPLACED_PATHS, MERGED_PATHS, RENAMED_PATHS } from '../../../../store/settings/retiredPaths';
+import { MACRO_PATHS, MACROS } from '../macros';
 import manifestJson from '../settings-manifest.json';
 // The SOURCE OF TRUTH for the frozen backend contract. Captured from the legacy
 // ControlPanel/unifiedSettingsConfig.ts (now deleted — WP5 cutover) before deletion.
@@ -9,18 +11,35 @@ import manifestJson from '../settings-manifest.json';
 import legacyFixture from './legacy-paths.fixture.json';
 import semanticDoc from '../semanticFields.json';
 
+// vite-node here cannot resolve static `fs`/`path` imports; take them from the runtime
+// (same pattern as features/graph/__tests__/singleDrawnSource.test.ts).
+const getBuiltin = (process as unknown as { getBuiltinModule(id: string): unknown }).getBuiltinModule;
+const { readFileSync } = getBuiltin('fs') as typeof import('fs');
+const { resolve } = getBuiltin('path') as typeof import('path');
+
+/** Fields per SOURCE group (the files that declare them), after the ADR-2189 deletions. */
 const EXPECTED_GROUP_COUNTS: Record<string, number> = {
   motion: 84,
-  look: 29,
-  labels: 10,
-  quality: 32,
+  look: 23,
+  labels: 7,
+  quality: 28,
   atmosphere: 32,
-  xr: 5,
-  ai: 6,
+  ai: 2,
   system: 19,
-  agents: 45,
-  decisions: 2,
+  agents: 26,
   provenance: 4,
+  graphView: 21,
+};
+
+/** Fields per SECTION (ADR-2189): what the rail, the dock and hotkeys 1..7 open. */
+const EXPECTED_SECTION_COUNTS: Record<string, number> = {
+  layers: 14,
+  explore: 27,
+  encode: 24,
+  layout: 80,
+  look: 44,
+  agents: 30,
+  system: 27,
 };
 
 /**
@@ -94,6 +113,19 @@ const SEMANTIC_PATHS: string[] = (semanticDoc as { fields: { path: string }[] })
   (f) => `visualisation.graphs.knowledge.physics.semantic.${f.path}`,
 );
 
+/**
+ * The graph-view overview contract (ADR-2179..2186). Post-dates the WP5 baseline;
+ * every path routes to the opaque `visual` bucket. Asserted in (c7).
+ */
+const GRAPH_VIEW_PATHS: string[] = [
+  'fitTarget',
+  'overviewEdges.enabled', 'overviewEdges.widthPx', 'overviewEdges.maxWidthPx', 'overviewEdges.fadeNearPx',
+  'overviewEdges.fadeFarPx', 'overviewEdges.minOpacity', 'overviewEdges.glassAtCloseZoom',
+  'nodes.spriteSizePx', 'nodes.gemLodDistance', 'nodes.bloomScope',
+  'explore.colorBy', 'explore.sizeBy', 'explore.showLegend', 'explore.hideFiltered', 'explore.greyoutOpacity', 'explore.greyoutMix',
+  'labels.budget', 'labels.dynamicBudget', 'labels.selectedBudget', 'labels.fontPx',
+].map((p) => `visualisation.graphView.${p}`);
+
 const RETIRED_PATHS: string[] = [
   'visualisation.graphs.knowledge.physics.graphSeparationX',
   'visualisation.graphs.knowledge.tweening.lerpBase',   // replaced by tweening.responseMs (a time constant, lower = faster)
@@ -107,10 +139,23 @@ const RETIRED_PATHS: string[] = [
   'qualityGates.typeClusterRadius',
 ];
 
+/** ADR-2189 deletions from the frozen legacy baseline (the Agents/Decisions deletions are post-baseline). */
+const LEGACY_REMOVED = ADR_2189_REMOVED_PATHS.filter((p) =>
+  (legacyFixture as { paths: string[] }).paths
+    .map((q) => q.replace('visualisation.graphs.logseq.', 'visualisation.graphs.knowledge.'))
+    .includes(p),
+);
+
+/**
+ * Paths a merge added (ADR-2189 §6 "Merge"): the generic knowledge edge colour
+ * became agent mode's own edge colour, so every graph mode has exactly one.
+ */
+const MERGE_ADDED_PATHS: string[] = ['visualisation.graphTypeVisuals.agent.edgeColor'];
+
 const TOTAL_FIELDS =
-  168 - RETIRED_PATHS.length + EXPECTED_GROUP_COUNTS.agents + EXPECTED_GROUP_COUNTS.decisions + EXPECTED_GROUP_COUNTS.provenance
+  168 - RETIRED_PATHS.length - LEGACY_REMOVED.length + EXPECTED_GROUP_COUNTS.agents + EXPECTED_GROUP_COUNTS.provenance
   + WAVE1_LAYOUT_PATHS.length + MEMORY_EXPLORER_PATHS.length + NETWORK_PATHS.length + SEMANTIC_PATHS.length + TWEENING_PATHS.length
-  + LAYOUT_MODE_PATHS.length;
+  + LAYOUT_MODE_PATHS.length + GRAPH_VIEW_PATHS.length + MERGE_ADDED_PATHS.length;
 
 /**
  * Frozen client-only paths introduced by the W-G phase-1 Decisions/Provenance
@@ -120,8 +165,6 @@ const TOTAL_FIELDS =
  * never enter the settings PUT routing, so they add no backend-contract drift.
  */
 const WG_GROUP_PATHS: string[] = [
-  'decisions.showDecisionChains',
-  'decisions.highlightPrecedents',
   'provenance.showAttribution',
   'provenance.showGateChips',
   'provenance.enableTimeline',
@@ -138,18 +181,6 @@ const WG_GROUP_PATHS: string[] = [
  */
 const AGENT_GROUP_PATHS: string[] = [
   'visualisation.graphs.visionclaw.nodes.baseColor',
-  'visualisation.graphs.visionclaw.nodes.nodeSize',
-  'visualisation.graphs.visionclaw.nodes.opacity',
-  'visualisation.graphs.visionclaw.nodes.metalness',
-  'visualisation.graphs.visionclaw.nodes.roughness',
-  'visualisation.graphs.visionclaw.edges.color',
-  'visualisation.graphs.visionclaw.edges.opacity',
-  'visualisation.graphs.visionclaw.edges.baseWidth',
-  'visualisation.graphs.visionclaw.edges.enableArrows',
-  'visualisation.graphs.visionclaw.edges.colorByType',
-  'visualisation.graphs.visionclaw.labels.enableLabels',
-  'visualisation.graphs.visionclaw.labels.desktopFontSize',
-  'visualisation.graphs.visionclaw.labels.textColor',
   'visualisation.rendering.agentColors.coordinator',
   'visualisation.rendering.agentColors.coder',
   'visualisation.rendering.agentColors.architect',
@@ -161,19 +192,12 @@ const AGENT_GROUP_PATHS: string[] = [
   'visualisation.rendering.agentColors.documenter',
   'visualisation.rendering.agentColors.queen',
   'visualisation.rendering.agentColors.default',
-  'visualisation.graphTypeVisuals.agent.swarmTint',
   'visualisation.graphTypeVisuals.agent.showTrails',
   'visualisation.graphTypeVisuals.agent.trailLength',
   'visualisation.graphTypeVisuals.agent.bioluminescentIntensity',
   'visualisation.graphTypeVisuals.agent.nucleusGlowIntensity',
   'visualisation.graphTypeVisuals.agent.breathingSpeed',
   'visualisation.graphTypeVisuals.agent.breathingAmplitude',
-  'visualisation.graphTypeVisuals.agent.membraneOpacity',
-  'visualisation.graphTypeVisuals.agent.showHealthBar',
-  'visualisation.graphTypeVisuals.agent.healthColors.excellent',
-  'visualisation.graphTypeVisuals.agent.healthColors.good',
-  'visualisation.graphTypeVisuals.agent.healthColors.warning',
-  'visualisation.graphTypeVisuals.agent.healthColors.critical',
   'visualisation.graphTypeVisuals.agent.beamRadius',
   'visualisation.graphTypeVisuals.agent.beamOpacity',
   'visualisation.graphTypeVisuals.agent.nameplateLod',
@@ -195,7 +219,7 @@ function legacyPaths(): string[] {
     p.startsWith('visualisation.graphs.logseq.')
       ? p.replace('visualisation.graphs.logseq.', 'visualisation.graphs.knowledge.')
       : p,
-  ).filter((p) => !RETIRED_PATHS.includes(p));
+  ).filter((p) => !RETIRED_PATHS.includes(p) && !ADR_2189_REMOVED_PATHS.includes(p));
 }
 
 /** Every field (path or localKey/action) declared in the legacy config. */
@@ -204,21 +228,111 @@ function legacyFieldCount(): number {
 }
 
 describe('control-center settings registry', () => {
-  it('(a) enumerates exactly the legacy 168 fields plus the Agents group', () => {
+  it('(a) enumerates exactly the legacy 168 fields (less retirements) plus the post-baseline groups', () => {
     expect(ALL_FIELDS.length).toBe(TOTAL_FIELDS);
     // the frozen legacy fixture it extends is still 168 (sanity on the baseline)
     expect(legacyFieldCount()).toBe(168);
   });
 
-  it('(b) has the exact per-group field counts', () => {
-    const actual: Record<string, number> = {};
-    for (const g of REGISTRY) actual[g.id] = g.fields.length;
-    expect(actual).toEqual(EXPECTED_GROUP_COUNTS);
-    // group order realises hotkeys 1..11 (decisions/provenance are the new W-G groups)
-    expect(REGISTRY.map((g) => g.id)).toEqual([
-      'motion', 'look', 'labels', 'quality', 'atmosphere', 'xr', 'ai', 'system', 'agents', 'decisions', 'provenance',
+  it('(b) has the exact per-source-group and per-section field counts', () => {
+    const bySource: Record<string, number> = {};
+    for (const g of SOURCE_GROUPS) bySource[g.id] = g.fields.length;
+    expect(bySource).toEqual(EXPECTED_GROUP_COUNTS);
+    const bySection: Record<string, number> = {};
+    for (const g of REGISTRY) bySection[g.id] = g.fields.length;
+    expect(bySection).toEqual(EXPECTED_SECTION_COUNTS);
+    // ADR-2189 §1: seven sections in this order, hotkeys 1..7 (every advertised key is typeable)
+    expect(REGISTRY.map((g) => g.id)).toEqual(['layers', 'explore', 'encode', 'layout', 'look', 'agents', 'system']);
+    expect(REGISTRY.map((g) => g.label)).toEqual([
+      'Layers', 'Explore', 'Encode', 'Layout', 'Look', 'Agents & Governance', 'System',
     ]);
-    expect(REGISTRY.map((g) => g.hotkey)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11']);
+    expect(REGISTRY.map((g) => g.hotkey)).toEqual(['1', '2', '3', '4', '5', '6', '7']);
+  });
+
+  it('(b2) every field sits in exactly one declared section and subsection (two levels, ADR-2188 §6)', () => {
+    const seen = new Map<string, string>();
+    for (const sec of REGISTRY) {
+      const def = SECTION_DEFS.find((d) => d.id === sec.id)!;
+      for (const f of sec.fields) {
+        const id = testIdFor(f, sec.id);
+        expect(seen.has(id), `${id} placed twice`).toBe(false);
+        seen.set(id, sec.id);
+        expect(def.subsections, id).toContain(f.subgroup);
+        expect(f.sourceGroup, id).toBeDefined();
+        // the subsection label carries at most one '›' (section › subsection is the second level)
+        expect((f.subgroup ?? '').split('›').length, id).toBeLessThanOrEqual(2);
+      }
+    }
+    // placeField agrees with the assembled sections for every declared field
+    for (const g of SOURCE_GROUPS) {
+      for (const f of g.fields) {
+        const { section } = placeField(g.id, f);
+        expect(seen.get(testIdFor({ ...f, sourceGroup: g.id }, g.id)), `${g.id}.${f.key}`).toBe(section);
+      }
+    }
+    expect(seen.size).toBe(TOTAL_FIELDS);
+    // every bespoke panel has a launcher in a declared subsection
+    for (const p of PANELS) expect(SECTION_DEFS.find((d) => d.id === p.section)!.subsections).toContain(p.subsection);
+  });
+
+  it('(b3) ADR-2189 deleted every dead path: none is still a control', () => {
+    expect(DEAD_PATHS).toHaveLength(37);
+    // sizeScheme, edges.colorByType, edges.widthByWeight, and labels.desktopFontSize
+    // (replaced by graphView.labels.fontPx when the render lane landed ADR-2186)
+    expect(REPLACED_PATHS).toHaveLength(4);
+    // generic knowledge edges.color (→ agent mode's edge colour), Show Clusters,
+    // Show Communities (→ colour scheme = Cluster / Community)
+    expect(MERGED_PATHS).toHaveLength(3);
+    expect(new Set(ADR_2189_REMOVED_PATHS).size).toBe(44);
+    for (const [from, to] of Object.entries(RENAMED_PATHS)) {
+      expect(ADR_2189_REMOVED_PATHS).toContain(from);
+      expect(ALL_PATHS, to).toContain(to);
+    }
+    for (const p of ADR_2189_REMOVED_PATHS) expect(ALL_PATHS, p).not.toContain(p);
+    // the empty groups went with them
+    expect(SOURCE_GROUPS.map((g) => g.id)).not.toContain('xr');
+    expect(SOURCE_GROUPS.map((g) => g.id)).not.toContain('decisions');
+  });
+
+  it('(b4) every field has a storage scope, and only physics paths are shared', () => {
+    for (const f of ALL_FIELDS) {
+      const scope = scopeForField(f);
+      if (f.path && scope === 'shared') expect(serverBucketFor(f.path)).toBe('physics');
+      if (!f.path && f.scope === undefined) expect(scope).toBe('browser');
+    }
+    // the whole Layout section is the shared physics document, including Reset layout
+    const layout = REGISTRY.find((g) => g.id === 'layout')!;
+    expect(layout.fields.filter((f) => scopeForField(f) !== 'shared').map((f) => f.key)).toEqual([]);
+  });
+
+  it('(b4b) each dial reports the strongest scope of the paths it writes (dock and rows agree)', () => {
+    const rank = { browser: 0, server: 1, shared: 2 } as const;
+    for (const m of MACROS) {
+      const scopes = [0, 0.5, 1].flatMap((t) => m.apply(t).map((w) => scopeFor(w.path)));
+      const strongest = scopes.reduce((a, b) => (rank[b] > rank[a] ? b : a), 'browser' as keyof typeof rank);
+      expect(m.scope, m.id).toBe(strongest);
+    }
+    // Spread and Motion move the shared layout; the view dials save server documents every viewer loads
+    expect(MACROS.filter((m) => m.scope === 'shared').map((m) => m.id)).toEqual(['density', 'motion']);
+    expect(MACROS.filter((m) => m.scope === 'server').map((m) => m.id)).toEqual(['luminosity', 'focus', 'atmosphere']);
+  });
+
+  it('(b5) ia.json: both committed copies equal a fresh buildIa() (desktop/XR parity, ADR-2189 §2)', () => {
+    const fresh = JSON.parse(JSON.stringify(buildIa()));
+    const copies = [
+      resolve(__dirname, '../ia.json'),
+      resolve(__dirname, '../../../../../../xr-client/data/ia.json'),
+    ];
+    for (const path of copies) {
+      const committed = JSON.parse(readFileSync(path, 'utf8'));
+      expect(committed, `${path} is stale: run npm run gen:manifest`).toEqual(fresh);
+    }
+    expect(fresh.sections.map((s: { id: string }) => s.id)).toEqual(REGISTRY.map((g) => g.id));
+    const iaFieldCount = fresh.sections.reduce(
+      (n: number, s: { subsections: { fields: unknown[] }[] }) => n + s.subsections.reduce((m, ss) => m + ss.fields.length, 0),
+      0,
+    );
+    expect(iaFieldCount).toBe(TOTAL_FIELDS);
   });
 
   it('(c) has ZERO path drift vs legacy unifiedSettingsConfig for the migrated groups', () => {
@@ -231,12 +345,13 @@ describe('control-center settings registry', () => {
     const semanticSet = new Set(SEMANTIC_PATHS);
     const tweeningSet = new Set(TWEENING_PATHS);
     const layoutModeSet = new Set(LAYOUT_MODE_PATHS);
+    const graphViewSet = new Set(GRAPH_VIEW_PATHS);
     // Compare only the pre-existing (migrated) groups against the frozen baseline;
     // the Agents group (c2), the W-G groups (c3) and the Wave-1 layout paths (c4)
     // post-date WP5 and are asserted independently.
     const migratedPaths = ALL_PATHS.filter(
       (p) =>
-        !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p) && !networkSet.has(p) && !semanticSet.has(p) && !tweeningSet.has(p) && !layoutModeSet.has(p),
+        !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p) && !networkSet.has(p) && !semanticSet.has(p) && !tweeningSet.has(p) && !layoutModeSet.has(p) && !graphViewSet.has(p) && !MERGE_ADDED_PATHS.includes(p),
     );
     const migratedSet = new Set(migratedPaths);
 
@@ -264,7 +379,7 @@ describe('control-center settings registry', () => {
 
   it('(c2) the Agents group exposes exactly its declared new paths, disjoint from legacy', () => {
     const legacySet = new Set(legacyPaths());
-    const agentsGroup = REGISTRY.find((g) => g.id === 'agents')!;
+    const agentsGroup = SOURCE_GROUPS.find((g) => g.id === 'agents')!;
     const agentsPaths = agentsGroup.fields.map((f) => f.path).filter((p): p is string => Boolean(p));
     // the group's paths are exactly the declared set (no accidental additions/drops)
     expect(new Set(agentsPaths)).toEqual(new Set(AGENT_GROUP_PATHS));
@@ -280,15 +395,14 @@ describe('control-center settings registry', () => {
 
   it('(c3) the W-G groups expose exactly their client-only paths, disjoint from legacy', () => {
     const legacySet = new Set(legacyPaths());
-    const decisionsGroup = REGISTRY.find((g) => g.id === 'decisions')!;
-    const provenanceGroup = REGISTRY.find((g) => g.id === 'provenance')!;
-    const wgPaths = [...decisionsGroup.fields, ...provenanceGroup.fields]
+    const provenanceGroup = SOURCE_GROUPS.find((g) => g.id === 'provenance')!;
+    const wgPaths = [...provenanceGroup.fields]
       .map((f) => f.path)
       .filter((p): p is string => Boolean(p));
     // exactly the declared set (no accidental additions/drops)
     expect(new Set(wgPaths)).toEqual(new Set(WG_GROUP_PATHS));
     // every field carries a frozen path (no transient/action fields here)
-    expect(wgPaths.length).toBe(decisionsGroup.fields.length + provenanceGroup.fields.length);
+    expect(wgPaths.length).toBe(provenanceGroup.fields.length);
     // none collide with the frozen legacy baseline
     expect(wgPaths.filter((p) => legacySet.has(p))).toEqual([]);
     // and they are all clientOnly (serverBucketFor → null): no backend routing
@@ -307,7 +421,7 @@ describe('control-center settings registry', () => {
   });
 
   it('(c6) the semantic-force controls are the shared JSON document, on the physics bucket', () => {
-    const motion = REGISTRY.find((g) => g.id === 'motion')!;
+    const motion = SOURCE_GROUPS.find((g) => g.id === 'motion')!;
     const byPath = new Map(motion.fields.map((f) => [f.path, f]));
     const rows = (semanticDoc as { fields: { path: string; kind: string; label: string; min?: number; max?: number; step?: number }[] }).fields;
     expect(rows).toHaveLength(35);
@@ -329,23 +443,47 @@ describe('control-center settings registry', () => {
     }
   });
 
-  it('(c5) the memory explorer paths sit in Atmosphere, disjoint from legacy, on the visual bucket', () => {
+  it('(c5) the memory explorer paths sit in Explore › Memory / Layers › Memory cloud, disjoint from legacy, on the visual bucket', () => {
     const legacySet = new Set(legacyPaths());
-    const atmosphereGroup = REGISTRY.find((g) => g.id === 'atmosphere')!;
-    const atmospherePaths = new Set(atmosphereGroup.fields.map((f) => f.path));
+    const sections = REGISTRY.filter((g) => g.id === 'explore' || g.id === 'layers');
+    const atmospherePaths = new Set(sections.flatMap((g) => g.fields.filter((f) => f.subgroup === 'Memory' || f.subgroup === 'Memory cloud')).map((f) => f.path));
     for (const p of MEMORY_EXPLORER_PATHS) expect(atmospherePaths.has(p)).toBe(true);
     expect(MEMORY_EXPLORER_PATHS.filter((p) => legacySet.has(p))).toEqual([]);
     for (const p of MEMORY_EXPLORER_PATHS) expect(serverBucketFor(p)).toBe('visual');
   });
 
-  it('(c6b) the stream settings sit in System > Network on the physics bucket with the validated ranges', () => {
+  it('(c7) the graph-view paths are exactly the Graph View group, disjoint from legacy, on the visual bucket', async () => {
+    const legacySet = new Set(legacyPaths());
+    const group = SOURCE_GROUPS.find((g) => g.id === 'graphView')!;
+    const paths = group.fields.map((f) => f.path).filter((p): p is string => Boolean(p));
+    expect(new Set(paths)).toEqual(new Set(GRAPH_VIEW_PATHS));
+    expect(paths.length).toBe(group.fields.length);
+    expect(GRAPH_VIEW_PATHS.filter((p) => legacySet.has(p))).toEqual([]);
+    for (const p of GRAPH_VIEW_PATHS) expect(serverBucketFor(p)).toBe('visual');
+    // every slider default sits on its step grid, so first touch never snaps it
+    const { DEFAULT_GRAPH_VIEW } = await import('../../../../api/settings/defaults');
+    for (const f of group.fields) {
+      const key = f.path!.replace('visualisation.graphView.', '');
+      const value = key.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown>)[k], DEFAULT_GRAPH_VIEW);
+      expect(value, key).toBeDefined();
+      if (f.type === 'slider') {
+        const steps = ((value as number) - f.min!) / f.step!;
+        expect(Math.abs(Math.round(steps) - steps), key).toBeLessThan(1e-6);
+        expect(value as number).toBeGreaterThanOrEqual(f.min!);
+        expect(value as number).toBeLessThanOrEqual(f.max!);
+      }
+      if (f.type === 'select') expect(f.options, key).toContain(value);
+    }
+  });
+
+  it('(c6b) the stream settings sit in System › Connection on the physics bucket with the validated ranges', () => {
     const legacySet = new Set(legacyPaths());
     const systemGroup = REGISTRY.find((g) => g.id === 'system')!;
     const byPath = (p: string) => systemGroup.fields.find((f) => f.path === p)!;
     const [chunk, thr, timeout] = NETWORK_PATHS.map(byPath);
     for (const f of [chunk, thr, timeout]) {
       expect(f).toBeDefined();
-      expect(f.subgroup).toBe('Network');
+      expect(f.subgroup).toBe('Connection');
       expect(f.type).toBe('slider');
     }
     // the same ranges the server validates (physics_bounds::STREAM_*)
@@ -401,7 +539,6 @@ describe('control-center settings registry', () => {
   const OFF_GRID_WHITELIST = new Set<string>([
     'visualisation.graphs.knowledge.physics.maxForce',            // (2000-1)/5     = 399.8
     'visualisation.graphs.knowledge.physics.constraintMaxForcePerNode', // (2000-1)/5 = 399.8
-    'perplexity.maxTokens',                                    // (4096-100)/100 = 39.96
   ]);
 
   it('(h) every slider range is a whole number of steps (no step-grid drift)', () => {
@@ -421,15 +558,10 @@ describe('control-center settings registry', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('(i) the defect-3 sliders now land exactly on their step grid', () => {
-    const maxNodeCount = ALL_FIELDS.find((f) => f.path === 'qualityGates.maxNodeCount')!;
-    expect(((maxNodeCount.max! - maxNodeCount.min!) / maxNodeCount.step!)).toBe(100);
-
-    const outline = ALL_FIELDS.find((f) => f.path === 'visualisation.graphs.knowledge.labels.textOutlineWidth')!;
-    expect(outline.step).toBe(0.0001);
-    // the 0.0074725277 stored default now snaps to 0.0075 (loss ~2.7e-5) not 0.007 (loss ~4.7e-4)
-    const snapped = Math.round(0.0074725277 / outline.step!) * outline.step!;
-    expect(Math.abs(snapped - 0.0074725277)).toBeLessThan(0.0001);
+  it('(i) the defect-3 sliders went with ADR-2189: nothing read them', () => {
+    // maxNodeCount was logged by the server and never enforced; the label outline was never drawn.
+    expect(ALL_PATHS).not.toContain('qualityGates.maxNodeCount');
+    expect(ALL_PATHS).not.toContain('visualisation.graphs.knowledge.labels.textOutlineWidth');
   });
 
   it('(j) there is no separation control: the three bodies are always apart (ADR-2135, 2026-10-08)', () => {

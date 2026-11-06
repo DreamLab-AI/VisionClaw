@@ -1,0 +1,131 @@
+import { describe, it, expect } from 'vitest';
+import * as THREE from 'three';
+import { NodePositionTexture, texelOf, POSITION_TEX_WIDTH } from '../nodePositionTexture';
+import { LabelBudgetRunner } from '../labelRunner';
+import { LABEL_REFRESH_MS, TIER_SELECTION } from '../labelBudget';
+import { selectCloseTubes } from '../../components/GlassEdges';
+import { resolveInferredPairs } from '../../components/InferredEdges';
+import { resolveGraphView } from '../OverviewLayer';
+import { HIGHLIGHT_FILTERED_OUT, HIGHLIGHT_SELECTED, highlightMask } from '../../state/highlightMask';
+import { sharedNodeIndexResolver } from '../../state/nodeIndex';
+import { DEFAULT_GRAPH_VIEW } from '../../../../api/settings/defaults';
+import type { Node as GraphNode } from '../../managers/graphDataManager';
+
+describe('NodePositionTexture (GPU node source)', () => {
+  it('packs xyz + highlight level per render index and uploads only on change', () => {
+    const t = new NodePositionTexture(4);
+    const pos = new Float32Array([1, 2, 3, 4, 5, 6]);
+    const mask = new Uint8Array([0, HIGHLIGHT_FILTERED_OUT]);
+    expect(t.update(pos, 2, mask, 1)).toBe(true);
+    expect(t.slot(0)).toEqual([1, 2, 3, 1]);
+    expect(t.slot(1)).toEqual([4, 5, 6, 0]);
+    const v = t.version;
+    // settled: same positions, same mask version → no upload
+    expect(t.update(pos, 2, mask, 1)).toBe(false);
+    expect(t.version).toBe(v);
+    // mask changed
+    mask[1] = HIGHLIGHT_SELECTED;
+    expect(t.update(pos, 2, mask, 2)).toBe(true);
+    expect(t.slot(1)[3]).toBe(2);
+    // positions changed in place
+    pos[0] = 9;
+    expect(t.update(pos, 2, mask, 2)).toBe(true);
+    expect(t.slot(0)[0]).toBe(9);
+    t.dispose();
+  });
+
+  it('grows past one row and tells its users to rebind', () => {
+    const t = new NodePositionTexture(1);
+    let rebinds = 0;
+    t.onReallocate(() => { rebinds++; });
+    const n = POSITION_TEX_WIDTH + 5;
+    t.update(new Float32Array(n * 3), n, new Uint8Array(n), 1);
+    expect(rebinds).toBe(1);
+    expect(t.height).toBeGreaterThanOrEqual(2);
+    expect(texelOf(POSITION_TEX_WIDTH + 1)).toEqual([1, 1]);
+    t.dispose();
+  });
+});
+
+describe('glass tubes as close-zoom LOD (ADR-2181 D3)', () => {
+  // 4 edges along x, endpoints at x = 10k and 10k + 1
+  const pts = [0, 1, 2, 3].flatMap((k) => [10 * k, 0, 0, 10 * k + 1, 0, 0]);
+  it('keeps only edges with an endpoint within the distance, nearest first, within the budget', () => {
+    const out = new Int32Array(8), d = new Float32Array(8);
+    expect(selectCloseTubes(pts, 4, 0, 0, 0, 12, 10, out, d)).toBe(2);
+    expect(Array.from(out.slice(0, 2))).toEqual([0, 1]);
+    expect(selectCloseTubes(pts, 4, 31, 0, 0, 100, 2, out, d)).toBe(2);
+    expect(Array.from(out.slice(0, 2)).sort()).toEqual([2, 3]);
+  });
+  it('distance 0 (glassAtCloseZoom off) draws no tubes', () => {
+    expect(selectCloseTubes(pts, 4, 0, 0, 0, 0, 10, new Int32Array(8), new Float32Array(8))).toBe(0);
+  });
+});
+
+describe('inferred edges on the overview path', () => {
+  it('resolves to render-index pairs and drops unmapped endpoints', () => {
+    const map = new Map([['a', 0], ['b', 5]]);
+    const r = resolveInferredPairs([{ sourceId: 'a', targetId: 'b' }, { sourceId: 'a', targetId: 'zzz' }], map);
+    expect(r.count).toBe(1);
+    expect([r.src[0], r.tgt[0]]).toEqual([0, 5]);
+  });
+});
+
+describe('resolveGraphView', () => {
+  it('layers stored values over the shipped defaults', () => {
+    const gv = resolveGraphView({ nodes: { bloomScope: 'off' } as never });
+    expect(gv.nodes.bloomScope).toBe('off');
+    expect(gv.nodes.gemLodDistance).toBe(DEFAULT_GRAPH_VIEW.nodes.gemLodDistance);
+    expect(gv.overviewEdges).toEqual(DEFAULT_GRAPH_VIEW.overviewEdges);
+    expect(gv.fitTarget).toBe('knowledge');
+  });
+});
+
+describe('LabelBudgetRunner (shared by both label paths)', () => {
+  const nodes = Array.from({ length: 6 }, (_, i) => ({ id: String(i), label: `n${i}`, position: { x: 0, y: 0, z: 0 } }) as unknown as GraphNode);
+  const map = new Map(nodes.map((n, i) => [String(n.id), i]));
+  const cc = new Map(nodes.map((n, i) => [String(n.id), i])); // node 5 has the highest degree
+  // spread along x so nothing collides
+  const positions = new Float32Array(nodes.flatMap((_, i) => [(i - 2.5) * 30, 0, 0]));
+  const cam = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+  cam.position.set(0, 0, 200);
+  cam.lookAt(0, 0, 0);
+  cam.updateMatrixWorld();
+  cam.updateProjectionMatrix();
+
+  it('ranks by degree without centrality, within the budget', () => {
+    const r = new LabelBudgetRunner();
+    const sel = r.run(0, nodes, map, cc, positions, cam, { width: 1000, height: 1000 }, { budget: 2, dynamicBudget: 1, selectedBudget: 0 }, 13);
+    expect(r.prioritySource).toBe('degree');
+    expect(Array.from(sel.nodes.slice(0, sel.count))).toEqual([5, 4, 3]);
+  });
+
+  it('runs at the label cadence and on camera stop, not per frame', () => {
+    const r = new LabelBudgetRunner();
+    expect(r.due(0, false)).toBe(true);
+    r.run(0, nodes, map, cc, positions, cam, { width: 1000, height: 1000 }, { budget: 1, dynamicBudget: 0, selectedBudget: 0 }, 13);
+    expect(r.due(16, false)).toBe(false);
+    expect(r.due(32, true)).toBe(false); // moving
+    expect(r.due(48, false)).toBe(true); // just stopped
+    r.run(48, nodes, map, cc, positions, cam, { width: 1000, height: 1000 }, { budget: 1, dynamicBudget: 0, selectedBudget: 0 }, 13);
+    expect(r.due(48 + LABEL_REFRESH_MS - 1, false)).toBe(false);
+    expect(r.due(48 + LABEL_REFRESH_MS, false)).toBe(true);
+  });
+
+  it('reads the shared highlight mask: selected first, greyed excluded', () => {
+    // the runner reads the shared mask: point it at this test's index, then restore
+    highlightMask.setIndexResolver(() => map);
+    highlightMask.batch(() => {
+      highlightMask.setEmphasis('test:sel', HIGHLIGHT_SELECTED, ['0']);
+      highlightMask.setFilter('test:f', ['5'], 'exclude');
+    });
+    const r = new LabelBudgetRunner();
+    const sel = r.run(0, nodes, map, cc, positions, cam, { width: 1000, height: 1000 }, { budget: 2, dynamicBudget: 0, selectedBudget: 1 }, 13);
+    const got = Array.from(sel.nodes.slice(0, sel.count));
+    expect(got[0]).toBe(0);
+    expect(sel.tiers[0]).toBe(TIER_SELECTION);
+    expect(got).not.toContain(5);
+    highlightMask.clearAll();
+    highlightMask.setIndexResolver(sharedNodeIndexResolver);
+  });
+});

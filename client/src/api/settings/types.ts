@@ -142,15 +142,15 @@ export interface QualityGateSettings {
   ontologyPhysics: boolean;
   /** @deprecated Read-only echo of `physics.layoutMode` in the legacy quality-gate vocabulary. */
   layoutMode: 'force-directed' | 'dag-topdown' | 'dag-radial' | 'dag-leftright' | 'type-clustering' | 'spectral' | 'clustered';
-  showClusters: boolean;
+  /** @deprecated ADR-2189: merged into colour scheme = Cluster. */
+  showClusters?: boolean;
   showAnomalies: boolean;
-  showCommunities: boolean;
+  /** @deprecated ADR-2189: merged into colour scheme = Community. */
+  showCommunities?: boolean;
   showCentrality: boolean;
   showSSSP: boolean;
   ruvectorEnabled: boolean;
-  gnnPhysics: boolean;
   minFpsThreshold: number;
-  maxNodeCount: number;
   autoAdjust: boolean;
   ontologyStrength: number;
 }

@@ -6,33 +6,33 @@
  * zero-drift test proves this set equals the legacy unifiedSettingsConfig.ts set.
  */
 import type { LucideIcon } from 'lucide-react';
-// @ts-ignore - Atom/Glasses exist in lucide-react but their type exports lag the runtime.
-import { Atom, Glasses } from 'lucide-react';
-import { Palette, Type, SlidersHorizontal, Sparkles, Bot, Settings2, Network, GitBranch, ShieldCheck } from 'lucide-react';
+// @ts-ignore - Atom exists in lucide-react but its type export lags the runtime.
+import { Atom } from 'lucide-react';
+import { Layers, Compass, Palette, Sparkles, Network, Settings2 } from 'lucide-react';
 import type { RegistryGroup, RegistryField } from './types';
-import { GROUP_DATA, testIdFor } from './manifest';
+import { GROUP_DATA, SECTION_DATA, testIdFor } from './manifest';
 
-const GROUP_ICONS: Record<string, LucideIcon> = {
-  motion: Atom,
-  look: Palette,
-  labels: Type,
-  quality: SlidersHorizontal,
-  atmosphere: Sparkles,
-  xr: Glasses,
-  ai: Bot,
-  system: Settings2,
+const SECTION_ICONS: Record<string, LucideIcon> = {
+  layers: Layers,
+  explore: Compass,
+  encode: Palette,
+  layout: Atom,
+  look: Sparkles,
   agents: Network,
-  decisions: GitBranch,
-  provenance: ShieldCheck,
+  system: Settings2,
 };
 
-/** The eleven semantic groups (icons attached), in rail order. */
-export const REGISTRY: RegistryGroup[] = GROUP_DATA.map((g) => ({
+/**
+ * The seven ADR-2189 sections (icons attached), in rail order: these are what
+ * the rail, the dock and hotkeys 1..7 open. Each field's `subgroup` is its
+ * subsection and `sourceGroup` the group file that declares it.
+ */
+export const REGISTRY: RegistryGroup[] = SECTION_DATA.map((g) => ({
   ...g,
-  icon: GROUP_ICONS[g.id],
+  icon: SECTION_ICONS[g.id],
 }));
 
-/** Flat list of every field across all groups. */
+/** Flat list of every field across all sections. */
 export const ALL_FIELDS: RegistryField[] = REGISTRY.flatMap((g) => g.fields);
 
 /** Every FROZEN backend path (excludes transient localKey/action fields). */
@@ -40,11 +40,14 @@ export const ALL_PATHS: string[] = ALL_FIELDS
   .map((f) => f.path)
   .filter((p): p is string => Boolean(p));
 
-/** Look up a group by id. */
+/** Look up a section by id. */
 export const GROUP_BY_ID: Record<string, RegistryGroup> = Object.fromEntries(
   REGISTRY.map((g) => [g.id, g]),
 );
 
+/** The source groups (declaration files), for tests and tooling. */
+export const SOURCE_GROUPS = GROUP_DATA;
+
 export { testIdFor };
-export { GROUP_DATA, PANELS, serverBucketFor, buildManifest } from './manifest';
-export type { RegistryGroup, RegistryField, MacroDef, ManifestEntry, GroupData, ControlType } from './types';
+export { GROUP_DATA, SECTION_DATA, PANELS, serverBucketFor, scopeFor, scopeForField, buildManifest, buildIa, SCOPE_TEXT } from './manifest';
+export type { RegistryGroup, RegistryField, MacroDef, ManifestEntry, GroupData, ControlType, SettingScope } from './types';
