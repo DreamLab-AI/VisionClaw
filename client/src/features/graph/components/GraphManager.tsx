@@ -563,7 +563,6 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   const defaultEdgeSettings: EdgeSettings = {
     arrowSize: 0.5,
     baseWidth: 0.1,
-    color: '#FF5722',
     enableArrows: true,
     opacity: 0.15,
     widthRange: [0.1, 0.3],
@@ -716,9 +715,8 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
             : graphMode === 'ontology'
             ? settings?.visualisation?.graphTypeVisuals?.ontology?.edgeColor
             : graphMode === 'agent'
-            // ADR-2189 merge B. edgeColor on the agent visuals is typed on
-            // feat/gv-menus; drop this cast once that branch is merged.
-            ? (settings?.visualisation?.graphTypeVisuals?.agent as { edgeColor?: string } | undefined)?.edgeColor
+            // ADR-2189 merge B: one edge colour per graph mode.
+            ? settings?.visualisation?.graphTypeVisuals?.agent?.edgeColor
             : undefined
         }
       />

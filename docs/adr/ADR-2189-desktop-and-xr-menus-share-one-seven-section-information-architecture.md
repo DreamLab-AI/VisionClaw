@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 9b63f6a697ddcc197f9efd5f586c643ee2184d38
+verified_commit: 84a4744ef8b7abdb39853e61cc782009d8b7ef4e
 verified_paths: [client/src/features/control-center/registry/placement.ts, client/src/features/control-center/registry/manifest.ts, client/src/features/control-center/registry/ia.json, xr-client/data/ia.json, client/src/store/settings/retiredPaths.ts, client/src/features/control-center/state/settingWrites.ts, client/src/features/control-center/integrationSlots.ts, client/src/features/control-center/drawer/RightDrawer.tsx, client/src/features/control-center/macros/MacroBar.tsx]
 relates: [ADR-2179, ADR-2180, ADR-2181, ADR-2182, ADR-2183, ADR-2184, ADR-2185, ADR-2186, ADR-2187, ADR-2188]
 owner: jjohare
@@ -15,7 +15,7 @@ review_trigger: "The render and explore lanes land the ADR-2180..2186 settings; 
 repo: visionclaw
 domain: XR-client
 evidence_class: source+test
-acceptance_boundary: "Accepted on operator instruction on 2026-11-06. Desktop implemented and verified by tsc, the full Vitest suite (185 files, 1770 tests), vite build, narrow cargo tests for the three removed server fields, and elementsFromPoint probes of a worktree dev build at 1280x900 and 1024x768 (0 occluded or off-screen controls, against 7 and 12 before; 0 of 31 at 1024x768 with a section open; 0 with the memory cloud on across the explore, memory and node drawer tabs at both sizes). The XR HUD is not built. Every server bucket is stored under a constant key, so server-saved settings reach every viewer; the UI says so. The render and explore lanes are merged and wired (requestFit, OverviewEdgeNotice, ExplorePanel, GraphLegend, clearAllFilters, useActiveFilterCount, hideFiltered)."
+acceptance_boundary: "Accepted on operator instruction on 2026-11-06. Desktop implemented and verified by tsc, the full Vitest suite (188 files, 1795 tests), vite build, narrow cargo tests for the three removed server fields, and elementsFromPoint probes of a worktree dev build at 1280x900 and 1024x768 (0 occluded or off-screen controls, against 7 and 12 before; 0 of 31 at 1024x768 with a section open; 0 with the memory cloud on across the explore, memory and node drawer tabs at both sizes). The XR HUD is not built. Every server bucket is stored under a constant key, so server-saved settings reach every viewer; the UI says so. The render and explore lanes are merged and wired (requestFit, OverviewEdgeNotice, ExplorePanel, GraphLegend, clearAllFilters, useActiveFilterCount, hideFiltered)."
 ---
 
 # ADR-2189 — Desktop and XR menus share one seven-section information architecture
@@ -312,7 +312,6 @@ Desktop built on `feat/gv-menus` (rebased onto the integration branch; final wir
 
 **Not built yet**
 - The XR HUD reading `ia.json`, its GUT parity test, and persisting the XR view preferences.
-- The render lane's deletion of the reads listed under "Merges" below (GemNodes, ClusterHulls, GraphManager, GlassEdges). Until then the retired fields stay in the client types as optional `@deprecated`; their stored values are already stripped.
 - §5 filter behaviour: built by gv-explore. Filters grey out by default, and Explore › Filters › "Hide filtered nodes" (`graphView.explore.hideFiltered`) removes them instead. The older server-side node filter stays, labelled "Filter on server (hides nodes for every viewer)".
 - §4 warnings region: the voice-support warning became a dot on the Status chip and a note in its flyout, not a top-centre overlay (at 1024 px a top-centre warning covered the settings panel header). Toasts are transient and sit at the top centre.
 
@@ -342,4 +341,5 @@ Desktop built on `feat/gv-menus` (rebased onto the integration branch; final wir
   - `qualityGates.showClusters` and `showCommunities` coloured nothing. They are retired, and Encode › Colour by = Cluster / Community (`graphView.explore.colorBy`, ADR-2184) is the control. The Ask box's "show clusters" now sets Colour by = Cluster. The colour scheme keeps its own Cluster and Community options, but GemNodes skips knowledge nodes for them (`GemNodes.tsx:576,582`), so Colour by is the one that works on the whole graph.
   - `showClusters` defaulted to on, which alone kept analytics ingestion running. The ingestion gate in `nodeAnalyticsStore.ts` now names the real consumers (the ADR-2186 label budget and ADR-2184 explore columns), with a test.
   - The renderer reads to delete went to gv-render as file:line lists: GemNodes.tsx:707-708 and :950, ClusterHulls.tsx:222-226, GraphManager.tsx:713-719 (agent branch), GlassEdges.tsx:349/389/396/415/449/459, GlassEdgeMaterial.ts:127.
+  - gv-render removed those reads in `f6ab77deb`. The retired fields then left the client types and the eager-load path list (`84a4744ef`).
 
