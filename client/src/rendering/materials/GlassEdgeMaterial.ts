@@ -124,7 +124,7 @@ export function createGlassEdgeMaterial(baseColor?: string | THREE.Color): Glass
       const augmented = material as unknown as TSLNodeProperties;
       augmented.emissiveNode = emissiveNode;
       augmented.opacityNode = opacityNode;
-      // No colorNode: let material.color (driven by edges.color via GlassEdges)
+      // No colorNode: let material.color (driven by graphTypeVisuals.<mode>.edgeColor via GlassEdges colorOverride, ADR-2189)
       // flow through the standard PBR colour path instead of forcing white.
       augmented.needsUpdate = true;
       logger.info('TSL nodes enabled (r183+) — opacityNode bound to live materialOpacity');

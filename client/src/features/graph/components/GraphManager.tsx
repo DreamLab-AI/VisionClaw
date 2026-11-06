@@ -715,6 +715,10 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
             ? settings?.visualisation?.graphTypeVisuals?.knowledgeGraph?.edgeColor
             : graphMode === 'ontology'
             ? settings?.visualisation?.graphTypeVisuals?.ontology?.edgeColor
+            : graphMode === 'agent'
+            // ADR-2189 merge B. edgeColor on the agent visuals is typed on
+            // feat/gv-menus; drop this cast once that branch is merged.
+            ? (settings?.visualisation?.graphTypeVisuals?.agent as { edgeColor?: string } | undefined)?.edgeColor
             : undefined
         }
       />
