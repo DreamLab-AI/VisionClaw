@@ -120,10 +120,11 @@ export const createCoreSlice: StateCreator<SettingsState, [], [], CoreSlice> = (
         const mergedRec = merged as Record<string, unknown>;
         const essRec = essentialSettings as Record<string, unknown>;
 
-        // A server bucket is one shared document for every viewer, so a value the
-        // server STORES wins over this browser's copy, which may predate another
-        // viewer's change. The exception is a change this browser made and could not
-        // save (settingsSyncStatus): that local value is the newer one.
+        // A value the server STORES wins over this browser's copy, which may predate a
+        // change made elsewhere (another viewer, another device or the assistant; the
+        // rule holds whether a bucket is global or per user). The exception is a change
+        // this browser made and could not save (settingsSyncStatus): that local value
+        // is the newer one.
         for (const path of collectPathsFromSettings(state.partialSettings)) {
           if (!storedOnServer.has(path) || !serverBucketForPath(path) || isUnsyncedPath(path)) continue;
           const serverValue = getValueFromPathLocal(essRec, path);
