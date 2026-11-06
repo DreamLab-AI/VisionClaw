@@ -63,3 +63,57 @@ export function webglProgramFailure(gl: unknown, material: THREE.Material): stri
   if (!d || d.runnable) return null;
   return (d.programLog || d.vertexShader?.log || d.fragmentShader?.log || 'shader failed to compile').trim().slice(0, 200);
 }
+
+// --- WebGPU pipeline failures ------------------------------------------------
+//
+// On real WebGPU a WGSL compile or pipeline validation failure does not throw
+// inside renderObject: three logs it through its console hook as
+// "WebGPURenderer: … render pipeline creation failed (renderPipeline_<material
+// name>_<material id>): …" and then silently skips every draw with that
+// pipeline (WebGPUBackend.draw: pipelineData.error). The watch below routes
+// those messages to a per-material handler so such a layer is not reported
+// live while drawing nothing. A pipeline failure is permanent, so it fires at
+// once (no debounce).
+
+const pipelineHandlers = new Map<number, RenderFaultHandler>();
+const PIPELINE_LABEL = /renderPipeline_[^()\s]*?_(\d+)\)/;
+
+/** Register (or with null, clear) a handler for pipeline failures of `material`. */
+export function onPipelineError(material: THREE.Material, handler: RenderFaultHandler | null): void {
+  if (handler) pipelineHandlers.set(material.id, handler);
+  else pipelineHandlers.delete(material.id);
+}
+
+/** Route one three console message; returns true when it was a watched pipeline failure. */
+export function routePipelineMessage(type: string, message: unknown): boolean {
+  if (type !== 'error' || typeof message !== 'string') return false;
+  const m = PIPELINE_LABEL.exec(message);
+  if (!m) return false;
+  const h = pipelineHandlers.get(Number(m[1]));
+  if (!h) return false;
+  try { h(new Error(message)); } catch { /* never break three's logging */ }
+  return true;
+}
+
+type ConsoleFn = (type: string, message: string, ...params: unknown[]) => void;
+let watchInstalled = false;
+
+/**
+ * Chain onto three's console hook (setConsoleFunction): watched pipeline
+ * failures go to their handlers, and every message still reaches the previous
+ * hook or the browser console. Idempotent.
+ */
+export function installPipelineErrorWatch(
+  setConsoleFunction: (fn: ConsoleFn) => void,
+  getConsoleFunction: () => ConsoleFn | null,
+): void {
+  if (watchInstalled) return;
+  watchInstalled = true;
+  const prev = getConsoleFunction();
+  setConsoleFunction((type, message, ...params) => {
+    routePipelineMessage(type, message);
+    if (prev) { prev(type, message, ...params); return; }
+    const c = console as unknown as Record<string, (...a: unknown[]) => void>;
+    (c[type] ?? console.log)(message, ...params);
+  });
+}

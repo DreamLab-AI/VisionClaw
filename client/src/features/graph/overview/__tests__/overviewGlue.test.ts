@@ -171,3 +171,28 @@ describe('render faults need repeated throws (the guard absorbs transients)', ()
     expect(seen).toHaveLength(1);
   });
 });
+
+describe('WebGPU pipeline failures reach the fault path (they never throw)', () => {
+  it('routes three\'s pipeline error by material id and chains the console hook', async () => {
+    const { onPipelineError, routePipelineMessage, installPipelineErrorWatch } = await import('../../../../rendering/renderFaults');
+    const mat = new THREE.MeshBasicMaterial();
+    const seen: string[] = [];
+    onPipelineError(mat, (e) => seen.push(String((e as Error).message)));
+    const msg = `THREE.WebGPURenderer: Async render pipeline creation failed (renderPipeline_OverviewNodeNodeMaterial_${mat.id}): bad WGSL`;
+    expect(routePipelineMessage('warn', msg)).toBe(false);
+    expect(routePipelineMessage('error', msg.replace(`_${mat.id})`, `_${mat.id + 1000})`))).toBe(false);
+    expect(routePipelineMessage('error', msg)).toBe(true);
+    expect(seen).toHaveLength(1);
+
+    let hook: ((t: string, m: string, ...p: unknown[]) => void) | null = null;
+    const forwarded: string[] = [];
+    const prev = (t: string, m: string) => { forwarded.push(`${t}:${m}`); };
+    installPipelineErrorWatch((fn) => { hook = fn; }, () => prev);
+    hook!('error', msg);
+    hook!('log', 'THREE.hello');
+    expect(seen).toHaveLength(2);
+    expect(forwarded).toEqual([`error:${msg}`, 'log:THREE.hello']);
+    onPipelineError(mat, null);
+    expect(routePipelineMessage('error', msg)).toBe(false);
+  });
+});

@@ -6,7 +6,7 @@ import { isWebGPURenderer } from '../../../rendering/rendererFactory';
 import { createGlyphAtlas, type GlyphAtlasResult } from '../../../rendering/text/GlyphAtlas';
 import { layoutText, layoutTextInline, type GlyphInstance } from '../../../rendering/text/textLayout';
 import { createTextMaterial, createTextUniforms, createTslTextMaterial, type TextMaterialResult } from '../../../rendering/text/createTextMaterial';
-import { debounceFault, onRenderFault } from '../../../rendering/renderFaults';
+import { debounceFault, onPipelineError, onRenderFault } from '../../../rendering/renderFaults';
 import { computeOcclusionMask, type OcclusionCandidate } from '../../../rendering/text/labelOcclusion';
 import type { Node as GraphNode } from '../managers/graphDataManager';
 import type { GraphVisualMode } from '../hooks/useGraphVisualState';
@@ -617,12 +617,15 @@ const InstancedLabelsGlyph: React.FC<GlyphProps> = ({
   React.useEffect(() => {
     const mesh = meshRef.current;
     if (!mesh || glslMaterial) return;
-    onRenderFault(mesh, debounceFault((err) => {
+    const fault = (err: unknown) => {
       mesh.visible = false;
       console.warn('[InstancedLabels] glyph draw faulted; using the budgeted DOM fallback:', err);
       onStatusRef.current('failed');
-    }));
-    return () => onRenderFault(mesh, null);
+    };
+    onRenderFault(mesh, debounceFault(fault));
+    const mat = mesh.material as THREE.Material;
+    onPipelineError(mat, fault);
+    return () => { onRenderFault(mesh, null); onPipelineError(mat, null); };
   }, [material, glslMaterial]);
 
   // Priority 0 (default): runs after GraphManager (-2) and GemNodes (-1),
