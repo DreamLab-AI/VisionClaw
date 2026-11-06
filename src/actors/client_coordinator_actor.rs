@@ -51,6 +51,63 @@ pub struct ClientState {
     pub stream: ClientStream,
 }
 
+/// The graph a `filter_update` reply carries for one client: the visibility gate for that
+/// client's identity first (the same `visible_subgraph` the `/wss` initial load and the REST
+/// graph reads use, so private nodes not owned by the caller, their edges and their names in
+/// visible metadata never leave), then the client's own node filter over that view.
+pub(crate) fn filter_update_reply(
+    filter: &mut ClientFilter,
+    graph_data: &std::sync::Arc<visionclaw_domain::models::graph::GraphData>,
+    caller_pubkey: Option<&str>,
+    visibility_filter_on: bool,
+) -> (
+    Vec<crate::utils::socket_flow_messages::InitialNodeData>,
+    Vec<crate::utils::socket_flow_messages::InitialEdgeData>,
+) {
+    use crate::utils::socket_flow_messages::{InitialEdgeData, InitialNodeData};
+    let view = visionclaw_domain::utils::visibility_filter::visible_subgraph(
+        graph_data,
+        caller_pubkey,
+        visibility_filter_on,
+    );
+    crate::actors::client_filter::recompute_filtered_nodes(filter, &view);
+    let allowed = &filter.filtered_node_ids;
+    let nodes = view
+        .nodes
+        .iter()
+        .filter(|n| allowed.contains(&n.id))
+        .map(|node| InitialNodeData {
+            id: node.id,
+            metadata_id: node.metadata_id.clone(),
+            label: node.label.clone(),
+            x: node.data.x,
+            y: node.data.y,
+            z: node.data.z,
+            vx: node.data.vx,
+            vy: node.data.vy,
+            vz: node.data.vz,
+            owl_class_iri: node.owl_class_iri.clone(),
+            node_type: node.node_type.clone(),
+            did_nostr: node.metadata.get("did_nostr").cloned(),
+            metadata: node.metadata.clone(),
+        })
+        .collect();
+    let edges = view
+        .edges
+        .iter()
+        .filter(|e| allowed.contains(&e.source) && allowed.contains(&e.target))
+        .map(|edge| InitialEdgeData {
+            id: edge.id.clone(),
+            source_id: edge.source,
+            target_id: edge.target,
+            weight: Some(edge.weight),
+            edge_type: edge.edge_type.clone(),
+            inferred: crate::services::inferred_edge_materialiser::edge_is_inferred(edge),
+        })
+        .collect();
+    (nodes, edges)
+}
+
 /// Per-client filter settings for graph visibility
 #[derive(Debug, Clone)]
 pub struct ClientFilter {
@@ -1583,61 +1640,18 @@ impl Handler<UpdateClientFilter> for ClientCoordinatorActor {
 
                 ctx.spawn(actix::fut::wrap_future::<_, Self>(async move {
                     use crate::actors::messages::GetGraphData;
-                    use crate::utils::socket_flow_messages::{InitialNodeData, InitialEdgeData};
-
                     match graph_addr.send(GetGraphData).await {
                         Ok(Ok(graph_data)) => {
                             if let Ok(mut manager) = manager_arc.write() {
                                 if let Some(client) = manager.get_client_mut(client_id) {
-                                    // Recompute which nodes pass the filter
-                                    crate::actors::client_filter::recompute_filtered_nodes(
+                                    let (filtered_nodes, filtered_edges) = filter_update_reply(
                                         &mut client.filter,
-                                        &graph_data
+                                        &graph_data,
+                                        client.pubkey.as_deref(),
+                                        visionclaw_domain::utils::visibility_filter::filter_enabled(),
                                     );
-
-                                    let filtered_count = client.filter.filtered_node_ids.len();
                                     info!("Recomputed filter for client {}: {} nodes visible",
-                                          client_id, filtered_count);
-
-                                    // Build filtered node data
-                                    let filtered_nodes: Vec<InitialNodeData> = graph_data
-                                        .nodes
-                                        .iter()
-                                        .filter(|n| client.filter.filtered_node_ids.contains(&n.id))
-                                        .map(|node| InitialNodeData {
-                                            id: node.id,
-                                            metadata_id: node.metadata_id.clone(),
-                                            label: node.label.clone(),
-                                            x: node.data.x,
-                                            y: node.data.y,
-                                            z: node.data.z,
-                                            vx: node.data.vx,
-                                            vy: node.data.vy,
-                                            vz: node.data.vz,
-                                            owl_class_iri: node.owl_class_iri.clone(),
-                                            node_type: node.node_type.clone(),
-                                            did_nostr: node.metadata.get("did_nostr").cloned(),
-                                            metadata: node.metadata.clone(),
-                                        })
-                                        .collect();
-
-                                    // Build filtered edge data (only edges where both endpoints pass filter)
-                                    let filtered_edges: Vec<InitialEdgeData> = graph_data
-                                        .edges
-                                        .iter()
-                                        .filter(|e| {
-                                            client.filter.filtered_node_ids.contains(&e.source) &&
-                                            client.filter.filtered_node_ids.contains(&e.target)
-                                        })
-                                        .map(|edge| InitialEdgeData {
-                                            id: edge.id.clone(),
-                                            source_id: edge.source,
-                                            target_id: edge.target,
-                                            weight: Some(edge.weight),
-                                            edge_type: edge.edge_type.clone(),
-                                            inferred: crate::services::inferred_edge_materialiser::edge_is_inferred(edge),
-                                        })
-                                        .collect();
+                                          client_id, client.filter.filtered_node_ids.len());
 
                                     info!("Sending filtered graph to client {}: {} nodes, {} edges",
                                           client_id, filtered_nodes.len(), filtered_edges.len());
@@ -1668,6 +1682,69 @@ impl Handler<UpdateClientFilter> for ClientCoordinatorActor {
 
 #[cfg(test)]
 mod tests {
+    /// Re-review finding (2026-11-06): a `filter_update` reply was built from the unfiltered
+    /// graph, so any desktop session (anonymous included) received private nodes. The reply must
+    /// match the `/wss` initial load for the same identity.
+    mod filter_update_visibility {
+        use super::super::{filter_update_reply, ClientFilter};
+        use std::collections::BTreeSet;
+        use std::sync::Arc;
+        use visionclaw_domain::models::edge::Edge;
+        use visionclaw_domain::models::graph::GraphData;
+        use visionclaw_domain::models::metadata::Metadata;
+        use visionclaw_domain::models::node::Node;
+
+        const OWNER_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const OTHER_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+        /// Node 1 public, node 2 private owned by A, node 3 private with no known owner.
+        fn fixture() -> Arc<GraphData> {
+            let mut public = Node::new_with_id("public.md".into(), Some(1));
+            public.metadata.insert("public".into(), "true".into());
+            let mut private_a = Node::new_with_id("private-a.md".into(), Some(2));
+            private_a.metadata.insert("owner_pubkey".into(), OWNER_A.into());
+            let unowned = Node::new_with_id("unowned.md".into(), Some(3));
+            let mut g = GraphData::new();
+            for n in [public, private_a, unowned] {
+                g.metadata.insert(
+                    n.metadata_id.clone(),
+                    Metadata { file_name: n.metadata_id.clone(), ..Metadata::default() },
+                );
+                g.nodes.push(n);
+            }
+            g.edges = vec![Edge::new(1, 2, 1.0), Edge::new(1, 3, 1.0), Edge::new(2, 3, 1.0)];
+            Arc::new(g)
+        }
+
+        fn reply_ids(pubkey: Option<&str>) -> (BTreeSet<u32>, BTreeSet<(u32, u32)>) {
+            let mut filter = ClientFilter::default();
+            let (nodes, edges) = filter_update_reply(&mut filter, &fixture(), pubkey, true);
+            (
+                nodes.iter().map(|n| n.id).collect(),
+                edges.iter().map(|e| (e.source_id, e.target_id)).collect(),
+            )
+        }
+
+        #[test]
+        fn anonymous_caller_gets_only_public_nodes() {
+            let (nodes, edges) = reply_ids(None);
+            assert_eq!(nodes, BTreeSet::from([1]));
+            assert!(edges.is_empty(), "no edge may touch a hidden node: {edges:?}");
+        }
+
+        #[test]
+        fn non_owner_gets_only_public_nodes() {
+            assert_eq!(reply_ids(Some(OTHER_B)).0, BTreeSet::from([1]));
+        }
+
+        #[test]
+        fn owner_also_gets_their_own_private_node() {
+            let (nodes, edges) = reply_ids(Some(OWNER_A));
+            assert_eq!(nodes, BTreeSet::from([1, 2]));
+            assert_eq!(edges, BTreeSet::from([(1, 2)]));
+        }
+    }
+
     use super::*;
 
     /// Records every text frame it is handed (stands in for a SocketFlowServer).
