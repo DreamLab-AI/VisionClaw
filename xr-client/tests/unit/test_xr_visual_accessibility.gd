@@ -15,12 +15,12 @@ func test_header_status_does_not_intersect_approval_badge() -> void:
 
 func test_active_tab_uses_shape_and_surface_as_well_as_text_colour() -> void:
 	var hud := await _hud()
-	for tab in hud.TAB_ORDER:
-		hud._show_tab(tab)
+	for tab in hud.section_ids():
+		hud._show_section(tab)
 		var active: Button = hud._tab_buttons[tab]
 		var active_box: StyleBoxFlat = active.get_theme_stylebox("normal")
 		assert_eq(active_box.border_width_bottom, 2, "selected tab has an explicit outline")
-		for other in hud.TAB_ORDER:
+		for other in hud.section_ids():
 			if other != tab:
 				var idle: Button = hud._tab_buttons[other]
 				assert_ne(active_box.bg_color, idle.get_theme_stylebox("normal").bg_color,

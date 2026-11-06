@@ -274,9 +274,10 @@ func test_hud_colour_and_hull_buttons_fire_on_press_and_fit() -> void:
 	add_child_autofree(hud)
 	await get_tree().process_frame
 	await get_tree().process_frame
-	var graph: Control = hud.get_node("%s/GraphPage" % TABS)
-	var colour := _find_button(graph, "Colour: Domain")
-	var hulls := _find_button(graph, "Hulls: Off")
+	# ADR-2189: colour is Encode › Colour & size, hulls Layers › Cluster hulls.
+	var colour := _find_button(hud.get_node("%s/EncodePage" % TABS), "Colour: Domain")
+	var hulls := _find_button(hud.get_node("%s/LayersPage" % TABS), "Hulls: Off")
+	var graph: Control = hud.get_node("%s/LayersPage" % TABS)
 	assert_not_null(colour)
 	assert_not_null(hulls)
 	assert_eq(colour.action_mode, BaseButton.ACTION_MODE_BUTTON_PRESS, "Invariant 4")
@@ -290,7 +291,7 @@ func test_hud_colour_and_hull_buttons_fire_on_press_and_fit() -> void:
 	assert_eq(colour.text, "Colour: Community")
 	assert_eq(hulls.text, "Hulls: Clusters (7)")
 	var host: Control = hud.get_node(TABS)
-	for page_name in ["GraphPage", "KeyPage"]:
+	for page_name in ["LayersPage", "EncodePage", "KeyPage"]:
 		var need: float = (hud.get_node("%s/%s" % [TABS, page_name]) as Control).get_combined_minimum_size().y
 		assert_lte(need, host.size.y + 1.0, "%s fits the page host (Invariant 5)" % page_name)
 

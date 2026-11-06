@@ -1,0 +1,103 @@
+{
+  "version": "1.0",
+  "adr": "ADR-2189",
+  "generatedFrom": "test fixture (schema of client/src/features/control-center/registry buildIa)",
+  "scopes": {
+    "shared": "Fixture shared text",
+    "server": "Fixture server",
+    "browser": "Fixture browser"
+  },
+  "sections": [
+    {
+      "id": "layers",
+      "label": "Layers",
+      "description": "",
+      "hotkey": "1",
+      "subsections": [
+        {
+          "label": "Sub layers",
+          "fields": [],
+          "panels": []
+        }
+      ]
+    },
+    {
+      "id": "explore",
+      "label": "Explore",
+      "description": "",
+      "hotkey": "2",
+      "subsections": [
+        {
+          "label": "Sub explore",
+          "fields": [],
+          "panels": []
+        }
+      ]
+    },
+    {
+      "id": "encode",
+      "label": "Encode",
+      "description": "",
+      "hotkey": "3",
+      "subsections": [
+        {
+          "label": "Sub encode",
+          "fields": [],
+          "panels": []
+        }
+      ]
+    },
+    {
+      "id": "layout",
+      "label": "Layout",
+      "description": "",
+      "hotkey": "4",
+      "subsections": [
+        {
+          "label": "Sub layout",
+          "fields": [],
+          "panels": []
+        }
+      ]
+    },
+    {
+      "id": "look",
+      "label": "Look",
+      "description": "",
+      "hotkey": "5",
+      "subsections": [
+        {
+          "label": "Sub look",
+          "fields": [],
+          "panels": []
+        }
+      ]
+    },
+    {
+      "id": "agents",
+      "label": "Agents & Governance",
+      "description": "",
+      "hotkey": "6",
+      "subsections": [
+        {
+          "label": "Sub agents",
+          "fields": [],
+          "panels": []
+        }
+      ]
+    },
+    {
+      "id": "system",
+      "label": "System",
+      "description": "",
+      "hotkey": "7",
+      "subsections": [
+        {
+          "label": "Sub system",
+          "fields": [],
+          "panels": []
+        }
+      ]
+    }
+  ]
+}

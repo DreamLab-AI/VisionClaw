@@ -1123,6 +1123,12 @@ var _edge_readout_total: int = -1
 var _px_per_rad: float = 0.0
 var _px_per_rad_accum: float = 1.0
 const PX_PER_RAD_SEC: float = 1.0
+# ADR-2189 headset view preferences (Encode › Labels, System › Headset), persisted
+# in xr_prefs.cfg and applied in _apply_view_prefs.
+var _label_budget: int = LabelBudget.DEFAULT_BUDGET
+var _label_text_scale: float = 1.0
+var _dwell_ms: int = 600
+var _haptics_on: bool = true
 var _impostors: MultiMeshInstance3D = null
 var _ribbons: MultiMeshInstance3D = null       # far-tier edge ribbons (edge LOD)
 # One FrameBudget pass (xr-cloud's frame_budget.rs) shared by the graph's near
@@ -1364,6 +1370,7 @@ func _ready() -> void:
 	_cycles_http.timeout = 10.0
 
 	_init_label_pool()
+	_apply_view_prefs()
 	_probe_eye_gaze()
 	_wire_hud()
 	_parity = GraphParityScript.new()
@@ -1894,7 +1901,7 @@ func _update_proximity_labels() -> void:
 		var cls: int = _vc_conn.class_of(id) if _vc_conn != null else -1
 		if cls >= 0 and not (overlay_mask & (1 << cls)):
 			continue
-		var cell: Variant = LabelBudget.cell_of(cam_xf, gxf * _binary_client.node_position(id))
+		var cell: Variant = LabelBudget.cell_of(cam_xf, gxf * _binary_client.node_position(id), LabelBudget.CELL_RAD * _label_text_scale)
 		if cell == null:
 			continue
 		cells[id] = cell
@@ -1913,7 +1920,7 @@ func _update_proximity_labels() -> void:
 		ranked.append_array(_binary_client.rank_labels(candidates))
 	else:
 		ranked.append_array(candidates)
-	var shown: PackedInt32Array = LabelBudget.select(pinned, ranked, LabelBudget.DEFAULT_BUDGET, cells)
+	var shown: PackedInt32Array = LabelBudget.select(pinned, ranked, _label_budget, cells)
 	var labelled: PackedInt32Array = PackedInt32Array()
 	for i: int in range(_label_pool.size()):
 		var anchor: Node3D = _label_pool[i]
@@ -1970,6 +1977,81 @@ func _update_proximity_labels() -> void:
 
 # ADR-2188 D4: query variables are the headset's search hits (SEARCH_HIT bit).
 # Polled at the label cadence; the writer calls Rust only when the set changes.
+## ADR-2189 headset-local controls: Fit (§3), the label budget and text size
+## (Encode › Labels), dwell and haptics (System › Headset; audit finding 13). Each
+## is persisted in xr_prefs.cfg. Returns whether `action` was one of them.
+func _handle_view_pref(action: String) -> bool:
+	match action:
+		"fit_view":
+			fit_focused_volume()
+		"label_budget_plus", "label_budget_minus":
+			_label_budget = LabelBudget.step_budget(_label_budget, action.ends_with("plus"))
+			XrPrefs.set_number(XrPrefs.KEY_LABEL_BUDGET, _label_budget)
+		"label_text_plus", "label_text_minus":
+			_label_text_scale = LabelBudget.step_text_scale(_label_text_scale, action.ends_with("plus"))
+			XrPrefs.set_number(XrPrefs.KEY_LABEL_TEXT_SCALE, _label_text_scale)
+			_apply_label_text_scale()
+		"dwell_plus", "dwell_minus":
+			_set_dwell(_dwell_ms + (100 if action.ends_with("plus") else -100))
+			XrPrefs.set_number(XrPrefs.KEY_DWELL_MS, _dwell_ms)
+		"haptics_toggle":
+			_haptics_on = not _haptics_on
+			XrPrefs.set_flag(XrPrefs.KEY_HAPTICS, _haptics_on)
+		_:
+			return false
+	_sync_view_pref_hud()
+	if action.begins_with("label_"):
+		_update_proximity_labels()
+	return true
+
+
+## Fit (ADR-2189 §3): drop the two-hand manual latch and refit the focused volume's
+## content to its box (the volume's own auto-fit). ADR-2180's fit scopes (focus body,
+## both graphs, whole scene) are not built in XR.
+func fit_focused_volume() -> void:
+	_manual_transform = false
+	_two_hand_active = false
+	var v: Node3D = _volumes.get(_focused_volume, null)
+	if v == null:
+		v = _volumes.get(OVERLAY_VOLUME, null)
+	if v != null and v.has_method("refit"):
+		v.refit()
+
+
+func _set_dwell(ms: int) -> void:
+	_dwell_ms = clampi(ms, 400, 800)
+	if _selection != null and _selection.has_method("set_dwell_ms"):
+		_dwell_ms = int(_selection.set_dwell_ms(_dwell_ms))
+
+
+func _apply_label_text_scale() -> void:
+	for anchor: Node3D in _label_pool:
+		var title: Label3D = anchor.get_node("Title")
+		var detail: Label3D = anchor.get_node("Detail")
+		title.pixel_size = LABEL_TITLE_PX * _label_text_scale
+		detail.pixel_size = LABEL_TITLE_PX * _label_text_scale
+		detail.position = Vector3(0.0, -LABEL_DETAIL_OFFSET_M * _label_text_scale, 0.0)
+
+
+## Read the stored ADR-2189 view preferences and apply them (boot).
+func _apply_view_prefs() -> void:
+	_label_budget = clampi(int(XrPrefs.get_number(XrPrefs.KEY_LABEL_BUDGET, LabelBudget.DEFAULT_BUDGET)), 0, LabelBudget.DEFAULT_BUDGET)
+	_label_text_scale = LabelBudget.snap_text_scale(XrPrefs.get_number(XrPrefs.KEY_LABEL_TEXT_SCALE, 1.0))
+	_set_dwell(int(XrPrefs.get_number(XrPrefs.KEY_DWELL_MS, 600)))
+	_haptics_on = XrPrefs.get_flag(XrPrefs.KEY_HAPTICS, true)
+	_apply_label_text_scale()
+	_sync_view_pref_hud()
+
+
+func _sync_view_pref_hud() -> void:
+	if hud == null:
+		return
+	if hud.has_method("set_label_controls"):
+		hud.set_label_controls(_label_budget, _label_text_scale)
+	if hud.has_method("set_headset_controls"):
+		hud.set_headset_controls(_dwell_ms, _haptics_on)
+
+
 func _sync_query_highlight() -> void:
 	if _vc_conn == null or _query == null:
 		return
@@ -2224,6 +2306,8 @@ func _on_hud_control(action: String) -> void:
 		return
 	if action == "cross_links_toggle":
 		_set_cross_links(not (_link_layer != null and _link_layer.is_enabled()))
+		return
+	if _handle_view_pref(action):
 		return
 	# The arrangement half of Reset Layout is local and runs for every focused
 	# volume; the physics half below is gated on the focused connection.
@@ -3827,6 +3911,8 @@ func _ensure_controller_rays() -> void:
 
 
 func _pulse(controller: XRController3D, amplitude: float, duration_sec: float) -> void:
+	if not _haptics_on:
+		return
 	if controller != null and controller.get_is_active():
 		controller.trigger_haptic_pulse("haptic", 0.0, amplitude, duration_sec, 0.0)
 

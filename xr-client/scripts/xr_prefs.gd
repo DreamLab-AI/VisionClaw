@@ -148,3 +148,47 @@ static func set_merged_splat_scale(mult: float) -> int:
 	var _ignored := cfg.load(path())
 	cfg.set_value(SECTION, KEY_MERGED_SCALE, mult)
 	return cfg.save(path())
+
+
+# --- ADR-2189 view preferences (headset-local; nothing here reads the desktop's
+# deleted xr.* settings) ------------------------------------------------------
+## Encode › Labels: the ranked label budget (ADR-2188 D5) and node-label text scale.
+const KEY_LABEL_BUDGET := "label_budget"
+const KEY_LABEL_TEXT_SCALE := "label_text_scale"
+## System › Headset: gaze-dwell time in ms (selection arbiter band 400–800) and haptics.
+const KEY_DWELL_MS := "dwell_ms"
+const KEY_HAPTICS := "haptics"
+
+
+## A stored number under `key`, else `fallback` (missing file, key or a non-number).
+static func get_number(key: String, fallback: float) -> float:
+	var cfg := ConfigFile.new()
+	if cfg.load(path()) == OK and cfg.has_section_key(SECTION, key):
+		var v: Variant = cfg.get_value(SECTION, key)
+		if typeof(v) == TYPE_INT or typeof(v) == TYPE_FLOAT:
+			return float(v)
+	return fallback
+
+
+static func set_number(key: String, value: float) -> int:
+	var cfg := ConfigFile.new()
+	var _ignored := cfg.load(path())
+	cfg.set_value(SECTION, key, value)
+	return cfg.save(path())
+
+
+## A stored boolean under `key`, else `fallback`.
+static func get_flag(key: String, fallback: bool) -> bool:
+	var cfg := ConfigFile.new()
+	if cfg.load(path()) == OK and cfg.has_section_key(SECTION, key):
+		var v: Variant = cfg.get_value(SECTION, key)
+		if typeof(v) == TYPE_BOOL:
+			return v
+	return fallback
+
+
+static func set_flag(key: String, on: bool) -> int:
+	var cfg := ConfigFile.new()
+	var _ignored := cfg.load(path())
+	cfg.set_value(SECTION, key, on)
+	return cfg.save(path())

@@ -152,6 +152,11 @@ func fit_into(content_aabb: AABB) -> void:
 		fit_changed.emit(volume_id, s, c)
 
 
+## Refit Content to the box on the next update (the HUD Fit button, ADR-2189 §3).
+func refit() -> void:
+	_refit_now = true
+
+
 ## The transform Content eases toward.
 func target_content_transform() -> Transform3D:
 	return _content_xform(_target_scale, _target_centre)
