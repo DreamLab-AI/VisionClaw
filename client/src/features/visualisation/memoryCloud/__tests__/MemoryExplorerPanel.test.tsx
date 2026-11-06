@@ -15,6 +15,7 @@ const h = vi.hoisted(() => ({
     },
   },
   set: vi.fn(),
+  writes: vi.fn(),
   postQuery: vi.fn(),
   fetchHealth: vi.fn(),
 }));
@@ -24,6 +25,11 @@ vi.mock('@/store/settingsStore', async () => {
   const store = create(() => ({ settings: h.settings, set: h.set }));
   return { useSettingsStore: store };
 });
+
+// ADR-2189: the panel writes through useSettingField's one write path.
+vi.mock('../../../control-center/state/settingWrites', () => ({
+  applySettingWrites: h.writes,
+}));
 
 vi.mock('../memoryCloudInstance', async () => {
   const { createMemoryCloudStore } = await import('../memoryCloudStore');
@@ -177,15 +183,25 @@ describe('MemoryExplorerPanel — explore', () => {
     expect(seen).toEqual([{ sampleIndex: -1, position: [5, 5, 5] }]);
   });
 
-  it('writes view and learning changes to settings so they persist', () => {
+  it('writes view and learning changes through the one settings write path (useSettingField)', () => {
     seed();
     render(<MemoryExplorerPanel />);
     fireEvent.click(screen.getByRole('button', { name: 'Hyper' }));
-    expect(h.set).toHaveBeenCalledWith('visualisation.embeddingCloud.trajectoryView', 'hyper');
+    expect(h.writes).toHaveBeenCalledWith([{ path: 'visualisation.embeddingCloud.trajectoryView', value: 'hyper' }]);
     fireEvent.click(screen.getByLabelText('Learn from queries'));
-    expect(h.set).toHaveBeenCalledWith('visualisation.embeddingCloud.learningEnabled', false);
+    expect(h.writes).toHaveBeenCalledWith([{ path: 'visualisation.embeddingCloud.learningEnabled', value: false }]);
     fireEvent.change(screen.getByLabelText('target recall'), { target: { value: '0.8' } });
-    expect(h.set).toHaveBeenCalledWith('visualisation.embeddingCloud.learningTargetRecall', 0.8);
+    expect(h.writes).toHaveBeenCalledWith([{ path: 'visualisation.embeddingCloud.learningTargetRecall', value: 0.8 }]);
+    // never the old bespoke store.set
+    expect(h.set).not.toHaveBeenCalled();
+  });
+
+  it('embedded in the drawer it drops its own title and collapse button', () => {
+    seed();
+    render(<MemoryExplorerPanel embedded />);
+    expect(screen.queryByText('Memory explorer')).toBeNull();
+    expect(screen.queryByRole('button', { name: /collapse explorer/i })).toBeNull();
+    expect(screen.getByRole('tab', { name: 'Browse' })).toBeInTheDocument();
   });
 
   it('reset learning resets the engine', () => {

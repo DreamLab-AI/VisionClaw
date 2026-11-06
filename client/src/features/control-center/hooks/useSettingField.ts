@@ -53,6 +53,27 @@ export function useSettingField<T = unknown>(path: string): [T | undefined, Sett
 }
 
 /** Read-only variant for fields that never write (e.g. renderer capabilities). */
+/**
+ * useSettingField for a settings object: the value at `prefix`, and a setter for
+ * one key under it. Writes go through the same single write path as
+ * useSettingField (applySettingWrites), so a surface that edits several sibling
+ * fields (the Memory explorer's `visualisation.embeddingCloud.*`) gets the same
+ * autosave, Sync and layout side effects as the settings panel.
+ */
+export function useSettingFieldGroup<T = Record<string, unknown>>(
+  prefix: string
+): [T | undefined, (key: string, value: unknown) => void] {
+  const value = useSettingsStore((state) => getValueFromPath(state.settings, prefix) as T | undefined);
+  const setKey = useCallback(
+    (key: string, next: unknown) => {
+      if (!prefix || !key) return;
+      applySettingWrites([{ path: `${prefix}.${key}`, value: next }]);
+    },
+    [prefix]
+  );
+  return [value, setKey];
+}
+
 export function useSettingFieldValue<T = unknown>(path: string): T | undefined {
   return useSettingsStore((state) => getValueFromPath(state.settings, path) as T | undefined);
 }

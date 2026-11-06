@@ -48,7 +48,8 @@ let ensureSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   useControlCenterUI.setState({
-    explorePanelOpen: false,
+    drawerTab: null,
+    previousDrawerTab: null,
     shortcutSheetOpen: false,
     openPanel: false,
     activeGroup: null,
@@ -161,13 +162,13 @@ describe('ControlCenter shell', () => {
     act(() => {
       fireEvent.keyDown(window, { key: '/' });
     });
-    expect(useControlCenterUI.getState().explorePanelOpen).toBe(true);
-    expect(screen.getByTestId('explore-drawer')).toBeInTheDocument();
+    expect(useControlCenterUI.getState().drawerTab).toBe('explore');
+    expect(screen.getByTestId('right-drawer')).toBeVisible();
     expect(screen.getByTestId('explore-panel')).toBeInTheDocument();
     act(() => {
       fireEvent.keyDown(window, { key: 'Escape' });
     });
-    expect(useControlCenterUI.getState().explorePanelOpen).toBe(false);
+    expect(useControlCenterUI.getState().drawerTab).toBeNull();
   });
 
   it('a collapsed dock is inert (out of the tab order), not only aria-hidden', () => {
@@ -203,8 +204,8 @@ describe('ControlCenter shell', () => {
     expect(screen.getByTestId('legend-slot')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('dock-explore'));
     expect(screen.getByTestId('explore-panel')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('explore-drawer-close'));
-    expect(screen.queryByTestId('explore-drawer')).toBeNull();
+    fireEvent.click(screen.getByTestId('right-drawer-close'));
+    expect(screen.getByTestId('right-drawer')).not.toBeVisible();
     expect(screen.getByTestId('dock-legend')).toBeInTheDocument();
   });
 

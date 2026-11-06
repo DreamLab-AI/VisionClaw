@@ -17,7 +17,7 @@
 
 import React, { useEffect, useId, useMemo, useState } from 'react';
 import { GlassPanel } from '../../control-center/primitives/GlassPanel';
-import { useSettingsStore } from '@/store/settingsStore';
+import { useSettingFieldGroup } from '../../control-center/hooks/useSettingField';
 import type { EmbeddingCloudSettings } from '../../settings/config/settings';
 import { useMemoryCloudStore } from './memoryCloudInstance';
 import { sidecarAgreement, describeAgreement, MIN_SPEED, MAX_SPEED } from './memoryCloudStore';
@@ -572,32 +572,58 @@ const CinematicSection: React.FC = () => {
   );
 };
 
-const MemoryExplorerPanel: React.FC = () => {
-  const cfg = useSettingsStore((s) => s.settings?.visualisation?.embeddingCloud) as EmbeddingCloudSettings | undefined;
+export interface MemoryExplorerPanelProps {
+  /**
+   * Render inside the control centre's right-hand drawer (ADR-2189 §3): the
+   * drawer tab names the panel and owns closing, so the floating position, the
+   * title and the collapse button are dropped.
+   */
+  embedded?: boolean;
+}
+
+const EMBEDDED_PANEL_STYLE: React.CSSProperties = {
+  ...css.panel,
+  position: 'static',
+  top: undefined,
+  right: undefined,
+  width: '100%',
+  maxWidth: '100%',
+  maxHeight: 'none',
+  overflowY: 'visible',
+  zIndex: undefined,
+};
+
+const MemoryExplorerPanel: React.FC<MemoryExplorerPanelProps> = ({ embedded = false }) => {
+  // One write path (ADR-2189): the panel's six embeddingCloud.* controls write
+  // through useSettingField, like the settings panel, not a bespoke store.set.
+  const [cfg, setSetting] = useSettingFieldGroup<EmbeddingCloudSettings>(E.slice(0, -1));
   const [tab, setTab] = useState<'explore' | 'health'>('explore');
   const [collapsed, setCollapsed] = useState(false);
   const [spotifyOpen, setSpotifyOpen] = useState(false);
   const spotifyId = useId();
   useTapKey();
-  const setSetting = (key: string, value: unknown) => useSettingsStore.getState().set(`${E}${key}`, value);
 
   return (
-    <GlassPanel elevation="overlay" style={css.panel} data-testid="memory-explorer-panel" data-scene-occluder="" aria-label="Memory explorer">
-      <div style={{ ...css.row, justifyContent: 'space-between', marginBottom: collapsed ? 0 : 10 }}>
+    <GlassPanel elevation="overlay" style={embedded ? EMBEDDED_PANEL_STYLE : css.panel} data-testid="memory-explorer-panel" data-scene-occluder="" aria-label={embedded ? undefined : 'Memory explorer'}>
+      <div style={{ ...css.row, justifyContent: embedded ? 'flex-end' : 'space-between', marginBottom: collapsed ? 0 : 10 }}>
+        {!embedded && (
         <span style={{ fontWeight: 600, letterSpacing: 0.2 }}>
           <span style={{ color: ROUTE_PALETTE.mint }}>●</span> Memory explorer
         </span>
+        )}
         <div style={css.row}>
         <SpotifyChip open={spotifyOpen} onToggle={() => setSpotifyOpen((o) => !o)} popoverId={spotifyId} />
-        <div style={css.row} role="tablist" aria-label="Explorer sections">
+        <div style={css.row} role="tablist" aria-label="Memory explorer sections">
           {!collapsed && (['explore', 'health'] as const).map((t) => (
             <button key={t} type="button" role="tab" aria-selected={tab === t} style={css.button(tab === t)} onClick={() => setTab(t)}>
-              {t === 'explore' ? 'Explore' : 'Health'}
+              {t === 'explore' ? 'Browse' : 'Health'}
             </button>
           ))}
+          {!embedded && (
           <button type="button" style={css.button()} aria-expanded={!collapsed} aria-label={collapsed ? 'Expand explorer' : 'Collapse explorer'} onClick={() => setCollapsed(!collapsed)}>
             {collapsed ? '▸' : '▾'}
           </button>
+          )}
         </div>
         </div>
       </div>

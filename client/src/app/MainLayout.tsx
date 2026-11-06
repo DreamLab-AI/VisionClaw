@@ -4,7 +4,6 @@ import { ControlCenter, StatusSurface } from '../features/control-center';
 import { useSettingsStore } from '../store/settingsStore';
 import { useBotsData } from '../features/bots/contexts/BotsDataContext';
 import { graphDataManager, type GraphData } from '../features/graph/managers/graphDataManager';
-import { NodeDetailPanel } from '../features/graph/components/NodeDetailPanel';
 import { NodeContextMenu } from '../features/graph/components/NodeContextMenu';
 import { AgentOpsSurface } from '../features/control-center/agents/AgentOpsSurface';
 import { AcspCaseQueue } from '../features/control-center/governance/AcspCaseQueue';
@@ -78,8 +77,7 @@ const MainLayoutContent: React.FC = () => {
         />
       </nav>
 
-      {/* Node detail slide-in panel — driven by visionclaw:node-selected events */}
-      <NodeDetailPanel />
+      {/* Node detail lives in the control centre's right-hand drawer (ADR-2189 §3). */}
 
       {/* Right-click additive-expansion menu — driven by visionclaw:node-contextmenu */}
       <NodeContextMenu />

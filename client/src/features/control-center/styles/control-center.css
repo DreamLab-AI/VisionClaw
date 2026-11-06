@@ -249,6 +249,7 @@
   --cc-chip-row: 2.25rem;
   --cc-dock-bottom: calc(var(--cc-edge) + var(--cc-chip-row) + 0.5rem);
   --cc-dock-clearance: 9rem;
+  --cc-drawer-width: min(380px, calc(100vw - 2 * var(--cc-edge)));  /* right-hand drawer (explore, memory, node) */
   --cc-z-chrome: 40;   /* dock, rail, panels at rest */
   --cc-z-corner: 42;   /* corner chips and the flyouts they open, above the dock */
   --cc-z-popover: 45;  /* Ask box, dock popovers */

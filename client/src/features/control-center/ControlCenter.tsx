@@ -16,7 +16,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { MessageSquare, MoreHorizontal, Braces, Keyboard, X } from 'lucide-react';
+import { MessageSquare, MoreHorizontal, Braces, Keyboard } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { SpaceDriver } from '../../services/SpaceDriverService';
 import { useSettingsStore } from '../../store/settingsStore';
@@ -29,7 +29,8 @@ import { useControlCenterUI } from './state/useControlCenterUI';
 import { useControlCenterHotkeys } from './hooks/useControlCenterHotkeys';
 import { useRevealSetting } from './hooks/useRevealSetting';
 import { ShortcutSheet } from './help/ShortcutSheet';
-import { ExplorePanel, GraphLegend } from './integrationSlots';
+import { GraphLegend } from './integrationSlots';
+import { RightDrawer } from './drawer/RightDrawer';
 import './styles/control-center.css';
 
 export const ControlCenter: React.FC<ControlPanelProps> = ({
@@ -128,7 +129,7 @@ export const ControlCenter: React.FC<ControlPanelProps> = ({
         </GlassDock>
       </div>
 
-      <ExploreDrawer />
+      <RightDrawer />
       <LegendSlot />
       <ShortcutSheet />
 
@@ -185,57 +186,19 @@ const MoreMenu: React.FC = () => {
 };
 
 /**
- * ADR-2185 explore panel: a right-hand drawer opened from the dock (Explore) or
- * '/'. The panel brings its own Clear filters (clearAllFilters); the drawer adds
- * the close button. It ends above the dock, like the settings panel.
- */
-const ExploreDrawer: React.FC = () => {
-  const open = useControlCenterUI((s) => s.explorePanelOpen);
-  const setOpen = useControlCenterUI((s) => s.setExplorePanelOpen);
-  if (!open) return null;
-  return (
-    <div
-      data-testid="explore-drawer"
-      // close button on the left edge: the top-right corner belongs to the
-      // connection badge while the backend is unreachable
-      className="fixed flex flex-col items-start gap-1"
-      style={{
-        right: 'var(--cc-edge, 1rem)',
-        top: 'var(--cc-edge, 1rem)',
-        bottom: 'var(--cc-dock-clearance, 9rem)',
-        width: 'min(360px, calc(100vw - 2 * var(--cc-edge, 1rem)))',
-        zIndex: 'var(--cc-z-chrome, 40)' as unknown as number,
-        pointerEvents: 'auto',
-      }}
-    >
-      <button
-        type="button"
-        data-testid="explore-drawer-close"
-        aria-label="Close explore panel"
-        onClick={() => setOpen(false)}
-        className="cc-glass flex items-center justify-center h-7 w-7 rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <X size={14} aria-hidden="true" />
-      </button>
-      <ExplorePanel style={{ width: '100%', maxHeight: '100%', overflowY: 'auto' }} />
-    </div>
-  );
-};
-
-/**
  * ADR-2184 legend. Always mounted: GraphLegend installs the colour/size encoder,
  * so Encode › Colour by and Size by do nothing without it. It renders nothing
  * while Encode › Show legend is off. It sits above the right-hand corner chips.
  */
 const LegendSlot: React.FC = () => {
-  // Beside the explore drawer while it is open, never under it.
-  const drawerOpen = useControlCenterUI((s) => s.explorePanelOpen);
+  // Beside the right-hand drawer while it is open, never under it.
+  const drawerOpen = useControlCenterUI((s) => s.drawerTab !== null);
   return (
   <div
     data-testid="legend-slot"
     className="fixed"
     style={{
-      right: drawerOpen ? 'calc(var(--cc-edge, 1rem) + min(360px, 100vw - 2rem) + 0.5rem)' : 'var(--cc-edge, 1rem)',
+      right: drawerOpen ? 'calc(var(--cc-edge, 1rem) + var(--cc-drawer-width, min(380px, 100vw - 2rem)) + 0.5rem)' : 'var(--cc-edge, 1rem)',
       bottom: 'var(--cc-dock-clearance, 9rem)',
       maxWidth: 'min(280px, 40vw)',
       maxHeight: '40vh',
