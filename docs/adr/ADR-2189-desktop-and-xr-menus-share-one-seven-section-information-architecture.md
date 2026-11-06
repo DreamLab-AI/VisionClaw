@@ -121,7 +121,7 @@ Rules for the seven sections:
 
 ### 2. Registry-driven mechanism
 - `GroupData` gains `section` (one of the seven ids above). The rail and dock render sections, and the old group ids become subsections.
-- `buildManifest` (run by `scripts/emit-settings-manifest.ts`) emits a new `ia.json` (section → subsection → field keys and labels). It writes two committed copies: one beside `settings-manifest.json`, and one at `xr-client/data/ia.json`. `hud.gd` builds its tab bar from the XR copy.
+- `buildManifest` (run by `client/scripts/emit-settings-manifest.ts`) emits a new `ia.json` (section → subsection → field keys and labels). It writes two committed copies: one beside `settings-manifest.json`, and one at `xr-client/data/ia.json`. `hud.gd` builds its tab bar from the XR copy.
   - The precedent is `semantic_fields.json`. Its two copies (`client/src/features/control-center/registry/semanticFields.json` and `xr-client/data/semantic_fields.json`, which are byte-identical today) are pinned to their Rust source by a test at `crates/visionclaw-domain/src/types/semantic_config.rs:659-660`.
   - `ia.json`'s source is the TypeScript registry, so its pin is a Vitest test instead. The test regenerates the document and asserts that both committed copies equal it. That way the two clients cannot drift apart silently.
 - Each field gets a derived **scope** from `serverBucketFor`: `shared` (physics), `server` (other buckets) or `browser` (null). `SettingRow` shows it as a badge.
