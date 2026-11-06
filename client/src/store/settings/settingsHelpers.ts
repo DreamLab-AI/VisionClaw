@@ -162,9 +162,6 @@ const VISUAL_ONLY_SECTION_PATHS = [
   'visualisation.embeddingCloud',
   'visualisation.graphs.visionclaw.nodes',
   'visualisation.rendering.agentColors',
-  'visualisation.rendering.maxEdgesCeiling',
-  'visualisation.rendering.softwareFallback',
-  'visualisation.rendering.labelLayoutEvery',
 ];
 
 // Helper function to get paths for a specific section

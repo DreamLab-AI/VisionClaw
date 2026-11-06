@@ -144,6 +144,18 @@ export const SERVER_RENDERING_KEYS: ReadonlySet<string> = new Set([
   'shadowMapSize', 'shadowBias', 'context',
 ]);
 
+/**
+ * Per-device performance budgets: browser-only. They tune this machine's GPU and CPU, so
+ * a shared server value would let one weak laptop set them for every viewer.
+ */
+export const DEVICE_LOCAL_RENDERING_KEYS: ReadonlySet<string> = new Set([
+  'maxEdgesCeiling', 'softwareFallback', 'labelLayoutEvery',
+]);
+
+const isDeviceLocalRenderingPath = (path: string): boolean =>
+  path.startsWith('visualisation.rendering.')
+  && DEVICE_LOCAL_RENDERING_KEYS.has(path.slice('visualisation.rendering.'.length).split('.')[0]);
+
 /** True for a `visualisation.rendering.<key>` path the server rendering document stores. */
 export function isServerRenderingPath(path: string): boolean {
   if (!path.startsWith('visualisation.rendering.')) return false;
@@ -154,7 +166,10 @@ export function isServerRenderingPath(path: string): boolean {
 /** The server bucket a client path is written to, or null for browser-only paths. */
 export function serverBucketForPath(path: string): 'physics' | 'rendering' | 'qualityGates' | 'nodeFilter' | 'constraints' | 'visual' | null {
   if (path.startsWith('visualisation.graphs.') && path.includes('.physics.')) return 'physics';
-  if (path.startsWith('visualisation.rendering.')) return isServerRenderingPath(path) ? 'rendering' : 'visual';
+  if (path.startsWith('visualisation.rendering.')) {
+    if (isDeviceLocalRenderingPath(path)) return null;
+    return isServerRenderingPath(path) ? 'rendering' : 'visual';
+  }
   if (path.startsWith('qualityGates.')) return 'qualityGates';
   if (path.startsWith('nodeFilter.')) return 'nodeFilter';
   if (path.startsWith('constraints.')) return 'constraints';
@@ -162,7 +177,7 @@ export function serverBucketForPath(path: string): 'physics' | 'rendering' | 'qu
 }
 
 export function isVisualSettingsPath(path: string): boolean {
-  if (path.startsWith('visualisation.rendering.')) return !isServerRenderingPath(path);
+  if (path.startsWith('visualisation.rendering.')) return !isServerRenderingPath(path) && !isDeviceLocalRenderingPath(path);
   if (path.startsWith('visualisation.rendering')) return false;
   if (path.startsWith('visualisation.graphs.') && path.includes('.physics')) return false;
   if (path.startsWith('visualisation.')) return true;

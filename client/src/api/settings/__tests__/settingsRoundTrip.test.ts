@@ -58,9 +58,16 @@ describe('rendering paths the server RenderingSettings struct does not have', ()
     expect(rendering).toMatchObject({ ambientLightIntensity: 0.7 });
     expect(rendering).not.toHaveProperty('coder');
     expect(rendering).not.toHaveProperty('labelLayoutEvery');
-    expect(putBody('/api/settings/visual')).toEqual({
-      rendering: { agentColors: { coder: '#13579b' }, labelLayoutEvery: 4 },
-    });
+    // agent colours are shared; the label-layout cadence is a per-device budget and stays in
+    // this browser (one weak laptop must not change it for every viewer)
+    expect(putBody('/api/settings/visual')).toEqual({ rendering: { agentColors: { coder: '#13579b' } } });
+  });
+
+  it('the per-device performance budgets have no server bucket', () => {
+    for (const k of ['maxEdgesCeiling', 'softwareFallback', 'labelLayoutEvery']) {
+      expect(serverBucketForPath(`visualisation.rendering.${k}`), k).toBeNull();
+      expect(serverBucketFor(`visualisation.rendering.${k}`), k).toBeNull();
+    }
   });
 
   it('the single-path writer routes the same way', async () => {
@@ -72,10 +79,9 @@ describe('rendering paths the server RenderingSettings struct does not have', ()
   it('they are read back from the visual bucket on load, under the server rendering document', () => {
     const client = transformApiToClientSettings({
       rendering: RENDERING_DOC,
-      visual: { rendering: { agentColors: { coder: '#13579b' }, maxEdgesCeiling: 97280, ambientLightIntensity: 9 } },
+      visual: { rendering: { agentColors: { coder: '#13579b' }, ambientLightIntensity: 9 } },
     } as unknown as AllSettings);
     expect(getNestedValue(client, 'visualisation.rendering.agentColors.coder')).toBe('#13579b');
-    expect(getNestedValue(client, 'visualisation.rendering.maxEdgesCeiling')).toBe(97280);
     // the server's own rendering document wins for the keys it owns
     expect(getNestedValue(client, 'visualisation.rendering.ambientLightIntensity')).toBe(0.5);
   });

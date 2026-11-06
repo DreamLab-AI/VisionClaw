@@ -127,6 +127,8 @@ export function serverBucketFor(path: string | undefined): string | null {
     // Only the server RenderingSettings fields go to /rendering (serde drops anything else);
     // agentColors.*, maxEdgesCeiling, softwareFallback and labelLayoutEvery live in /visual.
     const rest = path.slice('visualisation.rendering.'.length);
+    // per-device performance budgets stay in this browser (schemaMappings.DEVICE_LOCAL_RENDERING_KEYS)
+    if (['maxEdgesCeiling', 'softwareFallback', 'labelLayoutEvery'].includes(rest.split('.')[0])) return null;
     return !rest.includes('.') && SERVER_RENDERING_KEYS.has(rest) ? 'rendering' : 'visual';
   }
   if (path.startsWith('qualityGates.')) return 'qualityGates';

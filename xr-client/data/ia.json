@@ -1854,21 +1854,21 @@
               "label": "Edge memory budget",
               "path": "visualisation.rendering.maxEdgesCeiling",
               "control": "slider",
-              "scope": "server"
+              "scope": "browser"
             },
             {
               "key": "softwareFallback",
               "label": "Software WebGL Fallback",
               "path": "visualisation.rendering.softwareFallback",
               "control": "select",
-              "scope": "server"
+              "scope": "browser"
             },
             {
               "key": "labelLayoutEvery",
               "label": "Label Layout Cadence (frames)",
               "path": "visualisation.rendering.labelLayoutEvery",
               "control": "slider",
-              "scope": "server"
+              "scope": "browser"
             },
             {
               "key": "autoAdjust",

@@ -26,7 +26,7 @@ describe('StatusSurface: unsaved settings notice', () => {
     const notice = screen.getByTestId('status-unsaved-settings');
     expect(notice.textContent).toContain('2');
     expect(notice.getAttribute('title')).toMatch(/1 failed to save to the server/);
-    expect(notice.getAttribute('title')).toMatch(/1 kept in this browser only \(sync is off\)/);
+    expect(notice.getAttribute('title')).toMatch(/1 kept in this browser only \(changed while sync was off\)/);
     expect(screen.getByTestId('status-surface').getAttribute('aria-label')).toMatch(/2 settings not saved/);
   });
 

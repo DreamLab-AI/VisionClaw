@@ -74,7 +74,8 @@ export function describeUnsaved(unsaved: Record<string, UnsavedReason>): string 
   for (const r of Object.values(unsaved)) n[r] += 1;
   const parts: string[] = [];
   if (n.failed) parts.push(`${n.failed} failed to save to the server`);
-  if (n['sync-off']) parts.push(`${n['sync-off']} kept in this browser only (sync is off)`);
+  // not "sync is off": sync state is not persisted, so after a reload it may be on again
+  if (n['sync-off']) parts.push(`${n['sync-off']} kept in this browser only (changed while sync was off)`);
   if (n['not-ready']) parts.push(`${n['not-ready']} waiting for the settings to load`);
   return parts.join('; ');
 }

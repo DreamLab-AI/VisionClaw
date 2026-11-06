@@ -3341,10 +3341,10 @@
       "group": "system",
       "sourceGroup": "look",
       "subgroup": "Performance",
-      "scope": "server",
+      "scope": "browser",
       "label": "Edge memory budget",
-      "clientOnly": false,
-      "server": "visual",
+      "clientOnly": true,
+      "server": null,
       "min": 1024,
       "max": 262144,
       "step": 1024
@@ -3357,10 +3357,10 @@
       "group": "system",
       "sourceGroup": "look",
       "subgroup": "Performance",
-      "scope": "server",
+      "scope": "browser",
       "label": "Software WebGL Fallback",
-      "clientOnly": false,
-      "server": "visual"
+      "clientOnly": true,
+      "server": null
     },
     {
       "key": "labelLayoutEvery",
@@ -3370,10 +3370,10 @@
       "group": "system",
       "sourceGroup": "labels",
       "subgroup": "Performance",
-      "scope": "server",
+      "scope": "browser",
       "label": "Label Layout Cadence (frames)",
-      "clientOnly": false,
-      "server": "visual",
+      "clientOnly": true,
+      "server": null,
       "min": 1,
       "max": 10,
       "step": 1
