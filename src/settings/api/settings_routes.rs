@@ -1249,12 +1249,11 @@ pub async fn update_quality_gate_settings(
     }
 
     info!(
-        "User {} updated quality gate settings: gpu={}, ontology={}, layout={}, maxNodeCount={}",
+        "User {} updated quality gate settings: gpu={}, ontology={}, layout={}",
         auth.pubkey,
         settings.gpu_acceleration,
         settings.ontology_physics,
-        settings.layout_mode,
-        settings.max_node_count
+        settings.layout_mode
     );
 
     // ADR-2140: the layout mode is `physics.layoutMode`. A client that still names it here (the

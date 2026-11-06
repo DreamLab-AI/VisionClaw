@@ -54,8 +54,6 @@ pub struct NodeSettings {
     pub enable_instancing: bool,
     #[serde(alias = "enable_hologram")]
     pub enable_hologram: bool,
-    #[serde(alias = "enable_metadata_shape")]
-    pub enable_metadata_shape: bool,
     #[serde(alias = "enable_metadata_visualisation")]
     pub enable_metadata_visualisation: bool,
 }
@@ -71,7 +69,6 @@ impl Default for NodeSettings {
             quality: "high".to_string(),
             enable_instancing: true,
             enable_hologram: true,
-            enable_metadata_shape: false,
             enable_metadata_visualisation: true,
         }
     }
@@ -538,4 +535,26 @@ pub struct VisualisationSettings {
     pub camera: Option<CameraSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub space_pilot: Option<SpacePilotSettings>,
+}
+
+#[cfg(test)]
+mod node_settings_wire_tests {
+    use super::NodeSettings;
+
+    /// ADR-2189: a stored or PUT node blob that still carries `enableMetadataShape` (either
+    /// spelling) loads with every other field intact.
+    #[test]
+    fn node_settings_with_retired_metadata_shape_still_deserialise() {
+        for key in ["enableMetadataShape", "enable_metadata_shape"] {
+            let mut blob = serde_json::to_value(NodeSettings::default()).unwrap();
+            blob["baseColor"] = "#112233".into();
+            blob["nodeSize"] = 3.5.into();
+            blob[key] = true.into();
+            let nodes: NodeSettings = serde_json::from_value(blob).expect(key);
+            assert_eq!(nodes.base_color, "#112233");
+            assert_eq!(nodes.node_size, 3.5);
+            assert!(nodes.enable_hologram);
+            assert!(nodes.enable_metadata_visualisation);
+        }
+    }
 }
