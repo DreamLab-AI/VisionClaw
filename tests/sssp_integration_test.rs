@@ -138,8 +138,10 @@ fn gpu_sssp_matches_cpu_oracle() {
 /// ADR-031 D2b: the broadcast encoder must feed `sssp_data` into wire slot 28
 /// (previously hardcoded `None` -> +inf at every site). This binds the canonical
 /// production encoder (`encode_node_data_with_live_analytics`, the same fn the
-/// broadcast path and ShortestPathActor->node_sssp feed use) and asserts the
-/// decoded record carries the real distance@28 / parent@32 — not the default.
+/// broadcast path uses) and asserts the decoded record carries the real
+/// distance@28 / parent@32 — not the default. The live stream passes no SSSP map
+/// today (the shared `node_sssp` map was removed 2026-11-06); the encoder keeps
+/// the slot so the frozen wire can carry it.
 /// The GPU value round-trip (that run_sssp produces these distances) is covered
 /// by `gpu_sssp_matches_cpu_oracle`; this CPU test covers the encoder feed.
 #[test]
