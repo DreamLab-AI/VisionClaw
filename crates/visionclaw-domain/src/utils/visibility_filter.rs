@@ -310,6 +310,8 @@ impl PageNames {
             // `[[Page#Heading|alias]]` / `[[Page^block]]` name the page before `#`, `^` or `|`.
             let target = inner.split(['|', '#', '^']).next().unwrap_or(inner);
             let hidden = self.is_hidden(target);
+            // (Markdown `[text](Page)` links are handled by `scrub_md_links` below, after this
+            // wikilink pass, so a definition that mixes both syntaxes is scrubbed once each.)
             // An embed `![[Page]]` is cut with its `!`.
             let lead = if hidden && rest[..start].ends_with('!') {
                 start - 1
@@ -321,6 +323,37 @@ impl PageNames {
                 out.push_str(&rest[start..start + 2 + len + 2]);
             }
             rest = &rest[start + 2 + len + 2..];
+        }
+        out.push_str(rest);
+        self.scrub_md_links(&out)
+    }
+
+    /// Cut every Markdown `[text](Page)` / `[text](Page.md)` / `[text](Page#Heading)` link
+    /// whose target names a removed page. The target is the part before `#`, with a trailing
+    /// `.md` ignored, so it matches the page name the wikilink pass checks. Links to pages
+    /// that exist and are visible, and links that are not page references (`https://...`),
+    /// pass through unchanged.
+    fn scrub_md_links(&self, text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut rest = text;
+        while let Some(open) = rest.find("](") {
+            let Some(close) = rest[open + 2..].find(')') else {
+                break;
+            };
+            let Some(lbr) = rest[..open].rfind('[') else {
+                out.push_str(&rest[..open + 2]);
+                rest = &rest[open + 2..];
+                continue;
+            };
+            let target = &rest[open + 2..open + 2 + close];
+            let page = target.split('#').next().unwrap_or(target);
+            let page = page.strip_suffix(".md").unwrap_or(page);
+            let hidden = !page.contains("://") && self.is_hidden(page);
+            out.push_str(&rest[..lbr]);
+            if !hidden {
+                out.push_str(&rest[lbr..open + 2 + close + 1]);
+            }
+            rest = &rest[open + 2 + close + 1..];
         }
         out.push_str(rest);
         out
@@ -848,7 +881,8 @@ mod definition_scrub_tests {
         public.metadata.insert(
             "definition".into(),
             "Built on [[Secret Plan]], [[Secret Plan|the plan]], [[Secret Plan#Goals]] and \
-             ![[Secret Plan]], see [[Public]]."
+             ![[Secret Plan]], see [[Public]]. Also [the plan](Secret Plan), \
+             [goals](Secret Plan.md#Goals), [us](Public) and [web](https://example.org/Secret Plan)."
                 .into(),
         );
         g.nodes.push(public);
@@ -884,12 +918,23 @@ mod definition_scrub_tests {
         let row = out.metadata["Public.md"].definition.clone().unwrap();
         let node = out.nodes[0].metadata["definition"].clone();
         assert!(!row.contains("Secret"), "row definition: {row}");
-        assert!(!node.contains("Secret"), "node definition: {node}");
+        // The node definition keeps one deliberate "Secret": the external URL text, which is
+        // not a page reference. No link syntax may still name the page.
+        assert!(!node.contains("[[Secret"), "node wikilink: {node}");
+        assert!(!node.contains("](Secret"), "node md link: {node}");
         assert!(
             !node.contains("Goals") && !node.contains('!'),
             "node definition: {node}"
         );
         assert!(row.contains("[[Public]]"), "a visible link survives: {row}");
+        // Markdown links: a hidden target is cut whether bare, `.md`-suffixed or anchored; a
+        // visible target and an external URL survive, even when the URL text names the page.
+        assert!(node.contains("[us](Public)"), "visible md link survives: {node}");
+        assert!(
+            node.contains("[web](https://example.org/Secret Plan)"),
+            "an external URL is not a page reference: {node}"
+        );
+        assert!(!node.contains("[the plan]") && !node.contains("[goals]"), "md links to the hidden page are cut: {node}");
     }
 
     #[test]

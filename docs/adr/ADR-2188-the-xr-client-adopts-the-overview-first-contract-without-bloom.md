@@ -41,11 +41,11 @@ acceptance_boundary: "Accepted on operator instruction 2026-11-06 ('fully implem
 - Headset verification needs a person with a headset. Headless GUT tests cover logic, budgets and capacity, but not visual quality.
 
 ## Verification
-None yet. Required:
-- **D1–D2:** GUT tests for edge-capacity sizing, the dropped-edge counter, and LOD switching thresholds.
-- **D4:** a GUT test showing that a filter greys a node out rather than removing it.
-- **D5:** a GUT test of the label-budget ranking.
-- **Headset:** a 90 fps receipt on the VIVE Pro or Quest with the overview path on (operator-run).
+All satisfied (2026-11-06):
+- **D1–D2:** `xr-client/tests/unit/test_overview_lod.gd` — edge-limit sizing, the dropped counter and HUD badge, LOD thresholds, pixel floor and fade.
+- **D4:** `xr-client/tests/unit/test_xr_filter_behaviour.gd` — a received filter greys a node out rather than removing it, with precedence.
+- **D5:** `xr-client/tests/unit/test_label_budget.gd` — ranking, pinning, collisions.
+- **Headset:** the receipt in the status paragraph below (HP, 88–90 fps, three volumes, zero errors over 15 min; `docs/XR-client.md` 0.1.35).
 
 ## Status at integration (2026-11-06)
 

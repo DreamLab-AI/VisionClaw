@@ -38,7 +38,8 @@ const fields: RegistryField[] = [
   { key: 'repulsionSofteningEpsilon', subgroup: 'Repulsion & Spacing', label: 'Repulsion Epsilon', type: 'slider', min: 0, max: 0.01, step: 0.0001, path: `${P}repulsionSofteningEpsilon`, description: 'Softening for close nodes (default 0.0001)' },
   // Bounds
   { key: 'enableBounds', subgroup: 'Bounds', label: 'Enable Bounds', type: 'toggle', path: `${P}enableBounds`, description: 'Constrain nodes to a bounding box' },
-  { key: 'boundsSize', subgroup: 'Bounds', label: 'Bounds Size', type: 'slider', min: 100, max: 4000, step: 50, path: `${P}boundsSize`, description: 'Half-extent of the soft bounding cube per axis — the graph settles within ~this radius (default 1600; 400 crushes a 10k-node graph against the walls)' },
+  // max matches the server's physics_bounds::BOUNDS_SIZE (100..2000): a larger value is refused on PUT.
+  { key: 'boundsSize', subgroup: 'Bounds', label: 'Bounds Size', type: 'slider', min: 100, max: 2000, step: 50, path: `${P}boundsSize`, description: 'Half-extent of the soft bounding cube per axis — the graph settles within ~this radius (default 1600; 400 crushes a 10k-node graph against the walls)' },
   { key: 'boundaryDamping', subgroup: 'Bounds', label: 'Boundary Damping', type: 'slider', min: 0, max: 1.0, step: 0.01, path: `${P}boundaryDamping`, description: 'Velocity damping when nodes approach boundary (default 0.95)' },
   // Layout Forces
   { key: 'linLogMode', subgroup: 'Layout Forces', label: 'LinLog Mode', type: 'toggle', path: `${P}linLogMode`, description: 'Logarithmic attraction (modularity-preserving) vs linear Hooke springs' },

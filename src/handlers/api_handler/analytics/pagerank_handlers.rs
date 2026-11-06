@@ -237,13 +237,28 @@ pub async fn get_pagerank_result(
 /// ```json
 /// POST /api/analytics/pagerank/clear
 /// ```
-pub async fn clear_pagerank_cache(data: web::Data<AppState>) -> Result<HttpResponse> {
+pub async fn clear_pagerank_cache(
+    data: web::Data<AppState>,
+    caller: crate::settings::OptionalAuth,
+) -> Result<HttpResponse> {
+    // The cache is shared by every full-access caller, so evicting it is an operator action:
+    // only a power user may clear it. Anyone else gets the same reply as a missing route, so
+    // the refusal does not advertise the operation (register VC-19 Open).
+    if !may_clear_pagerank_cache(caller.0.as_ref().map(|u| u.is_power_user)) {
+        return Ok(HttpResponse::NotFound().finish());
+    }
     info!("API: Clearing PageRank cache");
 
     match whole_graph_clear_pagerank(GpuAnalyticsRoutes::of(&data).as_ref()).await {
         Ok(r) => ok_json!(r),
         Err(r) => error_json!(r),
     }
+}
+
+/// Whether a caller may evict the shared PageRank cache: `Some(true)` is a signed-in power
+/// user; an ordinary user (`Some(false)`) and an anonymous caller (`None`) may not.
+pub(crate) fn may_clear_pagerank_cache(is_power_user: Option<bool>) -> bool {
+    is_power_user == Some(true)
 }
 
 /// The whole-graph PageRank run for a full-access caller, on the GPU through `routes`.
@@ -335,5 +350,19 @@ pub(crate) async fn whole_graph_clear_pagerank(
             error: None,
         }),
         Err(e) => Err(failed(format!("Actor communication error: {}", e))),
+    }
+}
+
+#[cfg(test)]
+mod clear_gate_tests {
+    use super::may_clear_pagerank_cache;
+
+    /// The shared PageRank cache is evicted by power users only: an ordinary signed-in user
+    /// and an anonymous caller are both refused (register VC-19 Open, 2026-11-06).
+    #[test]
+    fn only_a_power_user_may_clear_the_shared_pagerank_cache() {
+        assert!(may_clear_pagerank_cache(Some(true)));
+        assert!(!may_clear_pagerank_cache(Some(false)));
+        assert!(!may_clear_pagerank_cache(None));
     }
 }

@@ -2153,7 +2153,7 @@
       "clientOnly": false,
       "server": "physics",
       "min": 100,
-      "max": 4000,
+      "max": 2000,
       "step": 50
     },
     {

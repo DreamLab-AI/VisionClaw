@@ -121,7 +121,12 @@ distributed transaction and no compensating-action framework in code.
   with `expires_in_hours` is answered 410 after expiry and its row and file are removed
   at the next start-up (`remove_expired`); `ShareRequest::default` sets 7 days, but a
   request may omit the expiry, and such a share is kept until its creator deletes it.
-  Only the recorded creator may delete (`delete_owned`). **Open:** no per-user erasure
+  Only the recorded creator may delete (`delete_owned`). **Accepted (2026-11-06):** a
+  share is the creator's own view, frozen (`caller_view` at `src/handlers/graph_export_handler.rs:111`),
+  so it carries every node the creator could see, private ones included, and any
+  authenticated holder of the link reads them (`get_shared_graph`, `:217-260`). That is the
+  sharer's choice, the same as mailing an export, not a visibility leak; the register row is
+  closed as accepted, not fixed. **Open:** no per-user erasure
   path reaches shares, so erasing a user leaves the shares they created (rows carry
   `creator_id`) and their files. `scripts/backup-sqlite.sh` backs up `shares.sqlite3`
   since 2026-11-06, but not `data/shared/`, so a restore keeps the share rows and loses
