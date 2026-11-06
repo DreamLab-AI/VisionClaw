@@ -2,10 +2,11 @@
  * Overview edge styling and capacity ordering (ADR-2181 D2, D4).
  *
  * The on-screen length fade is written once, `fadeAlphaWith`, over a small
- * scalar interface: `fadeAlpha` evaluates it on numbers (CPU, the glass-tube
- * close-zoom selection, the tests) and OverviewEdgeMaterial evaluates it on TSL
- * nodes, so the shader and the CPU cannot drift. `edgeWidthPx` is mirrored by
- * the shader's width term.
+ * scalar interface: OverviewEdgeMaterial evaluates it on TSL nodes, and
+ * `fadeAlpha` evaluates it on numbers, which is how the tests pin the shader's
+ * formula. Nothing else on the CPU fades by length: the glass tubes select by
+ * distance (tubeSelect.ts). `edgeWidthPx` is mirrored by the shader's width
+ * term.
  */
 
 /**

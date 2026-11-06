@@ -324,8 +324,8 @@ owning ADR (the Protocol Registry becomes its owner).
   - ADR-2180: knowledge-body fit;
   - ADR-2181: screen-space, length-faded overview edges with data-sized
     capacity (`overview/OverviewEdgeLines.tsx`; one fade formula,
-    `overview/edgeStyle.ts` `fadeAlphaWith`, shared by the CPU and the TSL
-    shader);
+    `overview/edgeStyle.ts` `fadeAlphaWith`, which the TSL shader evaluates and
+    the tests pin on numbers);
   - ADR-2182: sprite nodes with gems as close-zoom detail and glow for emphasis;
   - ADR-2183: a per-node highlight mask;
   - ADR-2184: a client-side node table of typed arrays built in a worker from
