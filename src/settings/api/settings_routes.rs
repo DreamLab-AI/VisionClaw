@@ -1949,7 +1949,7 @@ mod tests {
             "graphView": {
                 "fitTarget": "knowledge",
                 "overviewEdges": {"enabled": true, "widthPx": 1, "capacity": "auto"},
-                "labels": {"budget": 30, "selectedBudget": 100, "fontPx": 13}
+                "labels": {"budget": 40, "dynamicBudget": 40, "selectedBudget": 100, "fontPx": 13}
             }
         });
         deep_merge_json(
@@ -1967,7 +1967,7 @@ mod tests {
             "sibling in the same group survives"
         );
         assert_eq!(gv["fitTarget"], "knowledge", "other graphView keys survive");
-        assert_eq!(gv["labels"]["budget"], 30, "other graphView groups survive");
+        assert_eq!(gv["labels"]["budget"], 40, "other graphView groups survive");
         assert_eq!(
             stored["glow"]["enabled"], true,
             "other visual buckets survive"

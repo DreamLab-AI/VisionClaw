@@ -587,6 +587,9 @@ export interface EmbeddingCloudSettings {
   cinematic?: boolean;           // show the cinematic director / beat sync / video export, default false
 }
 
+/** `explore.colorBy`: the 'scheme' sentinel or a node-table column name. */
+export type ExploreColorBy = 'scheme' | (string & {});
+
 /**
  * Graph-view overview contract (ADR-2179..2186), under `visualisation.graphView`.
  * Client-only: persisted in the server's opaque `visual` blob, no Rust type.
@@ -618,8 +621,8 @@ export interface GraphViewSettings {
   };
   /** ADR-2183/2184 encoding and grey-out. */
   explore: {
-    /** Node-table column name driving colour (tableSchema.ts). */
-    colorBy: string;
+    /** 'scheme' (today's look under nodes.colorScheme) or a node-table column name (tableSchema.ts). */
+    colorBy: ExploreColorBy;
     /** Numeric column driving size, or 'none' for today's sizing. */
     sizeBy: string;
     showLegend: boolean;
@@ -630,7 +633,11 @@ export interface GraphViewSettings {
   };
   /** ADR-2186 label budget. */
   labels: {
+    /** Overview tier: most important nodes at overview zoom. */
     budget: number;
+    /** Dynamic tier: important nodes in the current viewport. */
+    dynamicBudget: number;
+    /** Selection tier: the selection and its neighbourhood. */
     selectedBudget: number;
     fontPx: number;
   };

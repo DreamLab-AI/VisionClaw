@@ -1,3 +1,4 @@
+// Delete the GemNodes SOURCE GUARD and ORACLE below once GemNodes calls DEFAULT_NODE_ENCODER; never bend the encoder to pass them.
 /**
  * Characterisation of the default node encoder against GemNodes (ADR-2184 D4:
  * "the defaults reproduce today's look").
@@ -13,7 +14,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { NodeEncoding, DEFAULT_NODE_ENCODER, type EncodingContext } from '../nodeEncoding';
+import { NodeEncoding, DEFAULT_NODE_ENCODER, COLOR_BY_SCHEME, isSchemeColorBy, type EncodingContext } from '../nodeEncoding';
+import { DEFAULT_GRAPH_VIEW, DEFAULT_NODES_SETTINGS } from '../../../../api/settings/defaults';
 import { getTypeColor, getDomainColor } from '../../hooks/useGraphNodeColors';
 import { computeNodeScale } from '../../utils/nodeScaling';
 import type { Node as GraphNode } from '../../managers/graphDataManager';
@@ -220,5 +222,24 @@ describe('default node encoder (ADR-2184 D4) reproduces GemNodes', () => {
       "?? 'type';",
     ];
     for (const e of expressions) expect(src.includes(e), e).toBe(true);
+  });
+});
+
+describe('explore.colorBy default (ADR-2184 D4)', () => {
+  it("defaults to the 'scheme' sentinel, which selects the default encoder", () => {
+    expect(DEFAULT_GRAPH_VIEW.explore.colorBy).toBe(COLOR_BY_SCHEME);
+    expect(isSchemeColorBy(DEFAULT_GRAPH_VIEW.explore.colorBy)).toBe(true);
+    expect(isSchemeColorBy('domain')).toBe(false);
+    expect(new NodeEncoding().getEncoder()).toBe(DEFAULT_NODE_ENCODER);
+  });
+
+  it('under the shipped settings defaults, reproduces GemNodes (today\'s look)', () => {
+    const scheme = DEFAULT_NODES_SETTINGS.colorScheme;
+    const base = DEFAULT_NODES_SETTINGS.baseColor;
+    const enc = encode({ connectionCountMap: CC, colorScheme: scheme, baseNodeColor: base, analytics: ANALYTICS, maxCentrality: 0.04, showAnomalies: true });
+    NODES.forEach((n, i) => {
+      const want = gemNodesColour(n, i, scheme, CC, base, ANALYTICS, 0.04, true);
+      expect([enc.colors[i * 3], enc.colors[i * 3 + 1], enc.colors[i * 3 + 2]], `node ${n.id}`).toEqual(f32(want));
+    });
   });
 });

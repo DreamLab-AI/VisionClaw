@@ -142,6 +142,14 @@ function defaultSize(node: GraphNode, _index: number, ctx: EncodingContext): num
 
 export const DEFAULT_NODE_ENCODER: NodeEncoder = { color: defaultColor, size: defaultSize };
 
+/** `visualisation.graphView.explore.colorBy` sentinel: today's look under `nodes.colorScheme`. */
+export const COLOR_BY_SCHEME = 'scheme';
+
+/** True when `colorBy` selects the default encoder rather than a node-table column. */
+export function isSchemeColorBy(colorBy: string | null | undefined): boolean {
+  return colorBy == null || colorBy === '' || colorBy === COLOR_BY_SCHEME;
+}
+
 // --- Buffers -----------------------------------------------------------------
 
 export class NodeEncoding {

@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "generatedFrom": "settingsRegistry.ts",
-  "count": 287,
+  "count": 288,
   "groups": [
     {
       "id": "motion",
@@ -85,7 +85,7 @@
       "label": "Graph View",
       "testid": "group-graphView",
       "hotkey": "12",
-      "fieldCount": 19
+      "fieldCount": 20
     }
   ],
   "panels": [
@@ -3689,6 +3689,20 @@
       "control": "slider",
       "group": "graphView",
       "label": "Overview Labels",
+      "clientOnly": false,
+      "server": "visual",
+      "subgroup": "Labels",
+      "min": 0,
+      "max": 200,
+      "step": 5
+    },
+    {
+      "key": "labelDynamicBudget",
+      "path": "visualisation.graphView.labels.dynamicBudget",
+      "testid": "setting-visualisation.graphView.labels.dynamicBudget",
+      "control": "slider",
+      "group": "graphView",
+      "label": "Viewport Labels",
       "clientOnly": false,
       "server": "visual",
       "subgroup": "Labels",

@@ -264,7 +264,8 @@ export const DEFAULT_GRAPH_VIEW = {
     bloomScope: 'emphasis' as 'emphasis' | 'scene' | 'off',
   },
   explore: {
-    colorBy: 'domain',
+    // 'scheme' = DEFAULT_NODE_ENCODER under nodes.colorScheme (today's look); a column name is column-driven.
+    colorBy: 'scheme',
     sizeBy: 'none',
     showLegend: true,
     // ADR-2183 D3: cosmos.gl linkGreyoutOpacity 0.1.
@@ -272,7 +273,9 @@ export const DEFAULT_GRAPH_VIEW = {
     greyoutMix: 0.65,
   },
   labels: {
-    budget: 30,
+    // ADR-2186 D1 tiers: overview, dynamic (viewport), selection.
+    budget: 40,
+    dynamicBudget: 40,
     selectedBudget: 100,
     fontPx: 13,
   },

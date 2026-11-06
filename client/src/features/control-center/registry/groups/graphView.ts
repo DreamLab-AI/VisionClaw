@@ -1,5 +1,5 @@
 /**
- * Group 12 — Graph View (id `graphView`, hotkey 12, 19 fields).
+ * Group 12 — Graph View (id `graphView`, hotkey 12, 20 fields).
  *
  * The ADR-2179..2186 overview contract under `visualisation.graphView.*`: fit
  * scope, screen-space overview edges, sprite / gem LOD, colour/size encoding with
@@ -18,9 +18,9 @@ import type { GroupData, RegistryField } from '../types';
 
 const G = 'visualisation.graphView.';
 
-/** Categorical and numeric node-table columns a colour encoding accepts. */
+/** 'scheme' (today's look under Node Colour Scheme), then the columns a colour encoding accepts. */
 export const COLOR_BY_OPTIONS = [
-  'domain', 'source_domain', 'type', 'maturity', 'ontology_type', 'owl_type', 'cluster', 'community',
+  'scheme', 'domain', 'source_domain', 'type', 'maturity', 'ontology_type', 'owl_type', 'cluster', 'community',
   'centrality', 'anomaly', 'quality_score', 'wikilink_count', 'file_size', 'change_count',
   'last_modified', 'last_commit',
 ];
@@ -49,7 +49,7 @@ const fields: RegistryField[] = [
   { key: 'bloomScope', subgroup: 'Overview Nodes', label: 'Glow', type: 'select', options: ['emphasis', 'scene', 'off'], path: `${G}nodes.bloomScope`, description: 'Glow only selected, hovered and search-hit nodes, the whole scene, or nothing' },
 
   // ADR-2183 / ADR-2184
-  { key: 'colorBy', subgroup: 'Explore', label: 'Colour By', type: 'select', options: COLOR_BY_OPTIONS, path: `${G}explore.colorBy`, description: 'Node attribute that sets node colour' },
+  { key: 'colorBy', subgroup: 'Explore', label: 'Colour By', type: 'select', options: COLOR_BY_OPTIONS, path: `${G}explore.colorBy`, description: "'scheme' keeps the node colour scheme; a column colours by that attribute" },
   { key: 'sizeBy', subgroup: 'Explore', label: 'Size By', type: 'select', options: SIZE_BY_OPTIONS, path: `${G}explore.sizeBy`, description: 'Numeric node attribute that sets node size' },
   { key: 'showLegend', subgroup: 'Explore', label: 'Show Legend', type: 'toggle', path: `${G}explore.showLegend`, description: 'Show the legend for the active colour and size encodings' },
   { key: 'greyoutOpacity', subgroup: 'Explore', label: 'Filtered Edge Opacity', type: 'slider', min: 0, max: 1, step: 0.05, path: `${G}explore.greyoutOpacity`, description: 'Opacity of edges touching a filtered-out node' },
@@ -57,6 +57,7 @@ const fields: RegistryField[] = [
 
   // ADR-2186
   { key: 'labelBudget', subgroup: 'Labels', label: 'Overview Labels', type: 'slider', min: 0, max: 200, step: 5, path: `${G}labels.budget`, description: 'Most important nodes labelled at overview zoom' },
+  { key: 'labelDynamicBudget', subgroup: 'Labels', label: 'Viewport Labels', type: 'slider', min: 0, max: 200, step: 5, path: `${G}labels.dynamicBudget`, description: 'Important nodes labelled within the current view' },
   { key: 'labelSelectedBudget', subgroup: 'Labels', label: 'Selection Labels', type: 'slider', min: 0, max: 500, step: 10, path: `${G}labels.selectedBudget`, description: 'Labels for the selection and its neighbourhood' },
   { key: 'labelFontPx', subgroup: 'Labels', label: 'Label Size (px)', type: 'slider', min: 8, max: 32, step: 1, path: `${G}labels.fontPx`, description: 'On-screen label font size' },
 ];

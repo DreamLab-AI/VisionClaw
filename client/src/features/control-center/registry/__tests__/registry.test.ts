@@ -21,7 +21,7 @@ const EXPECTED_GROUP_COUNTS: Record<string, number> = {
   agents: 45,
   decisions: 2,
   provenance: 4,
-  graphView: 19,
+  graphView: 20,
 };
 
 /**
@@ -105,7 +105,7 @@ const GRAPH_VIEW_PATHS: string[] = [
   'overviewEdges.fadeFarPx', 'overviewEdges.minOpacity', 'overviewEdges.glassAtCloseZoom',
   'nodes.spriteSizePx', 'nodes.gemLodDistance', 'nodes.bloomScope',
   'explore.colorBy', 'explore.sizeBy', 'explore.showLegend', 'explore.greyoutOpacity', 'explore.greyoutMix',
-  'labels.budget', 'labels.selectedBudget', 'labels.fontPx',
+  'labels.budget', 'labels.dynamicBudget', 'labels.selectedBudget', 'labels.fontPx',
 ].map((p) => `visualisation.graphView.${p}`);
 
 const RETIRED_PATHS: string[] = [
