@@ -312,6 +312,21 @@ impl CorpusSource for LocalDirectorySource {
             .map(Some)
             .map_err(|e| format!("Invalid vocabulary {}: {}", path.display(), e))
     }
+
+    /// One `git log` over the vault; the vault is a git checkout in the default deployment. No
+    /// git binary (the production images ship none) or no repository means no history.
+    async fn page_history(&self) -> super::HistoryMap {
+        match super::history::git_history(&self.root, &self.slash_paths).await {
+            Ok(h) => {
+                log::info!("Corpus history: {} pages with commit times", h.len());
+                h
+            }
+            Err(e) => {
+                log::warn!("Corpus history unavailable, temporal keys omitted: {}", e);
+                super::HistoryMap::new()
+            }
+        }
+    }
 }
 
 #[cfg(test)]

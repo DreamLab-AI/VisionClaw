@@ -588,3 +588,85 @@ async fn real_vault_ingest_counts() {
 
     assert!(!graph.nodes.is_empty(), "the real vault ingests");
 }
+
+/// Run `git` in the fixture vault with a fixed identity and commit time.
+fn git(vault: &std::path::Path, at: &str, args: &[&str]) {
+    let status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(vault)
+        .args([
+            "-c",
+            "user.name=fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+        ])
+        .args(["-c", "commit.gpgsign=false"])
+        .args(args)
+        .env("GIT_AUTHOR_DATE", at)
+        .env("GIT_COMMITTER_DATE", at)
+        .status()
+        .expect("git runs");
+    assert!(status.success(), "git {args:?}");
+}
+
+fn node_meta<'a>(
+    graph: &'a visionclaw_domain::models::graph::GraphData,
+    id: &str,
+) -> &'a std::collections::HashMap<String, String> {
+    &graph
+        .nodes
+        .iter()
+        .find(|n| n.metadata_id == id)
+        .unwrap_or_else(|| panic!("node {id}"))
+        .metadata
+}
+
+/// ADR-2184/2185: a vault that is a git checkout gives every synced page its real commit
+/// history, on the class path and the plain path alike.
+#[actix_rt::test]
+async fn synced_pages_carry_their_commit_history() {
+    let h = harness().await;
+    let v = h.vault.path();
+    git(v, "2026-10-01T08:00:00+02:00", &["init", "-q"]);
+    git(v, "2026-10-01T08:00:00+02:00", &["add", "-A"]);
+    git(
+        v,
+        "2026-10-01T08:00:00+02:00",
+        &["commit", "-q", "-m", "fixture"],
+    );
+    std::fs::write(
+        v.join("knowledge/Page 00.md"),
+        "---\npublic: true\n---\n\n# Page 00\n\nEdited. Links to [[Page 01]].\n",
+    )
+    .unwrap();
+    git(v, "2026-11-04T14:51:04Z", &["commit", "-q", "-am", "edit"]);
+
+    let stats = h.service.sync_graphs_with(true).await.expect("sync");
+    assert_no_stage_failed(&stats);
+    let graph = h.kg_repo.load_graph().await.unwrap();
+
+    let class = node_meta(&graph, "Alpha");
+    assert_eq!(class["last_commit"], "2026-10-01T06:00:00Z");
+    assert_eq!(class["last_modified"], "2026-10-01T06:00:00Z");
+    assert_eq!(class["change_count"], "1");
+
+    let page = node_meta(&graph, "Page 00");
+    assert_eq!(page["last_commit"], "2026-11-04T14:51:04Z");
+    assert_eq!(page["change_count"], "2");
+}
+
+/// Without history (the vault is not a git checkout) the keys are omitted, never invented
+/// from the sync time or a file mtime.
+#[actix_rt::test]
+async fn without_history_synced_pages_omit_the_temporal_keys() {
+    let h = harness().await;
+    let stats = h.service.sync_graphs_with(true).await.expect("sync");
+    assert_no_stage_failed(&stats);
+    let graph = h.kg_repo.load_graph().await.unwrap();
+    for id in ["Alpha", "Page 00"] {
+        let m = node_meta(&graph, id);
+        for key in ["last_modified", "last_commit", "change_count"] {
+            assert!(!m.contains_key(key), "{id} must not carry {key}: {m:?}");
+        }
+    }
+}
