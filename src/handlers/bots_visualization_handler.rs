@@ -344,7 +344,7 @@ struct MockAgentResult {
 /// angle spiral (radius ~30 units) and connected to 3-5 random knowledge nodes
 /// with relationship edges ("reads", "modifies", "monitors").
 pub async fn inject_mock_agents(
-    _auth: crate::settings::auth_extractor::AuthenticatedUser,
+    auth: crate::settings::auth_extractor::AuthenticatedUser,
     req: web::Json<MockAgentsRequest>,
     app_state: web::Data<AppState>,
 ) -> Result<HttpResponse, actix_web::Error> {
@@ -355,17 +355,20 @@ pub async fn inject_mock_agents(
     let knowledge_ids: Vec<u32> = {
         use crate::actors::messages::GetGraphData;
         match app_state.graph_service_addr.send(GetGraphData).await {
-            Ok(Ok(graph_data)) => graph_data
-                .nodes
-                .iter()
-                .filter(|n| {
-                    matches!(
-                        n.node_type.as_deref(),
-                        Some("page") | Some("linked_page") | None
-                    )
-                })
-                .map(|n| n.id)
-                .collect(),
+            // ADR-060: targets come from the caller's view only; `edges_to` is returned.
+            Ok(Ok(graph_data)) => {
+                crate::handlers::graph_access::caller_view_for(&graph_data, Some(&auth.pubkey))
+                    .nodes
+                    .iter()
+                    .filter(|n| {
+                        matches!(
+                            n.node_type.as_deref(),
+                            Some("page") | Some("linked_page") | None
+                        )
+                    })
+                    .map(|n| n.id)
+                    .collect()
+            }
             _ => vec![],
         }
     };
@@ -383,7 +386,6 @@ pub async fn inject_mock_agents(
     };
 
     for (i, def) in req.agents.iter().enumerate() {
-
         // Golden angle spiral position at radius ~30
         let golden_angle = std::f64::consts::PI * (3.0 - 5.0_f64.sqrt());
         let theta = golden_angle * i as f64;
@@ -455,10 +457,7 @@ pub async fn inject_mock_agents(
         targets,
     });
 
-    info!(
-        "Injected {} mock agents into the roster",
-        results.len()
-    );
+    info!("Injected {} mock agents into the roster", results.len());
 
     ok_json!(json!({
         "success": true,

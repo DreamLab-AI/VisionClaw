@@ -95,11 +95,19 @@ impl GraphExportHandler {
         })
     }
 
-    async fn get_current_graph(&self, app_state: &AppState) -> Result<GraphData> {
+    /// The caller's view of the current graph (ADR-060): an export or share never carries
+    /// another owner's private nodes.
+    async fn get_current_graph(
+        &self,
+        app_state: &AppState,
+        caller: &crate::settings::OptionalAuth,
+    ) -> Result<GraphData> {
         use crate::actors::messages::GetGraphData;
 
         match app_state.graph_service_addr.send(GetGraphData).await {
-            Ok(Ok(graph_data)) => Ok((*graph_data).clone()),
+            Ok(Ok(graph_data)) => {
+                Ok((*crate::handlers::graph_access::caller_view(&graph_data, caller)).clone())
+            }
             Ok(Err(e)) => Err(anyhow::anyhow!("Graph service error: {}", e)),
             Err(e) => Err(anyhow::anyhow!("Graph service actor not responding: {}", e)),
         }
@@ -111,6 +119,7 @@ pub async fn export_graph(
     handler: web::Data<GraphExportHandler>,
     request: web::Json<ExportRequest>,
     req: HttpRequest,
+    caller: crate::settings::OptionalAuth,
 ) -> ActixResult<HttpResponse> {
     let client_ip = req
         .connection_info()
@@ -128,7 +137,7 @@ pub async fn export_graph(
         _ => {}
     }
 
-    let graph = match handler.get_current_graph(&app_state).await {
+    let graph = match handler.get_current_graph(&app_state, &caller).await {
         Ok(graph) => graph,
         Err(e) => {
             return error_json!("Failed to get graph: {}", e);
@@ -150,6 +159,7 @@ pub async fn share_graph(
     handler: web::Data<GraphExportHandler>,
     request: web::Json<ShareRequest>,
     req: HttpRequest,
+    caller: crate::settings::OptionalAuth,
 ) -> ActixResult<HttpResponse> {
     let client_ip = req
         .connection_info()
@@ -167,7 +177,7 @@ pub async fn share_graph(
         _ => {}
     }
 
-    let graph = match handler.get_current_graph(&app_state).await {
+    let graph = match handler.get_current_graph(&app_state, &caller).await {
         Ok(graph) => graph,
         Err(e) => {
             return error_json!("Failed to get graph: {}", e);
@@ -176,7 +186,11 @@ pub async fn share_graph(
 
     match handler
         .serialization_service
-        .create_shared_graph(&graph, &request)
+        .create_shared_graph(
+            &graph,
+            &request,
+            caller.0.as_ref().map(|u| u.pubkey.clone()),
+        )
         .await
     {
         Ok((shared_graph, share_response)) => {
@@ -274,9 +288,20 @@ pub async fn publish_graph(
     })))
 }
 
+/// Whether `caller` may delete `share`: only its recorded creator. An anonymous caller, any
+/// other caller, and a share with no recorded creator are refused (fail closed), and the
+/// refusal reads as "not found" so it does not confirm the share exists (review L1).
+pub(crate) fn may_delete_share(
+    share: &visionclaw_domain::models::graph_export::SharedGraph,
+    caller: Option<&str>,
+) -> bool {
+    matches!((share.creator_id.as_deref(), caller), (Some(owner), Some(c)) if owner == c)
+}
+
 pub async fn delete_shared_graph(
     handler: web::Data<GraphExportHandler>,
     path: web::Path<String>,
+    caller: crate::settings::OptionalAuth,
 ) -> ActixResult<HttpResponse> {
     let share_id = match Uuid::parse_str(&path.into_inner()) {
         Ok(id) => id,
@@ -287,7 +312,11 @@ pub async fn delete_shared_graph(
 
     let removed_graph = {
         let mut shared_graphs = handler.shared_graphs.write().await;
-        shared_graphs.remove(&share_id)
+        let caller = caller.0.as_ref().map(|u| u.pubkey.as_str());
+        match shared_graphs.get(&share_id) {
+            Some(share) if may_delete_share(share, caller) => shared_graphs.remove(&share_id),
+            _ => None,
+        }
     };
 
     match removed_graph {
@@ -372,4 +401,36 @@ mod tests {
     //     let resp = test::call_service(&app, req).await;
     //     assert!(resp.status().is_success() || resp.status().is_server_error());
     // }
+}
+
+#[cfg(test)]
+mod share_owner_tests {
+    use super::may_delete_share;
+    use visionclaw_domain::models::graph_export::ExportFormat;
+    use visionclaw_domain::models::graph_export::{NewSharedGraph, SharedGraph};
+
+    fn share(creator: Option<&str>) -> SharedGraph {
+        SharedGraph::new(NewSharedGraph {
+            title: "t".into(),
+            description: None,
+            creator_id: creator.map(str::to_string),
+            file_path: "/tmp/x".into(),
+            file_size: 0,
+            compressed: true,
+            original_format: ExportFormat::Json,
+            node_count: 0,
+            edge_count: 0,
+        })
+    }
+
+    #[test]
+    fn only_the_creator_may_delete_a_share() {
+        assert!(may_delete_share(&share(Some("a")), Some("a")));
+        assert!(!may_delete_share(&share(Some("a")), Some("b")));
+        assert!(!may_delete_share(&share(Some("a")), None));
+        assert!(
+            !may_delete_share(&share(None), Some("a")),
+            "an unattributed share is nobody's to delete"
+        );
+    }
 }

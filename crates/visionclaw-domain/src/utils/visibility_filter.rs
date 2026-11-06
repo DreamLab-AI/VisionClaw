@@ -16,7 +16,15 @@
 //! node (public-only graph), matching ADR-050 §Visibility transitions.
 
 use std::collections::HashSet;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
+
+use crate::models::graph::GraphData;
+use crate::models::node::Node;
+
+/// Node metadata key carrying the ADR-050 public flag (`"true"`, case-insensitive, means public).
+pub const PUBLIC_METADATA_KEY: &str = "public";
+/// Node metadata key carrying the ADR-050 owner pubkey of a private node.
+pub const OWNER_PUBKEY_METADATA_KEY: &str = "owner_pubkey";
 
 /// Env flag gating the drop-set filter. Default ON (secure by default); opt out with
 /// `0` / `false` / `off` / `no`.
@@ -86,6 +94,32 @@ impl NodeVisibility {
         }
     }
 
+    /// Project a graph node's visibility from its metadata map: public iff `public` is `"true"`
+    /// (case-insensitive), owner from `owner_pubkey`. This is the only reading of those keys;
+    /// every wire path (REST graph reads, `/wss` `initialGraphLoad`, the position drop set) goes
+    /// through it.
+    pub fn of_node(node: &Node) -> Self {
+        let is_public = node
+            .metadata
+            .get(PUBLIC_METADATA_KEY)
+            .is_some_and(|v| v.eq_ignore_ascii_case("true"));
+        Self {
+            wire_id: node.id,
+            is_public,
+            owner_pubkey: if is_public {
+                None
+            } else {
+                node.metadata.get(OWNER_PUBKEY_METADATA_KEY).cloned()
+            },
+        }
+    }
+
+    /// Whether this node may reach a caller holding `session_pubkey` (`None` means anonymous).
+    #[inline]
+    pub fn is_visible_to(&self, session_pubkey: Option<&str>) -> bool {
+        !self.is_dropped_for(session_pubkey)
+    }
+
     /// Whether this node must be dropped for the given caller.
     ///
     /// Keep iff public, or owned by the caller. Everything else drops.
@@ -129,6 +163,170 @@ pub fn apply_drop_set<T>(nodes: &mut Vec<(u32, T)>, drop_set: &HashSet<u32>) -> 
     let before = nodes.len();
     nodes.retain(|(id, _)| !drop_set.contains(id));
     before - nodes.len()
+}
+
+/// Whether `node` may reach a caller holding `session_pubkey` when the filter is on.
+///
+/// ADR-059 §6: public, or private and owned by the caller. Fails closed for an anonymous caller
+/// and for a private node with no known owner.
+#[inline]
+pub fn node_is_visible(node: &Node, session_pubkey: Option<&str>) -> bool {
+    NodeVisibility::of_node(node).is_visible_to(session_pubkey)
+}
+
+/// The part of `graph` a caller may see: the visible nodes, the edges with **both** endpoints
+/// visible, and the metadata entries of the visible nodes only.
+///
+/// `filter_on == false` returns `graph` unchanged (the explicit `PUBKEY_VISIBILITY_FILTER=0`
+/// opt-out). With the filter on, a metadata entry is kept only when a visible node names it, so a
+/// metadata row with no node fails closed. When nothing would be removed the input `Arc` is
+/// returned without copying.
+pub fn visible_subgraph(
+    graph: &Arc<GraphData>,
+    session_pubkey: Option<&str>,
+    filter_on: bool,
+) -> Arc<GraphData> {
+    if !filter_on {
+        return Arc::clone(graph);
+    }
+    let kept: Vec<&Node> = graph
+        .nodes
+        .iter()
+        .filter(|n| node_is_visible(n, session_pubkey))
+        .collect();
+    let kept_metadata_ids: HashSet<&str> = kept.iter().map(|n| n.metadata_id.as_str()).collect();
+    let nothing_removed = kept.len() == graph.nodes.len()
+        && graph
+            .metadata
+            .keys()
+            .all(|k| kept_metadata_ids.contains(k.as_str()))
+        && graph
+            .id_to_metadata
+            .values()
+            .all(|m| kept_metadata_ids.contains(m.as_str()));
+    if nothing_removed {
+        return Arc::clone(graph);
+    }
+
+    let kept_ids: HashSet<u32> = kept.iter().map(|n| n.id).collect();
+    let names = PageNames::new(graph, &kept, &kept_metadata_ids);
+    Arc::new(GraphData {
+        nodes: kept
+            .into_iter()
+            .map(|n| {
+                let mut n = n.clone();
+                names.scrub_node(&mut n);
+                n
+            })
+            .collect(),
+        edges: graph
+            .edges
+            .iter()
+            .filter(|e| kept_ids.contains(&e.source) && kept_ids.contains(&e.target))
+            .cloned()
+            .collect(),
+        metadata: graph
+            .metadata
+            .iter()
+            .filter(|(k, _)| kept_metadata_ids.contains(k.as_str()))
+            .map(|(k, v)| {
+                let mut v = v.clone();
+                names.scrub_row(&mut v);
+                (k.clone(), v)
+            })
+            .collect(),
+        id_to_metadata: graph
+            .id_to_metadata
+            .iter()
+            .filter(|(_, m)| kept_metadata_ids.contains(m.as_str()))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
+    })
+}
+
+/// The page names a caller may and may not see, for scrubbing references inside visible
+/// rows and nodes (ADR-060 M1). Compared case-insensitively, `.md` trimmed.
+struct PageNames {
+    visible: HashSet<String>,
+    hidden: HashSet<String>,
+}
+
+impl PageNames {
+    fn norm(s: &str) -> String {
+        s.trim().trim_end_matches(".md").to_lowercase()
+    }
+
+    fn new(graph: &GraphData, kept: &[&Node], kept_metadata_ids: &HashSet<&str>) -> Self {
+        let mut visible = HashSet::new();
+        for n in kept {
+            visible.insert(Self::norm(&n.metadata_id));
+            visible.insert(Self::norm(&n.label));
+        }
+        for k in graph.metadata.keys() {
+            if kept_metadata_ids.contains(k.as_str()) {
+                visible.insert(Self::norm(k));
+            }
+        }
+        let kept_ids: HashSet<u32> = kept.iter().map(|n| n.id).collect();
+        let mut hidden = HashSet::new();
+        for n in graph.nodes.iter().filter(|n| !kept_ids.contains(&n.id)) {
+            hidden.insert(Self::norm(&n.metadata_id));
+            hidden.insert(Self::norm(&n.label));
+            if let Some(iri) = &n.owl_class_iri {
+                hidden.insert(Self::norm(iri));
+            }
+            for key in ["file_name", "page_iri", "class_iri"] {
+                if let Some(v) = n.metadata.get(key) {
+                    hidden.insert(Self::norm(v));
+                }
+            }
+        }
+        for (k, row) in &graph.metadata {
+            if !kept_metadata_ids.contains(k.as_str()) {
+                hidden.insert(Self::norm(k));
+                hidden.insert(Self::norm(&row.file_name));
+            }
+        }
+        hidden.remove("");
+        Self { visible, hidden }
+    }
+
+    /// A removed page's name, unless a visible page shares it.
+    fn is_hidden(&self, name: &str) -> bool {
+        let n = Self::norm(name);
+        self.hidden.contains(&n) && !self.visible.contains(&n)
+    }
+
+    fn scrub_row(&self, row: &mut crate::models::metadata::Metadata) {
+        // Topic keys are page names from the metadata store: keep only visible pages.
+        row.topic_counts
+            .retain(|k, _| self.visible.contains(&Self::norm(k)));
+        row.is_subclass_of.retain(|v| !self.is_hidden(v));
+        row.belongs_to_domain.retain(|v| !self.is_hidden(v));
+    }
+
+    /// Scrub only node keys whose values are page references (N3): `is_subclass_of`
+    /// (`[[Parent]]` links, joined ",") and `tags` (`#tag` / `tags::`, joined ", "). Plain
+    /// frontmatter text such as `domain` / `source_domain` is left alone, because removing a
+    /// value that merely shares a hidden page's name would itself reveal that page.
+    fn scrub_node(&self, node: &mut Node) {
+        for (key, sep) in [("is_subclass_of", ","), ("tags", ", ")] {
+            let Some(list) = node.metadata.get(key) else {
+                continue;
+            };
+            let kept: Vec<&str> = list
+                .split(',')
+                .map(str::trim)
+                .filter(|v| !v.is_empty() && !self.is_hidden(v))
+                .collect();
+            if kept.is_empty() {
+                node.metadata.remove(key);
+            } else {
+                let joined = kept.join(sep);
+                node.metadata.insert(key.to_string(), joined);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -403,6 +601,198 @@ mod tests {
         ];
         assert_eq!(apply_drop_set(&mut labels, &drop), 2);
         assert_eq!(labels, vec![(1, "public".to_string())]);
+    }
+}
+
+#[cfg(test)]
+mod subgraph_tests {
+    use super::*;
+    use crate::models::edge::Edge;
+    use crate::models::metadata::Metadata;
+
+    const OWNER: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const OTHER: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    fn node(id: u32, metadata_id: &str, meta: &[(&str, &str)]) -> Node {
+        let mut n = Node::new_with_id(metadata_id.to_string(), Some(id));
+        for (k, v) in meta {
+            n.metadata.insert((*k).to_string(), (*v).to_string());
+        }
+        n
+    }
+
+    /// 1 public, 2 private owned by OWNER, 3 private with an unknown owner, plus a metadata row
+    /// (`orphan.md`) that no node names.
+    fn graph() -> Arc<GraphData> {
+        let mut g = GraphData::new();
+        g.nodes = vec![
+            node(1, "public.md", &[("public", "TRUE")]),
+            node(2, "owned.md", &[("owner_pubkey", OWNER)]),
+            node(3, "unowned.md", &[]),
+        ];
+        g.edges = vec![
+            Edge::new(1, 2, 1.0),
+            Edge::new(1, 3, 1.0),
+            Edge::new(2, 2, 1.0),
+        ];
+        for id in ["public.md", "owned.md", "unowned.md", "orphan.md"] {
+            g.metadata.insert(id.to_string(), Metadata::default());
+            g.id_to_metadata.insert(format!("k-{id}"), id.to_string());
+        }
+        Arc::new(g)
+    }
+
+    fn ids(g: &GraphData) -> Vec<u32> {
+        g.nodes.iter().map(|n| n.id).collect()
+    }
+
+    fn edges(g: &GraphData) -> Vec<(u32, u32)> {
+        g.edges.iter().map(|e| (e.source, e.target)).collect()
+    }
+
+    fn metadata_keys(g: &GraphData) -> Vec<String> {
+        let mut k: Vec<String> = g.metadata.keys().cloned().collect();
+        k.sort();
+        k
+    }
+
+    #[test]
+    fn anonymous_caller_gets_the_public_subgraph_and_its_metadata_only() {
+        let v = visible_subgraph(&graph(), None, true);
+        assert_eq!(ids(&v), vec![1]);
+        assert!(edges(&v).is_empty(), "edges touching dropped nodes go");
+        assert_eq!(metadata_keys(&v), vec!["public.md".to_string()]);
+        assert_eq!(v.id_to_metadata.len(), 1);
+    }
+
+    #[test]
+    fn a_non_owner_sees_what_an_anonymous_caller_sees() {
+        let v = visible_subgraph(&graph(), Some(OTHER), true);
+        assert_eq!(ids(&v), vec![1]);
+        assert_eq!(metadata_keys(&v), vec!["public.md".to_string()]);
+    }
+
+    #[test]
+    fn the_owner_also_sees_their_private_node_and_its_edges() {
+        let v = visible_subgraph(&graph(), Some(OWNER), true);
+        assert_eq!(ids(&v), vec![1, 2]);
+        assert_eq!(edges(&v), vec![(1, 2), (2, 2)]);
+        assert_eq!(
+            metadata_keys(&v),
+            vec!["owned.md".to_string(), "public.md".to_string()]
+        );
+    }
+
+    #[test]
+    fn an_orphan_metadata_row_fails_closed_even_when_no_node_drops() {
+        let mut g = GraphData::new();
+        g.nodes = vec![node(1, "public.md", &[("public", "true")])];
+        g.metadata
+            .insert("public.md".to_string(), Metadata::default());
+        g.metadata
+            .insert("orphan.md".to_string(), Metadata::default());
+        let v = visible_subgraph(&Arc::new(g), None, true);
+        assert_eq!(metadata_keys(&v), vec!["public.md".to_string()]);
+    }
+
+    #[test]
+    fn nothing_to_remove_returns_the_same_allocation() {
+        let mut g = GraphData::new();
+        g.nodes = vec![node(1, "public.md", &[("public", "true")])];
+        g.metadata
+            .insert("public.md".to_string(), Metadata::default());
+        let g = Arc::new(g);
+        assert!(Arc::ptr_eq(&visible_subgraph(&g, None, true), &g));
+    }
+
+    #[test]
+    fn filter_off_is_the_explicit_opt_out_and_passes_everything() {
+        let g = graph();
+        assert!(Arc::ptr_eq(&visible_subgraph(&g, None, false), &g));
+    }
+
+    #[test]
+    fn a_public_node_ignores_its_owner_key() {
+        let n = node(9, "p.md", &[("public", "true"), ("owner_pubkey", OWNER)]);
+        assert!(node_is_visible(&n, None));
+        assert_eq!(NodeVisibility::of_node(&n), NodeVisibility::public(9));
+    }
+
+    #[test]
+    fn of_node_agrees_with_the_drop_set_rule() {
+        let g = graph();
+        let projected: Vec<NodeVisibility> = g.nodes.iter().map(NodeVisibility::of_node).collect();
+        for caller in [None, Some(OWNER), Some(OTHER)] {
+            let drop = compute_private_opaque_ids(&projected, caller);
+            for n in &g.nodes {
+                assert_eq!(node_is_visible(n, caller), !drop.contains(&n.id));
+            }
+        }
+    }
+
+    /// ADR-060 M1: a visible page that links to, subclasses or sits in a hidden page must not
+    /// carry the hidden page's name. `topic_counts` keys are page names, so they are kept only
+    /// when they name a visible page; the page-reference fields (`is_subclass_of`,
+    /// `belongs_to_domain`, `tags`) drop only names of removed pages; plain text such as `domain`
+    /// is never touched (N2, N3).
+    #[test]
+    fn hidden_page_names_are_scrubbed_from_visible_rows_and_nodes() {
+        let mut g = (*graph()).clone();
+        g.nodes[0].label = "Public".into();
+        g.nodes[1].label = "Owned".into();
+        g.nodes[2].label = "Unowned Secret".into();
+        g.nodes[0]
+            .metadata
+            .insert("is_subclass_of".into(), "Thing,Unowned Secret".into());
+        g.nodes[0]
+            .metadata
+            .insert("domain".into(), "unowned".into());
+        g.nodes[0]
+            .metadata
+            .insert("source_domain".into(), "ai".into());
+        // `#tag` / `tags::` values are page references (N2), joined ", " by the parser.
+        g.nodes[0]
+            .metadata
+            .insert("tags".into(), "unowned, Unowned Secret, public".into());
+        let row = g.metadata.get_mut("public.md").unwrap();
+        row.topic_counts = [("unowned".to_string(), 2), ("public".to_string(), 1)]
+            .into_iter()
+            .collect();
+        row.is_subclass_of = vec!["Thing".into(), "unowned".into()];
+        row.belongs_to_domain = vec!["Unowned Secret".into(), "ai".into()];
+        let g = Arc::new(g);
+
+        let out = visible_subgraph(&g, None, true);
+        let row = &out.metadata["public.md"];
+        let topics: Vec<&String> = row.topic_counts.keys().collect();
+        assert_eq!(
+            topics,
+            vec!["public"],
+            "a hidden page name must not survive as a topic"
+        );
+        assert_eq!(row.is_subclass_of, vec!["Thing".to_string()]);
+        assert_eq!(row.belongs_to_domain, vec!["ai".to_string()]);
+        let n = &out.nodes[0].metadata;
+        assert_eq!(n.get("is_subclass_of").map(String::as_str), Some("Thing"));
+        // N3: `domain` is plain frontmatter text, not a page reference. Dropping it because a
+        // hidden page shares the name would itself reveal that page.
+        assert_eq!(
+            n.get("domain").map(String::as_str),
+            Some("unowned"),
+            "a plain domain value must not vanish because a hidden page shares its name"
+        );
+        assert_eq!(
+            n.get("tags").map(String::as_str),
+            Some("public"),
+            "a tag naming a hidden page is a page reference and is scrubbed"
+        );
+        assert_eq!(n.get("source_domain").map(String::as_str), Some("ai"));
+
+        // The owner sees their own page named; the unowned one is still scrubbed.
+        let owner = visible_subgraph(&g, Some(OWNER), true);
+        assert!(!owner.metadata["public.md"]
+            .topic_counts
+            .contains_key("unowned"));
     }
 }
 

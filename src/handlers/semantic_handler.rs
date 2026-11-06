@@ -6,8 +6,9 @@
 use crate::{error_json, ok_json};
 use actix_web::{web, HttpResponse, Result as ActixResult};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use visionclaw_domain::models::graph::GraphData;
 
 use crate::actors::graph_service_supervisor::GraphServiceSupervisor;
 use actix::Addr;
@@ -16,7 +17,8 @@ use crate::application::semantic_service::{
     CentralityRequest, CommunityDetectionRequest, SemanticService, ShortestPathRequest,
 };
 use visionclaw_domain::ports::gpu_semantic_analyzer::{
-    ClusteringAlgorithm, ImportanceAlgorithm, SemanticConstraintConfig,
+    ClusteringAlgorithm, GpuSemanticAnalyzerError, ImportanceAlgorithm, PathfindingResult,
+    SemanticConstraintConfig,
 };
 
 #[derive(Debug, Deserialize)]
@@ -76,11 +78,13 @@ pub async fn detect_communities(
     semantic_service: web::Data<Arc<SemanticService>>,
     graph_service: web::Data<Addr<GraphServiceSupervisor>>,
     req: web::Json<DetectCommunitiesRequest>,
+    caller: crate::settings::OptionalAuth,
 ) -> ActixResult<HttpResponse> {
     let graph = match crate::handlers::graph_access::current_graph(&graph_service).await {
         Ok(g) => g,
         Err(e) => return error_json!("Failed to read the graph: {}", e),
     };
+    let visible = visible_ids(&graph, &caller);
     if let Err(e) = semantic_service.initialize(graph).await {
         return error_json!("Failed to initialize: {}", e);
     }
@@ -101,12 +105,16 @@ pub async fn detect_communities(
     };
 
     match semantic_service.detect_communities(request).await {
-        Ok(result) => ok_json!(CommunitiesResponse {
-            clusters: result.clusters,
-            cluster_sizes: result.cluster_sizes,
-            modularity: result.modularity,
-            computation_time_ms: result.computation_time_ms,
-        }),
+        Ok(result) => {
+            let (clusters, cluster_sizes) =
+                gate_communities(result.clusters, result.cluster_sizes, visible.as_ref());
+            ok_json!(CommunitiesResponse {
+                clusters,
+                cluster_sizes,
+                modularity: result.modularity,
+                computation_time_ms: result.computation_time_ms,
+            })
+        }
         Err(e) => error_json!("Failed to detect communities: {}", e),
     }
 }
@@ -115,11 +123,13 @@ pub async fn compute_centrality(
     semantic_service: web::Data<Arc<SemanticService>>,
     graph_service: web::Data<Addr<GraphServiceSupervisor>>,
     req: web::Json<CentralityAnalysisRequest>,
+    caller: crate::settings::OptionalAuth,
 ) -> ActixResult<HttpResponse> {
     let graph = match crate::handlers::graph_access::current_graph(&graph_service).await {
         Ok(g) => g,
         Err(e) => return error_json!("Failed to read the graph: {}", e),
     };
+    let visible = visible_ids(&graph, &caller);
     if let Err(e) = semantic_service.initialize(graph).await {
         return error_json!("Failed to initialize: {}", e);
     }
@@ -139,20 +149,17 @@ pub async fn compute_centrality(
         },
     };
 
+    let top_k = req.top_k.map(|k| k.min(MAX_TOP_K));
+    // Under the gate the service must not truncate first: a top-k cut before the filter would
+    // come back short and show how many hidden nodes ranked above the visible ones.
     let request = CentralityRequest {
         algorithm: algorithm.clone(),
-        top_k: req.top_k.map(|k| k.min(MAX_TOP_K)),
+        top_k: if visible.is_some() { None } else { top_k },
     };
 
     match semantic_service.compute_centrality(request).await {
         Ok(scores) => {
-            let mut top_nodes: Vec<_> = scores.iter().map(|(&id, &score)| (id, score)).collect();
-            top_nodes.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            if let Some(k) = req.top_k {
-                top_nodes.truncate(k);
-            } else {
-                top_nodes.truncate(10);
-            }
+            let (scores, top_nodes) = gate_centrality(scores, visible.as_ref(), req.top_k);
 
             ok_json!(CentralityResponse {
                 scores,
@@ -168,28 +175,36 @@ pub async fn compute_shortest_path(
     semantic_service: web::Data<Arc<SemanticService>>,
     graph_service: web::Data<Addr<GraphServiceSupervisor>>,
     req: web::Json<ShortestPathAnalysisRequest>,
+    caller: crate::settings::OptionalAuth,
 ) -> ActixResult<HttpResponse> {
     let graph = match crate::handlers::graph_access::current_graph(&graph_service).await {
         Ok(g) => g,
         Err(e) => return error_json!("Failed to read the graph: {}", e),
     };
+    let visible = visible_ids(&graph, &caller);
     if let Err(e) = semantic_service.initialize(graph).await {
         return error_json!("Failed to initialize: {}", e);
     }
 
+    let include_path = req.include_path.unwrap_or(true);
+    // A source the caller cannot see answers exactly as a node id that does not exist.
+    if visible
+        .as_ref()
+        .is_some_and(|v| !v.contains(&req.source_node_id))
+    {
+        let e = source_out_of_range(req.source_node_id);
+        return error_json!("Failed to compute shortest paths: {}", e);
+    }
     let request = ShortestPathRequest {
         source_node_id: req.source_node_id,
         target_node_id: req.target_node_id,
-        include_path: req.include_path.unwrap_or(true),
+        // Under the gate the paths are always built: they are what proves a distance was reached
+        // through visible nodes only. They are stripped again below when not asked for.
+        include_path: include_path || visible.is_some(),
     };
 
     match semantic_service.compute_shortest_paths(request).await {
-        Ok(result) => ok_json!(ShortestPathResponse {
-            source_node: result.source_node,
-            distances: result.distances,
-            paths: result.paths,
-            computation_time_ms: result.computation_time_ms,
-        }),
+        Ok(result) => ok_json!(gate_shortest_path(result, visible.as_ref(), include_path)),
         Err(e) => error_json!("Failed to compute shortest paths: {}", e),
     }
 }
@@ -221,6 +236,104 @@ pub async fn generate_constraints(
             "status": "generated"
         })),
         Err(e) => error_json!("Failed to generate constraints: {}", e),
+    }
+}
+
+/// The node ids the caller may see, or `None` when the gate removes nothing (filter off, or no
+/// private node hidden from this caller), in which case responses pass through unchanged. The set
+/// comes from the one visibility policy (`graph_access::caller_view`).
+fn visible_ids(
+    graph: &Arc<GraphData>,
+    caller: &crate::settings::OptionalAuth,
+) -> Option<HashSet<u32>> {
+    let view = crate::handlers::graph_access::caller_view(graph, caller);
+    if Arc::ptr_eq(&view, graph) {
+        None
+    } else {
+        Some(crate::handlers::graph_access::visible_positions(
+            graph, &view,
+        ))
+    }
+}
+
+/// The error the analyser gives for a source id past the end of the graph.
+fn source_out_of_range(id: u32) -> GpuSemanticAnalyzerError {
+    GpuSemanticAnalyzerError::InvalidGraph(format!("Source node {} out of range", id))
+}
+
+/// Community membership for the visible nodes only; sizes are recounted from what is left, so a
+/// size never counts a hidden member and a community with no visible member disappears.
+fn gate_communities(
+    clusters: HashMap<u32, usize>,
+    cluster_sizes: HashMap<usize, usize>,
+    visible: Option<&HashSet<u32>>,
+) -> (HashMap<u32, usize>, HashMap<usize, usize>) {
+    let Some(visible) = visible else {
+        return (clusters, cluster_sizes);
+    };
+    let clusters: HashMap<u32, usize> = clusters
+        .into_iter()
+        .filter(|(id, _)| visible.contains(id))
+        .collect();
+    let mut sizes: HashMap<usize, usize> = HashMap::new();
+    for cluster in clusters.values() {
+        *sizes.entry(*cluster).or_default() += 1;
+    }
+    (clusters, sizes)
+}
+
+/// Centrality scores for the visible nodes, cut to `top_k` after the filter, and the ranked
+/// `top_nodes` list (`top_k`, default 10).
+fn gate_centrality(
+    scores: HashMap<u32, f32>,
+    visible: Option<&HashSet<u32>>,
+    top_k: Option<usize>,
+) -> (HashMap<u32, f32>, Vec<(u32, f32)>) {
+    let mut ranked: Vec<(u32, f32)> = scores
+        .into_iter()
+        .filter(|(id, _)| visible.is_none_or(|v| v.contains(id)))
+        .collect();
+    ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    if let Some(k) = top_k {
+        ranked.truncate(k.min(MAX_TOP_K));
+    }
+    let scores: HashMap<u32, f32> = ranked.iter().copied().collect();
+    ranked.truncate(top_k.unwrap_or(10));
+    (scores, ranked)
+}
+
+/// The shortest-path response for the caller. A target is kept only when it is visible and its
+/// whole path is: a distance reached through a hidden node would reveal that node. The source
+/// itself (distance 0, no path) is kept. Paths are dropped when `include_path` is false.
+fn gate_shortest_path(
+    result: PathfindingResult,
+    visible: Option<&HashSet<u32>>,
+    include_path: bool,
+) -> ShortestPathResponse {
+    let PathfindingResult {
+        source_node,
+        mut distances,
+        mut paths,
+        computation_time_ms,
+    } = result;
+    if let Some(visible) = visible {
+        // A reconstruction that failed part-way returns a path that does not reach the source;
+        // the distance still counts the missing hops, so such a target is dropped too.
+        paths.retain(|target, path| {
+            path.first() == Some(&source_node)
+                && path.last() == Some(target)
+                && path.iter().all(|n| visible.contains(n))
+        });
+        distances.retain(|target, _| *target == source_node || paths.contains_key(target));
+    }
+    if !include_path {
+        paths.clear();
+    }
+    ShortestPathResponse {
+        source_node,
+        distances,
+        paths,
+        computation_time_ms,
     }
 }
 
@@ -317,6 +430,148 @@ mod tests {
         assert_eq!(
             bounded(Some(usize::MAX), 1000, MAX_CONSTRAINTS),
             MAX_CONSTRAINTS
+        );
+    }
+}
+
+/// Response gating for the semantic routes: no private node id leaves, even though the shared
+/// analyser keeps the full graph.
+#[cfg(test)]
+mod response_gate_tests {
+    use super::*;
+
+    /// Public nodes 0, 1, 2, 4; node 3 is private to someone else.
+    fn visible() -> HashSet<u32> {
+        [0, 1, 2, 4].into_iter().collect()
+    }
+
+    /// From source 0: 1 directly, 2 via 1, 4 only through the hidden 3, 3 itself.
+    fn sssp() -> PathfindingResult {
+        PathfindingResult {
+            source_node: 0,
+            distances: [(0, 0.0), (1, 1.0), (2, 2.0), (3, 1.0), (4, 2.0)]
+                .into_iter()
+                .collect(),
+            paths: [
+                (1, vec![0, 1]),
+                (2, vec![0, 1, 2]),
+                (3, vec![0, 3]),
+                (4, vec![0, 3, 4]),
+            ]
+            .into_iter()
+            .collect(),
+            computation_time_ms: 1.0,
+        }
+    }
+
+    #[test]
+    fn a_shortest_path_never_names_or_routes_through_a_hidden_node() {
+        let out = gate_shortest_path(sssp(), Some(&visible()), true);
+        let mut targets: Vec<u32> = out.distances.keys().copied().collect();
+        targets.sort_unstable();
+        // 3 is hidden; 4 is visible but reached only through 3, so its distance would reveal 3.
+        assert_eq!(targets, vec![0, 1, 2]);
+        let mut with_paths: Vec<u32> = out.paths.keys().copied().collect();
+        with_paths.sort_unstable();
+        assert_eq!(with_paths, vec![1, 2]);
+        assert!(out.paths.values().flatten().all(|id| *id != 3));
+    }
+
+    #[test]
+    fn distances_only_are_still_checked_against_the_path() {
+        let out = gate_shortest_path(sssp(), Some(&visible()), false);
+        let mut targets: Vec<u32> = out.distances.keys().copied().collect();
+        targets.sort_unstable();
+        assert_eq!(targets, vec![0, 1, 2]);
+        assert!(out.paths.is_empty(), "paths were not asked for");
+    }
+
+    #[test]
+    fn a_partial_path_does_not_vouch_for_its_distance() {
+        let mut r = sssp();
+        // Reconstruction stopped at 2: the visible tail hides how 4 was really reached.
+        r.paths.insert(4, vec![2, 4]);
+        let out = gate_shortest_path(r, Some(&visible()), true);
+        assert!(!out.distances.contains_key(&4));
+        assert!(!out.paths.contains_key(&4));
+    }
+
+    #[test]
+    fn a_position_whose_node_id_drifted_counts_as_hidden() {
+        use visionclaw_domain::models::node::Node;
+        // `new_with_id` treats id 0 as "allocate one", so the id is set explicitly.
+        let node = |id: u32| {
+            let mut n = Node::new_with_id(format!("n{id}"), None);
+            n.id = id;
+            n
+        };
+        // Position 1 holds node id 2 (node 1 was removed); position 2 holds node id 3.
+        let graph = GraphData {
+            nodes: vec![node(0), node(2), node(3)],
+            ..GraphData::default()
+        };
+        let view = GraphData {
+            nodes: vec![node(0), node(2)],
+            ..GraphData::default()
+        };
+        let v = crate::handlers::graph_access::visible_positions(&graph, &view);
+        assert_eq!(v, [0].into_iter().collect::<HashSet<u32>>());
+    }
+
+    #[test]
+    fn with_nothing_hidden_the_shortest_path_passes_through() {
+        let out = gate_shortest_path(sssp(), None, true);
+        assert_eq!(out.distances.len(), 5);
+        assert_eq!(out.paths.len(), 4);
+    }
+
+    #[test]
+    fn a_hidden_source_reads_as_a_missing_node() {
+        assert_eq!(
+            source_out_of_range(3).to_string(),
+            GpuSemanticAnalyzerError::InvalidGraph("Source node 3 out of range".into()).to_string()
+        );
+    }
+
+    #[test]
+    fn communities_drop_hidden_members_and_recount() {
+        let clusters: HashMap<u32, usize> = [(0, 7), (1, 7), (3, 7), (2, 8), (4, 9)]
+            .into_iter()
+            .collect();
+        let sizes: HashMap<usize, usize> = [(7, 3), (8, 1), (9, 1)].into_iter().collect();
+        let mut only_hidden = clusters.clone();
+        only_hidden.insert(3, 5);
+        let mut only_hidden_sizes = sizes.clone();
+        *only_hidden_sizes.get_mut(&7).unwrap() -= 1;
+        only_hidden_sizes.insert(5, 1);
+
+        let (c, s) = gate_communities(clusters, sizes, Some(&visible()));
+        assert!(!c.contains_key(&3));
+        assert_eq!(s.get(&7), Some(&2), "the hidden member is not counted");
+
+        let (c, s) = gate_communities(only_hidden, only_hidden_sizes, Some(&visible()));
+        assert!(!c.contains_key(&3));
+        assert!(
+            !s.contains_key(&5),
+            "a community of hidden nodes only disappears"
+        );
+    }
+
+    #[test]
+    fn centrality_filters_before_the_top_k_cut() {
+        let scores: HashMap<u32, f32> = [(3, 0.9), (0, 0.5), (1, 0.4), (2, 0.3), (4, 0.2)]
+            .into_iter()
+            .collect();
+        let (s, top) = gate_centrality(scores, Some(&visible()), Some(2));
+        assert!(!s.contains_key(&3));
+        assert_eq!(
+            s.len(),
+            2,
+            "the cut is taken over visible nodes, so it is not short"
+        );
+        assert_eq!(
+            top.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            vec![0, 1]
         );
     }
 }

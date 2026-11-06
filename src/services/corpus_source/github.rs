@@ -89,4 +89,11 @@ impl CorpusSource for GitHubSource {
             .await
             .map_err(|e| format!("Failed to fetch content: {}", e))
     }
+
+    /// Batched GraphQL `history` queries for the pages being built; the listing itself carries
+    /// no commit times.
+    async fn page_history(&self, pages: &[CorpusPage]) -> super::HistoryMap {
+        let paths: Vec<String> = pages.iter().map(|p| p.path.clone()).collect();
+        self.content_api.commit_history(&paths).await
+    }
 }

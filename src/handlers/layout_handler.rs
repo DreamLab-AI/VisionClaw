@@ -136,8 +136,9 @@ pub async fn set_layout_mode(
     }
     // Fetch current graph data
     use crate::actors::messages::GetGraphData;
+    // ADR-060: the placement is computed over, and returned for, the caller's view only.
     let graph_data = match data.graph_service_addr.send(GetGraphData).await {
-        Ok(Ok(gd)) => gd,
+        Ok(Ok(gd)) => crate::handlers::graph_access::caller_view_for(&gd, Some(&auth.pubkey)),
         Ok(Err(e)) => {
             log::error!("set_layout_mode: failed to get graph data: {}", e);
             return ok_json!(serde_json::json!({

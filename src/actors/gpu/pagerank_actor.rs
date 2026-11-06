@@ -249,60 +249,73 @@ impl PageRankActor {
         converged: bool,
         computation_time_ms: u64,
     ) -> PageRankStats {
-        if values.is_empty() {
-            return PageRankStats {
-                total_nodes: 0,
-                max_pagerank: 0.0,
-                min_pagerank: 0.0,
-                mean_pagerank: 0.0,
-                median_pagerank: 0.0,
-                std_deviation: 0.0,
-                computation_time_ms,
-                converged,
-                iterations,
-            };
-        }
+        pagerank_statistics(values, iterations, converged, computation_time_ms)
+    }
+}
 
-        let total_nodes = values.len() as u32;
-        let max_pagerank = values.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let min_pagerank = values.iter().cloned().fold(f32::INFINITY, f32::min);
-        let sum: f32 = values.iter().sum();
-        let mean_pagerank = sum / total_nodes as f32;
-
-        // Calculate median
-        let mut sorted_values = values.to_vec();
-        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let median_pagerank = if sorted_values.len().is_multiple_of(2) {
-            let mid = sorted_values.len() / 2;
-            (sorted_values[mid - 1] + sorted_values[mid]) / 2.0
-        } else {
-            sorted_values[sorted_values.len() / 2]
-        };
-
-        // Calculate standard deviation
-        let variance: f32 = values
-            .iter()
-            .map(|&v| {
-                let diff = v - mean_pagerank;
-                diff * diff
-            })
-            .sum::<f32>()
-            / total_nodes as f32;
-        let std_deviation = variance.sqrt();
-
-        PageRankStats {
-            total_nodes,
-            max_pagerank,
-            min_pagerank,
-            mean_pagerank,
-            median_pagerank,
-            std_deviation,
+/// Summary statistics over a set of PageRank values (also used to recompute the summary over a
+/// caller's visible nodes, ADR-060).
+pub(crate) fn pagerank_statistics(
+    values: &[f32],
+    iterations: u32,
+    converged: bool,
+    computation_time_ms: u64,
+) -> PageRankStats {
+    if values.is_empty() {
+        return PageRankStats {
+            total_nodes: 0,
+            max_pagerank: 0.0,
+            min_pagerank: 0.0,
+            mean_pagerank: 0.0,
+            median_pagerank: 0.0,
+            std_deviation: 0.0,
             computation_time_ms,
             converged,
             iterations,
-        }
+        };
     }
 
+    let total_nodes = values.len() as u32;
+    let max_pagerank = values.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let min_pagerank = values.iter().cloned().fold(f32::INFINITY, f32::min);
+    let sum: f32 = values.iter().sum();
+    let mean_pagerank = sum / total_nodes as f32;
+
+    // Calculate median
+    let mut sorted_values = values.to_vec();
+    sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let median_pagerank = if sorted_values.len().is_multiple_of(2) {
+        let mid = sorted_values.len() / 2;
+        (sorted_values[mid - 1] + sorted_values[mid]) / 2.0
+    } else {
+        sorted_values[sorted_values.len() / 2]
+    };
+
+    // Calculate standard deviation
+    let variance: f32 = values
+        .iter()
+        .map(|&v| {
+            let diff = v - mean_pagerank;
+            diff * diff
+        })
+        .sum::<f32>()
+        / total_nodes as f32;
+    let std_deviation = variance.sqrt();
+
+    PageRankStats {
+        total_nodes,
+        max_pagerank,
+        min_pagerank,
+        mean_pagerank,
+        median_pagerank,
+        std_deviation,
+        computation_time_ms,
+        converged,
+        iterations,
+    }
+}
+
+impl PageRankActor {
     /// Extract top K nodes sorted by PageRank
     fn extract_top_nodes(&self, values: &[f32], k: usize) -> Vec<PageRankNode> {
         let mut nodes_with_values: Vec<(u32, f32)> = values

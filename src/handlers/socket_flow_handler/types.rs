@@ -264,95 +264,12 @@ impl SocketFlowServer {
 
                     // Send new InitialGraphLoad message with LIMITED node set for fast initial render
                     if !graph_data.nodes.is_empty() || !graph_data.edges.is_empty() {
-                        use crate::services::inferred_edge_materialiser::edge_is_inferred;
-                        use crate::utils::socket_flow_messages::{
-                            InitialEdgeData, InitialNodeData,
-                        };
-                        use std::collections::HashSet;
-
-                        // ADR-060 §Phase-4: drop private nodes not owned by this
-                        // session before they reach the wire. Default OFF; when
-                        // enabled an anonymous caller sees public-only (fail-closed).
-                        let is_visible = |node: &visionclaw_domain::models::node::Node| -> bool {
-                            if !visibility_filter_on {
-                                return true;
-                            }
-                            let is_public = node
-                                .metadata
-                                .get("public")
-                                .map(|v| v.eq_ignore_ascii_case("true"))
-                                .unwrap_or(false);
-                            if is_public {
-                                return true;
-                            }
-                            match (caller_pubkey.as_deref(), node.metadata.get("owner_pubkey")) {
-                                (Some(pk), Some(owner)) => pk == owner,
-                                _ => false,
-                            }
-                        };
-
-                        let mut sorted_nodes: Vec<&visionclaw_domain::models::node::Node> =
-                            graph_data.nodes.iter().filter(|n| is_visible(n)).collect();
-
-                        // Sort by quality_score descending
-                        sorted_nodes.sort_by(|a, b| {
-                            let quality_a = graph_data
-                                .metadata
-                                .get(&a.metadata_id)
-                                .and_then(|m| m.quality_score)
-                                .unwrap_or(0.0);
-                            let quality_b = graph_data
-                                .metadata
-                                .get(&b.metadata_id)
-                                .and_then(|m| m.quality_score)
-                                .unwrap_or(0.0);
-                            quality_b
-                                .partial_cmp(&quality_a)
-                                .unwrap_or(std::cmp::Ordering::Equal)
-                        });
-
-                        let filtered_nodes: Vec<&visionclaw_domain::models::node::Node> =
-                            sorted_nodes.into_iter().take(initial_node_limit).collect();
-
-                        let filtered_node_ids: HashSet<u32> =
-                            filtered_nodes.iter().map(|n| n.id).collect();
-
-                        let nodes: Vec<InitialNodeData> = filtered_nodes
-                            .iter()
-                            .map(|node| InitialNodeData {
-                                id: node.id,
-                                metadata_id: node.metadata_id.clone(),
-                                label: node.label.clone(),
-                                x: node.data.x,
-                                y: node.data.y,
-                                z: node.data.z,
-                                vx: node.data.vx,
-                                vy: node.data.vy,
-                                vz: node.data.vz,
-                                owl_class_iri: node.owl_class_iri.clone(),
-                                node_type: node.node_type.clone(),
-                                did_nostr: node.metadata.get("did_nostr").cloned(),
-                                metadata: node.metadata.clone(),
-                            })
-                            .collect();
-
-                        // Only include edges where BOTH source and target are in filtered nodes
-                        let edges: Vec<InitialEdgeData> = graph_data
-                            .edges
-                            .iter()
-                            .filter(|edge| {
-                                filtered_node_ids.contains(&edge.source)
-                                    && filtered_node_ids.contains(&edge.target)
-                            })
-                            .map(|edge| InitialEdgeData {
-                                id: edge.id.clone(),
-                                source_id: edge.source,
-                                target_id: edge.target,
-                                weight: Some(edge.weight),
-                                edge_type: edge.edge_type.clone(),
-                                inferred: edge_is_inferred(edge),
-                            })
-                            .collect();
+                        let (nodes, edges) = initial_graph_load_projection(
+                            &graph_data,
+                            caller_pubkey.as_deref(),
+                            visibility_filter_on,
+                            initial_node_limit,
+                        );
 
                         addr.do_send(super::actor_messages::GenGatedInitialGraphLoad {
                             nodes: nodes.clone(),
@@ -564,6 +481,96 @@ pub(crate) fn resolve_initial_node_limit(configured: u32) -> usize {
     } else {
         configured.min(INITIAL_NODE_LIMIT_CEILING)
     }
+}
+
+/// Project the `initialGraphLoad` node and edge lists for one caller: the visibility gate, then the
+/// top-`limit` nodes by quality score, then the edges with both endpoints in that set.
+pub(crate) fn initial_graph_load_projection(
+    graph_data: &std::sync::Arc<visionclaw_domain::models::graph::GraphData>,
+    caller_pubkey: Option<&str>,
+    visibility_filter_on: bool,
+    initial_node_limit: usize,
+) -> (
+    Vec<crate::utils::socket_flow_messages::InitialNodeData>,
+    Vec<crate::utils::socket_flow_messages::InitialEdgeData>,
+) {
+    use crate::services::inferred_edge_materialiser::edge_is_inferred;
+    use crate::utils::socket_flow_messages::{InitialEdgeData, InitialNodeData};
+
+    // ADR-060 §Phase-4: drop private nodes not owned by this session before they reach the
+    // wire, through the same `visible_subgraph` the REST graph reads use. That one call also
+    // drops the hidden metadata rows and scrubs hidden page names out of the visible nodes'
+    // page-reference fields (re-review N1); with the filter on, an anonymous caller sees
+    // public-only (fail closed).
+    let view = visionclaw_domain::utils::visibility_filter::visible_subgraph(
+        graph_data,
+        caller_pubkey,
+        visibility_filter_on,
+    );
+    let graph_data: &visionclaw_domain::models::graph::GraphData = &view;
+
+    let mut sorted_nodes: Vec<&visionclaw_domain::models::node::Node> =
+        graph_data.nodes.iter().collect();
+
+    // Sort by quality_score descending
+    sorted_nodes.sort_by(|a, b| {
+        let quality_a = graph_data
+            .metadata
+            .get(&a.metadata_id)
+            .and_then(|m| m.quality_score)
+            .unwrap_or(0.0);
+        let quality_b = graph_data
+            .metadata
+            .get(&b.metadata_id)
+            .and_then(|m| m.quality_score)
+            .unwrap_or(0.0);
+        quality_b
+            .partial_cmp(&quality_a)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let filtered_nodes: Vec<&visionclaw_domain::models::node::Node> =
+        sorted_nodes.into_iter().take(initial_node_limit).collect();
+
+    let filtered_node_ids: HashSet<u32> = filtered_nodes.iter().map(|n| n.id).collect();
+
+    let nodes: Vec<InitialNodeData> = filtered_nodes
+        .iter()
+        .map(|node| InitialNodeData {
+            id: node.id,
+            metadata_id: node.metadata_id.clone(),
+            label: node.label.clone(),
+            x: node.data.x,
+            y: node.data.y,
+            z: node.data.z,
+            vx: node.data.vx,
+            vy: node.data.vy,
+            vz: node.data.vz,
+            owl_class_iri: node.owl_class_iri.clone(),
+            node_type: node.node_type.clone(),
+            did_nostr: node.metadata.get("did_nostr").cloned(),
+            metadata: node.metadata.clone(),
+        })
+        .collect();
+
+    // Only include edges where BOTH source and target are in filtered nodes
+    let edges: Vec<InitialEdgeData> = graph_data
+        .edges
+        .iter()
+        .filter(|edge| {
+            filtered_node_ids.contains(&edge.source) && filtered_node_ids.contains(&edge.target)
+        })
+        .map(|edge| InitialEdgeData {
+            id: edge.id.clone(),
+            source_id: edge.source,
+            target_id: edge.target,
+            weight: Some(edge.weight),
+            edge_type: edge.edge_type.clone(),
+            inferred: edge_is_inferred(edge),
+        })
+        .collect();
+
+    (nodes, edges)
 }
 
 #[cfg(test)]

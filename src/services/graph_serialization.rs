@@ -87,6 +87,7 @@ impl GraphSerializationService {
         &self,
         graph: &GraphData,
         request: &ShareRequest,
+        creator_id: Option<String>,
     ) -> Result<(SharedGraph, ShareResponse)> {
         let export_request = ExportRequest {
             format: request.export_format.clone(),
@@ -117,7 +118,7 @@ impl GraphSerializationService {
         let mut shared_graph = SharedGraph::new(NewSharedGraph {
             title: request.title.clone(),
             description: request.description.clone(),
-            creator_id: None,
+            creator_id,
             file_path: shared_path.to_string_lossy().to_string(),
             file_size: export_response.file_size,
             compressed: true,

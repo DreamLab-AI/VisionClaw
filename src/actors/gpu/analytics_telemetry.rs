@@ -27,6 +27,9 @@ pub enum ExecutionPath {
     /// condition under the zero-fallback intent: it is recorded as a `warn` and
     /// increments the per-kernel fallback counter.
     CpuFallback,
+    /// Computed on the CPU over the caller's visible subgraph (ADR-060): a deliberate path for a
+    /// caller whose view hides nodes, not a GPU failure, so it is not a fallback.
+    CpuVisibleSubgraph,
 }
 
 impl ExecutionPath {
@@ -45,6 +48,7 @@ impl ExecutionPath {
         match self {
             ExecutionPath::Gpu => "gpu",
             ExecutionPath::CpuFallback => "cpu_fallback",
+            ExecutionPath::CpuVisibleSubgraph => "cpu_visible_subgraph",
         }
     }
 }
@@ -160,6 +164,12 @@ pub fn record_execution(kernel: AnalyticsKernel, path: ExecutionPath) -> Executi
                 kernel.as_str(),
                 CPU_FALLBACK_RUNS[i].load(Ordering::Relaxed),
                 GPU_RUNS[i].load(Ordering::Relaxed),
+            );
+        }
+        ExecutionPath::CpuVisibleSubgraph => {
+            log::debug!(
+                "analytics-gpu-telemetry: kernel={} path=cpu_visible_subgraph",
+                kernel.as_str()
             );
         }
     }

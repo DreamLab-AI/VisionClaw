@@ -62,6 +62,47 @@ pub struct Metadata {
     pub definition: Option<String>,
 }
 
+/// Node metadata key for [`Metadata::last_modified`] (ADR-2184/2185 temporal column).
+pub const LAST_MODIFIED_KEY: &str = "last_modified";
+/// Node metadata key for [`Metadata::last_commit`] (ADR-2184/2185 temporal column).
+pub const LAST_COMMIT_KEY: &str = "last_commit";
+/// Node metadata key for [`Metadata::change_count`] (ADR-2184/2185 temporal column).
+pub const CHANGE_COUNT_KEY: &str = "change_count";
+
+/// A timestamp as it travels in a node's string metadata map: RFC 3339, UTC, whole seconds,
+/// `Z` suffix (for example `2026-11-06T09:30:00Z`).
+pub fn wire_timestamp(at: &DateTime<Utc>) -> String {
+    at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
+impl Metadata {
+    /// Write the temporal keys onto a node's metadata map: `last_modified` and `last_commit` as
+    /// [`wire_timestamp`] strings, `change_count` as a base-10 integer string. A field that is
+    /// absent removes its key, so a node rebuilt from newer metadata never keeps a stale value.
+    pub fn write_temporal_keys(&self, node_metadata: &mut HashMap<String, String>) {
+        node_metadata.insert(
+            LAST_MODIFIED_KEY.to_string(),
+            wire_timestamp(&self.last_modified),
+        );
+        match self.last_commit {
+            Some(at) => {
+                node_metadata.insert(LAST_COMMIT_KEY.to_string(), wire_timestamp(&at));
+            }
+            None => {
+                node_metadata.remove(LAST_COMMIT_KEY);
+            }
+        }
+        match self.change_count {
+            Some(n) => {
+                node_metadata.insert(CHANGE_COUNT_KEY.to_string(), n.to_string());
+            }
+            None => {
+                node_metadata.remove(CHANGE_COUNT_KEY);
+            }
+        }
+    }
+}
+
 // Default function for node_id to ensure backward compatibility
 fn default_node_id() -> String {
     "0".to_string()
@@ -104,6 +145,60 @@ impl MetadataOps for MetadataStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
+
+    #[test]
+    fn temporal_keys_are_rfc3339_utc_and_an_integer_string() {
+        let m = Metadata {
+            last_modified: Utc.with_ymd_and_hms(2026, 11, 6, 9, 30, 0).unwrap(),
+            last_commit: Some(Utc.with_ymd_and_hms(2026, 11, 5, 23, 59, 59).unwrap()),
+            change_count: Some(42),
+            ..Metadata::default()
+        };
+        let mut map = HashMap::new();
+        m.write_temporal_keys(&mut map);
+        assert_eq!(
+            map.get("last_modified").map(String::as_str),
+            Some("2026-11-06T09:30:00Z")
+        );
+        assert_eq!(
+            map.get("last_commit").map(String::as_str),
+            Some("2026-11-05T23:59:59Z")
+        );
+        assert_eq!(map.get("change_count").map(String::as_str), Some("42"));
+        assert_eq!(map.len(), 3);
+    }
+
+    #[test]
+    fn absent_temporal_fields_omit_and_clear_their_keys() {
+        let mut map = HashMap::from([
+            ("last_commit".to_string(), "stale".to_string()),
+            ("change_count".to_string(), "7".to_string()),
+            ("ontology_refs".to_string(), "kept".to_string()),
+        ]);
+        let m = Metadata {
+            last_modified: Utc.with_ymd_and_hms(2026, 1, 2, 3, 4, 5).unwrap(),
+            ..Metadata::default()
+        };
+        m.write_temporal_keys(&mut map);
+        assert_eq!(
+            map.get("last_modified").map(String::as_str),
+            Some("2026-01-02T03:04:05Z")
+        );
+        assert!(!map.contains_key("last_commit"));
+        assert!(!map.contains_key("change_count"));
+        assert_eq!(
+            map.get("ontology_refs").map(String::as_str),
+            Some("kept"),
+            "other keys untouched"
+        );
+    }
+
+    #[test]
+    fn a_sub_second_timestamp_is_truncated_to_whole_seconds() {
+        let at = Utc.timestamp_opt(1_700_000_000, 999_000_000).unwrap();
+        assert_eq!(wire_timestamp(&at), "2023-11-14T22:13:20Z");
+    }
 
     fn make_metadata(node_id: &str, file_name: &str) -> Metadata {
         Metadata {

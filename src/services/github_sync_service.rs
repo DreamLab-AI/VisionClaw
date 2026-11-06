@@ -374,12 +374,6 @@ impl GitHubSyncService {
             .map(|identity| self.kg_parser.page_name_to_id(&identity))
             .collect();
         let jev_suggester = visionclaw_jev::ingest::Suggester::from_env();
-        let scope = SyncScope {
-            vault: vault_ctx,
-            knowledge_ids: &knowledge_ids,
-            vocabulary: vocabulary.as_ref(),
-            jev: jev_suggester.as_ref(),
-        };
 
         let force_full_sync = force_full_override
             || base_path_changed
@@ -412,6 +406,20 @@ impl GitHubSyncService {
         };
 
         let all_files_to_process = files_to_process.clone();
+
+        // One history read per sync, for the pages this sync builds (none when nothing changed).
+        let history = if files_to_process.is_empty() {
+            crate::services::corpus_source::HistoryMap::new()
+        } else {
+            self.source.page_history(&files_to_process).await
+        };
+        let scope = SyncScope {
+            vault: vault_ctx,
+            knowledge_ids: &knowledge_ids,
+            vocabulary: vocabulary.as_ref(),
+            jev: jev_suggester.as_ref(),
+            history: &history,
+        };
 
         // Clear the graph only on a full sync. On an incremental sync (SHA1
         // filter narrowed the file list), existing data must remain — otherwise
@@ -1778,6 +1786,9 @@ impl GitHubSyncService {
         let mut page_node =
             build_node_from_entity(entity, &identity, source_id, self.kg_parser.as_ref());
         enrich_node_from_frontmatter(&mut page_node, &parsed, &identity, content);
+        if let Some(h) = scope.history.get(&file.path) {
+            h.write_keys(&mut page_node.metadata);
+        }
         // WS-0: guarantee a non-NULL source_domain for this node.
         ensure_source_domain(&mut page_node, &file.path);
         // Total outbound wikilink degree (resolved + dangling). Dangling links
@@ -1984,6 +1995,9 @@ impl GitHubSyncService {
             ensure_source_domain(&mut node, &file.path);
             node.metadata
                 .insert("wikilink_count".to_string(), wikilink_count.to_string());
+            if let Some(h) = scope.history.get(&file.path) {
+                h.write_keys(&mut node.metadata);
+            }
             // A working twin of a knowledge page yields: it is kept only where
             // nothing else stands, and is written insert-if-absent like a stub.
             let yields = scope.yields_to_knowledge(&file.path, node.id);
@@ -2211,6 +2225,9 @@ struct SyncScope<'a> {
     /// `VISIONCLAW_JEV_INGEST_SUGGEST=1` resolves an endpoint. Draft output
     /// only: it never alters what the ingest path produces.
     jev: Option<&'a visionclaw_jev::ingest::Suggester>,
+    /// Commit history per page path, when the source can read it (ADR-2184/2185 temporal
+    /// keys). A page absent from it gets no temporal keys.
+    history: &'a crate::services::corpus_source::HistoryMap,
 }
 
 impl SyncScope<'_> {
@@ -3256,6 +3273,7 @@ mod sovereign_corpus_scope_tests {
             knowledge_ids: &knowledge_ids,
             vocabulary: None,
             jev: None,
+            history: &crate::services::corpus_source::HistoryMap::new(),
         };
         assert!(scope.yields_to_knowledge("working/Camera.md", camera));
         assert!(

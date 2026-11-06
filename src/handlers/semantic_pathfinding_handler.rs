@@ -30,6 +30,7 @@ pub async fn find_semantic_path(
     pathfinding_service: web::Data<Arc<SemanticPathfindingService>>,
     graph_state_actor: web::Data<Addr<GraphServiceSupervisor>>,
     request: web::Json<FindPathRequest>,
+    caller: crate::settings::OptionalAuth,
 ) -> impl Responder {
     info!(
         "Finding semantic path from {} to {}",
@@ -42,6 +43,7 @@ pub async fn find_semantic_path(
 
     match graph_result {
         Ok(Ok(graph_data)) => {
+            let graph_data = crate::handlers::graph_access::caller_view(&graph_data, &caller);
             match pathfinding_service.find_semantic_path(
                 &graph_data,
                 request.start_id,
@@ -61,6 +63,7 @@ pub async fn query_traversal(
     pathfinding_service: web::Data<Arc<SemanticPathfindingService>>,
     graph_state_actor: web::Data<Addr<GraphServiceSupervisor>>,
     request: web::Json<TraversalRequest>,
+    caller: crate::settings::OptionalAuth,
 ) -> impl Responder {
     info!("Query traversal from {}", request.start_id);
 
@@ -70,6 +73,7 @@ pub async fn query_traversal(
 
     match graph_result {
         Ok(Ok(graph_data)) => {
+            let graph_data = crate::handlers::graph_access::caller_view(&graph_data, &caller);
             if let Some(ref query) = request.query {
                 let results = pathfinding_service.query_traversal(
                     &graph_data,
@@ -91,6 +95,7 @@ pub async fn chunk_traversal(
     pathfinding_service: web::Data<Arc<SemanticPathfindingService>>,
     graph_state_actor: web::Data<Addr<GraphServiceSupervisor>>,
     request: web::Json<TraversalRequest>,
+    caller: crate::settings::OptionalAuth,
 ) -> impl Responder {
     debug!("Chunk traversal from {}", request.start_id);
 
@@ -100,6 +105,7 @@ pub async fn chunk_traversal(
 
     match graph_result {
         Ok(Ok(graph_data)) => {
+            let graph_data = crate::handlers::graph_access::caller_view(&graph_data, &caller);
             let results = pathfinding_service.chunk_traversal(
                 &graph_data,
                 request.start_id,

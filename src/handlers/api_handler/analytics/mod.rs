@@ -31,6 +31,8 @@ mod sssp_handlers;
 pub mod state;
 mod stress_handlers;
 pub mod types;
+mod visible_analytics;
+mod visible_results;
 
 // Clustering handler (separate file, already existed)
 pub mod anomaly;
@@ -66,13 +68,31 @@ pub use stress_handlers::{
 };
 
 pub async fn run_community_detection(
-    _auth: crate::settings::auth_extractor::AuthenticatedUser,
+    auth: crate::settings::auth_extractor::AuthenticatedUser,
     app_state: web::Data<crate::AppState>,
     request: web::Json<community::CommunityDetectionRequest>,
 ) -> Result<actix_web::HttpResponse, actix_web::Error> {
     debug!("Community detection request: {:?}", request);
 
-    match community::run_gpu_community_detection(&app_state, &request).await {
+    let gate = crate::handlers::graph_access::caller_gate(
+        &app_state.graph_service_addr,
+        Some(auth.pubkey.as_str()),
+    )
+    .await;
+    let result = match gate {
+        Ok(gate) => community::run_gpu_community_detection(&app_state, &request)
+            .await
+            .map(|mut response| {
+                if let Some((_, visible)) = gate {
+                    response.communities =
+                        visible_results::gate_communities(response.communities, &visible);
+                    response.total_communities = response.communities.len();
+                }
+                response
+            }),
+        Err(e) => Err(e),
+    };
+    match result {
         Ok(response) => ok_json!(response),
         Err(e) => {
             log::error!("Community detection failed: {}", e);
@@ -90,22 +110,34 @@ pub async fn run_community_detection(
 }
 
 pub async fn run_anomaly_detection(
-    _auth: crate::settings::auth_extractor::AuthenticatedUser,
+    auth: crate::settings::auth_extractor::AuthenticatedUser,
     app_state: web::Data<crate::AppState>,
     request: web::Json<anomaly::AnomalyDetectRequest>,
 ) -> Result<actix_web::HttpResponse, actix_web::Error> {
     debug!("Structural anomaly detection request: {:?}", request);
 
-    match anomaly::run_gpu_anomaly_detection(
-        &app_state,
-        &request.method,
-        request.k_neighbors,
-        request.radius,
-        request.feature_data.clone(),
-        request.threshold,
+    let gate = crate::handlers::graph_access::caller_gate(
+        &app_state.graph_service_addr,
+        Some(auth.pubkey.as_str()),
     )
-    .await
-    {
+    .await;
+    let result = match gate {
+        Ok(gate) => anomaly::run_gpu_anomaly_detection(
+            &app_state,
+            &request.method,
+            request.k_neighbors,
+            request.radius,
+            request.feature_data.clone(),
+            request.threshold,
+        )
+        .await
+        .map(|anomalies| match gate {
+            Some((_, visible)) => visible_results::gate_anomalies(anomalies, &visible),
+            None => anomalies,
+        }),
+        Err(e) => Err(e),
+    };
+    match result {
         Ok(anomalies) => {
             let total = anomalies.len();
             ok_json!(serde_json::json!({

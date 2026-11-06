@@ -450,6 +450,53 @@ mod tests {
             .expect("nothing is cached before the first analysis");
     }
 
+    /// Tripwire for the security review's M2 (ADR-060). The semantic routes filter the
+    /// analyser's answers per caller, which is only sound while the analyser computes nothing
+    /// over the whole graph. Today every analysis returns empty. If this fails, the analyser has
+    /// started returning data: gated callers must then be computed over their visible subgraph
+    /// (as `visible_sssp` does), not filtered afterwards, or a hidden bridge or hidden-node
+    /// influence shows through in visible results.
+    #[actix_rt::test]
+    async fn semantic_analyses_still_return_nothing_so_response_filtering_is_sound() {
+        use visionclaw_domain::models::{edge::Edge, graph::GraphData, node::Node};
+        use visionclaw_domain::ports::gpu_semantic_analyzer::{
+            ClusteringAlgorithm, ImportanceAlgorithm,
+        };
+        let mut g = GraphData::new();
+        for id in 0..3u32 {
+            let mut n = Node::new_with_id(format!("n{id}"), None);
+            n.id = id;
+            g.nodes.push(n);
+        }
+        g.edges = vec![Edge::new(0, 1, 1.0), Edge::new(1, 2, 1.0)];
+        let mut adapter = ActixSemanticAdapter::new();
+        adapter
+            .initialize(std::sync::Arc::new(g))
+            .await
+            .expect("initialise over a small graph");
+
+        let communities = adapter
+            .detect_communities(ClusteringAlgorithm::Louvain)
+            .await
+            .unwrap();
+        assert!(
+            communities.clusters.is_empty(),
+            "M2: communities now computed"
+        );
+        let scores = adapter
+            .analyze_node_importance(ImportanceAlgorithm::Degree)
+            .await
+            .unwrap();
+        assert!(scores.is_empty(), "M2: centrality now computed");
+        let paths = adapter.compute_shortest_paths(0).await.unwrap();
+        assert!(
+            paths.distances.is_empty() && paths.paths.is_empty(),
+            "M2: shortest paths now computed"
+        );
+        let distances = adapter.compute_sssp_distances(0).await.unwrap();
+        assert!(distances.is_empty(), "M2: SSSP distances now computed");
+    }
+
     /// The not-initialised error stays for calls that need a graph.
     #[actix_rt::test]
     async fn analysis_before_initialize_still_reports_not_initialized() {

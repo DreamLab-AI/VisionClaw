@@ -8,6 +8,7 @@ use actix_web::{web, HttpResponse, Responder};
 use log::{debug, info};
 use serde::Serialize;
 use std::sync::Arc;
+use visionclaw_domain::models::graph::GraphData;
 
 use crate::actors::graph_service_supervisor::GraphServiceSupervisor;
 use crate::services::schema_service::{GraphSchema, SchemaService};
@@ -68,7 +69,7 @@ pub struct EdgeTypeResponse {
 /// }
 /// ```
 pub async fn get_schema(
-    _auth: crate::settings::auth_extractor::AuthenticatedUser,
+    auth: crate::settings::auth_extractor::AuthenticatedUser,
     schema_service: web::Data<Arc<SchemaService>>,
     graph_state_actor: web::Data<Addr<GraphServiceSupervisor>>,
 ) -> impl Responder {
@@ -81,12 +82,12 @@ pub async fn get_schema(
 
     match graph_result {
         Ok(Ok(graph_data)) => {
-            // Update schema from current graph - graph_data is Arc<GraphData>
-            schema_service.update_schema(&graph_data).await;
-
-            // Get schema and LLM context
-            let schema = schema_service.get_schema().await;
-            let llm_context = schema_service.get_llm_context().await;
+            // The cache is read by every schema GET, whoever asks, so it only ever holds the
+            // anonymous view; this caller's answer is built from their own view.
+            let (view, public) = schema_views(&graph_data, Some(&auth.pubkey));
+            schema_service.update_schema(&public).await;
+            let schema = schema_service.extract_schema(&view).await;
+            let llm_context = schema.to_llm_context();
 
             let response = SchemaResponse {
                 schema,
@@ -103,6 +104,18 @@ pub async fn get_schema(
             error_json!("Actor communication error", e.to_string())
         }
     }
+}
+
+/// The graph a caller's schema is built from, and the graph the shared cache is built from: the
+/// caller's view (ADR-060) and the anonymous view respectively.
+fn schema_views(
+    graph: &Arc<GraphData>,
+    caller_pubkey: Option<&str>,
+) -> (Arc<GraphData>, Arc<GraphData>) {
+    (
+        crate::handlers::graph_access::caller_view_for(graph, caller_pubkey),
+        crate::handlers::graph_access::caller_view_for(graph, None),
+    )
 }
 
 /// Get LLM context string
@@ -336,5 +349,41 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+/// ADR-060: the shared schema cache never holds a private label, whoever refreshed it.
+#[cfg(test)]
+mod visibility_tests {
+    use super::*;
+    use visionclaw_domain::models::node::Node;
+
+    const OWNER: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    fn graph() -> Arc<GraphData> {
+        let mut public = Node::new_with_id("public.md".into(), Some(1));
+        public.label = "Open Page".into();
+        public.metadata.insert("public".into(), "true".into());
+        let mut private = Node::new_with_id("secret.md".into(), Some(2));
+        private.label = "Secret Page".into();
+        private.metadata.insert("owner_pubkey".into(), OWNER.into());
+        Arc::new(GraphData {
+            nodes: vec![public, private],
+            ..GraphData::default()
+        })
+    }
+
+    #[tokio::test]
+    async fn an_owner_refresh_caches_only_the_public_schema() {
+        let (view, public) = schema_views(&graph(), Some(OWNER));
+        let service = SchemaService::new();
+        let cached = service.extract_schema(&public).await;
+        assert!(!cached.sample_labels.contains(&"Secret Page".to_string()));
+        assert!(cached.sample_labels.contains(&"Open Page".to_string()));
+        let own = service.extract_schema(&view).await;
+        assert!(
+            own.sample_labels.contains(&"Secret Page".to_string()),
+            "the owner still sees theirs"
+        );
     }
 }

@@ -346,7 +346,7 @@ export const useAnalyticsStore = create<AnalyticsState>()(
             // POST /api/analytics/pathfinding/sssp (the old /api/analytics/shortest-path
             // route was removed server-side). The reply's `result.distances` is a
             // position-indexed array for a caller who sees the whole graph, or an
-            // object keyed by visible node id for a gated caller (PROTOCOL 0.1.17).
+            // object keyed by visible node id for a gated caller (PROTOCOL 0.1.18).
             const response = await unifiedApiClient.post('/api/analytics/pathfinding/sssp', {
               sourceIdx: parseInt(sourceNodeId),
             })

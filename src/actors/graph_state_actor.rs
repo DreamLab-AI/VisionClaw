@@ -71,7 +71,6 @@ pub struct GraphStateActor {
 
     node_map: Arc<HashMap<u32, Node>>,
 
-
     next_node_id: std::sync::atomic::AtomicU32,
 
     // Full metadata store — kept in sync so edge generation always has complete context
@@ -175,16 +174,8 @@ impl GraphStateActor {
                 .graph_data
                 .nodes
                 .iter()
-                .filter(|n| {
-                    !n.metadata
-                        .get("public")
-                        .map(|v| v.eq_ignore_ascii_case("true"))
-                        .unwrap_or(false)
-                })
-                .map(|n| match n.metadata.get("owner_pubkey") {
-                    Some(owner) => NodeVisibility::private_owned_by(n.id, owner.clone()),
-                    None => NodeVisibility::private_unowned(n.id),
-                })
+                .map(NodeVisibility::of_node)
+                .filter(|v| !v.is_public)
                 .collect(),
         }
     }
@@ -598,10 +589,8 @@ impl GraphStateActor {
             .insert("file_name".to_string(), metadata.file_name.clone());
         node.metadata
             .insert("file_size".to_string(), size.to_string());
-        node.metadata.insert(
-            "last_modified".to_string(),
-            metadata.last_modified.to_string(),
-        );
+        // ADR-2184/2185: last_modified, last_commit, change_count (RFC 3339 UTC).
+        metadata.write_temporal_keys(&mut node.metadata);
 
         // Copy ontology fields to node metadata for edge generation and client display
         if let Some(ref domain) = metadata.source_domain {
@@ -700,10 +689,8 @@ impl GraphStateActor {
                         .insert("file_name".to_string(), metadata.file_name.clone());
                     node.metadata
                         .insert("file_size".to_string(), size.to_string());
-                    node.metadata.insert(
-                        "last_modified".to_string(),
-                        metadata.last_modified.to_string(),
-                    );
+                    // ADR-2184/2185: last_modified, last_commit, change_count (RFC 3339 UTC).
+                    metadata.write_temporal_keys(&mut node.metadata);
                     node_found = true;
                     break;
                 }
@@ -726,10 +713,8 @@ impl GraphStateActor {
                             .insert("file_name".to_string(), metadata.file_name.clone());
                         node.metadata
                             .insert("file_size".to_string(), size.to_string());
-                        node.metadata.insert(
-                            "last_modified".to_string(),
-                            metadata.last_modified.to_string(),
-                        );
+                        // ADR-2184/2185: last_modified, last_commit, change_count (RFC 3339 UTC).
+                        metadata.write_temporal_keys(&mut node.metadata);
                         break;
                     }
                 }
@@ -766,7 +751,7 @@ impl GraphStateActor {
         source_node_id: u32,
     ) -> Result<HashMap<u32, (f32, Vec<u32>)>, String> {
         if !self.node_map.contains_key(&source_node_id) {
-            return Err(format!("Source node {} not found", source_node_id));
+            return Err(source_not_found(source_node_id));
         }
 
         let mut distances: HashMap<u32, f32> = HashMap::new();
@@ -1155,6 +1140,12 @@ impl Handler<GetNodeIdMapping> for GraphStateActor {
         // Return empty map for backward compatibility with any remaining callers.
         NodeIdMapping(HashMap::new())
     }
+}
+
+/// The error for a shortest-path source that is not in the graph. `/sssp/compute` returns the
+/// same text for a source the caller cannot see, so the two are indistinguishable (ADR-060).
+pub(crate) fn source_not_found(source_node_id: u32) -> String {
+    format!("Source node {} not found", source_node_id)
 }
 
 impl Handler<ComputeShortestPaths> for GraphStateActor {

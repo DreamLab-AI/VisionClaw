@@ -23,7 +23,7 @@
 //! per-view pinned-node promotion is a cheap post-step applied outside the memo
 //! so it never pollutes the cache key.
 
-use super::{fetch_graph_snapshot, PopulationFilter};
+use super::{fetch_graph_view, PopulationFilter};
 use crate::AppState;
 use actix_web::{web, HttpResponse, Responder};
 use log::error;
@@ -571,12 +571,13 @@ fn base_plan_memoised(
 pub async fn get_fold_plan(
     state: web::Data<AppState>,
     query: web::Query<FoldQuery>,
+    caller: crate::settings::OptionalAuth,
 ) -> impl Responder {
     let level = query.level.unwrap_or(0).min(MAX_FOLD_LEVEL);
     let graph_type = query.graph_type.clone();
     let pinned = parse_pinned(query.pinned.as_deref());
 
-    let graph = match fetch_graph_snapshot(&state).await {
+    let (graph, whole_graph) = match fetch_graph_view(&state, &caller).await {
         Ok(g) => g,
         Err(e) => {
             error!("fold: failed to get graph snapshot: {}", e);
@@ -587,21 +588,38 @@ pub async fn get_fold_plan(
 
     // Snapshot the shared analytics map (Copy values → a cheap clone; decoupled
     // from the live writer for the rest of the request).
-    let analytics: HashMap<u32, Analytics> = state
+    let mut analytics: HashMap<u32, Analytics> = state
         .node_analytics
         .read()
         .map(|g| g.clone())
         .unwrap_or_default();
+    // ADR-060: a gated view reports and uses analytics for its own nodes only.
+    if !whole_graph {
+        let ids: HashSet<u32> = graph.nodes.iter().map(|n| n.id).collect();
+        analytics.retain(|id, _| ids.contains(id));
+    }
 
     let generation = topology_generation(&graph.nodes, &graph.edges);
-    let base = base_plan_memoised(
-        level,
-        graph_type.as_deref(),
-        generation,
-        &graph.nodes,
-        &graph.edges,
-        &analytics,
-    );
+    // The memo is shared by every caller: only a whole-graph plan may enter it, because a gated
+    // plan can name the caller's private nodes and the key is a non-cryptographic hash.
+    let base = if whole_graph {
+        base_plan_memoised(
+            level,
+            graph_type.as_deref(),
+            generation,
+            &graph.nodes,
+            &graph.edges,
+            &analytics,
+        )
+    } else {
+        Arc::new(compute_base_plan(
+            level,
+            &graph.nodes,
+            &graph.edges,
+            &analytics,
+            graph_type.as_deref(),
+        ))
+    };
     let (hidden, groups) = apply_pins(&base, &pinned);
 
     // Diagnostics: count in-scope hierarchy edges (both endpoints visible) so an

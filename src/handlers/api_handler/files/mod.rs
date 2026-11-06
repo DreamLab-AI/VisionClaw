@@ -141,6 +141,35 @@ pub async fn fetch_and_process_files(state: web::Data<AppState>) -> Result<impl 
 pub async fn get_file_content(
     _state: web::Data<AppState>,
     file_name: web::Path<String>,
+    caller: crate::settings::OptionalAuth,
+) -> HttpResponse {
+    serve_file_content(
+        std::path::Path::new(MARKDOWN_DIR),
+        &file_name,
+        caller.0.as_ref().map(|u| u.pubkey.as_str()),
+        visionclaw_domain::utils::visibility_filter::filter_enabled(),
+    )
+}
+
+/// The one "no such file" reply. A page the caller may not see gets exactly this too, so a
+/// hidden name and an unknown one are indistinguishable (ADR-060).
+fn file_not_found(file_name: &str) -> HttpResponse {
+    HttpResponse::NotFound().json(json!({
+        "status": "error",
+        "message": format!("File not found or unreadable: {}", file_name)
+    }))
+}
+
+/// Serve `file_name` from `base_dir`, refusing traversal. With the visibility filter on, only a
+/// markdown page whose frontmatter says `public: true` is served, judged by the same
+/// `vault_core` reading the sync uses to mark a node public (`page_parser.rs`), then put
+/// through the node policy (`node_is_visible`). Anything else, including a page that does not
+/// parse, answers as missing (fail closed).
+pub(crate) fn serve_file_content(
+    base_dir: &std::path::Path,
+    file_name: &str,
+    caller: Option<&str>,
+    filter_on: bool,
 ) -> HttpResponse {
     // SECURITY: Reject path traversal attempts
     if file_name.contains("..") || file_name.starts_with('/') || file_name.contains('\0') {
@@ -154,7 +183,7 @@ pub async fn get_file_content(
         }));
     }
 
-    let base_dir = match std::path::Path::new(MARKDOWN_DIR).canonicalize() {
+    let base = match base_dir.canonicalize() {
         Ok(p) => p,
         Err(e) => {
             error!("Failed to canonicalize MARKDOWN_DIR: {}", e);
@@ -165,20 +194,16 @@ pub async fn get_file_content(
         }
     };
 
-    let requested_path = std::path::Path::new(MARKDOWN_DIR).join(&*file_name);
-    let canonical_path = match requested_path.canonicalize() {
+    let canonical_path = match base_dir.join(file_name).canonicalize() {
         Ok(p) => p,
         Err(e) => {
             error!("Failed to read file {}: {}", file_name, e);
-            return HttpResponse::NotFound().json(json!({
-                "status": "error",
-                "message": format!("File not found or unreadable: {}", file_name)
-            }));
+            return file_not_found(file_name);
         }
     };
 
     // SECURITY: Verify the resolved path is within MARKDOWN_DIR
-    if !canonical_path.starts_with(&base_dir) {
+    if !canonical_path.starts_with(&base) {
         error!(
             "Path traversal attempt blocked: resolved path escapes MARKDOWN_DIR for file_name: {}",
             file_name
@@ -190,15 +215,34 @@ pub async fn get_file_content(
     }
 
     match std::fs::read_to_string(&canonical_path) {
-        Ok(content) => HttpResponse::Ok().body(content),
+        Ok(content) => {
+            if filter_on && !page_is_visible(file_name, &content, caller) {
+                return file_not_found(file_name);
+            }
+            HttpResponse::Ok().body(content)
+        }
         Err(e) => {
             error!("Failed to read file {}: {}", file_name, e);
-            HttpResponse::NotFound().json(json!({
-                "status": "error",
-                "message": format!("File not found or unreadable: {}", file_name)
-            }))
+            file_not_found(file_name)
         }
     }
+}
+
+/// Whether the caller may read this page: project it to the node a sync would build (public iff
+/// `vault_core` reads `public: true`; no producer sets an owner) and ask the node policy.
+fn page_is_visible(file_name: &str, content: &str, caller: Option<&str>) -> bool {
+    if !file_name.ends_with(".md") {
+        return false;
+    }
+    let Ok(page) = vault_core::page::parse_page("", file_name, content) else {
+        return false;
+    };
+    let mut node = visionclaw_domain::models::node::Node::default();
+    if page.is_public() {
+        node.metadata
+            .insert("public".to_string(), "true".to_string());
+    }
+    visionclaw_domain::utils::visibility_filter::node_is_visible(&node, caller)
 }
 
 pub async fn refresh_graph(state: web::Data<AppState>) -> Result<impl Responder> {
@@ -315,4 +359,74 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .route("/refresh_graph", web::post().to(refresh_graph))
             .route("/update_graph", web::post().to(update_graph)),
     );
+}
+
+#[cfg(test)]
+mod content_visibility_tests {
+    use super::serve_file_content;
+    use actix_web::body::MessageBody;
+
+    fn body(r: actix_web::HttpResponse) -> (u16, String) {
+        let status = r.status().as_u16();
+        let bytes = r.into_body().try_into_bytes().unwrap_or_default();
+        (status, String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    fn vault() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Open.md"),
+            "---\npublic: true\n---\n\nOpen body.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("Secret.md"),
+            "---\nowl-class: Secret\n---\n\nSecret body.\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("metadata.json"), "{}").unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_hidden_page_reads_exactly_as_an_unknown_one() {
+        let dir = vault();
+        let hidden = body(serve_file_content(dir.path(), "Secret.md", None, true));
+        let unknown = body(serve_file_content(
+            dir.path(),
+            "Secret.md.missing",
+            None,
+            true,
+        ));
+        assert_eq!(
+            hidden.0, 404,
+            "a hidden page must not be served: {}",
+            hidden.1
+        );
+        assert_eq!(
+            hidden.1.replace("Secret.md", "X"),
+            unknown.1.replace("Secret.md.missing", "X"),
+            "hidden and unknown must share one reply"
+        );
+        let json = body(serve_file_content(dir.path(), "metadata.json", None, true));
+        assert_eq!(
+            json.0, 404,
+            "a non-page file is not served under the filter"
+        );
+    }
+
+    #[test]
+    fn a_public_page_is_served_and_the_flag_off_serves_everything() {
+        let dir = vault();
+        let open = body(serve_file_content(dir.path(), "Open.md", None, true));
+        assert_eq!(
+            open,
+            (200, "---\npublic: true\n---\n\nOpen body.\n".to_string())
+        );
+        let off = body(serve_file_content(dir.path(), "Secret.md", None, false));
+        assert_eq!(
+            off.0, 200,
+            "PUBKEY_VISIBILITY_FILTER=0 keeps the old behaviour"
+        );
+    }
 }

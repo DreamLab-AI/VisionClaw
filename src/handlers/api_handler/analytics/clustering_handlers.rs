@@ -144,13 +144,28 @@ pub async fn focus_cluster(
 ) -> Result<HttpResponse> {
     info!("Focusing on cluster: {}", request.cluster_id);
 
-    let tasks = CLUSTERING_TASKS.lock().await;
-    let cluster = tasks
-        .values()
-        .filter_map(|task| task.clusters.as_ref())
-        .flatten()
-        .find(|c| c.id == request.cluster_id)
-        .cloned();
+    let cluster = {
+        let tasks = CLUSTERING_TASKS.lock().await;
+        tasks
+            .values()
+            .filter_map(|task| task.clusters.as_ref())
+            .flatten()
+            .find(|c| c.id == request.cluster_id)
+            .cloned()
+    };
+    // ADR-060: the task store is shared, so the cluster is narrowed to this caller's view; a
+    // cluster with no visible member answers as one that does not exist, and the centroid is
+    // taken over the visible members only. No graph means no decision: treat it as not found.
+    let cluster = match cluster {
+        Some(c) => {
+            match caller_clusters(&app_state, &auth.pubkey, std::slice::from_ref(&c)).await {
+                Some(Some((mut gated, _))) => gated.pop(),
+                Some(None) => Some(c),
+                None => None,
+            }
+        }
+        None => None,
+    };
 
     if let Some(cluster) = cluster {
         if let Some(centroid) = cluster.centroid {
@@ -209,7 +224,7 @@ pub async fn cancel_clustering(
 /// Runs standalone DBSCAN clustering as an analytics algorithm.
 /// Request body: `{ "epsilon": 0.5, "minPoints": 5 }`
 pub async fn run_dbscan_clustering(
-    _auth: crate::settings::auth_extractor::AuthenticatedUser,
+    auth: crate::settings::auth_extractor::AuthenticatedUser,
     app_state: web::Data<AppState>,
     request: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse> {
@@ -275,15 +290,54 @@ pub async fn run_dbscan_clustering(
                     tasks.insert(task_id.clone(), task);
                 }
 
+                // ADR-060: the stored task keeps the full result (it is shared); what this
+                // caller receives is their view of it, and the counts are taken over that view.
+                let Some(view) = caller_clusters(&app_state, &auth.pubkey, &result.clusters).await
+                else {
+                    return ok_json!(serde_json::json!({
+                        "success": false,
+                        "method": "dbscan",
+                        "error": "Graph state not available"
+                    }));
+                };
+                let (clusters, stats) = match view {
+                    Some((clusters, visible_nodes)) => {
+                        let sizes: Vec<usize> = clusters.iter().map(|c| c.nodes.len()).collect();
+                        let clustered: usize = sizes.iter().sum();
+                        let stats = serde_json::json!({
+                            "totalNodes": visible_nodes,
+                            "numClusters": clusters.len(),
+                            "numNoisePoints": visible_nodes.saturating_sub(clustered),
+                            "largestClusterSize": sizes.iter().max().copied().unwrap_or(0),
+                            "smallestClusterSize": sizes.iter().min().copied().unwrap_or(0),
+                            "averageClusterSize": if sizes.is_empty() { 0.0 } else { clustered as f32 / sizes.len() as f32 },
+                            "computationTimeMs": result.stats.computation_time_ms
+                        });
+                        (clusters, stats)
+                    }
+                    None => (
+                        result.clusters.clone(),
+                        serde_json::json!({
+                            "totalNodes": result.stats.total_nodes,
+                            "numClusters": result.stats.num_clusters,
+                            "numNoisePoints": result.stats.num_noise_points,
+                            "largestClusterSize": result.stats.largest_cluster_size,
+                            "smallestClusterSize": result.stats.smallest_cluster_size,
+                            "averageClusterSize": result.stats.average_cluster_size,
+                            "computationTimeMs": result.stats.computation_time_ms
+                        }),
+                    ),
+                };
+
                 ok_json!(serde_json::json!({
                     "success": true,
                     "taskId": task_id,
                     "method": "dbscan",
                     "epsilon": epsilon,
                     "minPoints": min_points,
-                    "numClusters": result.num_clusters,
-                    "numNoisePoints": result.num_noise_points,
-                    "clusters": result.clusters.iter().map(|c| serde_json::json!({
+                    "numClusters": stats["numClusters"],
+                    "numNoisePoints": stats["numNoisePoints"],
+                    "clusters": clusters.iter().map(|c| serde_json::json!({
                         "id": c.id,
                         "label": c.label,
                         "nodeCount": c.node_count,
@@ -293,15 +347,7 @@ pub async fn run_dbscan_clustering(
                         "color": c.color,
                         "keywords": c.keywords,
                     })).collect::<Vec<_>>(),
-                    "stats": {
-                        "totalNodes": result.stats.total_nodes,
-                        "numClusters": result.stats.num_clusters,
-                        "numNoisePoints": result.stats.num_noise_points,
-                        "largestClusterSize": result.stats.largest_cluster_size,
-                        "smallestClusterSize": result.stats.smallest_cluster_size,
-                        "averageClusterSize": result.stats.average_cluster_size,
-                        "computationTimeMs": result.stats.computation_time_ms
-                    },
+                    "stats": stats,
                     "gpuAccelerated": true
                 }))
             }
@@ -327,6 +373,34 @@ pub async fn run_dbscan_clustering(
             "error": "GPU compute not available"
         }))
     }
+}
+
+/// `clusters` as `pubkey` may see them. `None` when the graph cannot be read (no visibility
+/// decision is possible); `Some(None)` when the caller sees the whole graph (unchanged);
+/// `Some(Some((clusters, visible node count)))` otherwise.
+async fn caller_clusters(
+    app_state: &web::Data<AppState>,
+    pubkey: &str,
+    clusters: &[Cluster],
+) -> Option<Option<(Vec<Cluster>, usize)>> {
+    let graph = crate::handlers::graph_access::current_graph(&app_state.graph_service_addr)
+        .await
+        .map_err(|e| {
+            warn!(
+                "clustering: graph unavailable for the visibility gate: {}",
+                e
+            )
+        })
+        .ok()?;
+    let view = crate::handlers::graph_access::caller_view_for(&graph, Some(pubkey));
+    if std::sync::Arc::ptr_eq(&view, &graph) {
+        return Some(None);
+    }
+    let visible: std::collections::HashSet<u32> = view.nodes.iter().map(|n| n.id).collect();
+    Some(Some((
+        super::visible_analytics::gate_clusters(clusters, &graph, &visible),
+        view.nodes.len(),
+    )))
 }
 
 pub(crate) async fn perform_clustering(
@@ -758,4 +832,77 @@ pub(crate) fn generate_graph_based_clusters(
             }
         })
         .collect()
+}
+
+/// Consumer audit: `/clustering/status` must never carry node ids, even
+/// though the stored task does. A verdict test: it passes against the
+/// current code and fails the moment the reply starts echoing `clusters`.
+#[cfg(test)]
+mod status_verdict_tests {
+    use super::*;
+
+    #[actix_rt::test]
+    async fn status_reply_never_carries_the_stored_cluster_members() {
+        let task_id = "status-verdict-task".to_string();
+        CLUSTERING_TASKS.lock().await.insert(
+            task_id.clone(),
+            ClusteringTask {
+                task_id: task_id.clone(),
+                method: "dbscan".into(),
+                status: "completed".into(),
+                progress: 1.0,
+                started_at: 0,
+                clusters: Some(vec![Cluster {
+                    id: "c0".into(),
+                    label: "Private Page Cluster".into(),
+                    node_count: 1,
+                    coherence: 1.0,
+                    color: "#000000".into(),
+                    keywords: vec!["private-page".into()],
+                    nodes: vec![424_242],
+                    centroid: Some([1.0, 2.0, 3.0]),
+                }]),
+                error: None,
+            },
+        );
+
+        let mut q = HashMap::new();
+        q.insert("task_id".to_string(), task_id.clone());
+        let resp = get_clustering_status(web::Query(q)).await.unwrap();
+        let body = actix_web::body::to_bytes(resp.into_body()).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        CLUSTERING_TASKS.lock().await.remove(&task_id);
+
+        // ok_json! wraps the reply in StandardResponse; the task fields sit in `data`.
+        let keys: Vec<&str> = json["data"]
+            .as_object()
+            .expect("status reply carries a data object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        for k in &keys {
+            assert!(
+                [
+                    "success",
+                    "taskId",
+                    "task_id",
+                    "status",
+                    "progress",
+                    "method",
+                    "startedAt",
+                    "started_at",
+                    "estimatedCompletion",
+                    "estimated_completion",
+                    "error"
+                ]
+                .contains(k),
+                "status reply grew a field `{k}`; if it carries cluster data it must be \
+                 gated with caller_gate like /dbscan and /focus"
+            );
+        }
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        for leak in ["424242", "Private Page Cluster", "private-page"] {
+            assert!(!text.contains(leak), "status reply leaked `{leak}`: {text}");
+        }
+    }
 }
