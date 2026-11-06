@@ -15,7 +15,9 @@ import { graphDataManager, type GraphData } from '../managers/graphDataManager';
 import { nodeAnalyticsStore } from '../../analytics/store/nodeAnalyticsStore';
 import { nodeEncoding as sharedEncoding, type NodeEncoding } from '../state/nodeEncoding';
 import { exploreStore, type ExploreStore } from './exploreStore';
-import { createColumnEncoding, type LegendModel } from './columnEncoder';
+import { createColumnEncoding, createSchemeLegend, type LegendModel } from './columnEncoder';
+import { isSchemeColorBy } from '../state/nodeEncoding';
+import { createTableBuilder, type TableBuilder } from './tableBuilder';
 
 /** How often the live analytics columns (centrality, community, …) are re-read while mounted. */
 export const ANALYTICS_REFRESH_MS = 5000;
@@ -42,16 +44,27 @@ function sameFloats(a: Float32Array | null, b: Float32Array | null): boolean {
   return true;
 }
 
+let builder: TableBuilder | null = null;
+let buildSeq = 0;
+
+/**
+ * Rebuild the table (in the worker when it can start). Builds may overlap; only
+ * the latest one is adopted.
+ */
 function rebuild(store: ExploreStore): void {
   if (!source.nodes) return;
   const a = nodeAnalyticsStore.getIndexedBuffer(source.indexMap);
   // keep a private copy: the store may reuse its buffer
   source.analytics = a ? a.slice() : null;
-  store.setTable({
+  builder ??= createTableBuilder();
+  const seq = ++buildSeq;
+  void builder.build({
     nodes: source.nodes,
     indexMap: source.indexMap,
-    analytics: a,
+    analytics: source.analytics,
     nodeFilter: useSettingsStore.getState().settings?.nodeFilter,
+  }).then((built) => {
+    if (seq === buildSeq) store.setColumns(built.table, built.eligible);
   });
 }
 
@@ -83,6 +96,8 @@ function acquireSource(store: ExploreStore): () => void {
     if (source.timer) clearInterval(source.timer);
     source.unsubscribe = null;
     source.timer = null;
+    builder?.dispose();
+    builder = null;
   };
 }
 
@@ -128,11 +143,16 @@ export function useExploreEncoding(
 ): LegendModel {
   const colorBy = useSettingsStore((s) => String(s.settings?.visualisation?.graphView?.explore?.colorBy ?? 'scheme'));
   const sizeBy = useSettingsStore((s) => s.settings?.visualisation?.graphView?.explore?.sizeBy ?? 'none');
+  const colorScheme = useSettingsStore((s) => String(s.settings?.visualisation?.graphs?.knowledge?.nodes?.colorScheme ?? 'type'));
   const { table } = useExploreState(store);
   const result = useMemo(() => createColumnEncoding(table, colorBy, sizeBy), [table, colorBy, sizeBy]);
+  // colorBy 'scheme': the legend describes today's look under nodes.colorScheme.
+  const legend = useMemo<LegendModel>(() => (isSchemeColorBy(colorBy)
+    ? { entries: [...createSchemeLegend(table, colorScheme), ...result.legend.entries] }
+    : result.legend), [colorBy, colorScheme, table, result]);
   useEffect(() => {
     encoding.setEncoder(result.encoder);
     return () => { encoding.setEncoder(null); };
   }, [result, encoding]);
-  return result.legend;
+  return legend;
 }

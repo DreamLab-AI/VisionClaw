@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import { buildNodeColumns } from '../tableSchema';
 import {
-  createColumnEncoding, rampColor, CATEGORICAL_PALETTE, NULL_COLOR, SEQUENTIAL_RAMP,
+  createColumnEncoding, createSchemeLegend, rampColor, CATEGORICAL_PALETTE, NULL_COLOR, SEQUENTIAL_RAMP,
   SIZE_FACTOR_MIN, SIZE_FACTOR_MAX,
 } from '../columnEncoder';
 import { DEFAULT_NODE_ENCODER, type EncodingContext } from '../../state/nodeEncoding';
@@ -99,5 +99,39 @@ describe('column encoder (ADR-2184 D4)', () => {
   it('an unknown or text column falls back to the default', () => {
     expect(createColumnEncoding(table, 'definition', 'domain').encoder).toBeNull();
     expect(createColumnEncoding(table, 'no_such_column', 'none').encoder).toBeNull();
+  });
+});
+
+describe("legend for colorBy 'scheme' (today's look)", () => {
+  it('domain: getDomainColor swatches, source_domain as fallback, with the modulation note', () => {
+    const t = buildNodeColumns([...nodes, node(50, 'sd', { source_domain: 'blockchain' })],
+      { indexMap: new Map([...indexMap, ['50', 12]]) });
+    const [e] = createSchemeLegend(t, 'domain');
+    if (e.kind !== 'categorical') throw new Error('categorical');
+    expect(e.swatches.map((s) => [s.value, s.count, s.color])).toEqual([
+      ['robotics', 5, getDomainColor('robotics')],
+      ['artificial-intelligence', 4, getDomainColor('artificial-intelligence')],
+      ['blockchain', 4, getDomainColor('blockchain')],
+    ]);
+    expect(e.note).toMatch(/authority/);
+  });
+
+  it('community: the default scheme hue per community, unassigned rows labelled', () => {
+    const a = new Float32Array(nodes.length * ANALYTICS_STRIDE);
+    a[0 * ANALYTICS_STRIDE + 2] = 3; a[1 * ANALYTICS_STRIDE + 2] = 3; a[2 * ANALYTICS_STRIDE + 2] = 7;
+    const t = buildNodeColumns(nodes, { indexMap, analytics: a });
+    const [e] = createSchemeLegend(t, 'community');
+    if (e.kind !== 'categorical') throw new Error('categorical');
+    expect(e.swatches.map((s) => [s.value, s.count])).toEqual([['3', 2], ['7', 1]]);
+    expect(e.swatches[0].color).toBe(`#${new THREE.Color().setHSL(((3 * 83) % 360) / 360, 0.65, 0.5).getHexString()}`);
+    expect(e.nullLabel).toBe('Unassigned');
+    expect(e.nulls).toBe(9);
+  });
+
+  it('type and centrality have entries; base, sssp and cycles have none', () => {
+    expect(createSchemeLegend(table, 'type')[0]).toMatchObject({ kind: 'categorical', column: 'type' });
+    expect(createSchemeLegend(table, undefined)[0]).toMatchObject({ column: 'type' });
+    expect(createSchemeLegend(table, 'centrality')[0]).toMatchObject({ kind: 'sequential', gradient: expect.stringContaining('linear-gradient') });
+    for (const s of ['base', 'sssp', 'cycles']) expect(createSchemeLegend(table, s)).toEqual([]);
   });
 });

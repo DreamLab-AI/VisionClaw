@@ -20,9 +20,10 @@ import { exploreStore, clearAllFilters } from '../exploreStore';
 import { highlightMask, HIGHLIGHT_FILTERED_OUT } from '../../state/highlightMask';
 import { setSharedNodeIdToIndexMap } from '../../contexts/NodePositionContext';
 
-function load(nodes = exploreNodes()) {
+async function load(nodes = exploreNodes()) {
   setSharedNodeIdToIndexMap(new Map(nodes.map((n, i) => [String(n.id), i])));
-  act(() => { emit!({ nodes, edges: [] } as GraphData); });
+  // the table builds asynchronously (worker, or the main-thread fallback in jsdom)
+  await act(async () => { emit!({ nodes, edges: [] } as GraphData); await Promise.resolve(); });
   return nodes;
 }
 
@@ -36,15 +37,15 @@ describe('<ExplorePanel/> (ADR-2185)', () => {
     expect(within(panel).getByText('Waiting for the graph to load…')).toBeInTheDocument();
   });
 
-  it('shows an explicit "no time data" state instead of hiding the timeline', () => {
+  it('shows an explicit "no time data" state instead of hiding the timeline', async () => {
     render(<ExplorePanel />);
-    load(exploreNodes().map((n) => node(n.id, n.label, { domain: String(n.metadata?.domain), quality_score: '0.5' })));
+    await load(exploreNodes().map((n) => node(n.id, n.label, { domain: String(n.metadata?.domain), quality_score: '0.5' })));
     expect(screen.getByTestId('explore-timeline-empty')).toHaveTextContent('No time data');
   });
 
-  it('a category click greys the graph and narrows the other widgets, not its own bars', () => {
+  it('a category click greys the graph and narrows the other widgets, not its own bars', async () => {
     render(<ExplorePanel />);
-    const nodes = load();
+    const nodes = await load();
     expect(screen.getByText('11 of 11 nodes')).toBeInTheDocument();
 
     const cats = screen.getByRole('group', { name: 'Domain categories' });
@@ -70,9 +71,9 @@ describe('<ExplorePanel/> (ADR-2185)', () => {
     expect(exploreStore.activeCount()).toBe(0);
   });
 
-  it('timeline bars are keyboard-brushable buttons', () => {
+  it('timeline bars are keyboard-brushable buttons', async () => {
     render(<ExplorePanel />);
-    load();
+    await load();
     const timeline = screen.getByRole('group', { name: 'Last commit timeline' });
     const bars = within(timeline).getAllByRole('button');
     const first = bars.findIndex((b) => /: 3 of 3 nodes/.test(b.getAttribute('aria-label')!));
@@ -87,7 +88,7 @@ describe('<ExplorePanel/> (ADR-2185)', () => {
     vi.useFakeTimers();
     try {
       render(<ExplorePanel />);
-      load();
+      await load();
       fireEvent.change(screen.getByLabelText('Search'), { target: { value: 'robot arm' } });
       act(() => { vi.advanceTimersByTime(250); });
       expect(screen.getByRole('status')).toHaveTextContent('1 nodes match');
@@ -95,5 +96,37 @@ describe('<ExplorePanel/> (ADR-2185)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('a histogram brush keeps its bars when the domain shifts (fixed brush-time edges)', async () => {
+    render(<ExplorePanel />);
+    await load();
+    const group = () => screen.getByRole('group', { name: 'Quality score histogram' });
+    const bars = within(group()).getAllByRole('button');
+    fireEvent.click(bars[2], { detail: 0 });
+    const before = within(group()).getAllByRole('button').map((b) => b.getAttribute('aria-pressed'));
+    expect(before.filter((p) => p === 'true')).toHaveLength(1);
+    // a rebuild with a wider domain (one score now 5.0)
+    await load(exploreNodes().map((n) => (n.id === '1' ? node(1, n.label, { ...(n.metadata as Record<string, string>), quality_score: '5.0' }) : n)));
+    const after = within(group()).getAllByRole('button').map((b) => b.getAttribute('aria-pressed'));
+    expect(after).toEqual(before);
+  });
+
+  it('shows the graph selection the widgets are narrowed to, with a way to clear it', async () => {
+    render(<ExplorePanel />);
+    await load();
+    act(() => { exploreStore.setGraphSelection(['5', '6']); });
+    expect(screen.getByTestId('explore-selection')).toHaveTextContent('2 nodes');
+    const onDeselect = vi.fn();
+    window.addEventListener('visionclaw:node-deselect', onDeselect);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }));
+    expect(onDeselect).toHaveBeenCalled();
+    window.removeEventListener('visionclaw:node-deselect', onDeselect);
+    act(() => { exploreStore.setGraphSelection(null); });
+  });
+
+  it('states that hierarchy-collapsed nodes are still counted', async () => {
+    render(<ExplorePanel />);
+    expect(screen.getByText(/collapsed hierarchy groups are still counted/)).toBeInTheDocument();
   });
 });

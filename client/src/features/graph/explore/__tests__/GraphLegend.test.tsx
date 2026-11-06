@@ -46,20 +46,20 @@ describe('<GraphLegend/> (ADR-2184 D4)', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('installs the column encoder from the settings and reflects the graph load', () => {
+  it('installs the column encoder from the settings and reflects the graph load', async () => {
     explore = { colorBy: 'domain', sizeBy: 'quality_score', showLegend: true };
     render(<GraphLegend />);
-    act(() => { emit!({ nodes: exploreNodes(), edges: [] } as GraphData); });
+    await act(async () => { emit!({ nodes: exploreNodes(), edges: [] } as GraphData); await Promise.resolve(); });
     expect(screen.getByTestId('legend-color')).toHaveTextContent('robotics');
     expect(screen.getByTestId('legend-size')).toHaveTextContent('Size: Quality score');
     expect(nodeEncoding.getEncoder().color).not.toBe(DEFAULT_NODE_ENCODER.color);
     expect(nodeEncoding.getEncoder().size).not.toBe(DEFAULT_NODE_ENCODER.size);
   });
 
-  it('with showLegend off still encodes but renders nothing', () => {
+  it('with showLegend off still encodes but renders nothing', async () => {
     explore = { colorBy: 'domain', sizeBy: 'none', showLegend: false };
     const { container, unmount } = render(<GraphLegend />);
-    act(() => { emit!({ nodes: exploreNodes(), edges: [] } as GraphData); });
+    await act(async () => { emit!({ nodes: exploreNodes(), edges: [] } as GraphData); await Promise.resolve(); });
     expect(container).toBeEmptyDOMElement();
     expect(nodeEncoding.getEncoder().color).not.toBe(DEFAULT_NODE_ENCODER.color);
     unmount();

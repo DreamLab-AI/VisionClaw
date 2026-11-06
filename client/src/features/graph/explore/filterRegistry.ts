@@ -158,6 +158,11 @@ export function subscribeFilterRegistry(listener: () => void, mask: HighlightMas
   return () => { r.listeners.delete(listener); };
 }
 
+/** The filter sources this module wrote, with their mode and ids (read-only views). */
+export function filterEntries(mask: HighlightMask = sharedMask): [string, { mode: FilterMode; ids: ReadonlySet<string> }][] {
+  return [...reg(mask).filters];
+}
+
 /** Active filter sources on the mask (emphasis excluded). */
 export function activeFilterSources(mask: HighlightMask = sharedMask): string[] {
   return mask.activeSources().filter((s) => s.startsWith(FILTER_PREFIX));

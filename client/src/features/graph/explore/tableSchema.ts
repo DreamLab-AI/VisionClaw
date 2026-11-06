@@ -24,7 +24,7 @@ import {
   ANALYTICS_ANOMALY_OFFSET,
   ANALYTICS_COMMUNITY_OFFSET,
   ANALYTICS_CENTRALITY_OFFSET,
-} from '../../analytics/store/nodeAnalyticsStore';
+} from './analyticsLayout';
 import { slotCountFor } from '../state/nodeIndex';
 
 export type ColumnType = 'categorical' | 'numeric' | 'temporal' | 'text' | 'boolean';

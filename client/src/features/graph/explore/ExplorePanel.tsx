@@ -155,8 +155,17 @@ function binsOfRange(clause: Clause | undefined, edges: Float64Array): [number, 
   return a < 0 ? null : [a, b];
 }
 
+/** A range clause over bins [a, b], capturing the edges it was drawn on. */
 function rangeClause(column: string, edges: Float64Array, [a, b]: [number, number]): Clause {
-  return { kind: 'range', column, lo: a === 0 ? -Infinity : edges[a], hi: b + 1 < edges.length ? edges[b + 1] : Infinity };
+  return {
+    kind: 'range', column, edges: Array.from(edges),
+    lo: a === 0 ? -Infinity : edges[a], hi: b + 1 < edges.length ? edges[b + 1] : Infinity,
+  };
+}
+
+/** The bin edges a widget's active brush was drawn on (stable under a live domain shift). */
+function brushEdges(clause: Clause | undefined, column: string): readonly number[] | undefined {
+  return clause?.kind === 'range' && clause.column === column ? clause.edges : undefined;
 }
 
 // --- widgets ---------------------------------------------------------------------------
@@ -176,8 +185,8 @@ export const TimelineWidget: React.FC<WidgetProps> = ({ xf, store }) => {
       </section>
     );
   }
-  const h = xf.histogram(column, TIMELINE_BINS, WIDGET.TIMELINE);
   const clause = store.getClause(WIDGET.TIMELINE);
+  const h = xf.histogram(column, TIMELINE_BINS, WIDGET.TIMELINE, brushEdges(clause, column));
   return (
     <section aria-labelledby={headingId} data-testid="explore-timeline">
       <div style={css.widgetHead}>
@@ -203,8 +212,8 @@ export const HistogramWidget: React.FC<WidgetProps> = ({ xf, store }) => {
   const column = chosen && available.includes(chosen) ? chosen : available[0];
   const selectId = useId();
   if (!column) return null;
-  const h = xf.histogram(column, HISTOGRAM_BINS, WIDGET.HISTOGRAM);
   const clause = store.getClause(WIDGET.HISTOGRAM);
+  const h = xf.histogram(column, HISTOGRAM_BINS, WIDGET.HISTOGRAM, brushEdges(clause, column));
   return (
     <section aria-label="Numeric histogram" data-testid="explore-histogram">
       <div style={css.widgetHead}>
@@ -288,7 +297,7 @@ export const SearchWidget: React.FC<WidgetProps> = ({ xf, store }) => {
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [text, store]);
-  const matches = clause ? xf.count() : null;
+  const matches = clause ? store.litCount() : null;
   return (
     <section data-testid="explore-search">
       <label htmlFor={inputId} style={{ display: 'block', marginBottom: 4 }}><strong>Search</strong></label>
@@ -306,9 +315,10 @@ export const ExplorePanel: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({ s
   useExploreTableSource();
   const { crossfilter: xf, store } = useExploreState();
   const active = useActiveFilterCount();
-  const summary = useMemo(() => (xf ? { lit: xf.count(), total: xf.eligibleCount() } : null),
+  const summary = useMemo(() => (xf ? { lit: store.litCount(), total: xf.eligibleCount() } : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [xf, store.version]);
+  const selected = store.graphSelectionSize();
 
   return (
     <GlassPanel elevation="overlay" role="region" aria-label="Explore graph" data-testid="explore-panel"
@@ -322,6 +332,16 @@ export const ExplorePanel: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({ s
           </button>
         </span>
       </div>
+      <div style={css.muted}>
+        Counts are of nodes lit in the graph (explore and node-filter settings applied); nodes inside collapsed hierarchy groups are still counted.
+      </div>
+      {selected > 0 && (
+        <div role="status" data-testid="explore-selection" style={{ ...css.header, background: 'rgba(79,195,247,0.12)', borderRadius: 4, padding: '4px 6px' }}>
+          <span>Widgets show the graph selection ({nf.format(selected)} nodes: the selected node and its neighbours)</span>
+          <button type="button" style={css.button}
+            onClick={() => window.dispatchEvent(new CustomEvent('visionclaw:node-deselect'))}>Clear selection</button>
+        </div>
+      )}
       {!xf ? (
         <div role="status" style={css.muted}>Waiting for the graph to load…</div>
       ) : (

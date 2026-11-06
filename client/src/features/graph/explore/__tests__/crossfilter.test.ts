@@ -73,3 +73,21 @@ describe('Crossfilter (ADR-2185 D2: each widget aggregates excluding its own cla
     expect(Array.from(h.totals).reduce((a, b) => a + b, 0)).toBe(11);
   });
 });
+
+describe('Crossfilter fixed brush edges and id clauses', () => {
+  it('bins by the edges captured at brush time, whatever the current domain', () => {
+    const xf = make();
+    const edges = [0, 0.5, 2, 3]; // last bin open-topped, first open below
+    const h = xf.histogram('quality_score', 20, 'x', edges);
+    expect(Array.from(h.edges)).toEqual(edges);
+    expect(Array.from(h.totals)).toEqual([4, 7, 0, 0]);
+  });
+
+  it('an ids clause includes or excludes by node id', () => {
+    const xf = make();
+    xf.setClause('sel', { kind: 'ids', ids: new Set(['1', '12', '5']), mode: 'include' });
+    expect(xf.selectedIds()).toEqual(['1', '5']); // 12 is not eligible
+    xf.setClause('sel', { kind: 'ids', ids: new Set(['1']), mode: 'exclude' });
+    expect(xf.count()).toBe(10);
+  });
+});

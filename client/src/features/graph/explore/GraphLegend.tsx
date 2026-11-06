@@ -48,11 +48,12 @@ const css = {
 
 const Section: React.FC<{ entry: LegendEntry }> = ({ entry }) => {
   const name = columnLabel(entry.column);
+  const title = entry.title ?? `${entry.channel === 'color' ? 'Colour' : 'Size'}: ${name}`;
   const titleId = `graph-legend-${entry.channel}-${entry.column}`;
   if (entry.kind === 'categorical') {
     return (
       <section style={css.section} aria-labelledby={titleId} data-testid={`legend-${entry.channel}`}>
-        <div id={titleId} style={css.title}>Colour: {name}</div>
+        <div id={titleId} style={css.title}>{title}</div>
         <ul style={css.list}>
           {entry.swatches.map((s) => (
             <li key={s.value} style={css.row}>
@@ -71,11 +72,12 @@ const Section: React.FC<{ entry: LegendEntry }> = ({ entry }) => {
           {entry.nulls > 0 && (
             <li style={css.row}>
               <span style={css.swatch(NULL_COLOR)} aria-hidden="true" />
-              <span style={css.value}>No value</span>
+              <span style={css.value}>{entry.nullLabel ?? 'No value'}</span>
               <span style={css.count}>{nf.format(entry.nulls)}</span>
             </li>
           )}
         </ul>
+        {entry.note && <div style={css.count}>{entry.note}</div>}
       </section>
     );
   }
@@ -84,12 +86,12 @@ const Section: React.FC<{ entry: LegendEntry }> = ({ entry }) => {
   const noData = !Number.isFinite(entry.min);
   return (
     <section style={css.section} aria-labelledby={titleId} data-testid={`legend-${entry.channel}`}>
-      <div id={titleId} style={css.title}>{entry.channel === 'color' ? 'Colour' : 'Size'}: {name}</div>
+      <div id={titleId} style={css.title}>{title}</div>
       {noData ? (
         <div style={css.count}>No values on the graph load</div>
       ) : entry.channel === 'color' ? (
         <div role="img" aria-label={`${name} from ${min} to ${max}`}>
-          <div style={css.ramp} />
+          <div style={{ ...css.ramp, background: entry.gradient ?? css.ramp.background }} />
           <div style={css.ends}><span>{min}</span><span>{max}</span></div>
         </div>
       ) : (
@@ -99,6 +101,7 @@ const Section: React.FC<{ entry: LegendEntry }> = ({ entry }) => {
         </div>
       )}
       {entry.nulls > 0 && !noData && <div style={css.count}>{nf.format(entry.nulls)} without a value</div>}
+      {entry.note && <div style={css.count}>{entry.note}</div>}
     </section>
   );
 };
@@ -115,8 +118,10 @@ export const LegendView: React.FC<{ legend: LegendModel } & React.HTMLAttributes
 };
 
 /**
- * The live legend. Renders nothing when `explore.showLegend` is off or both
- * encodings are today's defaults (colorBy 'scheme', sizeBy 'none').
+ * The live legend. Under colorBy 'scheme' it describes today's look for the
+ * active `nodes.colorScheme` (domain, type, community, cluster, centrality).
+ * Renders nothing when `explore.showLegend` is off or the scheme has no legend
+ * (base, sssp, cycles) and sizeBy is 'none'.
  */
 export const GraphLegend: React.FC<React.HTMLAttributes<HTMLDivElement>> = (props) => {
   useExploreTableSource();

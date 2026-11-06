@@ -21,12 +21,19 @@ import type { NodeColumns, Column, CategoricalColumn, NumberColumn } from './tab
 import { splitMulti } from './tableSchema';
 
 export type Clause =
-  /** numeric / temporal: lo <= v < hi (hi = Infinity for an open top). */
-  | { kind: 'range'; column: string; lo: number; hi: number }
+  /**
+   * numeric / temporal: lo <= v < hi (hi = Infinity for an open top). `edges`
+   * are the bin lower edges the brush was drawn on: the widget keeps binning by
+   * them while the clause is active, so a live domain shift (wire columns) does
+   * not move the highlighted bars.
+   */
+  | { kind: 'range'; column: string; lo: number; hi: number; edges?: readonly number[] }
   /** categorical / boolean: the value is one of `values` (boolean: 'true' / 'false'). */
   | { kind: 'values'; column: string; values: readonly string[] }
   /** case-insensitive substring over label and the text columns. */
-  | { kind: 'search'; query: string };
+  | { kind: 'search'; query: string }
+  /** a node-id set: `include` passes only these, `exclude` fails these (graph selection, settings grey-out). */
+  | { kind: 'ids'; ids: ReadonlySet<string>; mode: 'include' | 'exclude' };
 
 /** Text columns a search clause matches besides the label. */
 export const SEARCH_COLUMNS: readonly string[] = ['label', 'tags', 'definition', 'slug'];
@@ -148,22 +155,30 @@ export class Crossfilter {
    * outlier cannot squash the distribution into a single bar; the last bin is
    * open-topped and holds the tail.
    */
-  histogram(column: string, bins: number, exceptWidget: string = column): Histogram {
+  histogram(column: string, bins: number, exceptWidget: string = column, fixedEdges?: readonly number[]): Histogram {
     const c = this.numberColumn(column);
     const d = this.domain(c);
+    if (fixedEdges && fixedEdges.length > 0) bins = fixedEdges.length;
     const edges = new Float64Array(bins);
     const counts = new Uint32Array(bins);
     const totals = new Uint32Array(bins);
     let nulls = 0;
     if (!Number.isFinite(d.min)) return { column, edges, counts, totals, min: NaN, max: NaN, nulls: this.eligibleCount() };
-    const span = d.top - d.min || 1;
-    const w = span / bins;
-    for (let b = 0; b < bins; b++) edges[b] = d.min + b * w;
+    let binOf: (v: number) => number;
+    if (fixedEdges && fixedEdges.length > 0) {
+      // Fixed (brush-time) edges: first bin open below, last open above.
+      edges.set(fixedEdges);
+      binOf = (v) => { let b = 0; while (b + 1 < bins && v >= edges[b + 1]) b++; return b; };
+    } else {
+      const w = (d.top - d.min || 1) / bins;
+      for (let b = 0; b < bins; b++) edges[b] = d.min + b * w;
+      binOf = (v) => Math.min(bins - 1, Math.max(0, Math.floor((v - d.min) / w)));
+    }
     for (let i = 0; i < this.rowCount; i++) {
       if (!this.eligible[i]) continue;
       const v = c.values[i];
       if (Number.isNaN(v)) { nulls++; continue; }
-      const b = Math.min(bins - 1, Math.max(0, Math.floor((v - d.min) / w)));
+      const b = binOf(v);
       totals[b]++;
       if (this.passes(i, exceptWidget)) counts[b]++;
     }
@@ -252,6 +267,12 @@ export class Crossfilter {
   private evaluate(clause: Clause): Uint8Array {
     const n = this.rowCount;
     const f = new Uint8Array(n);
+    if (clause.kind === 'ids') {
+      const ids = this.idColumn();
+      const inc = clause.mode === 'include';
+      for (let i = 0; i < n; i++) { const has = ids[i] !== null && clause.ids.has(ids[i]!); f[i] = has === inc ? 0 : 1; }
+      return f;
+    }
     if (clause.kind === 'search') {
       const q = clause.query.trim().toLowerCase();
       if (!q) return f;

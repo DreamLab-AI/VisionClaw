@@ -11,6 +11,7 @@ import {
   HIGHLIGHT_SELECTED, HIGHLIGHT_FOCUS_NEIGHBOUR, HIGHLIGHT_SEARCH_HIT,
 } from '../state/highlightMask'
 import { SOURCE, writeEmphasis } from '../explore/filterRegistry'
+import { exploreStore as sharedExploreStore, type ExploreStore } from '../explore/exploreStore'
 
 export interface GraphSelectionOptions {
   graphData: GraphData
@@ -20,6 +21,8 @@ export interface GraphSelectionOptions {
   camera: THREE.Camera
   /** The highlight mask to emphasise on (tests inject their own). */
   mask?: HighlightMask
+  /** The explore store whose widgets reflect the selection (ADR-2185 D3). */
+  explore?: ExploreStore
 }
 
 /**
@@ -91,6 +94,7 @@ function extractAttribution(
 export function useGraphSelection(opts: GraphSelectionOptions): GraphSelectionReturn {
   const { graphData, nodeIdToIndexMap, nodePositionsRef, connectionCountMap, camera } = opts
   const mask = opts.mask ?? sharedMask
+  const explore = opts.explore ?? sharedExploreStore
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const flyToTargetRef  = useRef<THREE.Vector3 | null>(null)
@@ -171,6 +175,7 @@ export function useGraphSelection(opts: GraphSelectionOptions): GraphSelectionRe
     if (!selectedNodeId) {
       writeEmphasis(SOURCE.SELECTION, HIGHLIGHT_SELECTED, null, mask)
       writeEmphasis(SOURCE.NEIGHBOURS, HIGHLIGHT_FOCUS_NEIGHBOUR, null, mask)
+      explore.setGraphSelection(null)
       return
     }
     const neighbours: string[] = []
@@ -182,7 +187,9 @@ export function useGraphSelection(opts: GraphSelectionOptions): GraphSelectionRe
     }
     writeEmphasis(SOURCE.SELECTION, HIGHLIGHT_SELECTED, [selectedNodeId], mask)
     writeEmphasis(SOURCE.NEIGHBOURS, HIGHLIGHT_FOCUS_NEIGHBOUR, neighbours, mask)
-  }, [selectedNodeId, graphData.edges, mask])
+    // ADR-2185 D3: the widgets narrow to the selection and its neighbourhood.
+    explore.setGraphSelection([selectedNodeId, ...neighbours])
+  }, [selectedNodeId, graphData.edges, mask, explore])
 
   // Click-to-focus: when the selection changes (node click, neighbour click, or
   // search), ease the camera to look at + approach the node. Guarded by

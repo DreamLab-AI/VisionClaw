@@ -29,8 +29,9 @@ import * as THREE from 'three';
 import type { Node as GraphNode } from '../managers/graphDataManager';
 import type { NodeEncoder, EncodingContext } from '../state/nodeEncoding';
 import { DEFAULT_NODE_ENCODER, isSchemeColorBy } from '../state/nodeEncoding';
-import { ANALYTICS_STRIDE } from '../../analytics/store/nodeAnalyticsStore';
+import { ANALYTICS_STRIDE } from './analyticsLayout';
 import { DEFAULT_DOMAIN_COLOR, getDomainColor } from '../utils/domainColors';
+import { getTypeColor } from '../hooks/useGraphNodeColors';
 import {
   NODE_TABLE_COLUMN, parseNumeric, parseTemporal, parseBoolean,
   type NodeColumns, type ColumnDef,
@@ -77,10 +78,18 @@ const hslHex = (h: number, s: number, l: number) => `#${new THREE.Color().setHSL
 
 export interface LegendSwatch { value: string; color: string; count: number }
 
+interface LegendCommon {
+  /** Title override (default: the column name). */
+  title?: string;
+  /** A short qualifier shown under the entry. */
+  note?: string;
+}
+
 export type LegendEntry =
-  | { channel: 'color'; kind: 'categorical'; column: string; swatches: LegendSwatch[]; other: number; nulls: number }
-  | { channel: 'color' | 'size'; kind: 'sequential'; column: string; temporal: boolean; min: number; max: number; nulls: number;
-      /** ordered categoricals: the tier names along the ramp */ ticks?: string[] };
+  | (LegendCommon & { channel: 'color'; kind: 'categorical'; column: string; swatches: LegendSwatch[]; other: number; nulls: number;
+      /** Label of the no-value row (default "No value"). */ nullLabel?: string })
+  | (LegendCommon & { channel: 'color' | 'size'; kind: 'sequential'; column: string; temporal: boolean; min: number; max: number; nulls: number;
+      /** CSS gradient of the ramp (default: the sequential ramp). */ gradient?: string });
 
 export interface LegendModel { entries: LegendEntry[] }
 
@@ -283,4 +292,77 @@ export function createColumnEncoding(
     entries.push(part.legend);
   }
   return { encoder: encoder.color || encoder.size ? encoder : null, legend: { entries } };
+}
+
+// --- Legend for the default 'scheme' encoding ---------------------------------------
+
+/** Value counts of a categorical column over delivered rows, falling back to `fallback` per row. */
+function categoryCounts(table: NodeColumns, name: string, fallback?: string): { counts: Map<string, number>; nulls: number } {
+  const counts = new Map<string, number>();
+  let nulls = 0;
+  const c = table.columns[name];
+  const f = fallback ? table.columns[fallback] : undefined;
+  for (let i = 0; i < table.rowCount; i++) {
+    if (!table.present[i]) continue;
+    let v: string | undefined;
+    if (c?.type === 'categorical' && c.codes[i] >= 0) v = c.dictionary[c.codes[i]];
+    else if (f?.type === 'categorical' && f.codes[i] >= 0) v = f.dictionary[f.codes[i]];
+    if (v === undefined) nulls++; else counts.set(v, (counts.get(v) ?? 0) + 1);
+  }
+  return { counts, nulls };
+}
+
+function schemeCategorical(
+  table: NodeColumns, column: string, title: string, colorOf: (v: string) => string,
+  opts: { fallback?: string; note?: string; nullLabel?: string } = {},
+): LegendEntry {
+  const { counts, nulls } = categoryCounts(table, column, opts.fallback);
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  return {
+    channel: 'color', kind: 'categorical', column, title, note: opts.note, nullLabel: opts.nullLabel,
+    swatches: ranked.slice(0, LEGEND_MAX_SWATCHES).map(([value, count]) => ({ value, color: colorOf(value), count })),
+    other: ranked.slice(LEGEND_MAX_SWATCHES).reduce((s, [, n]) => s + n, 0),
+    nulls,
+  };
+}
+
+/** The default 'centrality' scheme's ramp (nodeEncoding.ts): hue 0.62 → 0, lightness 0.25 → 0.65. */
+export function centralitySchemeCss(): string {
+  const stops = [0, 0.25, 0.5, 0.75, 1].map((t) => hslHex(0.62 - 0.62 * t, 0.85, 0.25 + 0.4 * t));
+  return `linear-gradient(to right, ${stops.join(', ')})`;
+}
+
+const MODULATION_NOTE = 'Base hues; saturation and lightness rise with authority and connections.';
+const FALLTHROUGH_NOTE = 'Nodes without a value keep a per-node hue.';
+
+/**
+ * The legend for colorBy 'scheme' (today's look, DEFAULT_NODE_ENCODER) under
+ * `visualisation.graphs.knowledge.nodes.colorScheme`. Schemes that are renderer
+ * overlays (sssp, cycles) or a single base colour (base) have no legend.
+ */
+export function createSchemeLegend(table: NodeColumns | null, colorScheme: string | null | undefined): LegendEntry[] {
+  if (!table) return [];
+  switch (colorScheme ?? 'type') {
+    case 'domain':
+      return [schemeCategorical(table, 'domain', 'Colour: Domain', (v) => getDomainColor(v),
+        { fallback: 'source_domain', note: MODULATION_NOTE })];
+    case 'type':
+      return [schemeCategorical(table, 'type', 'Colour: Type', (v) => `#${getTypeColor(v).getHexString()}`,
+        { note: MODULATION_NOTE })];
+    case 'community':
+      return [schemeCategorical(table, 'community', 'Colour: Community',
+        (v) => hslHex(((Number(v) * 83) % 360) / 360, 0.65, 0.5), { note: FALLTHROUGH_NOTE, nullLabel: 'Unassigned' })];
+    case 'cluster':
+      return [schemeCategorical(table, 'cluster', 'Colour: Cluster',
+        (v) => hslHex(((Number(v) * 137) % 360) / 360, 0.7, 0.55), { note: FALLTHROUGH_NOTE, nullLabel: 'Unassigned' })];
+    case 'centrality': {
+      const d = numericDomain(table, 'centrality');
+      return [{
+        channel: 'color', kind: 'sequential', column: 'centrality', title: 'Colour: Centrality', temporal: false,
+        min: Number.isFinite(d.min) ? 0 : NaN, max: d.max, nulls: d.nulls, gradient: centralitySchemeCss(), note: FALLTHROUGH_NOTE,
+      }];
+    }
+    default:
+      return [];
+  }
 }
