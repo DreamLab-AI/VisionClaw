@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 858cf136fa89bf9fdc3475ac3b409b3a3783308f
+verified_commit: 5d1b2d04d2d15698b98c2847ddd465ff9ce2ee96
 verified_paths: [crates/visionclaw-splat, src/handlers/splat_handler.rs, client/src/features/splats, xr-client/rust/src/frame_budget.rs, xr-client/rust/src/splat_governor.rs, xr-client/rust/src/splat_sort.rs, xr-client/rust/src/splat_loader.rs, xr-client/materials/splat.gdshader, xr-client/scripts/splat_volume.gd]
 owner: jjohare
 review_trigger: The first splat frame on either client, any three.js bump past 0.183, a Spark release with WebGPURenderer support (sparkjsdev/spark#394), or the first headset session with `XR_SPLATS=1`.
