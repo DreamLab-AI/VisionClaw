@@ -31,7 +31,6 @@ import WasmSceneEffects from '../../visualisation/components/WasmSceneEffects';
 // Embedding cloud layer (live RuVector memory cloud + query trajectory)
 import EmbeddingCloudLayer from '../../visualisation/components/EmbeddingCloudLayer';
 // Memory explorer — HTML overlay for querying the cloud, mounted with it
-import MemoryExplorerPanel from '../../visualisation/memoryCloud/MemoryExplorerPanel';
 // Echo Pulse — commit-time expanding ring wash (control-center signature flourish)
 import EchoPulseLayer from '../../control-center/echo/EchoPulseLayer';
 
@@ -442,9 +441,8 @@ const GraphCanvas: React.FC = () => {
             {/* Splat scene attribution, licence and enter/leave/close */}
             <SplatInfoPanel />
 
-            {/* Memory explorer — query the live memory cloud and replay the
-                route; mounted only while the embedding cloud is switched on. */}
-            {embeddingCloudEnabled && <MemoryExplorerPanel />}
+            {/* The Memory explorer is a tab of the control centre's right-hand
+                drawer (ADR-2189 §3), shown while the embedding cloud is on. */}
         </div>
     );
 };

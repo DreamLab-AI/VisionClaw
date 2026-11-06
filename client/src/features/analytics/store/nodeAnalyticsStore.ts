@@ -170,15 +170,17 @@ class NodeAnalyticsStore {
     const s = useSettingsStore.getState().settings as
       | {
           qualityGates?: {
-            showClusters?: boolean;
             showAnomalies?: boolean;
-            showCommunities?: boolean;
             showCentrality?: boolean;
             showSSSP?: boolean;
           };
           visualisation?: {
             clusterHulls?: { enabled?: boolean };
             graphs?: { knowledge?: { nodes?: { colorScheme?: string } } };
+            graphView?: {
+              labels?: { budget?: number };
+              explore?: { colorBy?: string; sizeBy?: string };
+            };
           };
         }
       | undefined;
@@ -191,10 +193,19 @@ class NodeAnalyticsStore {
       colorScheme === 'cluster' ||
       colorScheme === 'centrality' ||
       colorScheme === 'sssp';
+    // ADR-2189 retired Show Clusters / Show Communities (they coloured nothing;
+    // showClusters defaulted on, which kept ingestion live for everything below).
+    // The analytics buffer's real consumers are named instead: the ADR-2186 label
+    // budget ranks labels by centrality, and the ADR-2184 explore encodings can
+    // colour or size by an analytics column.
+    const gv = s?.visualisation?.graphView;
+    const labelBudgetOn = (gv?.labels?.budget ?? 40) > 0;
+    const exploreColumn = (v?: string) => !!v && v !== 'scheme' && v !== 'none';
     return Boolean(
-      qg?.showClusters ||
+      labelBudgetOn ||
+        exploreColumn(gv?.explore?.colorBy) ||
+        exploreColumn(gv?.explore?.sizeBy) ||
         qg?.showAnomalies ||
-        qg?.showCommunities ||
         qg?.showCentrality ||
         qg?.showSSSP ||
         s?.visualisation?.clusterHulls?.enabled ||

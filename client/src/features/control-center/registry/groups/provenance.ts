@@ -44,11 +44,11 @@ const fields: RegistryField[] = [
   {
     key: 'diffMode',
     subgroup: 'Timeline',
-    label: 'Timeline Diff Mode',
+    label: 'Timeline diff',
     type: 'toggle',
     path: 'provenance.diffMode',
     default: false,
-    description: 'Start the timeline scrubber in two-instant diff mode: marks subjects added (green) or retracted (red) between t1 and t2, computed client-side from two state-at calls.',
+    description: 'Compare two instants: marks subjects added (green) or retracted (red) between t1 and t2. The same control as the Diff checkbox on the timeline scrubber.',
   },
 ];
 

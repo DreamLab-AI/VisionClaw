@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { REGISTRY, ALL_FIELDS, ALL_PATHS, SOURCE_GROUPS, testIdFor } from '../settingsRegistry';
 import { buildManifest, buildIa, serverBucketFor, scopeFor, scopeForField, PANELS } from '../manifest';
 import { SECTION_DEFS, placeField } from '../placement';
-import { ADR_2189_REMOVED_PATHS, DEAD_PATHS, REPLACED_PATHS } from '../../../../store/settings/retiredPaths';
+import { ADR_2189_REMOVED_PATHS, DEAD_PATHS, REPLACED_PATHS, MERGED_PATHS, RENAMED_PATHS } from '../../../../store/settings/retiredPaths';
 import { MACRO_PATHS, MACROS } from '../macros';
 import manifestJson from '../settings-manifest.json';
 // The SOURCE OF TRUTH for the frozen backend contract. Captured from the legacy
@@ -22,7 +22,7 @@ const EXPECTED_GROUP_COUNTS: Record<string, number> = {
   motion: 84,
   look: 23,
   labels: 7,
-  quality: 30,
+  quality: 28,
   atmosphere: 32,
   ai: 2,
   system: 19,
@@ -35,7 +35,7 @@ const EXPECTED_GROUP_COUNTS: Record<string, number> = {
 const EXPECTED_SECTION_COUNTS: Record<string, number> = {
   layers: 14,
   explore: 27,
-  encode: 26,
+  encode: 24,
   layout: 80,
   look: 44,
   agents: 30,
@@ -146,10 +146,16 @@ const LEGACY_REMOVED = ADR_2189_REMOVED_PATHS.filter((p) =>
     .includes(p),
 );
 
+/**
+ * Paths a merge added (ADR-2189 §6 "Merge"): the generic knowledge edge colour
+ * became agent mode's own edge colour, so every graph mode has exactly one.
+ */
+const MERGE_ADDED_PATHS: string[] = ['visualisation.graphTypeVisuals.agent.edgeColor'];
+
 const TOTAL_FIELDS =
   168 - RETIRED_PATHS.length - LEGACY_REMOVED.length + EXPECTED_GROUP_COUNTS.agents + EXPECTED_GROUP_COUNTS.provenance
   + WAVE1_LAYOUT_PATHS.length + MEMORY_EXPLORER_PATHS.length + NETWORK_PATHS.length + SEMANTIC_PATHS.length + TWEENING_PATHS.length
-  + LAYOUT_MODE_PATHS.length + GRAPH_VIEW_PATHS.length;
+  + LAYOUT_MODE_PATHS.length + GRAPH_VIEW_PATHS.length + MERGE_ADDED_PATHS.length;
 
 /**
  * Frozen client-only paths introduced by the W-G phase-1 Decisions/Provenance
@@ -274,7 +280,14 @@ describe('control-center settings registry', () => {
     // sizeScheme, edges.colorByType, edges.widthByWeight, and labels.desktopFontSize
     // (replaced by graphView.labels.fontPx when the render lane landed ADR-2186)
     expect(REPLACED_PATHS).toHaveLength(4);
-    expect(new Set(ADR_2189_REMOVED_PATHS).size).toBe(41);
+    // generic knowledge edges.color (→ agent mode's edge colour), Show Clusters,
+    // Show Communities (→ colour scheme = Cluster / Community)
+    expect(MERGED_PATHS).toHaveLength(3);
+    expect(new Set(ADR_2189_REMOVED_PATHS).size).toBe(44);
+    for (const [from, to] of Object.entries(RENAMED_PATHS)) {
+      expect(ADR_2189_REMOVED_PATHS).toContain(from);
+      expect(ALL_PATHS, to).toContain(to);
+    }
     for (const p of ADR_2189_REMOVED_PATHS) expect(ALL_PATHS, p).not.toContain(p);
     // the empty groups went with them
     expect(SOURCE_GROUPS.map((g) => g.id)).not.toContain('xr');
@@ -338,7 +351,7 @@ describe('control-center settings registry', () => {
     // post-date WP5 and are asserted independently.
     const migratedPaths = ALL_PATHS.filter(
       (p) =>
-        !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p) && !networkSet.has(p) && !semanticSet.has(p) && !tweeningSet.has(p) && !layoutModeSet.has(p) && !graphViewSet.has(p),
+        !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p) && !networkSet.has(p) && !semanticSet.has(p) && !tweeningSet.has(p) && !layoutModeSet.has(p) && !graphViewSet.has(p) && !MERGE_ADDED_PATHS.includes(p),
     );
     const migratedSet = new Set(migratedPaths);
 
