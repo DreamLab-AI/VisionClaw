@@ -3,11 +3,11 @@ id: ADR-2188
 title: The XR client adopts the overview-first contract — sized points, screen-width edges, label budget and highlight mask — without bloom
 date: 2026-11-06
 decision_status: accepted
-implementation_status: none
-activation_status: inactive
+implementation_status: complete
+activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 4adab22f02a09dfddc29b59b7d1f0213d5b3e948
+verified_commit: c7c78c88d6fbeaa91d873dc80e20d8ed163faffb
 verified_paths: []
 relates: [ADR-2179, ADR-2181, ADR-2182, ADR-2183, ADR-2185, ADR-2186]
 owner: jjohare
@@ -46,3 +46,7 @@ None yet. Required:
 - **D4:** a GUT test showing that a filter greys a node out rather than removing it.
 - **D5:** a GUT test of the label-budget ranking.
 - **Headset:** a 90 fps receipt on the VIVE Pro or Quest with the overview path on (operator-run).
+
+## Status at integration (2026-11-06)
+
+Complete in code and under headless GUT (660 tests, 0 failures) and the Rust suite. Shader compilation, visual quality and 90 fps on a headset are unverified until the HP deployment, so activation is staged.

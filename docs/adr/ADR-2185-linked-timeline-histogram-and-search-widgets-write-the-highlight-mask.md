@@ -3,11 +3,11 @@ id: ADR-2185
 title: Linked timeline, histogram, category and search widgets crossfilter the graph by writing the highlight mask
 date: 2026-11-05
 decision_status: accepted
-implementation_status: none
-activation_status: inactive
+implementation_status: complete
+activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 4adab22f02a09dfddc29b59b7d1f0213d5b3e948
+verified_commit: c7c78c88d6fbeaa91d873dc80e20d8ed163faffb
 verified_paths: []
 relates: [ADR-2179, ADR-2183, ADR-2184]
 owner: jjohare

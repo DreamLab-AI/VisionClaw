@@ -3,11 +3,11 @@ id: ADR-2189
 title: Desktop and XR menus share one seven-section information architecture, generated from the settings registry
 date: 2026-11-06
 decision_status: accepted
-implementation_status: partial
-activation_status: inactive
+implementation_status: complete
+activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: f6b68521f9395cccca3d42ba6a303a2ecf97e865
+verified_commit: c7c78c88d6fbeaa91d873dc80e20d8ed163faffb
 verified_paths: [client/src/features/control-center/registry/placement.ts, client/src/features/control-center/registry/manifest.ts, client/src/features/control-center/registry/ia.json, xr-client/data/ia.json, client/src/store/settings/retiredPaths.ts, client/src/features/control-center/state/settingWrites.ts, client/src/features/control-center/integrationSlots.ts, client/src/features/control-center/drawer/RightDrawer.tsx, client/src/features/control-center/hooks/useExclusiveSidePanels.ts, client/src/features/control-center/macros/MacroBar.tsx]
 relates: [ADR-2179, ADR-2180, ADR-2181, ADR-2182, ADR-2183, ADR-2184, ADR-2185, ADR-2186, ADR-2187, ADR-2188]
 owner: jjohare

@@ -3,11 +3,11 @@ id: ADR-2182
 title: Overview nodes are screen-sized sprites, gems are the close-zoom level of detail, and glow is reserved for emphasis
 date: 2026-11-05
 decision_status: accepted
-implementation_status: none
-activation_status: inactive
+implementation_status: partial
+activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 4adab22f02a09dfddc29b59b7d1f0213d5b3e948
+verified_commit: c7c78c88d6fbeaa91d873dc80e20d8ed163faffb
 verified_paths: []
 relates: [ADR-2171, ADR-2179, ADR-2181, ADR-2183]
 owner: jjohare
@@ -53,3 +53,7 @@ None yet. Each decision has its own check:
 - **Scope of the sprite LOD (2026-11-06).** Only the knowledge population becomes sprites at overview zoom with gems as the close LOD (`GemNodes` gem LOD, `client/src/features/graph/overview/gemLod.ts`). The ontology and agent populations keep full gems at every zoom: they are small, and their gem shape carries type meaning the sprites do not. Revisit if either grows to knowledge-graph size.
 - **No silent loss of the graph.** Gems beyond `gemLodDistance` are hidden only while the sprite layer is mounted with a built material and has not faulted (`overview/overviewLive.ts`). A fault is a WebGPU `renderObject` throw on 3 separate frames, a WebGPU pipeline failure (three logs it and skips the draw without throwing; routed by material id through its console hook, `rendering/renderFaults.ts`), or a WebGL program that fails to link. Then every gem draws again and `OverviewEdgeNotice` names the failed layer.
 - **Grey-out across pipelines.** Measured in the browser sidecar, WebGPURenderer and WebGLRenderer through the post-processing composer both blend in linear space (a 0.8 grey at α 0.1 over #101018 reads 82/255); only WebGL drawn straight to the canvas (post-processing off) blends in sRGB (37/255). `explore.greyoutOpacity` keeps its linear-blend meaning; that one path receives `srgbBlendAlpha(value, background)` (`overview/highlightVisual.ts`, `rendering/blendSpace.ts`), measured 78 vs 82.
+
+## Status at integration (2026-11-06)
+
+Partial: sprites, gem LOD, encoding-driven colour, the fault fallback and emphasis-only bloom are built. Ontology and agent populations keep full gems by scope decision (see the implementation notes). Emphasis bloom was measured with an empty bloom input only, and real WebGPU is unverified.

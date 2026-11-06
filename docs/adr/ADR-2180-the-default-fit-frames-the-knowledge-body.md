@@ -3,11 +3,11 @@ id: ADR-2180
 title: The default camera fit frames the knowledge body; the memory cloud and the other bodies join the frame only on request
 date: 2026-11-05
 decision_status: accepted
-implementation_status: none
-activation_status: inactive
+implementation_status: complete
+activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 4adab22f02a09dfddc29b59b7d1f0213d5b3e948
+verified_commit: c7c78c88d6fbeaa91d873dc80e20d8ed163faffb
 verified_paths: []
 relates: [ADR-2135, ADR-2179]
 owner: jjohare

@@ -3,11 +3,11 @@ id: ADR-2181
 title: Overview edges are screen-space lines that fade by on-screen length, with capacity sized from the data and never silently capped
 date: 2026-11-05
 decision_status: accepted
-implementation_status: none
-activation_status: inactive
+implementation_status: partial
+activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 4adab22f02a09dfddc29b59b7d1f0213d5b3e948
+verified_commit: c7c78c88d6fbeaa91d873dc80e20d8ed163faffb
 verified_paths: []
 relates: [ADR-2171, ADR-2179, ADR-2182, ADR-2183]
 owner: jjohare
@@ -56,3 +56,7 @@ None yet. Each decision has its own check:
 - **WebGL edge material (accepted deviation from D1, 2026-11-06).** The WebGL path does not use the stock addons `LineSegments2` / `LineMaterial`. That material has one `linewidth` uniform: no per-edge width, no per-edge alpha and no fade by on-screen length. The path instead uses a custom GLSL3 `ShaderMaterial` (`client/src/rendering/materials/OverviewEdgeMaterial.ts`) built the same way, as instanced screen-space quads extruded by half the edge width in CSS pixels. Weight sets the width, the D2 fade is computed in the vertex shader, and an edge with a greyed endpoint drops to `greyoutOpacity`. The WebGPU path uses the same maths in TSL. Neither path is a 1 px `LineSegments` or `Points`.
 - **Endpoints.** Both paths fetch endpoints from one node position texture, `client/src/features/graph/overview/nodePositionTexture.ts`. Each texel holds xyz plus the highlight level, indexed by render index. The texture is uploaded only when the drawn positions or the highlight mask change. There is no per-edge CPU loop for overview edges.
 - **Worker buffer (D4).** `graphWorkerProxy.setGraphTopology` grows the position SAB to the delivered node count (`sharedCapacityFor`). Any shortfall it cannot cover goes to `publishNodeBufferReport` and appears in the same in-canvas notice as edges (`OverviewEdgeNotice`).
+
+## Status at integration (2026-11-06)
+
+Partial: overview edges, data-sized capacity, the truncation notice and the worker-buffer growth are built and tested on both renderer paths (WebGPU only through its WebGL2 fallback). Not done: profiled receipts that a settled graph does no per-edge CPU work, and a check on a real WebGPU adapter.

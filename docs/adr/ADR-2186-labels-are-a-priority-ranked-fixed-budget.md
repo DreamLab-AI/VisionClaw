@@ -3,11 +3,11 @@ id: ADR-2186
 title: Labels are a priority-ranked fixed budget, drawn the same way on both renderer paths
 date: 2026-11-05
 decision_status: accepted
-implementation_status: none
-activation_status: inactive
+implementation_status: complete
+activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 4adab22f02a09dfddc29b59b7d1f0213d5b3e948
+verified_commit: c7c78c88d6fbeaa91d873dc80e20d8ed163faffb
 verified_paths: []
 relates: [ADR-2171, ADR-2179, ADR-2183, ADR-2184]
 owner: jjohare

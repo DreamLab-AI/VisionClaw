@@ -3,11 +3,11 @@ id: ADR-2184
 title: A client-side columnar node table, built from the existing graph load, drives colour, size and legend by any column
 date: 2026-11-05
 decision_status: accepted
-implementation_status: none
-activation_status: inactive
+implementation_status: complete
+activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 4adab22f02a09dfddc29b59b7d1f0213d5b3e948
+verified_commit: c7c78c88d6fbeaa91d873dc80e20d8ed163faffb
 verified_paths: []
 relates: [ADR-2003, ADR-2018, ADR-2161, ADR-2164, ADR-2179, ADR-2182, ADR-2183, ADR-2185]
 owner: jjohare

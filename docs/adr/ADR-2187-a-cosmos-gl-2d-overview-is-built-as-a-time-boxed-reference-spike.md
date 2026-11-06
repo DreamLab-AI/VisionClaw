@@ -54,3 +54,7 @@ None yet. Each decision has its own check:
 - **D1:** the route renders the live knowledge graph with server positions; the screenshot is recorded.
 - **D2:** `npm ls @cosmograph/cosmograph` is empty in `client/`.
 - **D3:** the side-by-side pair, the receipt row and the parameter list are committed under `docs/evidence/`.
+
+## Status at integration (2026-11-06)
+
+Not built. The cosmos.gl reference spike is accepted but was out of scope for this change set; nothing in the tree implements it.

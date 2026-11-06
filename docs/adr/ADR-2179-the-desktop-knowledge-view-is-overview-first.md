@@ -3,11 +3,11 @@ id: ADR-2179
 title: The desktop knowledge view is overview-first — the whole graph legible at a glance, then filtered by highlight
 date: 2026-11-05
 decision_status: accepted
-implementation_status: none
-activation_status: inactive
+implementation_status: partial
+activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 4adab22f02a09dfddc29b59b7d1f0213d5b3e948
+verified_commit: c7c78c88d6fbeaa91d873dc80e20d8ed163faffb
 verified_paths: []
 relates: [ADR-2135, ADR-2170, ADR-2171, ADR-2180, ADR-2181, ADR-2182, ADR-2183, ADR-2184, ADR-2185, ADR-2186, ADR-2187]
 owner: jjohare
@@ -71,3 +71,7 @@ None yet (`implementation_status: none`). The acceptance scenarios run on the li
 - **A2 (P3):** applying any interactive filter leaves the node count of the drawn instance meshes unchanged and changes only the highlight mask.
 - **A3 (P4):** with the edge count above the current capacity, every edge is drawn, or a visible notice states how many are not.
 - **A4:** GPU p95 frame time is no worse than the ADR-2171 Decision 3 baseline.
+
+## Status at integration (2026-11-06)
+
+Partial: every decision is built across ADR-2180–2186 and ADR-2188/2189, but the D5 performance receipts (ADR-2171 GPU timing) were not taken. The browser sidecar has no WebGPU adapter and its frame rate is not a valid measure. Activation stays staged until a desktop trace on real hardware is recorded.
