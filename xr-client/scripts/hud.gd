@@ -711,6 +711,17 @@ func _build_encode_page() -> VBoxContainer:
 	_text_ctl = text.get_node("Value")
 	page.add_child(text)
 	set_label_controls(8, 1.0)
+	page.add_child(_group_header("Filters"))
+	# ADR-2183 D1: the quality filter greys nodes out, it never removes them on the
+	# headset. Off by default, matching the desktop (ADR-2183 implementation notes).
+	var quality := _press_fire(CheckButton.new()) as CheckButton
+	quality.name = "QualityFilterToggle"
+	quality.text = "Quality filter (greys nodes)"
+	quality.custom_minimum_size.y = BTN_H
+	quality.button_pressed = false
+	quality.set_meta(HINT_META, "Grey out pages scored below 0.4 for this headset only")
+	quality.toggled.connect(func(v: bool) -> void: control_pressed.emit("quality_filter:" + ("1" if v else "0")))
+	page.add_child(quality)
 	return page
 
 

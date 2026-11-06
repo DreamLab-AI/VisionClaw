@@ -254,6 +254,30 @@ func node_position(id: int) -> Vector3:
 ## Drag is server-authoritative on VisionClaw and unserved on Codescape (E9):
 ## a refused drag sends nothing. Only the start announces the refusal; update
 ## and end stay quiet so one gesture yields one notice.
+## Ask the server to grey out nodes below the quality threshold for this viewer
+## (ADR-2183 D1, ADR-2188 D4). The payload mirrors the desktop's `filter_update`
+## (client/src/store/websocket/index.ts) and the fallbacks in
+## src/handlers/socket_flow_handler/filter_auth.rs. The server answers with a
+## filtered initialGraphLoad and `filter_update_success`, which graph_parity.gd
+## already handles. `server_remove` stays false: the headset only ever greys.
+func send_filter_update(enabled: bool, quality_threshold: float = 0.4) -> bool:
+	if client == null or not client.has_method("send_text"):
+		return false
+	var payload := {
+		"type": "filter_update",
+		"enabled": enabled,
+		"quality_threshold": quality_threshold,
+		"authority_threshold": 0.5,
+		"filter_by_quality": enabled,
+		"filter_by_authority": false,
+		"filter_mode": "and",
+		"include_linked_pages": false,
+		"server_remove": false,
+	}
+	client.send_text(JSON.stringify(payload))
+	return true
+
+
 func send_drag_start(id: int, p: Vector3) -> bool:
 	if not gate(BackendCaps.DRAG, "drag a node"):
 		return false
