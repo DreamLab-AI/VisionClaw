@@ -1,0 +1,61 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`default node encoder (ADR-2184 D4) reproduces GemNodes > GOLDEN: pinned linear RGB for the domain, type and base schemes 1`] = `
+[
+  0.15009,
+  0.60456,
+  0.97821,
+  0.21388,
+  0.76877,
+  0.23157,
+  0.28545,
+  0.44616,
+  0.53671,
+  0.98286,
+  0.61237,
+  0.33136,
+  0.28622,
+  0.40117,
+  0.46594,
+]
+`;
+
+exports[`default node encoder (ADR-2184 D4) reproduces GemNodes > GOLDEN: pinned linear RGB for the domain, type and base schemes 2`] = `
+[
+  0.12069,
+  0.62911,
+  0.13642,
+  0.12407,
+  0.69774,
+  0.14181,
+  0.15009,
+  0.60456,
+  0.97821,
+  0.10739,
+  0.76241,
+  0.12765,
+  0.37914,
+  0.35468,
+  0.35468,
+]
+`;
+
+exports[`default node encoder (ADR-2184 D4) reproduces GemNodes > GOLDEN: pinned linear RGB for the domain, type and base schemes 3`] = `
+[
+  0.04179,
+  0.25053,
+  0.40295,
+  0.03696,
+  0.41444,
+  0.64778,
+  0.03512,
+  0.04036,
+  0.40962,
+  0.01487,
+  0.34595,
+  0.57987,
+  0.05958,
+  0.10451,
+  0.38516,
+]
+`;
