@@ -55,16 +55,23 @@ pub async fn run_gpu_community_detection(
     app_state: &actix_web::web::Data<AppState>,
     request: &CommunityDetectionRequest,
 ) -> Result<CommunityDetectionResponse, String> {
+    let routes = super::gpu_routes::GpuAnalyticsRoutes::of(app_state)
+        .ok_or_else(|| "GPU analytics not available".to_string())?;
+    run_community_detection_via(&routes, request).await
+}
+
+/// Whole-graph community detection for a full-access caller: `RunCommunityDetection` goes to
+/// `routes.community` (the GPU manager, which hands it to `ClusteringActor`).
+#[cfg(feature = "gpu")]
+pub(crate) async fn run_community_detection_via(
+    routes: &super::gpu_routes::GpuAnalyticsRoutes,
+    request: &CommunityDetectionRequest,
+) -> Result<CommunityDetectionResponse, String> {
     let start_time = std::time::Instant::now();
     info!(
         "Running GPU community detection with algorithm: {}",
         request.algorithm
     );
-
-    let gpu_addr = app_state
-        .get_gpu_compute_addr()
-        .await
-        .ok_or_else(|| "GPU compute actor not available".to_string())?;
 
     let algorithm = match request.algorithm.as_str() {
         "label_propagation" | "lp" => CommunityDetectionAlgorithm::LabelPropagation,
@@ -91,7 +98,7 @@ pub async fn run_gpu_community_detection(
 
     let msg = RunCommunityDetection { params };
 
-    match gpu_addr.send(msg).await {
+    match routes.community.send(msg).await {
         Ok(Ok(result)) => {
             let processing_time = start_time.elapsed().as_millis() as u64;
             info!("GPU community detection completed: {} communities found with modularity {:.4} in {} iterations",
@@ -135,7 +142,7 @@ pub async fn run_gpu_community_detection(
             })
         }
         Err(e) => {
-            error!("GPU actor mailbox error: {}", e);
+            error!("GPU manager mailbox error: {}", e);
             Err(format!("Failed to communicate with GPU actor: {}", e))
         }
     }
@@ -187,17 +194,14 @@ fn validate_community_params(params: &CommunityDetectionParams) -> Result<(), St
 fn convert_gpu_result_to_communities(
     result: crate::actors::messages::CommunityDetectionResult,
 ) -> Result<Vec<Community>, String> {
+    // `node_labels` is in GPU buffer-slot order; a slot number is not a node id. The actor's
+    // `communities` already carry graph node ids (`ClusteringActor::translate_gpu_index`), so the
+    // reply is built from those.
     let mut communities = Vec::new();
-    let mut community_nodes: HashMap<i32, Vec<u32>> = HashMap::new();
 
-    for (node_id, &label) in result.node_labels.iter().enumerate() {
-        community_nodes
-            .entry(label)
-            .or_default()
-            .push(node_id as u32);
-    }
-
-    for (community_id, nodes) in community_nodes {
+    for (position, actor_community) in result.communities.iter().enumerate() {
+        let community_id = actor_community.id.parse::<usize>().unwrap_or(position);
+        let nodes = actor_community.nodes.clone();
         let size = nodes.len() as u32;
 
         let modularity_contribution = if result.num_communities > 0 {
@@ -211,10 +215,10 @@ fn convert_gpu_result_to_communities(
         communities.push(Community {
             id: Uuid::new_v4().to_string(),
             label: format!("Community {}", community_id),
-            nodes: nodes.clone(),
+            nodes,
             size,
             modularity_contribution,
-            color: generate_community_color(community_id as usize),
+            color: generate_community_color(community_id),
             center_node,
         });
     }
@@ -300,4 +304,25 @@ pub async fn run_gpu_community_detection(
     _request: &CommunityDetectionRequest,
 ) -> Result<CommunityDetectionResponse, String> {
     Err("GPU features not enabled in this build".to_string())
+}
+
+#[cfg(all(test, feature = "gpu"))]
+mod gpu_result_keying_tests {
+    /// The GPU's `node_labels` are in buffer-slot order; the actor's `communities` already
+    /// carry graph node ids. The reply must list graph node ids, not slot numbers.
+    #[test]
+    fn gpu_communities_are_reported_in_graph_node_ids_not_buffer_slots() {
+        let result = crate::handlers::api_handler::analytics::gpu_routes::gpu_result_fixture();
+        let mut members: Vec<Vec<u32>> = super::convert_gpu_result_to_communities(result)
+            .unwrap()
+            .into_iter()
+            .map(|c| {
+                let mut n = c.nodes;
+                n.sort();
+                n
+            })
+            .collect();
+        members.sort();
+        assert_eq!(members, vec![vec![10, 11], vec![20, 21]]);
+    }
 }

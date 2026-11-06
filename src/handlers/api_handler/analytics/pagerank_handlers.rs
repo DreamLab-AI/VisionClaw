@@ -9,6 +9,7 @@ use actix_web::{web, HttpResponse, Result};
 use log::{error, info};
 use serde::{Deserialize, Serialize};
 
+use super::gpu_routes::GpuAnalyticsRoutes;
 use crate::actors::gpu::pagerank_actor::{PageRankParams, PageRankResult};
 use crate::actors::messages::analytics_messages::{
     ClearPageRankCache, ComputePageRank, GetPageRankResult,
@@ -165,54 +166,16 @@ pub async fn compute_pagerank(
         }
     }
 
-    if let Some(ref pagerank_actor) = data.analytics.pagerank {
-        let params = PageRankParams {
-            damping_factor: payload.damping_factor,
-            max_iterations: payload.max_iterations,
-            epsilon: payload.epsilon,
-            normalize: payload.normalize,
-            use_optimized: payload.use_optimized,
-        };
-
-        let msg = ComputePageRank {
-            params: Some(params),
-        };
-
-        match pagerank_actor.send(msg).await {
-            Ok(Ok(result)) => {
-                info!(
-                    "PageRank computed successfully: {} nodes, converged={}, iterations={}",
-                    result.stats.total_nodes, result.converged, result.iterations
-                );
-                ok_json!(PageRankResponse {
-                    success: true,
-                    result: Some(PageRankPayload::Whole(result)),
-                    error: None,
-                })
-            }
-            Ok(Err(e)) => {
-                error!("PageRank computation failed: {}", e);
-                error_json!(PageRankResponse {
-                    success: false,
-                    result: None,
-                    error: Some(e),
-                })
-            }
-            Err(e) => {
-                error!("Failed to send message to PageRank actor: {}", e);
-                error_json!(PageRankResponse {
-                    success: false,
-                    result: None,
-                    error: Some(format!("Actor communication error: {}", e)),
-                })
-            }
-        }
-    } else {
-        error_json!(PageRankResponse {
-            success: false,
-            result: None,
-            error: Some("PageRank actor not available".to_string()),
-        })
+    let params = PageRankParams {
+        damping_factor: payload.damping_factor,
+        max_iterations: payload.max_iterations,
+        epsilon: payload.epsilon,
+        normalize: payload.normalize,
+        use_optimized: payload.use_optimized,
+    };
+    match whole_graph_pagerank(GpuAnalyticsRoutes::of(&data).as_ref(), params).await {
+        Ok(r) => ok_json!(r),
+        Err(r) => error_json!(r),
     }
 }
 
@@ -259,46 +222,9 @@ pub async fn get_pagerank_result(
         }
     }
 
-    if let Some(ref pagerank_actor) = data.analytics.pagerank {
-        match pagerank_actor.send(GetPageRankResult).await {
-            Ok(Some(result)) => {
-                info!(
-                    "Returning cached PageRank result: {} nodes",
-                    result.stats.total_nodes
-                );
-                ok_json!(PageRankCacheResponse {
-                    success: true,
-                    cached: true,
-                    result: Some(PageRankPayload::Whole(result)),
-                    error: None,
-                })
-            }
-            Ok(None) => {
-                info!("No cached PageRank result available");
-                ok_json!(PageRankCacheResponse {
-                    success: true,
-                    cached: false,
-                    result: None,
-                    error: None,
-                })
-            }
-            Err(e) => {
-                error!("Failed to send message to PageRank actor: {}", e);
-                error_json!(PageRankCacheResponse {
-                    success: false,
-                    cached: false,
-                    result: None,
-                    error: Some(format!("Actor communication error: {}", e)),
-                })
-            }
-        }
-    } else {
-        error_json!(PageRankCacheResponse {
-            success: false,
-            cached: false,
-            result: None,
-            error: Some("PageRank actor not available".to_string()),
-        })
+    match whole_graph_cached_pagerank(GpuAnalyticsRoutes::of(&data).as_ref()).await {
+        Ok(r) => ok_json!(r),
+        Err(r) => error_json!(r),
     }
 }
 
@@ -314,30 +240,100 @@ pub async fn get_pagerank_result(
 pub async fn clear_pagerank_cache(data: web::Data<AppState>) -> Result<HttpResponse> {
     info!("API: Clearing PageRank cache");
 
-    if let Some(ref pagerank_actor) = data.analytics.pagerank {
-        match pagerank_actor.send(ClearPageRankCache).await {
-            Ok(()) => {
-                info!("PageRank cache cleared successfully");
-                ok_json!(PageRankClearResponse {
-                    success: true,
-                    message: "PageRank cache cleared".to_string(),
-                    error: None,
-                })
-            }
-            Err(e) => {
-                error!("Failed to send message to PageRank actor: {}", e);
-                error_json!(PageRankClearResponse {
-                    success: false,
-                    message: "Failed to clear PageRank cache".to_string(),
-                    error: Some(format!("Actor communication error: {}", e)),
-                })
-            }
-        }
-    } else {
-        error_json!(PageRankClearResponse {
-            success: false,
-            message: "PageRank actor not available".to_string(),
-            error: Some("PageRank actor not available".to_string()),
+    match whole_graph_clear_pagerank(GpuAnalyticsRoutes::of(&data).as_ref()).await {
+        Ok(r) => ok_json!(r),
+        Err(r) => error_json!(r),
+    }
+}
+
+/// The whole-graph PageRank run for a full-access caller, on the GPU through `routes`.
+/// `Err` carries the failure reply.
+pub(crate) async fn whole_graph_pagerank(
+    routes: Option<&GpuAnalyticsRoutes>,
+    params: PageRankParams,
+) -> std::result::Result<PageRankResponse, PageRankResponse> {
+    let failed = |e: String| PageRankResponse {
+        success: false,
+        result: None,
+        error: Some(e),
+    };
+    let Some(routes) = routes else {
+        return Err(failed("GPU analytics not available".to_string()));
+    };
+    match routes
+        .pagerank
+        .send(ComputePageRank {
+            params: Some(params),
         })
+        .await
+    {
+        Ok(Ok(result)) => {
+            info!(
+                "PageRank computed: {} nodes, converged={}, iterations={}",
+                result.stats.total_nodes, result.converged, result.iterations
+            );
+            Ok(PageRankResponse {
+                success: true,
+                result: Some(PageRankPayload::Whole(result)),
+                error: None,
+            })
+        }
+        Ok(Err(e)) => {
+            error!("PageRank computation failed: {}", e);
+            Err(failed(e))
+        }
+        Err(e) => {
+            error!("Failed to send message to the GPU manager: {}", e);
+            Err(failed(format!("Actor communication error: {}", e)))
+        }
+    }
+}
+
+/// The cached whole-graph PageRank result for a full-access caller.
+pub(crate) async fn whole_graph_cached_pagerank(
+    routes: Option<&GpuAnalyticsRoutes>,
+) -> std::result::Result<PageRankCacheResponse, PageRankCacheResponse> {
+    let failed = |e: String| PageRankCacheResponse {
+        success: false,
+        cached: false,
+        result: None,
+        error: Some(e),
+    };
+    let Some(routes) = routes else {
+        return Err(failed("GPU analytics not available".to_string()));
+    };
+    match routes.pagerank_cached.send(GetPageRankResult).await {
+        Ok(cached) => Ok(PageRankCacheResponse {
+            success: true,
+            cached: cached.is_some(),
+            result: cached.map(PageRankPayload::Whole),
+            error: None,
+        }),
+        Err(e) => {
+            error!("Failed to send message to the GPU manager: {}", e);
+            Err(failed(format!("Actor communication error: {}", e)))
+        }
+    }
+}
+
+/// Evict the cached whole-graph PageRank result.
+pub(crate) async fn whole_graph_clear_pagerank(
+    routes: Option<&GpuAnalyticsRoutes>,
+) -> std::result::Result<PageRankClearResponse, PageRankClearResponse> {
+    let failed = |e: String| PageRankClearResponse {
+        success: false,
+        message: "Failed to clear PageRank cache".to_string(),
+        error: Some(e),
+    };
+    let Some(routes) = routes else {
+        return Err(failed("GPU analytics not available".to_string()));
+    };
+    match routes.pagerank_clear.send(ClearPageRankCache).await {
+        Ok(()) => Ok(PageRankClearResponse {
+            success: true,
+            message: "PageRank cache cleared".to_string(),
+            error: None,
+        }),
+        Err(e) => Err(failed(format!("Actor communication error: {}", e))),
     }
 }

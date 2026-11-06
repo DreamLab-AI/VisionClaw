@@ -196,14 +196,6 @@ pub struct PhysicsSubsystem {
     pub constraint: Option<Addr<gpu::ConstraintActor>>,
 }
 
-/// Analytics and ML subsystem actors
-#[derive(Clone, Default)]
-pub struct AnalyticsSubsystem {
-    pub clustering: Option<Addr<gpu::ClusteringActor>>,
-    pub anomaly: Option<Addr<gpu::AnomalyDetectionActor>>,
-    pub pagerank: Option<Addr<gpu::PageRankActor>>,
-}
-
 /// Graph algorithm subsystem actors
 #[derive(Clone, Default)]
 pub struct GraphSubsystem {
@@ -223,25 +215,6 @@ impl PhysicsSubsystem {
             self.force_compute.is_some(),
             self.stress_major.is_some(),
             self.constraint.is_some(),
-        ]
-        .iter()
-        .filter(|&&x| x)
-        .count()
-    }
-}
-
-impl AnalyticsSubsystem {
-    /// Check if any analytics actors are initialized
-    pub fn is_initialized(&self) -> bool {
-        self.clustering.is_some() || self.anomaly.is_some() || self.pagerank.is_some()
-    }
-
-    /// Get count of active actors
-    pub fn active_count(&self) -> usize {
-        [
-            self.clustering.is_some(),
-            self.anomaly.is_some(),
-            self.pagerank.is_some(),
         ]
         .iter()
         .filter(|&&x| x)
@@ -275,7 +248,6 @@ pub struct AppState {
 
     // Phase 7: Decomposed GPU subsystems (direct access, bypassing GPUManagerActor)
     pub physics: PhysicsSubsystem,
-    pub analytics: AnalyticsSubsystem,
     pub graph_ops: GraphSubsystem,
 
     // Event bus for GPU context distribution to independent subsystems
@@ -1275,12 +1247,6 @@ impl AppState {
             constraint: None,
         };
 
-        let analytics = AnalyticsSubsystem {
-            clustering: None,
-            anomaly: None,
-            pagerank: None,
-        };
-
         // ADR-2053: the graph-ops children (ShortestPathActor,
         // ConnectedComponentsActor) are owned by GraphAnalyticsSupervisor, which
         // spawns them and gives them a SharedGPUContext. AppState no longer holds
@@ -1290,9 +1256,8 @@ impl AppState {
         let graph_ops = GraphSubsystem::default();
 
         info!(
-            "[AppState::new] GPU subsystems initialized (physics={}, analytics={}, graph_ops={} — graph-ops children are supervisor-owned, see ADR-2053)",
+            "[AppState::new] GPU subsystems initialized (physics={}, graph_ops={} — analytics and graph-ops children are supervisor-owned, see ADR-2053)",
             physics.active_count(),
-            analytics.active_count(),
             graph_ops.active_count()
         );
 
@@ -1344,7 +1309,6 @@ impl AppState {
 
             // Phase 7: Decomposed subsystems
             physics,
-            analytics,
             graph_ops,
             gpu_context_bus,
 

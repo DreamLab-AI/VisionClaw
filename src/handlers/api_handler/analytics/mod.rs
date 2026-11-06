@@ -24,6 +24,7 @@ mod anomaly_handlers;
 mod clustering_handlers;
 mod cycles_handlers;
 mod feature_flags_handlers;
+pub(crate) mod gpu_routes;
 mod insights_handlers;
 mod params_handlers;
 mod performance_handlers;

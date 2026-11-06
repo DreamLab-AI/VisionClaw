@@ -3372,14 +3372,6 @@ impl Handler<GetGPUMetrics> for ForceComputeActor {
     }
 }
 
-impl Handler<RunCommunityDetection> for ForceComputeActor {
-    type Result = Result<CommunityDetectionResult, String>;
-
-    fn handle(&mut self, _msg: RunCommunityDetection, _ctx: &mut Self::Context) -> Self::Result {
-        Err("Community detection should be handled by ClusteringActor".to_string())
-    }
-}
-
 impl Handler<UpdateVisualAnalyticsParams> for ForceComputeActor {
     type Result = Result<(), String>;
 

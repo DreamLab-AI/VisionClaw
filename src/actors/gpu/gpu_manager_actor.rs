@@ -838,6 +838,40 @@ impl Handler<ComputePageRank> for GPUManagerActor {
     }
 }
 
+/// Cached PageRank result - routes to AnalyticsSupervisor. `None` when the supervisors are not
+/// up yet: nothing has been computed.
+impl Handler<GetPageRankResult> for GPUManagerActor {
+    type Result = ResponseActFuture<Self, Option<PageRankResult>>;
+
+    fn handle(&mut self, msg: GetPageRankResult, ctx: &mut Self::Context) -> Self::Result {
+        let supervisors = match self.get_supervisors(ctx) {
+            Ok(s) => s.clone(),
+            Err(_) => return Box::pin(async { None }.into_actor(self)),
+        };
+        Box::pin(
+            async move { supervisors.analytics.send(msg).await.ok().flatten() }.into_actor(self),
+        )
+    }
+}
+
+/// Clear the cached PageRank result - routes to AnalyticsSupervisor.
+impl Handler<ClearPageRankCache> for GPUManagerActor {
+    type Result = ResponseActFuture<Self, ()>;
+
+    fn handle(&mut self, msg: ClearPageRankCache, ctx: &mut Self::Context) -> Self::Result {
+        let supervisors = match self.get_supervisors(ctx) {
+            Ok(s) => s.clone(),
+            Err(_) => return Box::pin(async {}.into_actor(self)),
+        };
+        Box::pin(
+            async move {
+                let _ = supervisors.analytics.send(msg).await;
+            }
+            .into_actor(self),
+        )
+    }
+}
+
 /// Get physics stats - routes to PhysicsSupervisor
 impl Handler<GetPhysicsStats> for GPUManagerActor {
     type Result = ResponseActFuture<Self, Result<PhysicsStats, String>>;

@@ -415,8 +415,20 @@ pub(crate) fn visible_pagerank(
     epsilon: f32,
     top_k: usize,
 ) -> VisiblePageRankResult {
+    pagerank_over(gate.view(), damping, max_iterations, epsilon, top_k)
+}
+
+/// PageRank over any graph: the caller's view for a gated caller, or (in the GPU parity
+/// test) the whole graph.
+pub(crate) fn pagerank_over(
+    view: &GraphData,
+    damping: f32,
+    max_iterations: u32,
+    epsilon: f32,
+    top_k: usize,
+) -> VisiblePageRankResult {
     let start = std::time::Instant::now();
-    let adj = adjacency(gate.view());
+    let adj = adjacency(view);
     let ids: Vec<u32> = adj.keys().copied().collect();
     let index: HashMap<u32, usize> = ids.iter().enumerate().map(|(i, &id)| (id, i)).collect();
     let n = ids.len();
@@ -828,5 +840,143 @@ mod tests {
         assert!(row0[2].is_infinite(), "3 is isolated in the view");
         let json = serde_json::to_value(&r).unwrap();
         assert!(json.get("distances").is_none());
+    }
+}
+
+/// Full-access callers are answered on the GPU; gated callers by the CPU code in this module.
+/// On the same graph the two must agree, or a caller's answer would depend on what is hidden
+/// from someone else. Needs a CUDA device and compiled PTX: `cargo test --lib -- --ignored
+/// gpu_and_cpu`. A host without either prints SKIP and passes.
+#[cfg(all(test, feature = "gpu"))]
+mod gpu_parity {
+    use super::{local_moving, modularity, pagerank_over};
+    use crate::utils::unified_gpu_compute::UnifiedGPUCompute;
+    use std::collections::BTreeMap;
+    use visionclaw_domain::models::edge::Edge;
+    use visionclaw_domain::models::graph::GraphData;
+    use visionclaw_domain::models::node::Node;
+    use visionclaw_gpu::ptx_loader::{load_ptx_module_sync, PTXModule};
+
+    /// Two 5-cliques, 0..5 and 5..10, joined by the single bridge 4-5. Node ids equal slots.
+    fn two_cliques() -> (GraphData, Vec<(u32, u32)>) {
+        let mut g = GraphData::default();
+        for id in 0..10u32 {
+            let mut n = Node::new_with_id(format!("n{id}"), None);
+            n.id = id;
+            g.nodes.push(n);
+        }
+        let mut pairs = Vec::new();
+        for base in [0u32, 5] {
+            for a in base..base + 5 {
+                for b in a + 1..base + 5 {
+                    pairs.push((a, b));
+                }
+            }
+        }
+        pairs.push((4, 5));
+        for &(a, b) in &pairs {
+            g.edges.push(Edge::new(a, b, 1.0));
+        }
+        (g, pairs)
+    }
+
+    /// A GPU loaded with the symmetric unit-weight CSR of `pairs`, or `None` (SKIP).
+    fn gpu_for(n: usize, pairs: &[(u32, u32)]) -> Option<UnifiedGPUCompute> {
+        let mut adj: Vec<Vec<i32>> = vec![Vec::new(); n];
+        for &(u, v) in pairs {
+            adj[u as usize].push(v as i32);
+            adj[v as usize].push(u as i32);
+        }
+        let mut offsets = vec![0i32];
+        let mut indices = Vec::new();
+        for a in &adj {
+            indices.extend_from_slice(a);
+            offsets.push(indices.len() as i32);
+        }
+        let weights = vec![1.0f32; indices.len()];
+        let unified = load_ptx_module_sync(PTXModule::VisionflowUnified)
+            .map_err(|e| eprintln!("SKIP: unified PTX unavailable: {e}"))
+            .ok()?;
+        let clustering = load_ptx_module_sync(PTXModule::GpuClusteringKernels)
+            .map_err(|e| eprintln!("SKIP: clustering PTX unavailable: {e}"))
+            .ok()?;
+        let mut gpu = UnifiedGPUCompute::new_with_modules(
+            n,
+            indices.len(),
+            &unified,
+            Some(&clustering),
+            None,
+        )
+        .map_err(|e| eprintln!("SKIP: no CUDA device: {e}"))
+        .ok()?;
+        gpu.upload_edges_csr(&offsets, &indices, &weights)
+            .expect("upload_edges_csr");
+        Some(gpu)
+    }
+
+    /// Whether `a` and `b` put every pair of nodes together or apart in the same way.
+    fn same_partition(a: &BTreeMap<u32, u32>, b: &BTreeMap<u32, u32>) -> bool {
+        a.keys()
+            .all(|x| a.keys().all(|y| (a[x] == a[y]) == (b.get(x) == b.get(y))))
+    }
+
+    #[test]
+    #[ignore = "needs GPU: real CUDA device + compiled PTX (run with --ignored)"]
+    fn gpu_and_cpu_communities_agree_for_a_full_access_caller() {
+        let (g, pairs) = two_cliques();
+        let Some(mut gpu) = gpu_for(g.nodes.len(), &pairs) else {
+            return;
+        };
+        let (labels, _, gpu_q, _, _, _) = gpu
+            .run_louvain_community_detection(100, 1.0, 42)
+            .expect("GPU Louvain");
+        let gpu_labels: BTreeMap<u32, u32> = (0..g.nodes.len() as u32)
+            .map(|i| (i, labels[i as usize].max(0) as u32))
+            .collect();
+        let (cpu_labels, _, _) = local_moving(&g, 100);
+        let cpu_q = modularity(&g, &cpu_labels);
+        assert!(
+            same_partition(&gpu_labels, &cpu_labels),
+            "GPU {gpu_labels:?} vs CPU {cpu_labels:?}"
+        );
+        assert!(
+            (gpu_q - cpu_q).abs() <= 0.02,
+            "modularity GPU {gpu_q:.4} vs CPU {cpu_q:.4}"
+        );
+        assert!(
+            (modularity(&g, &gpu_labels) - cpu_q).abs() <= 1e-4,
+            "the GPU labels score the same Q under the CPU formula"
+        );
+    }
+
+    #[test]
+    #[ignore = "needs GPU: real CUDA device + compiled PTX (run with --ignored)"]
+    fn gpu_and_cpu_pagerank_agree_for_a_full_access_caller() {
+        let (g, pairs) = two_cliques();
+        let Some(mut gpu) = gpu_for(g.nodes.len(), &pairs) else {
+            return;
+        };
+        let (gpu_values, _, _, _) = gpu
+            .run_pagerank_centrality(0.85, 200, 1e-7, false, false)
+            .expect("GPU PageRank");
+        let cpu = pagerank_over(&g, 0.85, 200, 1e-7, 10);
+        let norm = |v: Vec<f32>| {
+            let s: f32 = v.iter().sum();
+            v.into_iter().map(|x| x / s).collect::<Vec<_>>()
+        };
+        let gpu_n = norm(gpu_values.into_iter().take(g.nodes.len()).collect());
+        let cpu_n = norm(
+            (0..g.nodes.len() as u32)
+                .map(|i| cpu.pagerank_values[&i])
+                .collect(),
+        );
+        for i in 0..g.nodes.len() {
+            assert!(
+                (gpu_n[i] - cpu_n[i]).abs() <= 1e-3,
+                "node {i}: GPU {:.5} vs CPU {:.5}",
+                gpu_n[i],
+                cpu_n[i]
+            );
+        }
     }
 }

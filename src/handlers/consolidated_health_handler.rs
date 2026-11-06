@@ -60,7 +60,29 @@ pub struct PhysicsSimulationStatus {
     timestamp: String,
 }
 
-pub async fn unified_health_check(app_state: web::Data<AppState>) -> Result<HttpResponse> {
+/// The node, edge and metadata counts a health reply states, for the caller identified by
+/// `pubkey`. `store_metadata` is the metadata store's row count.
+pub(crate) fn caller_graph_counts(
+    graph: &std::sync::Arc<visionclaw_domain::models::graph::GraphData>,
+    store_metadata: usize,
+    pubkey: Option<&str>,
+    filter_on: bool,
+) -> (usize, usize, usize) {
+    // ADR-060: a caller whose view hides nodes is told the counts of that view, so a hidden
+    // node, its edges and its metadata row count as if they did not exist. A full-access
+    // caller keeps the whole-graph numbers and the metadata store's own row count.
+    if crate::handlers::graph_access::gate_for_graph_with(graph, pubkey, filter_on).is_none() {
+        return (graph.nodes.len(), graph.edges.len(), store_metadata);
+    }
+    let c = crate::handlers::graph_access::visible_counts(graph, pubkey, filter_on);
+    (c.nodes, c.edges, c.metadata)
+}
+
+pub async fn unified_health_check(
+    app_state: web::Data<AppState>,
+    caller: crate::settings::OptionalAuth,
+) -> Result<HttpResponse> {
+    let pubkey = crate::handlers::graph_access::caller_pubkey(&caller);
     let mut health_status = "healthy".to_string();
     let mut issues = Vec::new();
 
@@ -78,6 +100,7 @@ pub async fn unified_health_check(app_state: web::Data<AppState>) -> Result<Http
     let mcp_metrics = check_mcp_metrics().await;
 
     let service_metrics = check_service_metrics(
+        pubkey,
         &app_state,
         mcp_status_label(&mcp_metrics),
         &mut health_status,
@@ -143,12 +166,14 @@ fn mcp_status_label(metrics: &McpMetrics) -> &'static str {
 }
 
 async fn check_service_metrics(
+    pubkey: Option<&str>,
     app_state: &web::Data<AppState>,
     mcp_status: &str,
     health_status: &mut String,
     issues: &mut Vec<String>,
 ) -> ServiceMetrics {
-    let metadata_count = match tokio::time::timeout(
+    let filter_on = visionclaw_domain::utils::visibility_filter::filter_enabled();
+    let mut metadata_count = match tokio::time::timeout(
         HEALTH_CHECK_TIMEOUT,
         app_state.metadata_addr.send(GetMetadata),
     )
@@ -178,7 +203,11 @@ async fn check_service_metrics(
     )
     .await
     {
-        Ok(Ok(Ok(graph_data))) => (graph_data.nodes.len(), graph_data.edges.len()),
+        Ok(Ok(Ok(graph_data))) => {
+            let c = caller_graph_counts(&graph_data, metadata_count, pubkey, filter_on);
+            metadata_count = c.2;
+            (c.0, c.1)
+        }
         Ok(Ok(Err(_))) => {
             *health_status = "degraded".to_string();
             issues.push("Graph service error".to_string());
@@ -279,10 +308,14 @@ fn check_gpu_status() -> String {
     }
 }
 
-pub async fn check_physics_simulation(app_state: web::Data<AppState>) -> Result<HttpResponse> {
+pub async fn check_physics_simulation(
+    app_state: web::Data<AppState>,
+    caller: crate::settings::OptionalAuth,
+) -> Result<HttpResponse> {
+    let pubkey = crate::handlers::graph_access::caller_pubkey(&caller);
     let current_time = Utc::now();
 
-    let (status, diagnostics) = match get_physics_diagnostics(&app_state).await {
+    let (status, diagnostics) = match get_physics_diagnostics(&app_state, pubkey).await {
         Ok((s, d)) => (s, d),
         Err(e) => {
             error!("Failed to get physics diagnostics: {}", e);
@@ -304,9 +337,11 @@ pub async fn check_physics_simulation(app_state: web::Data<AppState>) -> Result<
 
 async fn get_physics_diagnostics(
     app_state: &web::Data<AppState>,
+    pubkey: Option<&str>,
 ) -> Result<(String, String), String> {
     let mut diagnostics = Vec::new();
     let mut status = "healthy".to_string();
+    let filter_on = visionclaw_domain::utils::visibility_filter::filter_enabled();
 
     match tokio::time::timeout(
         Duration::from_secs(3),
@@ -315,12 +350,9 @@ async fn get_physics_diagnostics(
     .await
     {
         Ok(Ok(Ok(graph_data))) => {
-            diagnostics.push(format!(
-                "Graph: {} nodes, {} edges",
-                graph_data.nodes.len(),
-                graph_data.edges.len()
-            ));
-            if graph_data.nodes.is_empty() {
+            let (nodes, edges, _) = caller_graph_counts(&graph_data, 0, pubkey, filter_on);
+            diagnostics.push(format!("Graph: {} nodes, {} edges", nodes, edges));
+            if nodes == 0 {
                 status = "warning".to_string();
                 diagnostics.push("No nodes in graph".to_string());
             }
@@ -487,4 +519,51 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     // directly on the App in main.rs.
     .route("/healthz", web::get().to(liveness_probe))
     .route("/readyz", web::get().to(readiness_probe));
+}
+
+#[cfg(test)]
+mod caller_count_tests {
+    use super::caller_graph_counts;
+    use std::sync::Arc;
+    use visionclaw_domain::models::edge::Edge;
+    use visionclaw_domain::models::graph::GraphData;
+    use visionclaw_domain::models::metadata::Metadata;
+    use visionclaw_domain::models::node::Node;
+
+    /// Public 0 and 1 joined by an edge; when `with_hidden`, a hidden 2 with an edge to 0 and a
+    /// metadata row of its own.
+    fn graph(with_hidden: bool) -> Arc<GraphData> {
+        let mut g = GraphData::default();
+        for id in 0..if with_hidden { 3 } else { 2 } {
+            let mut node = Node::new_with_id(format!("p{id}.md"), None);
+            node.id = id;
+            if id < 2 {
+                node.metadata.insert("public".into(), "true".into());
+            }
+            g.metadata.insert(format!("p{id}.md"), Metadata::default());
+            g.nodes.push(node);
+        }
+        g.edges.push(Edge::new(0, 1, 1.0));
+        if with_hidden {
+            g.edges.push(Edge::new(0, 2, 1.0));
+        }
+        Arc::new(g)
+    }
+
+    #[test]
+    fn health_counts_a_hidden_node_exactly_as_one_that_does_not_exist() {
+        let store_rows = |g: &GraphData| g.metadata.len();
+        let with = graph(true);
+        let without = graph(false);
+        assert_eq!(
+            caller_graph_counts(&with, store_rows(&with), None, true),
+            caller_graph_counts(&without, store_rows(&without), None, true),
+        );
+    }
+
+    #[test]
+    fn a_full_access_caller_still_gets_whole_graph_health_counts() {
+        let g = graph(true);
+        assert_eq!(caller_graph_counts(&g, 3, None, false), (3, 2, 3));
+    }
 }

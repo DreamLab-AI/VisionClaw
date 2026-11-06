@@ -596,6 +596,38 @@ impl Handler<RunAnomalyDetection> for AnalyticsSupervisor {
     }
 }
 
+/// The cached PageRank result, from PageRankActor. An actor that is not running has nothing
+/// cached, so the answer is `None`, the same as an empty cache.
+impl Handler<GetPageRankResult> for AnalyticsSupervisor {
+    type Result = ResponseActFuture<Self, Option<super::pagerank_actor::PageRankResult>>;
+
+    fn handle(&mut self, msg: GetPageRankResult, _ctx: &mut Self::Context) -> Self::Result {
+        let addr = match &self.pagerank_actor {
+            Some(a) if self.pagerank_state.is_running => a.clone(),
+            _ => return Box::pin(async { None }.into_actor(self)),
+        };
+        Box::pin(async move { addr.send(msg).await.ok().flatten() }.into_actor(self))
+    }
+}
+
+/// Evict PageRankActor's cached result. Nothing to evict when the actor is not running.
+impl Handler<ClearPageRankCache> for AnalyticsSupervisor {
+    type Result = ResponseActFuture<Self, ()>;
+
+    fn handle(&mut self, msg: ClearPageRankCache, _ctx: &mut Self::Context) -> Self::Result {
+        let addr = match &self.pagerank_actor {
+            Some(a) if self.pagerank_state.is_running => a.clone(),
+            _ => return Box::pin(async {}.into_actor(self)),
+        };
+        Box::pin(
+            async move {
+                let _ = addr.send(msg).await;
+            }
+            .into_actor(self),
+        )
+    }
+}
+
 impl Handler<ComputePageRank> for AnalyticsSupervisor {
     type Result = ResponseActFuture<Self, Result<super::pagerank_actor::PageRankResult, String>>;
 
