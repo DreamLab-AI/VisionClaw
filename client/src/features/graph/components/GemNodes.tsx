@@ -29,7 +29,13 @@ import {
 const logger = createLogger('GemNodes');
 import { computeNodeScale } from '../utils/nodeScaling';
 import { isWebGPURenderer } from '../../../rendering/rendererFactory';
-import { getTypeColor, getDomainColor } from '../hooks/useGraphNodeColors';
+import { nodeEncoding, type EncodingContext } from '../state/nodeEncoding';
+import { highlightMask, HIGHLIGHT_SELECTED, HIGHLIGHT_HOVERED } from '../state/highlightMask';
+import { highlightVisualFor, createHighlightVisual, backgroundFromSetting, type GreyoutStyle } from '../overview/highlightVisual';
+import { selectGemLod, createGemLodScratch, cameraMoved, GEM_BUDGET } from '../overview/gemLod';
+import { PositionSnapshot } from '../hooks/edgeBufferPlan';
+import { DEFAULT_GRAPH_VIEW } from '../../../api/settings/defaults';
+import type { GraphViewSettings } from '../../settings/config/settings';
 import { agentStatusActivity } from '../../bots/agentVisualConstants';
 import { attentionHeat } from '../../visualisation/attentionHeat';
 import { heatBrightenFactor } from '../../visualisation/heatColor';
@@ -85,6 +91,20 @@ export interface GemNodesProps {
 export interface GemNodesHandle {
   getMesh: () => THREE.InstancedMesh | null;
   getColorArray: () => Float32Array | null;
+  /**
+   * What the overview sprites (OverviewNodes) mirror: this mesh's instances in
+   * local order, each with its render index and its final colour (encoding +
+   * renderer overlays: cycles, SSSP, timeline, heat). `colorVersion` bumps on
+   * every colour write.
+   */
+  getOverviewSource: () => GemOverviewSource | null;
+}
+
+export interface GemOverviewSource {
+  renderIndex: Int32Array;
+  colors: Float32Array;
+  count: number;
+  colorVersion: number;
 }
 
 /** Round up to next power of 2 (minimum 1). */
@@ -118,11 +138,21 @@ const getDominantMode = (
 
 const _mat = new THREE.Matrix4();
 const _col = new THREE.Color();
+// Highlight → visual scratch (ADR-2183): one shared result, zero per-node alloc.
+const _hv = createHighlightVisual();
+const _greyStyle: GreyoutStyle = { greyoutMix: 0.65, greyoutOpacity: 0.1, background: { r: 0, g: 0, b: 0 } };
+// Raycast camera-distance scratch.
+const _rayCam = new THREE.Vector3();
+/** Extra CSS px around a sprite that still picks it. */
+const SPRITE_PICK_SLOP_PX = 3;
+/** Frames between camera-motion checks for the gem LOD. */
+const LOD_EVERY = 6;
+/** Frames between position-driven LOD re-checks (≈2 Hz). */
+const LOD_POSITION_EVERY = 30;
 // Task #54: reusable temps for the GPU-transform raycast (zero per-pick alloc).
 const _rayCenter = new THREE.Vector3();
 const _raySphere = new THREE.Sphere();
 const _rayHit = new THREE.Vector3();
-const _baseHSL = { h: 0, s: 0, l: 0 };
 const ONTOLOGY_SPECTRUM = ['#FF6B6B', '#FFD93D', '#4ECDC4', '#AA96DA', '#95E1D3'];
 const AGENT_STATUS_MAP: Record<string, string> = {
   active: '#2ECC71', busy: '#F39C12', idle: '#95A5A6', error: '#E74C3C',
@@ -134,6 +164,22 @@ const hashHue = (s: string): number => {
   for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
   return ((h >>> 0) % 360) / 360;
 };
+
+/**
+ * A knowledge node's base colour: the shared encoding's slot at its render
+ * index (state/nodeEncoding.ts), or — before the first encode, or for a node
+ * with no slot — the active encoder run inline on the same inputs (`ctx`,
+ * refreshed by the colour pass). Overlays (cycles, SSSP, timeline, heat,
+ * highlight) are applied by the caller on top.
+ */
+function knowledgeBaseColour(node: GraphNode, nodeIndex: number | undefined, ctx: EncodingContext): THREE.Color {
+  const enc = nodeEncoding;
+  if (nodeIndex !== undefined && nodeIndex < enc.sizes.length && enc.sizes[nodeIndex] > 0) {
+    return _col.fromArray(enc.colors, nodeIndex * 3);
+  }
+  enc.getEncoder().color(node, nodeIndex ?? 0, ctx, _col);
+  return _col;
+}
 
 /** Map a lastModified timestamp to 0-1 recency (1 = recent, 0 = stale). */
 const computeRecency = (lastModified: string | number | undefined): number => {
@@ -176,6 +222,26 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
   const xformBufRef = useRef<Float32Array | null>(null);
   const visibleCountRef = useRef(0);
   const geomRadiusRef = useRef(0.5);
+  // Picking source for BOTH renderer paths (x, y, z, true scale per local
+  // instance). The drawn transform zeroes a sprite-only node's gem (ADR-2182
+  // D2), so picking cannot read the drawn transform: it reads this buffer and
+  // widens each hit radius to the node's on-screen sprite (spritePickRef).
+  const pickBufRef = useRef<Float32Array | null>(null);
+  // world units per CSS px at unit distance (2·tan(fov/2) / viewport height), and the sprite pick radius in px
+  const spritePickRef = useRef({ worldPerPxAtUnit: 0, radiusPx: 0 });
+  // Gem LOD (knowledge population): 1 = draw the gem, 0 = sprite only.
+  const lodFlagsRef = useRef<Uint8Array | null>(null);
+  const lodForcedRef = useRef<Uint8Array | null>(null);
+  const lodScratchRef = useRef(createGemLodScratch());
+  const lodCamRef = useRef({ x: 0, y: 0, z: 0, init: false });
+  const lodDirtyRef = useRef(true);
+  const lodFrameRef = useRef(0);
+  const lodVersionRef = useRef(0);
+  const lodSumRef = useRef(-1);
+  // ADR-2182 D5: the per-node transform write runs only when its inputs change.
+  const posSnapshotRef = useRef(new PositionSnapshot());
+  const lastWriteRef = useRef({ scaleHash: '', lodVersion: -1, visCount: -1, gpu: false, mesh: null as THREE.InstancedMesh | null, waving: false });
+  const colorVersionRef = useRef(0);
   const prevMetaHashRef = useRef('');
   // Attention-heat re-upload throttle (task V1). The bucket advances at ~2Hz
   // while heat is live (driving the fade) and once more on settle; folding it
@@ -209,6 +275,10 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
 
   // Quality gate toggles for cluster/anomaly/community coloring
   const qualityGates = useSettingsStore(s => s.get<QualityGatesSettings>('qualityGates'));
+  // ADR-2182/2183 graph-view settings: sprite size (pick radius), gem LOD
+  // distance, grey-out style and bloom scope.
+  const graphView = useSettingsStore(s => s.get<GraphViewSettings>('visualisation.graphView'));
+  const backgroundHex = useSettingsStore(s => s.get<string>('visualisation.rendering.backgroundColor'));
   // Base node color from the control panel ("Node Color" swatch) — anchors the
   // knowledge-graph palette when no semantic (cluster/community/anomaly/SSSP) mode is active.
   const baseNodeColor = useSettingsStore(s => s.get<string>('visualisation.graphs.knowledge.nodes.baseColor'));
@@ -223,6 +293,8 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
   // Per-node analytics data from binary protocol V3 (refreshed periodically).
   // Stride 5 (ADR-031 D2): [clusterId, anomalyScore, communityId, centrality, ssspDistance].
   const analyticsRef = useRef<Float32Array | null>(null);
+  // Inputs of the inline encoder fallback (knowledgeBaseColour); refreshed before each colour pass.
+  const encodingCtxRef = useRef<EncodingContext>({ connectionCountMap });
   const analyticsFrameRef = useRef(0);
   // Per-refresh maxima for normalising the centrality / SSSP colour ramps.
   const maxCentralityRef = useRef(0);
@@ -283,20 +355,26 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
     // would mis-pick. This sphere-test reads the live transform texture buffer
     // (the same x/y/z/scale the GPU renders), preserving node picking + drag.
     // Off WebGPU (gpuTransformRef false) it defers to Three's default raycast.
+    // ADR-2182: the same sphere test on BOTH paths, against pickBufRef (the true
+    // node scale), never the drawn transform: a sprite-only node has a zero gem
+    // scale but must stay clickable, so the radius is widened to the sprite's
+    // on-screen size at that distance. instanceId semantics are unchanged
+    // (local index; GemNodes adds instanceIdBase in the handlers).
     inst.raycast = function (raycaster: THREE.Raycaster, intersects: THREE.Intersection[]): void {
-      if (!gpuTransformRef.current) {
-        THREE.InstancedMesh.prototype.raycast.call(this, raycaster, intersects);
-        return;
-      }
-      const buf = xformBufRef.current;
+      const buf = pickBufRef.current;
       const n = Math.min(visibleCountRef.current, this.count);
       if (!buf || n === 0) return;
       const baseR = geomRadiusRef.current;
+      const sp = spritePickRef.current;
+      const cam = (raycaster as THREE.Raycaster & { camera?: THREE.Camera }).camera;
+      const camPos = cam ? cam.getWorldPosition(_rayCam) : raycaster.ray.origin;
+      const pxR = sp.radiusPx > 0 && sp.worldPerPxAtUnit > 0 ? sp.radiusPx * sp.worldPerPxAtUnit : 0;
       for (let i = 0; i < n; i++) {
         const t4 = i * 4;
         _rayCenter.set(buf[t4], buf[t4 + 1], buf[t4 + 2]);
         _raySphere.center.copy(_rayCenter);
-        _raySphere.radius = baseR * buf[t4 + 3];
+        const gemR = baseR * buf[t4 + 3];
+        _raySphere.radius = pxR > 0 ? Math.max(gemR, pxR * _rayCenter.distanceTo(camPos)) : gemR;
         if (raycaster.ray.intersectSphere(_raySphere, _rayHit)) {
           const distance = raycaster.ray.origin.distanceTo(_rayHit);
           if (distance < raycaster.near || distance > raycaster.far) continue;
@@ -439,6 +517,13 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
   useImperativeHandle(ref, () => ({
     getMesh: () => meshRef.current,
     getColorArray: () => meshRef.current?.instanceColor?.array as Float32Array | null ?? null,
+    getOverviewSource: () => {
+      const m = meshRef.current;
+      const ri = posIdxCacheRef.current;
+      const cols = m?.instanceColor?.array as Float32Array | undefined;
+      if (!m || !ri || !cols) return null;
+      return { renderIndex: ri, colors: cols, count: Math.min(nodesRef.current.length, ri.length), colorVersion: colorVersionRef.current };
+    },
   }), [mesh]);
 
   // Per-node metadata-driven emissive + GPU instance transform (WebGPU) and the
@@ -464,6 +549,7 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
       return cyclicIds.has(String(node.id)) ? _col.set('#FF5722') : _col.set('#37474F');
     }
     const analytics = analyticsRef.current;
+    const isKnowledge = mode !== 'agent' && mode !== 'ontology';
     if (analytics && nodeIndex !== undefined && nodeIndex * ANALYTICS_STRIDE + ANALYTICS_SSSP_OFFSET < analytics.length) {
       const a = nodeIndex * ANALYTICS_STRIDE;
       const clusterId = analytics[a + ANALYTICS_CLUSTER_OFFSET];
@@ -473,26 +559,30 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
       const ssspDistance = analytics[a + ANALYTICS_SSSP_OFFSET];
 
       // Anomaly highlight overlay: red intensity proportional to anomalyScore.
-      if (qualityGates?.showAnomalies && anomalyScore > 0.01) {
+      // Knowledge nodes take it (and the community / cluster / centrality
+      // schemes) from the encoding, below; it still wins over SSSP there.
+      const anomalous = qualityGates?.showAnomalies === true && anomalyScore > 0.01;
+      if (isKnowledge && anomalous) return knowledgeBaseColour(node, nodeIndex, encodingCtxRef.current);
+      if (anomalous) {
         const intensity = Math.min(anomalyScore, 1.0);
         return _col.setRGB(0.9 * intensity + 0.1, 0.15 * (1 - intensity), 0.1);
       }
 
       // Community (Louvain, wire offset 44): deterministic hue per community.
-      if (colorScheme === 'community' && communityId > 0) {
+      if (!isKnowledge && colorScheme === 'community' && communityId > 0) {
         const hue = ((communityId * 83) % 360) / 360;
         return _col.setHSL(hue, 0.65, 0.5);
       }
 
       // Cluster (DBSCAN/k-means, wire offset 36): golden-angle hue per cluster.
-      if (colorScheme === 'cluster' && clusterId > 0) {
+      if (!isKnowledge && colorScheme === 'cluster' && clusterId > 0) {
         const hue = ((clusterId * 137) % 360) / 360;
         return _col.setHSL(hue, 0.7, 0.55);
       }
 
       // Centrality (PageRank, normalised, wire offset 48). Scaled by the live
       // maximum so the (tiny, sum-to-1) PageRank values span the full ramp.
-      if (colorScheme === 'centrality' && centrality > 0) {
+      if (!isKnowledge && colorScheme === 'centrality' && centrality > 0) {
         const max = maxCentralityRef.current || 1;
         const t = Math.min(centrality / max, 1.0);
         return _col.setHSL(0.62 - 0.62 * t, 0.85, 0.25 + 0.4 * t); // blue→cyan→yellow ramp
@@ -534,47 +624,12 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
       _col.setHSL(hue, isClass ? 0.72 : 0.62, isClass ? 0.58 : 0.5);
       return _col;
     }
-    // Knowledge graph: hue is driven by the active colour scheme (type/domain),
-    // then modulated by authority + connection count so high-degree nodes pop.
-    const auth = node.metadata?.authority ?? node.metadata?.authorityScore ?? 0;
-    const cc = connectionCountMap.get(String(node.id)) || 0;
-
-    if (colorScheme === 'type') {
-      // Hue from per-type palette; small authority/connection lightness+saturation lift.
-      const nodeType = node.metadata?.type ?? node.metadata?.nodeType;
-      _col.copy(getTypeColor(nodeType)).getHSL(_baseHSL);
-      const sat = _baseHSL.s + auth * 0.15 + Math.min(cc / 30, 0.1);
-      const lit = _baseHSL.l + auth * 0.12 + Math.min(cc / 40, 0.06);
-      _col.setHSL(_baseHSL.h, Math.min(sat, 0.95), Math.min(lit, 0.8));
-      return _col;
-    }
-
-    if (colorScheme === 'domain') {
-      // Hue from per-domain palette; same gentle authority/connection modulation.
-      const domain = node.metadata?.domain ?? node.metadata?.source_domain;
-      _col.set(getDomainColor(domain)).getHSL(_baseHSL);
-      const sat = _baseHSL.s + auth * 0.15 + Math.min(cc / 30, 0.1);
-      const lit = _baseHSL.l + auth * 0.12 + Math.min(cc / 40, 0.06);
-      _col.setHSL(_baseHSL.h, Math.min(sat, 0.95), Math.min(lit, 0.8));
-      return _col;
-    }
-
-    // 'base': anchor on the user's "Node Color" swatch, then add per-node
-    // variation (hue jitter from label hash) so nodes stay distinguishable.
-    if (baseNodeColor) {
-      _col.set(baseNodeColor).getHSL(_baseHSL);
-      const jitter = (hashHue(node.label || String(node.id)) - 0.5) * 0.12; // ±0.06 hue spread
-      const hue = (_baseHSL.h + jitter + 1) % 1;
-      const sat = _baseHSL.s + auth * 0.25 + Math.min(cc / 25, 0.15);
-      const lit = _baseHSL.l + auth * 0.15;
-      _col.setHSL(hue, Math.min(sat, 0.95), Math.min(lit, 0.8));
-      return _col;
-    }
-    const hue = hashHue(node.label || String(node.id));
-    const sat = 0.35 + auth * 0.35 + Math.min(cc / 20, 0.2);
-    const lit = 0.45 + auth * 0.2;
-    _col.setHSL(hue, Math.min(sat, 0.9), Math.min(lit, 0.75));
-    return _col;
+    // Knowledge graph: the base colour IS the shared node encoding (ADR-2184 D4,
+    // state/nodeEncoding.ts), written by useNodeEncodingSync at this node's
+    // render index. Before the first encode lands (or for a node the encoding
+    // has no slot for) the active encoder runs inline on the same inputs, so
+    // the colour never depends on which path produced it.
+    return knowledgeBaseColour(node, nodeIndex, encodingCtxRef.current);
   }, [ssspResult, hierarchyMap, connectionCountMap, qualityGates, baseNodeColor, colorScheme, cyclicIds]);
 
   // Progressive reveal: ramp up visible instance count over frames so nodes
@@ -587,7 +642,7 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
   const frameCountRef = useRef(0);
   // Priority -1: run after GraphManager (-2) populates nodePositionsRef,
   // but before InstancedLabels (0) reads positions for label placement.
-  useFrame(({ clock, camera, scene }) => {
+  useFrame(({ clock, camera, scene, size }) => {
     const inst = meshRef.current;
     // Read from ref to guarantee we have the latest filtered array,
     // bypassing any stale-closure risk in R3F's callback-ref pipeline.
@@ -853,23 +908,53 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
     const isAgent = dominant === 'agent';
     const kgVisuals = graphTypeVisuals?.knowledgeGraph;
     const heatEnabled = !isAgent && (kgVisuals?.attentionHeatEnabled ?? true);
-    const scaleHash = `${nodeCount}-${connectionCountMap.size}-${baseScale}-${hierarchyMap?.size ?? 0}`;
+    // ADR-2183: the highlight mask (render-indexed) greys / emphasises; its
+    // version and the encoding's are scale and colour inputs.
+    const mask = highlightMask.getMask();
+    const maskVersion = highlightMask.version;
+    const encVersion = nodeEncoding.version;
+    const encSizes = nodeEncoding.sizes;
+    const gv = graphView ?? DEFAULT_GRAPH_VIEW;
+    const bloomScope = gv.nodes?.bloomScope ?? DEFAULT_GRAPH_VIEW.nodes.bloomScope;
+    _greyStyle.greyoutMix = gv.explore?.greyoutMix ?? DEFAULT_GRAPH_VIEW.explore.greyoutMix;
+    _greyStyle.greyoutOpacity = gv.explore?.greyoutOpacity ?? DEFAULT_GRAPH_VIEW.explore.greyoutOpacity;
+    backgroundFromSetting(backgroundHex ?? '#000000', _greyStyle.background);
+    const scaleHash = `${nodeCount}-${connectionCountMap.size}-${baseScale}-${hierarchyMap?.size ?? 0}-e${encVersion}-m${maskVersion}`;
     if (scaleHash !== prevScaleHashRef.current) {
       prevScaleHashRef.current = scaleHash;
       for (let i = 0; i < nodeCount; i++) {
         const node = currentNodes[i];
         const nodeIdStr = String(node.id);
         const mode = perNodeVisualModeMap.get(nodeIdStr) || graphMode;
-        scaleCache[i] = computeNodeScale(node, connectionCountMap, mode, hierarchyMap, graphTypeVisuals) * baseScale;
         const srcIdx = props.nodeIdToIndexMap.get(nodeIdStr);
-        posIdxCache[i] = srcIdx !== undefined ? srcIdx : i;
+        const ri = srcIdx !== undefined ? srcIdx : i;
+        posIdxCache[i] = ri;
+        // Knowledge size is the encoding's (ADR-2184 D4: computeNodeScale × nodeSize
+        // by default, or the explore lane's sizeBy column); other populations
+        // keep their own sizing scheme.
+        const encoded = mode === 'knowledge_graph' && ri < encSizes.length ? encSizes[ri] : 0;
+        const base = encoded > 0
+          ? encoded
+          : computeNodeScale(node, connectionCountMap, mode, hierarchyMap, graphTypeVisuals) * baseScale;
+        const bits = ri < mask.length ? mask[ri] : 0;
+        scaleCache[i] = base * highlightVisualFor(bits, 0, 0, 0, _greyStyle, bloomScope, _hv).scale;
       }
+      lodDirtyRef.current = true;
     }
 
     // --- Colour cache: recompute + upload only when colour inputs change -----
-    const colorHash = `${nodeCount}-${connectionCountMap.size}-${colorScheme}-${cyclicIds?.size ?? ''}-${baseNodeColor ?? ''}-${selectedNodeId ?? ''}-${ssspResult ? 's' : ''}-${qualityGates?.showClusters ? 1 : 0}${qualityGates?.showAnomalies ? 1 : 0}${qualityGates?.showCommunities ? 1 : 0}${qualityGates?.showCentrality ? 1 : 0}${qualityGates?.showSSSP ? 1 : 0}-${analyticsVersionRef.current}-${heatEnabled ? 1 : 0}-${timelineVersion}`;
+    const colorHash = `${nodeCount}-${connectionCountMap.size}-${colorScheme}-${cyclicIds?.size ?? ''}-${baseNodeColor ?? ''}-${selectedNodeId ?? ''}-${ssspResult ? 's' : ''}-${qualityGates?.showClusters ? 1 : 0}${qualityGates?.showAnomalies ? 1 : 0}${qualityGates?.showCommunities ? 1 : 0}${qualityGates?.showCentrality ? 1 : 0}${qualityGates?.showSSSP ? 1 : 0}-${analyticsVersionRef.current}-${heatEnabled ? 1 : 0}-${timelineVersion}-e${encVersion}-m${maskVersion}-${_greyStyle.greyoutMix}-${backgroundHex ?? ''}`;
     if (colorHash !== prevColorHashRef.current) {
       prevColorHashRef.current = colorHash;
+      const ectx = encodingCtxRef.current;
+      ectx.connectionCountMap = connectionCountMap;
+      ectx.colorScheme = colorScheme;
+      ectx.baseNodeColor = baseNodeColor ?? null;
+      ectx.analytics = analyticsRef.current;
+      ectx.maxCentrality = maxCentralityRef.current;
+      ectx.showAnomalies = qualityGates?.showAnomalies === true;
+      ectx.nodeSize = baseScale;
+      ectx.graphTypeVisuals = graphTypeVisuals;
       // Cache the UNHEATED base RGB so the 2Hz heat pass can rescale without
       // recomputing computeColor. Sized to the colour capacity (stride 3).
       let baseCache = baseColorCacheRef.current;
@@ -888,6 +973,11 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
             ?? (node.metadata?.owl_class_iri as string | undefined);
           applyTimelineTint(c, nodeTimelineStatus(node.id, iri));
         }
+        // Highlight on top of every overlay: greyed → toward the background,
+        // emphasised → brighter (ADR-2183 D3).
+        const ri = srcIdx !== undefined ? srcIdx : i;
+        highlightVisualFor(ri < mask.length ? mask[ri] : 0, c.r, c.g, c.b, _greyStyle, bloomScope, _hv);
+        c.setRGB(_hv.r, _hv.g, _hv.b);
         const b3 = i * 3;
         baseCache[b3] = c.r; baseCache[b3 + 1] = c.g; baseCache[b3 + 2] = c.b;
         // Bake current heat into the first paint so a colour-scheme change mid-
@@ -899,6 +989,54 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
         inst.setColorAt(i, c);
       }
       if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+      colorVersionRef.current++;
+    }
+
+    // --- Gem LOD (ADR-2182 D2): knowledge population only ---------------------
+    // A gem is drawn within gemLodDistance (nearest first, GEM_BUDGET) or when
+    // selected / hovered; every other knowledge node is an overview sprite only.
+    // Re-selected on a structural change, or when the camera has moved, at most
+    // every LOD_EVERY frames.
+    const lodMesh = dominant === 'knowledge_graph';
+    if (lodMesh) {
+      let flags = lodFlagsRef.current;
+      let forced = lodForcedRef.current;
+      if (!flags || flags.length < cacheLen) {
+        // eslint-disable-next-line no-restricted-syntax -- grow-only, sized to capacity
+        flags = new Uint8Array(cacheLen); lodFlagsRef.current = flags;
+        // eslint-disable-next-line no-restricted-syntax -- grow-only, sized to capacity
+        forced = new Uint8Array(cacheLen); lodForcedRef.current = forced;
+        lodDirtyRef.current = true;
+      }
+      const lodDistance = gv.nodes?.gemLodDistance ?? DEFAULT_GRAPH_VIEW.nodes.gemLodDistance;
+      lodFrameRef.current++;
+      // Positions drift while the layout moves: re-check at ~2 Hz too; the
+      // version bumps only when the selection actually changed.
+      const due = lodDirtyRef.current || lodFrameRef.current % LOD_POSITION_EVERY === 0 || (lodFrameRef.current % LOD_EVERY === 0 &&
+        cameraMoved(lodCamRef.current, camera.position.x, camera.position.y, camera.position.z, Math.max(0.5, lodDistance * 0.02)));
+      if (due && positions && forced) {
+        lodDirtyRef.current = false;
+        const selRender = selectedNodeId ? props.nodeIdToIndexMap.get(selectedNodeId) ?? -1 : -1;
+        for (let i = 0; i < visCount; i++) {
+          const ri = posIdxCache[i];
+          forced[i] = ri === selRender || ((ri < mask.length ? mask[ri] : 0) & (HIGHLIGHT_SELECTED | HIGHLIGHT_HOVERED)) ? 1 : 0;
+        }
+        selectGemLod({
+          positions, renderIndex: posIdxCache, count: visCount,
+          camX: camera.position.x, camY: camera.position.y, camZ: camera.position.z,
+          lodDistance, budget: GEM_BUDGET, forced,
+        }, flags, lodScratchRef.current);
+        let sum = visCount;
+        for (let i = 0; i < visCount; i++) if (flags[i]) sum = (sum * 31 + i + 1) >>> 0;
+        if (sum !== lodSumRef.current) { lodSumRef.current = sum; lodVersionRef.current++; }
+      }
+      // Sprite pick radius: half the configured sprite plus slop, in world units per px.
+      const persp = camera as THREE.PerspectiveCamera;
+      spritePickRef.current.worldPerPxAtUnit = persp.isPerspectiveCamera && size.height > 0
+        ? (2 * Math.tan((persp.fov * Math.PI) / 360)) / size.height : 0;
+      spritePickRef.current.radiusPx = (gv.nodes?.spriteSizePx ?? DEFAULT_GRAPH_VIEW.nodes.spriteSizePx) * 0.5 + SPRITE_PICK_SLOP_PX;
+    } else {
+      spritePickRef.current.radiusPx = 0;
     }
 
     // --- Per-frame matrix write: positions change every frame (physics). -----
@@ -923,9 +1061,29 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
     // (sizing scheme, selection wave) is identical.
     const gpuXform = gpuTransformRef.current;
     const xformBuf = gpuXform ? (xformTexRef.current?.image?.data as Float32Array | undefined) : undefined;
-    // Keep the picking refs current (raycast reads them when GPU transform on).
     xformBufRef.current = xformBuf ?? null;
     visibleCountRef.current = visCount;
+    // ADR-2182 D5: a settled graph does no per-node work. The write runs only
+    // when the drawn positions, the scales, the LOD selection, the instance
+    // count, the transform path or the mesh changed, or while the selection
+    // wave animates (and once after it stops).
+    const waving = selectedLocalIdx >= 0 && waveScale !== 1;
+    const lw = lastWriteRef.current;
+    const posChanged = !positions || !posSnapshotRef.current.matches(positions);
+    const mustWrite = posChanged || waving || lw.waving || lw.scaleHash !== scaleHash ||
+      lw.lodVersion !== lodVersionRef.current || lw.visCount !== visCount || lw.gpu !== gpuXform || lw.mesh !== inst;
+    if (!mustWrite) {
+      inst.count = visCount;
+    } else {
+    lw.scaleHash = scaleHash; lw.lodVersion = lodVersionRef.current; lw.visCount = visCount;
+    lw.gpu = gpuXform; lw.mesh = inst; lw.waving = waving;
+    if (positions) posSnapshotRef.current.record(positions);
+    if (!pickBufRef.current || pickBufRef.current.length < cacheLen * 4) {
+      // eslint-disable-next-line no-restricted-syntax -- grow-only, sized to capacity
+      pickBufRef.current = new Float32Array(cacheLen * 4);
+    }
+    const pickBuf = pickBufRef.current;
+    const lodFlags = lodMesh ? lodFlagsRef.current : null;
     for (let i = 0; i < visCount; i++) {
       let s = scaleCache[i];
       if (i === selectedLocalIdx) {
@@ -945,11 +1103,14 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
         x = p?.x ?? 0; y = p?.y ?? 0; z = p?.z ?? 0;
       }
 
+      const p4 = i * 4;
+      pickBuf[p4] = x; pickBuf[p4 + 1] = y; pickBuf[p4 + 2] = z; pickBuf[p4 + 3] = s;
+      // Sprite-only node: no gem (the overview sprite draws it).
+      const drawn = lodFlags && !lodFlags[i] ? 0 : s;
       if (xformBuf) {
-        const t4 = i * 4;
-        xformBuf[t4] = x; xformBuf[t4 + 1] = y; xformBuf[t4 + 2] = z; xformBuf[t4 + 3] = s;
+        xformBuf[p4] = x; xformBuf[p4 + 1] = y; xformBuf[p4 + 2] = z; xformBuf[p4 + 3] = drawn;
       } else {
-        _mat.makeScale(s, s, s);
+        _mat.makeScale(drawn, drawn, drawn);
         _mat.setPosition(x, y, z);
         inst.setMatrixAt(i, _mat);
       }
@@ -959,6 +1120,7 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
       if (xformTexRef.current) xformTexRef.current.needsUpdate = true;
     } else {
       inst.instanceMatrix.needsUpdate = true;
+    }
     }
 
     // Dirty-flag metadata texture: only upload when inputs structurally change
@@ -1054,6 +1216,7 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
           inst.setColorAt(i, _col);
         }
         inst.instanceColor.needsUpdate = true;
+        colorVersionRef.current++;
       }
     }
   }, -1);

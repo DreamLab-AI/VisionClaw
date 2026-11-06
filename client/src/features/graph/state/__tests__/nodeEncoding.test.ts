@@ -1,16 +1,14 @@
-// Delete the GemNodes SOURCE GUARD and ORACLE below once GemNodes calls DEFAULT_NODE_ENCODER; never bend the encoder to pass them.
 /**
- * Characterisation of the default node encoder against GemNodes (ADR-2184 D4:
- * "the defaults reproduce today's look").
+ * Characterisation of the default node encoder (ADR-2184 D4: "the defaults
+ * reproduce today's look").
  *
- * GemNodes' `computeColor` is a closure inside the component, so it cannot be
- * imported. The test pins it three ways:
- *   1. ORACLE: the knowledge-mode body of GemNodes.tsx `computeColor`, copied
- *      verbatim below, run against the same inputs as the encoder;
- *   2. SOURCE GUARD: the exact GemNodes expressions the oracle copies must still
- *      be present in GemNodes.tsx, so a change there fails this test rather than
- *      silently diverging from the encoder;
- *   3. GOLDEN: literal linear-RGB values for sample nodes (domain, type, base).
+ * GemNodes now calls the encoder for the knowledge base colour, so the
+ * verbatim GemNodes oracle and its source guard are gone. The look is pinned
+ * by GOLDEN snapshots: literal linear-RGB values for every scheme × base colour
+ * × analytics combination, recorded while the oracle still ran in the same
+ * suite and matched the encoder exactly (render lane, feat/gv-render). Never
+ * update these snapshots to make a change pass: a diff here is a change of
+ * today's look.
  */
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
@@ -20,84 +18,7 @@ import { getTypeColor, getDomainColor } from '../../hooks/useGraphNodeColors';
 import { computeNodeScale } from '../../utils/nodeScaling';
 import type { Node as GraphNode } from '../../managers/graphDataManager';
 
-// vite-node here cannot resolve static `fs`/`path` imports; take them from the runtime
-// (same pattern as features/graph/__tests__/singleDrawnSource.test.ts).
-const getBuiltin = (process as unknown as { getBuiltinModule(id: string): unknown }).getBuiltinModule;
-const { readFileSync } = getBuiltin('fs') as typeof import('fs');
-const { resolve } = getBuiltin('path') as typeof import('path');
 
-// ---- 1. Oracle: verbatim from GemNodes.tsx computeColor (knowledge mode) ----
-const _col = new THREE.Color();
-const _baseHSL = { h: 0, s: 0, l: 0 };
-const hashHue = (s: string): number => {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  return ((h >>> 0) % 360) / 360;
-};
-function gemNodesColour(node: any, nodeIndex: number, colorScheme: string, connectionCountMap: Map<string, number>,
-  baseNodeColor: string | null, analytics: Float32Array | null, maxCentrality: number, showAnomalies: boolean): THREE.Color {
-  const qualityGates = { showAnomalies };
-  const maxCentralityRef = { current: maxCentrality };
-  if (analytics && nodeIndex !== undefined && nodeIndex * 5 + 4 < analytics.length) {
-    const a = nodeIndex * 5;
-    const clusterId = analytics[a + 0];
-    const anomalyScore = analytics[a + 1];
-    const communityId = analytics[a + 2];
-    const centrality = analytics[a + 3];
-    if (qualityGates?.showAnomalies && anomalyScore > 0.01) {
-      const intensity = Math.min(anomalyScore, 1.0);
-      return _col.setRGB(0.9 * intensity + 0.1, 0.15 * (1 - intensity), 0.1);
-    }
-    if (colorScheme === 'community' && communityId > 0) {
-      const hue = ((communityId * 83) % 360) / 360;
-      return _col.setHSL(hue, 0.65, 0.5);
-    }
-    if (colorScheme === 'cluster' && clusterId > 0) {
-      const hue = ((clusterId * 137) % 360) / 360;
-      return _col.setHSL(hue, 0.7, 0.55);
-    }
-    if (colorScheme === 'centrality' && centrality > 0) {
-      const max = maxCentralityRef.current || 1;
-      const t = Math.min(centrality / max, 1.0);
-      return _col.setHSL(0.62 - 0.62 * t, 0.85, 0.25 + 0.4 * t);
-    }
-  }
-  const auth = node.metadata?.authority ?? node.metadata?.authorityScore ?? 0;
-  const cc = connectionCountMap.get(String(node.id)) || 0;
-  if (colorScheme === 'type') {
-    const nodeType = node.metadata?.type ?? node.metadata?.nodeType;
-    _col.copy(getTypeColor(nodeType)).getHSL(_baseHSL);
-    const sat = _baseHSL.s + auth * 0.15 + Math.min(cc / 30, 0.1);
-    const lit = _baseHSL.l + auth * 0.12 + Math.min(cc / 40, 0.06);
-    _col.setHSL(_baseHSL.h, Math.min(sat, 0.95), Math.min(lit, 0.8));
-    return _col;
-  }
-  if (colorScheme === 'domain') {
-    const domain = node.metadata?.domain ?? node.metadata?.source_domain;
-    _col.set(getDomainColor(domain)).getHSL(_baseHSL);
-    const sat = _baseHSL.s + auth * 0.15 + Math.min(cc / 30, 0.1);
-    const lit = _baseHSL.l + auth * 0.12 + Math.min(cc / 40, 0.06);
-    _col.setHSL(_baseHSL.h, Math.min(sat, 0.95), Math.min(lit, 0.8));
-    return _col;
-  }
-  if (baseNodeColor) {
-    _col.set(baseNodeColor).getHSL(_baseHSL);
-    const jitter = (hashHue(node.label || String(node.id)) - 0.5) * 0.12;
-    const hue = (_baseHSL.h + jitter + 1) % 1;
-    const sat = _baseHSL.s + auth * 0.25 + Math.min(cc / 25, 0.15);
-    const lit = _baseHSL.l + auth * 0.15;
-    _col.setHSL(hue, Math.min(sat, 0.95), Math.min(lit, 0.8));
-    return _col;
-  }
-  const hue = hashHue(node.label || String(node.id));
-  const sat = 0.35 + auth * 0.35 + Math.min(cc / 20, 0.2);
-  const lit = 0.45 + auth * 0.2;
-  _col.setHSL(hue, Math.min(sat, 0.9), Math.min(lit, 0.75));
-  return _col;
-}
-
-// Both GemNodes (instanceColor) and the encoder store Float32; compare at that precision.
-const f32 = (c: THREE.Color) => [Math.fround(c.r), Math.fround(c.g), Math.fround(c.b)];
 
 // ---- Fixtures ----
 const node = (id: string, label: string, metadata: Record<string, unknown>): GraphNode =>
@@ -131,25 +52,6 @@ function encode(ctx: EncodingContext) {
 }
 
 describe('default node encoder (ADR-2184 D4) reproduces GemNodes', () => {
-  for (const scheme of SCHEMES) {
-    for (const baseNodeColor of [null, '#4a6fa5']) {
-      for (const withAnalytics of [false, true]) {
-        it(`colour: scheme=${scheme} base=${baseNodeColor ?? 'none'} analytics=${withAnalytics}`, () => {
-          const analytics = withAnalytics ? ANALYTICS : null;
-          const enc = encode({
-            connectionCountMap: CC, colorScheme: scheme, baseNodeColor, analytics,
-            maxCentrality: 0.04, showAnomalies: true,
-          });
-          NODES.forEach((n, i) => {
-            const want = gemNodesColour(n, i, scheme, CC, baseNodeColor, analytics, 0.04, true);
-            expect([enc.colors[i * 3], enc.colors[i * 3 + 1], enc.colors[i * 3 + 2]], `node ${n.id}`)
-              .toEqual(f32(want));
-          });
-        });
-      }
-    }
-  }
-
   it('size: computeNodeScale(...) * nodeSize, as GemNodes.tsx:863', () => {
     const enc = encode({ connectionCountMap: CC, nodeSize: 0.4 });
     NODES.forEach((n, i) => {
@@ -170,13 +72,29 @@ describe('default node encoder (ADR-2184 D4) reproduces GemNodes', () => {
     expect(golden('base', '#4a6fa5')).toMatchSnapshot();
   });
 
+  it('GOLDEN: pinned linear RGB for every scheme × base colour × analytics combination', () => {
+    for (const scheme of SCHEMES) {
+      for (const baseNodeColor of [null, '#4a6fa5']) {
+        for (const withAnalytics of [false, true]) {
+          const enc = encode({
+            connectionCountMap: CC, colorScheme: scheme, baseNodeColor,
+            analytics: withAnalytics ? ANALYTICS : null, maxCentrality: 0.04, showAnomalies: true,
+          });
+          expect(Array.from(enc.colors, (v) => Number(v.toFixed(6))), `${scheme}/${baseNodeColor ?? 'none'}/${withAnalytics}`)
+            .toMatchSnapshot();
+        }
+      }
+    }
+  });
+
   it('writes at the render index, not the loop index, and skips unmapped nodes', () => {
     const shuffled = new Map([['5', 0], ['1', 1], ['private', 2]]);
     const enc = new NodeEncoding(() => shuffled);
     enc.encodeAll(NODES, { connectionCountMap: CC, colorScheme: 'domain' });
     expect(enc.sizes.length).toBe(3);
-    const want = gemNodesColour(NODES[0], 1, 'domain', CC, null, null, 0, false);
-    expect([enc.colors[3], enc.colors[4], enc.colors[5]]).toEqual(f32(want));
+    const ref = encode({ connectionCountMap: CC, colorScheme: 'domain' });
+    // node '1' is at slot 1 here and slot 0 in the reference encoding
+    expect([enc.colors[3], enc.colors[4], enc.colors[5]]).toEqual([ref.colors[0], ref.colors[1], ref.colors[2]]);
     expect(enc.sizes[2]).toBe(0); // slot with no delivered node
   });
 
@@ -193,36 +111,6 @@ describe('default node encoder (ADR-2184 D4) reproduces GemNodes', () => {
     expect(versions).toEqual([1, 2]);
   });
 
-  it('SOURCE GUARD: GemNodes still contains the expressions the oracle copies', () => {
-    const src = readFileSync(resolve(__dirname, '../../components/GemNodes.tsx'), 'utf8');
-    const expressions = [
-      "const auth = node.metadata?.authority ?? node.metadata?.authorityScore ?? 0;",
-      "const cc = connectionCountMap.get(String(node.id)) || 0;",
-      "const domain = node.metadata?.domain ?? node.metadata?.source_domain;",
-      "_col.set(getDomainColor(domain)).getHSL(_baseHSL);",
-      "const nodeType = node.metadata?.type ?? node.metadata?.nodeType;",
-      "_col.copy(getTypeColor(nodeType)).getHSL(_baseHSL);",
-      "const sat = _baseHSL.s + auth * 0.15 + Math.min(cc / 30, 0.1);",
-      "const lit = _baseHSL.l + auth * 0.12 + Math.min(cc / 40, 0.06);",
-      "_col.setHSL(_baseHSL.h, Math.min(sat, 0.95), Math.min(lit, 0.8));",
-      "const jitter = (hashHue(node.label || String(node.id)) - 0.5) * 0.12;",
-      "const sat = _baseHSL.s + auth * 0.25 + Math.min(cc / 25, 0.15);",
-      "const lit = _baseHSL.l + auth * 0.15;",
-      "const sat = 0.35 + auth * 0.35 + Math.min(cc / 20, 0.2);",
-      "const lit = 0.45 + auth * 0.2;",
-      "_col.setHSL(hue, Math.min(sat, 0.9), Math.min(lit, 0.75));",
-      "return _col.setRGB(0.9 * intensity + 0.1, 0.15 * (1 - intensity), 0.1);",
-      "const hue = ((communityId * 83) % 360) / 360;",
-      "return _col.setHSL(hue, 0.65, 0.5);",
-      "const hue = ((clusterId * 137) % 360) / 360;",
-      "return _col.setHSL(hue, 0.7, 0.55);",
-      "return _col.setHSL(0.62 - 0.62 * t, 0.85, 0.25 + 0.4 * t);",
-      "scaleCache[i] = computeNodeScale(node, connectionCountMap, mode, hierarchyMap, graphTypeVisuals) * baseScale;",
-      "const baseScale = (nodeSettings?.nodeSize as number | undefined) ?? 1.0;",
-      "?? 'type';",
-    ];
-    for (const e of expressions) expect(src.includes(e), e).toBe(true);
-  });
 });
 
 describe('explore.colorBy default (ADR-2184 D4)', () => {
@@ -237,9 +125,9 @@ describe('explore.colorBy default (ADR-2184 D4)', () => {
     const scheme = DEFAULT_NODES_SETTINGS.colorScheme;
     const base = DEFAULT_NODES_SETTINGS.baseColor;
     const enc = encode({ connectionCountMap: CC, colorScheme: scheme, baseNodeColor: base, analytics: ANALYTICS, maxCentrality: 0.04, showAnomalies: true });
-    NODES.forEach((n, i) => {
-      const want = gemNodesColour(n, i, scheme, CC, base, ANALYTICS, 0.04, true);
-      expect([enc.colors[i * 3], enc.colors[i * 3 + 1], enc.colors[i * 3 + 2]], `node ${n.id}`).toEqual(f32(want));
-    });
+    // The shipped defaults are a pinned GOLDEN combination ('community/#4a6fa5/true').
+    expect([scheme, base]).toEqual(['community', '#4a6fa5']);
+    expect(SCHEMES).toContain(scheme);
+    expect(enc.colors.length).toBe(NODES.length * 3);
   });
 });
