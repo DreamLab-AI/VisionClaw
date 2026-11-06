@@ -172,7 +172,7 @@ supervisor via `SetClientCoordinatorAddr` (`src/app_state.rs:944` region) becaus
 the supervisor's own child has an empty client registry. Peer actors started in
 `AppState`: `MetadataActor` (`:802`), `AgentBeamActor` (`:719`, fans 0x23 agent
 frames), plus `OntologyActor`, `SemanticProcessorActor`, `MetadataActor`,
-`OptimizedSettingsActor`, `ProtectedSettingsActor`, `WorkspaceActor`,
+`OptimizedSettingsActor`, `WorkspaceActor`,
 `PresenceActor`, `TaskOrchestratorActor`, `ElevationActor`,
 `DecisionElevationActor`, `VoiceInterfaceActor`,
 `AgentMonitorActor` (each `impl Actor` in the corresponding `src/actors/*.rs`).
@@ -245,8 +245,10 @@ then flow GPU → `ForceComputeActor` broadcast → `PhysicsOrchestratorActor` �
 
 Dual Rust/CUDA `SimParams` (212 bytes, static assertions; legacy ADR-138/141).
 `ForceComputeActor` runs force integration and drives the periodic
-full-position broadcast; the SSSP result map (`node_sssp`,
-`src/app_state.rs:695-698`) feeds wire slot 28. Ontology constraints
+position stream; wire slot 28 (SSSP distance) carries only its defaults,
+`(INFINITY, -1)`: the live encoder is passed no SSSP map, and the shared
+`node_sssp` map that only the never-constructed `FastWebSocketServer` read was
+removed with it (2026-11-06). An SSSP run is returned to its caller only. Ontology constraints
 (legacy ADR-098) are wired and live via `ENABLE_CONSTRAINTS`. DAG-rank radial
 layout is live (commit `73540faa0`, "hierarchical" edge label). Analytics
 kernels are Partial — see divergences.

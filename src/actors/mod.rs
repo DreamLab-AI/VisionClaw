@@ -33,7 +33,6 @@ pub mod graph_actor {
 pub mod metadata_actor;
 pub mod optimized_settings_actor;
 pub mod physics_orchestrator_actor;
-pub mod protected_settings_actor;
 pub mod voice_commands;
 // pub mod supervisor_voice;
 // graph_messages module removed - AutoBalanceNotification consolidated into messages.rs
@@ -73,7 +72,6 @@ pub use ontology_actor::{
 };
 pub use optimized_settings_actor::OptimizedSettingsActor;
 pub use physics_orchestrator_actor::PhysicsOrchestratorActor;
-pub use protected_settings_actor::ProtectedSettingsActor;
 pub use semantic_processor_actor::{
     AISemanticFeatures, SemanticProcessorActor, SemanticProcessorConfig, SemanticStats,
 };

@@ -6,7 +6,6 @@
 //! ## Included (Phase A3)
 //! - `supervisor`           — generic actix supervision tree (domain errors only)
 //! - `voice_commands`       — voice intent / swarm command types (no external deps)
-//! - `protected_settings_actor` — API-key / NostrUser settings actor (domain models only)
 //!
 //! ## Excluded (still in webxr — blocked by webxr-internal deps)
 //! - Actors using `crate::actors::messages::*` (messages module has webxr-internal deps:
@@ -16,12 +15,10 @@
 //! - GPU actors using `shared::SharedGPUContext` (depends on webxr `gpu::memory_manager`)
 
 pub mod messages;
-pub mod protected_settings_actor;
 pub mod supervisor;
 pub mod voice_commands;
 
 // Re-export key types
-pub use protected_settings_actor::ProtectedSettingsActor;
 pub use supervisor::{
     ActorFactory, SupervisedActorInfo, SupervisedActorTrait, SupervisionStrategy, SupervisorActor,
 };

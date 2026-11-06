@@ -74,18 +74,20 @@ None currently active.
 
 ## Design Constraints (DO NOT CHANGE)
 
-### BROADCAST-001: Full Position Snapshots Only — No Delta Encoding
+### BROADCAST-001: Absolute Positions Only — No Delta Encoding
 
-**Status**: Permanent design constraint (PRD-007 §3, ADR-037, ADR-061)
-**Rule**: The GPU→client broadcast pipeline MUST always send full absolute position+velocity snapshots for every node. Delta/diff encoding, delta-filtered partial updates, and incremental position messages are permanently prohibited.
+**Status**: Permanent design constraint (PRD-007 §3, ADR-037, ADR-061); delivery model amended by [ADR-2141](adr/ADR-2141-positions-are-streamed-per-client-until-acknowledged.md) (2026-10)
+**Rule**: Every position the GPU→client stream carries is an absolute position (and velocity) built fresh from current state. Delta/diff encoding and incremental position messages are permanently prohibited; a V4 delta frame is refused by every decoder.
+
+What is *not* the rule any more: "every frame carries every node". Since ADR-2141 the coordinator streams each client, in chunks of at most `physics.streamChunkNodes`, only the nodes that client has not yet acknowledged at their current state (never sent, moved more than `physics.streamMoveThreshold` from the acknowledged position, or changed analytics), one chunk in flight per client (`src/actors/client_coordinator_actor.rs:505`, `pump_one`). A client that is current receives nothing, so an idle graph sends nothing.
 
 **Reasoning**:
-1. **Client tweening**: Clients interpolate `currentPositions` toward `targetPositions` at 60fps using an exponential approach with time constant `responseMs` (default 60 ms; XR `CHASE_MS`, pinned equal by a test) decay. They need complete target state for all nodes, not just the ones that moved. A delta-filtered broadcast that omits stationary nodes means the client never receives their final resting positions after physics convergence.
-2. **Late-connecting clients**: New WebSocket connections miss all positions accumulated before they joined. Only full snapshots guarantee correct initial state.
-3. **Convergence deadlock**: The `BroadcastOptimizer.DeltaCompressor` (delta_threshold filtering) was the root cause of the "incremental updates" bug (May 2026): after physics converges and all velocities reach zero, the delta filter excludes everything, so the client never receives final settled positions. The energy_threshold (0.001) was unreachable for 840-node graphs, causing mandatory fallback to Continuous mode with broken delta-filtered broadcasts.
-4. **PRD-007 §3 Non-Goals**: "No introduction of delta/diff encoding. The original 'literal-only, full snapshot' property is preserved for the per-frame stream."
+1. **Client tweening**: Clients interpolate `currentPositions` toward `targetPositions` with an exponential approach whose time constant is `responseMs` (default 120 ms, `client/src/features/graph/workers/graph.worker.ts:46`; XR `CHASE_MS`, pinned equal by a test). They need the absolute target for each node they are told about.
+2. **Late-connecting clients**: a new or reconnecting client has acknowledged nothing, so its initial sync is the same chunked stream; there is no connect-time position frame.
+3. **Convergence deadlock (why the old delta filter went)**: the `BroadcastOptimizer.DeltaCompressor` compared against the previous *frame*, so once physics settled the final positions were never sent (May 2026). ADR-2141 compares against the client's *acknowledged* state, so slow drift accumulates until it crosses the threshold and is sent, and the settled position always arrives.
+4. **PRD-007 §3 Non-Goals**: "No introduction of delta/diff encoding." Preserved: chunks carry absolute values and are never resent as old bytes.
 
-**Implementation**: `force_compute_actor.rs` Continuous mode sends full snapshots of ALL nodes at 10fps (rate-limited by `BroadcastOptimizer` timing, NOT delta filtering). FastSettle mode sends one full broadcast on convergence. Periodic full broadcast every 300 iterations as safety net.
+**Implementation**: `ClientCoordinatorActor` per-client position stream (ADR-2141 Decision 1-4); `BroadcastOptimizer`, `ForceFullBroadcast` and the force-compute broadcast rates are removed.
 
 ---
 

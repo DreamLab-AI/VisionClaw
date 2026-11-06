@@ -354,44 +354,6 @@ impl Handler<SetSharedGPUContext> for GraphAnalyticsSupervisor {
     }
 }
 
-/// ADR-2053: forward the shared SSSP map to the SUPERVISED `ShortestPathActor`.
-///
-/// `SetNodeSSSP` (ADR-031 D2b) gives `ShortestPathActor` the shared `node_sssp` map so
-/// `ComputeSSP` runs publish per-node distances to wire slot 28. It was previously sent
-/// directly to a standalone actor spawned in `AppState`, which never received a
-/// `SharedGPUContext` and so could never run the GPU path. With the standalone pair
-/// removed, the message must reach the supervisor's own child — only the supervisor can
-/// address it — or SSSP distance publication silently stops.
-impl Handler<SetNodeSSSP> for GraphAnalyticsSupervisor {
-    type Result = ();
-
-    fn handle(&mut self, msg: SetNodeSSSP, ctx: &mut Self::Context) {
-        // Ensure the child exists before forwarding: if the map arrives before
-        // `Actor::started` has spawned the children, dropping it here would be the same
-        // silent failure this ADR removes.
-        if self.shortest_path_actor.is_none() {
-            self.spawn_child_actors(ctx);
-        }
-
-        match &self.shortest_path_actor {
-            Some(addr) => match addr.try_send(msg) {
-                Ok(()) => info!(
-                    "GraphAnalyticsSupervisor: forwarded SetNodeSSSP to the supervised ShortestPathActor"
-                ),
-                Err(e) => error!(
-                    "GraphAnalyticsSupervisor: FAILED to forward SetNodeSSSP: {} — wire slot 28 \
-                     will not publish per-node SSSP distances",
-                    e
-                ),
-            },
-            None => error!(
-                "GraphAnalyticsSupervisor: SetNodeSSSP dropped — ShortestPathActor is not \
-                 spawned, so wire slot 28 will not publish per-node SSSP distances"
-            ),
-        }
-    }
-}
-
 impl Handler<ActorFailure> for GraphAnalyticsSupervisor {
     type Result = ();
 

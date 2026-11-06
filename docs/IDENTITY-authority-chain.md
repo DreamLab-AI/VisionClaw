@@ -213,8 +213,10 @@ the socket is rejected in release; the insecure-allow branch is
   clients cannot set headers on an upgrade; retirement is that record's review
   trigger. The pattern is systemic, not one route — it also appears in
   `client_messages_handler.rs:127`, `mcp_relay_handler.rs:461`,
-  `multi_mcp_websocket_handler.rs:798`, `fastwebsockets_handler.rs:238` and
-  `socket_flow_handler/filter_auth.rs:138` (WS message body).
+  `multi_mcp_websocket_handler.rs:798` and
+  `socket_flow_handler/filter_auth.rs:138` (WS message body); the
+  `fastwebsockets_handler.rs` instance went with that never-routed server
+  (deleted 2026-11-06).
 - **WebSocket upgrades that accept any non-empty token** — partially resolved.
   `client_messages_handler` checked only that a token was present, never that it
   named a live session: **Resolved — ADR-2044 (2026-09-05)**. The same defect
