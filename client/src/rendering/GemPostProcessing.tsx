@@ -3,6 +3,7 @@ import { useThree, useFrame } from '@react-three/fiber';
 import { useSettingsStore } from '../store/settingsStore';
 import * as THREE from 'three';
 import { createLogger } from '../utils/loggerConfig';
+import { setSceneComposited } from './blendSpace';
 import type { Node as TslNode } from 'three/webgpu';
 import { BLOOM_LAYER } from './bloomLayer';
 import {
@@ -84,6 +85,12 @@ export const GemPostProcessing: React.FC<GemPostProcessingProps> = ({ enabled = 
   // priority so that during async init — or if init never completes — R3F
   // renders directly instead of us calling a throwing fallback.
   const [pipelineReady, setPipelineReady] = useState(false);
+  // ADR-2183 D3: the WebGL composer blends the scene in linear space; tell the
+  // overview layers which blend space their opacities land in.
+  useEffect(() => {
+    setSceneComposited(pipelineReady);
+    return () => setSceneComposited(false);
+  }, [pipelineReady]);
   const guardRef = useRef(initRenderGuard());
 
   const glowSettings = settings?.visualisation?.glow;
@@ -298,7 +305,9 @@ export const GemPostProcessing: React.FC<GemPostProcessingProps> = ({ enabled = 
           const mix = new ShaderPass(new THREE.ShaderMaterial({
             uniforms: { baseTexture: { value: null }, bloomTexture: { value: bloomComposer.renderTarget2.texture } },
             vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-            fragmentShader: 'uniform sampler2D baseTexture; uniform sampler2D bloomTexture; varying vec2 vUv; void main() { gl_FragColor = texture2D(baseTexture, vUv) + vec4(texture2D(bloomTexture, vUv).rgb, 0.0); }',
+            // Last pass to the canvas: encode linear → sRGB like UnrealBloomPass's output
+            // copy does (without it the whole frame came out too dark).
+            fragmentShader: 'uniform sampler2D baseTexture; uniform sampler2D bloomTexture; varying vec2 vUv; void main() { gl_FragColor = texture2D(baseTexture, vUv) + vec4(texture2D(bloomTexture, vUv).rgb, 0.0);\n#include <colorspace_fragment>\n}',
           }), 'baseTexture');
           mix.needsSwap = true;
           composer.addPass(mix);

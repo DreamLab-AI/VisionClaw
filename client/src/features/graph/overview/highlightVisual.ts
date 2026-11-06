@@ -146,28 +146,30 @@ const linearToSrgb = (c: number): number => (c <= 0.0031308 ? c * 12.92 : 1.055 
 export const BLEND_REFERENCE_LINEAR = 0.5;
 
 /**
- * `greyoutOpacity` means what it looks like on WebGLRenderer, which blends the
- * overview layers in sRGB space. WebGPURenderer (WebGPU, and its WebGL2
- * fallback) blends in linear space, so the same alpha looks far brighter over
- * a dark background: measured in the browser sidecar, a 0.8 grey edge at α 0.1
- * over #101018 reads 37/255 on WebGL and 82/255 on WebGPURenderer.
+ * `greyoutOpacity` means its look under linear-space blending, which is what
+ * the scene gets on WebGPURenderer and on WebGLRenderer whenever
+ * GemPostProcessing's composer draws it (rendering/blendSpace.ts). WebGL
+ * drawing straight to the canvas (post-processing off) blends in sRGB space
+ * instead, where the same alpha reads far darker over a dark background:
+ * measured in the browser sidecar, a 0.8 grey edge at α 0.1 over #101018 is
+ * 82/255 blended linearly and 37/255 blended in sRGB.
  *
- * Returns the alpha that, blended in linear space, reproduces the sRGB-space
+ * Returns the alpha that, blended in sRGB space, reproduces the linear-blend
  * result for the reference colour over `backgroundSrgbLuma` (0–1). Exact for
  * the reference colour, within a few 1/255 steps for brighter or dimmer ones.
  */
-export function linearBlendAlpha(alpha: number, backgroundSrgbLuma: number, reference = BLEND_REFERENCE_LINEAR): number {
+export function srgbBlendAlpha(alpha: number, backgroundSrgbLuma: number, reference = BLEND_REFERENCE_LINEAR): number {
   const a = clamp01(alpha);
   if (a === 0 || a === 1) return a;
   const bgS = clamp01(backgroundSrgbLuma);
   const bgL = srgbToLinear(bgS);
   const refS = linearToSrgb(reference);
-  if (reference - bgL <= 1e-6) return a; // background at least as bright as the reference: nothing to solve
-  const targetL = srgbToLinear(a * refS + (1 - a) * bgS);
-  return clamp01((targetL - bgL) / (reference - bgL));
+  if (refS - bgS <= 1e-6) return a; // background at least as bright as the reference: nothing to solve
+  const targetS = linearToSrgb(a * reference + (1 - a) * bgL);
+  return clamp01((targetS - bgS) / (refS - bgS));
 }
 
-/** sRGB luma (0–1) of a CSS colour, for linearBlendAlpha's background term. */
+/** sRGB luma (0–1) of a CSS colour, for srgbBlendAlpha's background term. */
 export function srgbLuma(css: string): number {
   const c = new THREE.Color();
   try { c.set(css || '#000000'); } catch { return 0; }

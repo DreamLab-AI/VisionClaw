@@ -17,8 +17,8 @@
  */
 import React, { createContext, useContext, useEffect, useMemo } from 'react';
 import { clearOverviewFaults } from './overviewLive';
-import { isWebGPURenderer } from '../../../rendering/rendererFactory';
-import { linearBlendAlpha, srgbLuma } from './highlightVisual';
+import { useSceneBlendsLinear } from '../../../rendering/blendSpace';
+import { srgbBlendAlpha, srgbLuma } from './highlightVisual';
 import { useFrame } from '@react-three/fiber';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { DEFAULT_GRAPH_VIEW } from '../../../api/settings/defaults';
@@ -60,15 +60,17 @@ interface Props {
 }
 
 /**
- * The greyed alpha the overview materials receive on the live backend
- * (ADR-2183 D3): the setting's WebGL look, converted for WebGPURenderer's
- * linear-space blending (highlightVisual.linearBlendAlpha).
+ * The greyed alpha the overview materials receive in the live blend space
+ * (ADR-2183 D3): the setting as is under linear blending (WebGPU, or WebGL
+ * through the post-processing composer), corrected when WebGL draws straight
+ * to the canvas and blends in sRGB (highlightVisual.srgbBlendAlpha).
  */
 export function useBackendGreyoutOpacity(greyoutOpacity: number): number {
   const background = useSettingsStore((s) => s.get<string>('visualisation.rendering.backgroundColor')) ?? '#000000';
+  const linear = useSceneBlendsLinear();
   return useMemo(
-    () => (isWebGPURenderer ? linearBlendAlpha(greyoutOpacity, srgbLuma(background)) : greyoutOpacity),
-    [greyoutOpacity, background],
+    () => (linear ? greyoutOpacity : srgbBlendAlpha(greyoutOpacity, srgbLuma(background))),
+    [greyoutOpacity, background, linear],
   );
 }
 
