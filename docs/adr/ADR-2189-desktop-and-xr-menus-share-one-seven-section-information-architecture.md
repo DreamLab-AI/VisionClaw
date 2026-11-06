@@ -2,23 +2,25 @@
 id: ADR-2189
 title: Desktop and XR menus share one seven-section information architecture, generated from the settings registry
 date: 2026-11-06
-decision_status: proposed
-implementation_status: none
+decision_status: accepted
+implementation_status: partial
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: c360202dbeacdf1f5909ce85cb86b1018327b509
-verified_paths: []
+verified_commit: e7735af5ddc8e3a8774df46df1b7e7b4aeb11c2c
+verified_paths: [client/src/features/control-center/registry/placement.ts, client/src/features/control-center/registry/manifest.ts, client/src/features/control-center/registry/ia.json, xr-client/data/ia.json, client/src/store/settings/retiredPaths.ts, client/src/features/control-center/state/settingWrites.ts, client/src/features/control-center/integrationSlots.ts, client/src/features/control-center/integrationFlags.ts, client/src/features/control-center/macros/MacroBar.tsx]
 relates: [ADR-2179, ADR-2180, ADR-2181, ADR-2182, ADR-2183, ADR-2184, ADR-2185, ADR-2186, ADR-2187, ADR-2188]
 owner: jjohare
 review_trigger: "The render and explore lanes land the ADR-2180..2186 settings; a new registry group is proposed; a headset session finds a control more than two levels deep."
 repo: visionclaw
 domain: XR-client
-evidence_class: source
-acceptance_boundary: "Proposal written from a code audit of client/src and xr-client/scripts at c360202db and a live probe of the desktop dev app at 1280x900 and 1024x768 (docs/audits/menus-2026-11-06.md). XR was inventoried from code only, with no headset. The per-user scope of the /visual, /rendering, /qualityGates and /nodeFilter buckets was not verified; only the physics bucket was confirmed global."
+evidence_class: source+test
+acceptance_boundary: "Accepted on operator instruction on 2026-11-06. Desktop implemented and verified by tsc, the full Vitest suite (163 files, 1657 tests), vite build, narrow cargo tests for the three removed server fields, and elementsFromPoint probes of a worktree dev build at 1280x900 and 1024x768 (0 occluded or off-screen controls, against 7 and 12 before). The XR HUD is not built. The per-user scope of the /visual, /rendering, /qualityGates and /nodeFilter buckets was not verified; only the physics bucket is confirmed global. Several Encode and Look controls write graphView settings that have no reader until the render and explore lanes land."
 ---
 
 # ADR-2189 — Desktop and XR menus share one seven-section information architecture
+
+> Accepted 2026-11-06 on operator instruction. Desktop implemented at `e7735af5d`; the XR HUD is not built. See *Implementation (2026-11-06)* at the end.
 
 ## Context
 - The desktop has 11 registry groups (268 fields). On top of those sit a dock with 5 macro dials, 11 group icons, 4 chips, a command palette, a keyword CommandInput, and a Memory explorer panel. The audit (`docs/audits/menus-2026-11-06.md`) found four structural problems:
@@ -269,7 +271,13 @@ This table is the subgroup-level map. The per-path table, all 268 rows, is Appen
 - **Retargeted dials.** Labels and Glow change meaning. Users with saved dial positions will see a different result after upgrading. This is accepted: the old targets are superseded by ADR-2182 and ADR-2186.
 
 ## Verification
-- Not implemented. This record's evidence is the audit at `c360202db`.
+- Implementation evidence at `e7735af5d` (desktop):
+  - `npx tsc --noEmit`: clean. `npx vitest run`: 163 files, 1657 tests passed. `npx vite build`: built.
+  - Registry tests (b)–(b5): seven sections, one placement per field, the 40 removed paths absent, scopes derived from buckets, both `ia.json` copies equal to `buildIa()`.
+  - Old-blob tests: `client/src/store/__tests__/adr2189OldBlob.test.ts`, `client/src/api/settings/__tests__/adr2189ServerStrip.test.ts`; Rust `quality_gates_with_retired_keys_still_deserialise`, `node_settings_with_retired_metadata_shape_still_deserialise`, `a_retired_key_path_is_accepted_and_ignored`.
+  - Shell tests: every advertised hotkey opens its section; `?` and `show-keyboard-shortcuts` open the sheet; a collapsed dock is `inert`; dials expose `aria-valuetext`.
+  - Occlusion probe on a worktree dev build: 0 of 23 dock and chip controls covered or off-screen at 1280x900 and at 1024x768 (before: 7 and 12). At 800 px the dials fold into one menu.
+- Proposal evidence: the audit at `c360202db`.
   - Dead-control scan: `node dead.js <worktree> readers.json`, with the script in Appendix B of the audit and per-path greps listed in §4.
   - Occlusion: `elementsFromPoint` probes in the live app.
   - Global physics scope: `settings_routes.rs:602-606`.
@@ -280,3 +288,30 @@ This table is the subgroup-level map. The per-path table, all 268 rows, is Appen
   - Each hotkey in an aria-label fires its handler (unit test).
   - At 1024x768 and 1280x900, `elementsFromPoint` at the centre of every dock, chip and Fit control returns that control.
   - The dead-scan script reports 0 paths with no reader.
+
+## Implementation (2026-11-06)
+
+Desktop built on `feat/gv-menus` (commits `a07f428ac`, `a3269888d`, `ce36bcb23`, `19c0493f4`, `e7735af5d`).
+
+**Built as decided**
+- Seven sections and hotkeys 1–7 from `registry/placement.ts`; every field placed once, and the registry test fails on an unmapped field.
+- `ia.json` emitted to the client and to `xr-client/data/`, with a Vitest test that both copies equal a fresh `buildIa()`.
+- A scope badge on every row; the shared dials and Reset layout carry the "changes the layout for everyone" marker.
+- The 40 removed paths (37 dead, 3 replaced) are gone from the registry, defaults and types. Old blobs load on both sides: the client strips them on rehydrate and at the settings API boundary, and the server ignores them in stored documents and path updates. There are tests for each.
+- One write path (`state/settingWrites.ts`) for settings rows, dials and the Ask box.
+- The dock layout from §3, the corner layout from §4, the generated shortcut sheet and `/` from §2.
+
+**Placement changed from the tables above**
+- `graphView.fitTarget` sits in Explore › Camera, not System › Account & sync: it chooses what you are looking at.
+- `graphView.overviewEdges.*` (width, fade, minimum opacity, glass up close) sit in Look › Edges, not Encode › Edges: they set how edges render, not what they mean. Encode › Edges keeps the edge colours.
+
+**Not built yet**
+- The XR HUD reading `ia.json`, its GUT parity test, and persisting the XR view preferences.
+- The edge-colour merge (one colour per graph mode), the cluster/community toggles becoming Colour by options, the timeline Diff checkbox merge, and routing the Memory explorer panel through `useSettingField`. These need renderer or explore-panel changes owned by other lanes. The three edge colours sit together in Encode › Edges with labels that say which mode each one serves.
+- §5 filter behaviour (highlight by default, "Hide filtered nodes"): it waits for gv-explore. Until then the server filter switch is labelled "Filter on server (hides nodes)".
+
+**Integration**
+- `control-center/integrationSlots.ts` and `integrationFlags.ts` are the only files the render and explore lanes need to change.
+- Until those lanes land: Fit uses today's fit, Explore opens Settings › Explore, Legend is hidden, and the Labels dial drives today's label distance and size (`LABEL_BUDGET_SUPPORTED`).
+- The Glow dial no longer switches bloom on and off, but `glow.intensity` still drives global bloom until gv-render implements the bloom scope (ADR-2182).
+
