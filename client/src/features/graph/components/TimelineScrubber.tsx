@@ -48,7 +48,8 @@ function fmt(ms: number): string {
 
 const panelStyle: React.CSSProperties = {
   position: 'absolute',
-  bottom: '48px',
+  // ADR-2189 §4: sit just above the dock (measured by GlassDock), never under it.
+  bottom: 'var(--cc-dock-clearance, 9rem)',
   left: '50%',
   transform: 'translateX(-50%)',
   zIndex: 120,

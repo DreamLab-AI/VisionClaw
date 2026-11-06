@@ -90,7 +90,6 @@ pub(crate) static FIELD_MAPPINGS: std::sync::LazyLock<
     field_mappings.insert("node_size", "nodeSize");
     field_mappings.insert("enable_instancing", "enableInstancing");
     field_mappings.insert("enable_hologram", "enableHologram");
-    field_mappings.insert("enable_metadata_shape", "enableMetadataShape");
     field_mappings.insert(
         "enable_metadata_visualisation",
         "enableMetadataVisualisation",

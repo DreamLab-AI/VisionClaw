@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.32
+version: 0.1.33
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.33 (2026-11-06): ADR-2189 accepted (partial): the HUD is to share the desktop's seven-section menu map, `data/ia.json`, generated from the desktop settings registry and pinned by a registry test. The XR side is not built: `hud.gd` still has its ten tabs. The desktop `xr.*` settings deleted by ADR-2189 were never read by this client. New section only; Current State, Invariants and verified_commit untouched."
   - "0.1.32 (2026-11-06): ADR-2188 D1-D5 (partial; headless GUT and Rust unit evidence only, no GL render, no headset). Overview tier: pixel-floored impostors, screen-width length-faded ribbons, the dropped-edge readout in the HUD header, a per-slot highlight mask in Rust under which the received nodeFilter and the type filter grey out instead of removing, emphasis by colour, size and outline (no bloom), and a priority-ranked label budget of 8 + 4 pinned. New section 'Overview-first rendering (ADR-2188)'; the Desktop-parity filter sentence is amended. Invariants and verified_commit untouched."
   - "0.1.31 (2026-11-05): ADR-2178 (proposed, partial, staged): the merged splat space. A staged splat asset (manifest `stage {metresPerUnit, focus}`) can be entered at viewer scale with the ontology volume hanging between the start and the focus; the other volumes hide. Layout page Merge button and scale steps (`xr.merged_splat_scale`). New section only; Current State, Invariants and verified_commit untouched."
   - "0.1.30 (2026-11-04): ADR-2170 HUD amendment: a Splat on/off toggle in the Session volume row (stored in `xr.splat_scene`, which outranks `XR_SPLATS`; the first press builds the volume live); the Layout page's Splat Scene group shows whenever the scene is on, with a loading or failure line until a variant lands. Headless GUT only."
@@ -1051,6 +1052,28 @@ owner and GraphScene forwards it two hooks (`handle_control`, `route_text`).
 - **Legacy ADR status.** ADR-071 (Godot-rust replacement), ADR-136 (VIVE
   validation target), ADR-140 (swarm pillars), ADR-141 (constrained layout) are
   cited as evidence; treat this document as authority where they conflict.
+
+## Menu information architecture (ADR-2189; accepted 2026-11-06, XR side not built)
+
+The desktop and the headset share one menu map: seven sections (Layers, Explore,
+Encode, Layout, Look, Agents & Governance, System), each with named subsections,
+at most two levels deep (ADR-2188 §6). The map is `data/ia.json`, generated from
+the desktop settings registry by `client/scripts/emit-settings-manifest.ts`; a
+registry test asserts that this copy equals a fresh build, so the two clients
+cannot drift apart unnoticed. Each field carries its storage scope (`shared` for
+the physics document every viewer and headset sees, `server`, `browser`).
+
+Not built here yet. `hud.gd` keeps its ten tabs; ADR-2189 §1 maps them onto the
+seven sections (Graph splits across Layout, Encode and Layers; Layout, Shapes and
+Forces go to Layout; Query and Pins to Explore; Key to Encode › Legend; Swarm to
+Agents & Governance; Session and Help to System). The follow-up reads `data/ia.json`
+for the tab bar, adds a GUT test that the tab list equals its sections, shows the
+shared-scope marker on the Forces and Layout controls, and persists the view
+preferences ADR-2189 lists to `xr_prefs.cfg`.
+
+The five desktop `xr.*` settings (`enabled`, `quality`, `renderScale`,
+`enableHandTracking`, `enableHaptics`) were deleted by ADR-2189: nothing in this
+client or the desktop read them.
 
 ## Being implemented (ADR-2158, ADR-2159, ADR-2164; accepted 2026-10-30, not built): volumes, concurrent backends and code links
 

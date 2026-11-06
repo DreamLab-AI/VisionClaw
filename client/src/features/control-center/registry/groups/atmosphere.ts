@@ -1,5 +1,5 @@
 /**
- * Group 5 — Effects & Atmosphere (id `atmosphere`, hotkey 5, 32 fields).
+ * Source group — Effects & Atmosphere (id `atmosphere`). registry/placement.ts (ADR-2189) decides which section shows each field.
  * From the legacy Effects tab: WASM scene particles, wisps, fog, the
  * embedding point cloud, and node animations; plus the memory explorer
  * (query trajectory, learning defaults, cinematic mode) on the live cloud.
@@ -22,11 +22,11 @@ const fields: RegistryField[] = [
   { key: 'wispOpacity', subgroup: 'Energy Wisps', label: 'Wisp Opacity', type: 'slider', min: 0, max: 1, step: 0.05, path: `${S}wispOpacity`, description: 'Brightness of wisps', macro: 'atmosphere' },
   { key: 'wispDriftSpeed', subgroup: 'Energy Wisps', label: 'Wisp Speed', type: 'slider', min: 0, max: 3, step: 0.1, path: `${S}wispDriftSpeed`, description: 'How fast wisps drift' },
   // Atmosphere / Fog
-  { key: 'fogEnabled', subgroup: 'Atmosphere / Fog', label: 'Atmosphere', type: 'toggle', path: `${S}fogEnabled`, description: 'Nebula background texture' },
-  { key: 'fogOpacity', subgroup: 'Atmosphere / Fog', label: 'Atmosphere Opacity', type: 'slider', min: 0, max: 0.15, step: 0.01, path: `${S}fogOpacity`, description: 'Intensity of nebula background', macro: 'atmosphere' },
-  { key: 'atmosphereResolution', subgroup: 'Atmosphere / Fog', label: 'Atmosphere Detail', type: 'slider', min: 64, max: 256, step: 32, path: `${S}atmosphereResolution`, description: 'Texture resolution (higher = more detail)' },
+  { key: 'fogEnabled', subgroup: 'Atmosphere / Fog', label: 'Fog', type: 'toggle', path: `${S}fogEnabled`, description: 'Nebula background texture' },
+  { key: 'fogOpacity', subgroup: 'Atmosphere / Fog', label: 'Fog opacity', type: 'slider', min: 0, max: 0.15, step: 0.01, path: `${S}fogOpacity`, description: 'Intensity of nebula background', macro: 'atmosphere' },
+  { key: 'atmosphereResolution', subgroup: 'Atmosphere / Fog', label: 'Fog detail', type: 'slider', min: 64, max: 256, step: 32, path: `${S}atmosphereResolution`, description: 'Texture resolution (higher = more detail)' },
   // Embedding Cloud
-  { key: 'embeddingCloudEnabled', subgroup: 'Embedding Cloud', label: 'Embedding Cloud', type: 'toggle', path: `${E}enabled`, description: 'Show RuVector embedding point cloud' },
+  { key: 'embeddingCloudEnabled', subgroup: 'Embedding Cloud', label: 'Memory cloud', type: 'toggle', path: `${E}enabled`, description: 'Show RuVector embedding point cloud' },
   { key: 'embeddingCloudScale', subgroup: 'Embedding Cloud', label: 'Cloud Scale', type: 'slider', min: 0.5, max: 20, step: 0.5, path: `${E}cloudScale`, description: 'Cloud size relative to the graph: 5 matches the graph radius' },
   { key: 'embeddingPointSize', subgroup: 'Embedding Cloud', label: 'Point Size', type: 'slider', min: 0.5, max: 25, step: 0.5, path: `${E}pointSize`, description: 'Size of embedding points' },
   { key: 'embeddingOpacity', subgroup: 'Embedding Cloud', label: 'Cloud Opacity', type: 'slider', min: 0, max: 1, step: 0.01, path: `${E}opacity`, description: 'Transparency of embedding points' },
@@ -55,7 +55,6 @@ export const atmosphere: GroupData = {
   id: 'atmosphere',
   label: 'Effects & Atmosphere',
   description: 'Ambient particles, energy wisps, nebula fog, the live memory cloud and its query explorer, and node animations.',
-  hotkey: '5',
   loadPaths: ['visualisation.sceneEffects', 'visualisation.embeddingCloud', 'visualisation.animations'],
   fields,
 };

@@ -158,7 +158,6 @@ impl From<&crate::config::NodeSettings> for NodeSettingsDTO {
             quality: settings.quality.clone(),
             enable_instancing: settings.enable_instancing,
             enable_hologram: settings.enable_hologram,
-            enable_metadata_shape: settings.enable_metadata_shape,
             enable_metadata_visualisation: settings.enable_metadata_visualisation,
         }
     }

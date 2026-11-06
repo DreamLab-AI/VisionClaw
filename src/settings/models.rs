@@ -72,14 +72,8 @@ pub struct QualityGateSettings {
     /// Enable RuVector HNSW integration (150x faster similarity search)
     pub ruvector_enabled: bool,
 
-    /// Enable GNN-enhanced physics (graph neural network weights)
-    pub gnn_physics: bool,
-
     /// Minimum FPS threshold before disabling expensive features
     pub min_fps_threshold: u32,
-
-    /// Maximum node count before aggressive filtering
-    pub max_node_count: usize,
 
     /// Auto-adjust quality based on performance
     pub auto_adjust: bool,
@@ -103,10 +97,7 @@ impl Default for QualityGateSettings {
             show_anomalies: true,    // Show anomalies by default
             show_communities: false, // Off by default (requires computation)
             ruvector_enabled: false, // Off by default (requires integration)
-            gnn_physics: false,      // Off by default (advanced)
             min_fps_threshold: 30,
-            // Retained for settings-wire compatibility; no graph-selection cap.
-            max_node_count: usize::MAX,
             auto_adjust: true, // Auto-adjust on by default
             ontology_strength: 0.5,
         }
@@ -196,4 +187,42 @@ pub struct SettingsProfile {
     pub name: String,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ADR-2189: documents stored before `gnnPhysics` and `maxNodeCount` were removed, and PUTs
+    /// from older clients, still deserialise; the retired keys are dropped.
+    #[test]
+    fn quality_gates_with_retired_keys_still_deserialise() {
+        let stored = serde_json::json!({
+            "gpuAcceleration": false,
+            "ontologyPhysics": true,
+            "layoutMode": "spectral",
+            "showClusters": false,
+            "showAnomalies": true,
+            "showCommunities": true,
+            "ruvectorEnabled": true,
+            "gnnPhysics": true,
+            "minFpsThreshold": 45,
+            "maxNodeCount": 5000,
+            "autoAdjust": false,
+            "ontologyStrength": 0.25
+        });
+        let gates: QualityGateSettings =
+            serde_json::from_value(stored).expect("old blob must still load");
+        assert!(!gates.gpu_acceleration);
+        assert!(gates.ontology_physics);
+        assert_eq!(gates.layout_mode, "spectral");
+        assert!(!gates.show_clusters);
+        assert!(gates.show_communities);
+        assert!(gates.ruvector_enabled);
+        assert_eq!(gates.min_fps_threshold, 45);
+        assert!(!gates.auto_adjust);
+        assert_eq!(gates.ontology_strength, 0.25);
+        let out = serde_json::to_value(&gates).unwrap();
+        assert!(out.get("gnnPhysics").is_none() && out.get("maxNodeCount").is_none());
+    }
 }

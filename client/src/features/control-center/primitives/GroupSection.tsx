@@ -9,7 +9,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import type { RegistryField, RegistryGroup } from '../registry/types';
-import { SettingRow } from './SettingRow';
+import { SettingRow, testIdFor } from './SettingRow';
 import '../styles/control-center.css';
 
 export interface GroupSectionProps {
@@ -68,7 +68,8 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
           const showDivider = !!field.subgroup && field.subgroup !== prevSubgroup;
 
           return (
-            <React.Fragment key={field.key}>
+            // Field keys are unique per source group, not per section: key by test id.
+            <React.Fragment key={testIdFor(field, group.id)}>
               {showDivider && (
                 <div className="cc-subgroup-label mt-2 mb-1 pb-1 border-b border-border/40">
                   {field.subgroup}

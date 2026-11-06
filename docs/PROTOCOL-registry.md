@@ -1,10 +1,11 @@
 ---
 title: Protocol Registry — Wire Frames, Endpoints & Version Policy
 doc_id: VC-PROTOCOL
-version: 0.1.15
+version: 0.1.16
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.16 (2026-11-06): ADR-2189 phase 2 — settings wire removal: `qualityGates.gnnPhysics`, `qualityGates.maxNodeCount` and `visualisation.graphs.<graph>.nodes.enableMetadataShape` are no longer part of the server model (nothing read them). Persisted documents and PUTs from older clients that still carry the keys deserialise unchanged (the keys are ignored; no `deny_unknown_fields`), and a path write naming `enableMetadataShape` is accepted and ignored. No frame or endpoint change."
   - "0.1.15 (2026-11-05): PROPOSED only, nothing implemented. ADR-2184 adds a Proposed subsection: the desktop node table is built client-side from the existing graph load and the live V3/V5 analytics fields, with no new endpoint or read path; any column it needs is a new key in the existing node object (ADR-2164 precedent). No tag, frame or endpoint change."
   - "0.1.14 (2026-11-01): ADR-2169 — /wss node hold and pin text frames: nodeDragStart/Update/End are holds owned by the connection (the released node rejoins the simulation; two holds per connection; last write wins across connections), new nodePin frame with nodePinAck, nodeUnpin unchanged; drag timeout 2 s; no binary frame change"
   - "0.1.13 (2026-10-30): PROPOSED only, nothing implemented. ADR-2157 and ADR-2161 add a Proposed section: presence text-frame table (room_meta, room_kicked) a pointer for Nostr kinds, and the initial-load `urn` field with the server-side federated-read connection mode (audit round 2: `rev`/`proj` tag conventions, D = 90 s kick bound, selector ∩ visibility ∩ acl). No binary opcode is allocated. Current-state tables and Invariants untouched. Drafted against e74bcddc7."
@@ -284,6 +285,16 @@ inside the 60 s window is now closed (landing 2026-08-31).
 **Visibility filter** `PUBKEY_VISIBILITY_FILTER` now defaults **ON / fail-closed**
 (`position_updates.rs:34-43`): private nodes without an owner match are dropped from the wire for
 everyone. Enabling requires only absence of a falsy token. Legacy ADR-050/060.
+
+### Settings wire removals (ADR-2189, 2026-11-06)
+
+Three settings keys left the server model because nothing read them: `qualityGates.gnnPhysics`,
+`qualityGates.maxNodeCount` (`GET`/`PUT /api/settings/quality-gates`) and
+`visualisation.graphs.<graph>.nodes.enableMetadataShape` (settings document and the
+`NodeSettings` DTO). Responses no longer carry them. Compatibility is one-way tolerant: stored
+documents and request bodies that still name the keys deserialise (unknown keys are ignored), and
+`PUT /api/settings/path` and the batch path update accept a write to `...nodes.enableMetadataShape`
+as a no-op (`RETIRED_SETTING_KEYS`, `src/config/path_access.rs`) rather than answering 4xx.
 
 ### Version negotiation & compatibility policy
 

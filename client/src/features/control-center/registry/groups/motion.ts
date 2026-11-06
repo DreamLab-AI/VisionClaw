@@ -1,5 +1,5 @@
 /**
- * Group 1 — Motion & Forces (id `motion`, hotkey 1, 48 fields).
+ * Source group — Motion & Forces (id `motion`). registry/placement.ts (ADR-2189) decides which section shows each field.
  * All fields migrated verbatim from the legacy Physics tab. Path strings are the
  * FROZEN backend contract — transcribed byte-identically from unifiedSettingsConfig.ts.
  * The semantic-force controls come from groups/semanticForces.ts (one shared JSON document).
@@ -23,7 +23,7 @@ const fields: RegistryField[] = [
   { key: 'maxVelocity', subgroup: 'Core Forces', label: 'Max Velocity', type: 'slider', min: 1, max: 500, step: 1, path: `${P}maxVelocity`, description: 'Maximum node speed (default 100)' },
   // Simulation
   { key: 'enabled', subgroup: 'Simulation', label: 'Physics Enabled', type: 'toggle', path: `${P}enabled`, description: 'Enable physics simulation' },
-  { key: 'resetLayout', subgroup: 'Simulation', label: 'Reset Layout', type: 'action-button', action: 'reset_layout', description: 'Re-randomize all positions and reset physics to safe defaults — use when the graph has exploded or become unresponsive' },
+  { key: 'resetLayout', subgroup: 'Simulation', label: 'Reset Layout', type: 'action-button', action: 'reset_layout', description: 'Re-randomize all positions and reset physics to safe defaults — use when the graph has exploded or become unresponsive', scope: 'shared' },
   { key: 'autoBalance', subgroup: 'Simulation', label: 'Auto Balance', type: 'toggle', path: `${P}autoBalance`, description: 'Adaptive force balancing' },
   { key: 'dt', subgroup: 'Simulation', label: 'Time Step', type: 'slider', min: 0.001, max: 0.1, step: 0.001, path: `${P}dt`, description: 'Simulation time step (default 0.016)' },
   { key: 'iterations', subgroup: 'Simulation', label: 'Iterations', type: 'slider', min: 0, max: 2000, step: 10, path: `${P}iterations`, description: 'Solver iterations per frame — more = finer resolution (default 50)' },
@@ -75,7 +75,6 @@ export const motion: GroupData = {
   id: 'motion',
   label: 'Motion & Forces',
   description: 'Force-directed layout: springs, repulsion, gravity, bounds, and semantic layout modes.',
-  hotkey: '1',
   loadPaths: ['visualisation.graphs.knowledge.physics', 'qualityGates', 'visualisation.graphs.knowledge.tweening'],
   fields,
 };

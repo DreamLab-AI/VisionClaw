@@ -10,7 +10,6 @@ export const ESSENTIAL_PATHS = [
   'auth.enabled',
   'auth.required',
   'visualisation.rendering.context',
-  'xr.enabled',
   'xr.mode',
 
   'visualisation.graphs.knowledge.physics',
@@ -180,11 +179,7 @@ export function getSectionPaths(section: string): string[] {
       'visualisation.rendering.context'
     ],
     'xr': [
-      'xr.enabled',
-      'xr.mode',
-      'xr.enableHandTracking',
-      'xr.enableHaptics',
-      'xr.quality'
+      'xr.mode'
     ],
     'glow': [
       'visualisation.glow.enabled',
@@ -303,10 +298,6 @@ export function getAllAvailableSettingsPaths(): string[] {
     'visualisation.graphTypeVisuals.knowledgeGraph',
     'visualisation.graphTypeVisuals.ontology',
     'visualisation.graphTypeVisuals.agent',
-
-    'xr.enableHandTracking',
-    'xr.enableHaptics',
-    'xr.quality',
 
     // Gem material
     'visualisation.gemMaterial',

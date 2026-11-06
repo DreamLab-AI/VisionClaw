@@ -148,9 +148,7 @@ export interface QualityGateSettings {
   showCentrality: boolean;
   showSSSP: boolean;
   ruvectorEnabled: boolean;
-  gnnPhysics: boolean;
   minFpsThreshold: number;
-  maxNodeCount: number;
   autoAdjust: boolean;
   ontologyStrength: number;
 }

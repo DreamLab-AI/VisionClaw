@@ -1,0 +1,2089 @@
+{
+  "version": "1.0",
+  "adr": "ADR-2189",
+  "generatedFrom": "client/src/features/control-center/registry (buildIa)",
+  "scopes": {
+    "shared": "Changes the layout for everyone",
+    "server": "Saved on the server for every viewer",
+    "browser": "This browser only"
+  },
+  "sections": [
+    {
+      "id": "layers",
+      "label": "Layers",
+      "description": "What is in the scene: graph populations, the memory cloud and cluster hulls.",
+      "hotkey": "1",
+      "subsections": [
+        {
+          "label": "Populations",
+          "fields": [
+            {
+              "key": "showKnowledge",
+              "label": "Knowledge Nodes",
+              "path": "visualisation.graphs.knowledge.nodes.nodeTypeVisibility.knowledge",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "showOntology",
+              "label": "Ontology Nodes",
+              "path": "visualisation.graphs.knowledge.nodes.nodeTypeVisibility.ontology",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "showAgents",
+              "label": "Agent Nodes",
+              "path": "visualisation.graphs.knowledge.nodes.nodeTypeVisibility.agent",
+              "control": "toggle",
+              "scope": "server"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Memory cloud",
+          "fields": [
+            {
+              "key": "embeddingCloudEnabled",
+              "label": "Memory cloud",
+              "path": "visualisation.embeddingCloud.enabled",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "embeddingCloudScale",
+              "label": "Cloud Scale",
+              "path": "visualisation.embeddingCloud.cloudScale",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "embeddingPointSize",
+              "label": "Point Size",
+              "path": "visualisation.embeddingCloud.pointSize",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "embeddingOpacity",
+              "label": "Cloud Opacity",
+              "path": "visualisation.embeddingCloud.opacity",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "embeddingRotation",
+              "label": "Rotation Speed",
+              "path": "visualisation.embeddingCloud.rotationSpeed",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "embeddingColorBy",
+              "label": "Colour By",
+              "path": "visualisation.embeddingCloud.colorBy",
+              "control": "select",
+              "scope": "server"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Cluster hulls",
+          "fields": [
+            {
+              "key": "clusterHulls",
+              "label": "Cluster Hulls",
+              "path": "visualisation.clusterHulls.enabled",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "clusterHullOpacity",
+              "label": "Hull Opacity",
+              "path": "visualisation.clusterHulls.opacity",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "clusterHullMax",
+              "label": "Max Hulls",
+              "path": "visualisation.clusterHulls.maxHulls",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "clusterHullCommunityFallback",
+              "label": "Community Hull Fallback",
+              "path": "visualisation.clusterHulls.communityFallback",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "clusterHullSpatialFallback",
+              "label": "Spatial Hull Fallback",
+              "path": "visualisation.clusterHulls.spatialFallback",
+              "control": "toggle",
+              "scope": "server"
+            }
+          ],
+          "panels": []
+        }
+      ]
+    },
+    {
+      "id": "explore",
+      "label": "Explore",
+      "description": "Which part you are looking at: framing, filters, grouping, memory queries and the ontology browser.",
+      "hotkey": "2",
+      "subsections": [
+        {
+          "label": "Camera",
+          "fields": [
+            {
+              "key": "fitTarget",
+              "label": "Fit View Target",
+              "path": "visualisation.graphView.fitTarget",
+              "control": "select",
+              "scope": "server"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Filters",
+          "fields": [
+            {
+              "key": "filterEnabled",
+              "label": "Filter on server (hides nodes for every viewer)",
+              "path": "nodeFilter.enabled",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "includeLinkedPages",
+              "label": "Include Linked Pages",
+              "path": "nodeFilter.includeLinkedPages",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "filterByQuality",
+              "label": "Filter by Quality",
+              "path": "nodeFilter.filterByQuality",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "qualityThreshold",
+              "label": "Quality Threshold",
+              "path": "nodeFilter.qualityThreshold",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "filterByAuthority",
+              "label": "Filter by Authority",
+              "path": "nodeFilter.filterByAuthority",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "authorityThreshold",
+              "label": "Authority Threshold",
+              "path": "nodeFilter.authorityThreshold",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "filterMode",
+              "label": "Filter Mode",
+              "path": "nodeFilter.filterMode",
+              "control": "select",
+              "scope": "server"
+            },
+            {
+              "key": "minMaturity",
+              "label": "Min Ontology Maturity",
+              "path": "nodeFilter.minMaturity",
+              "control": "select",
+              "scope": "server"
+            },
+            {
+              "key": "minConnections",
+              "label": "Min Connections (degree)",
+              "path": "nodeFilter.minConnections",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "refreshGraph",
+              "label": "Refresh Graph",
+              "path": null,
+              "control": "action-button",
+              "scope": "browser"
+            },
+            {
+              "key": "hideFiltered",
+              "label": "Hide filtered nodes",
+              "path": "visualisation.graphView.explore.hideFiltered",
+              "control": "toggle",
+              "scope": "server"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Grouping",
+          "fields": [
+            {
+              "key": "groupingMethod",
+              "label": "Method",
+              "path": null,
+              "control": "select",
+              "scope": "browser"
+            },
+            {
+              "key": "groupingNumClusters",
+              "label": "Cluster Count (K)",
+              "path": null,
+              "control": "slider",
+              "scope": "browser"
+            },
+            {
+              "key": "groupingEps",
+              "label": "Neighbourhood (eps)",
+              "path": null,
+              "control": "slider",
+              "scope": "browser"
+            },
+            {
+              "key": "groupingMinSamples",
+              "label": "Min Points",
+              "path": null,
+              "control": "slider",
+              "scope": "browser"
+            },
+            {
+              "key": "groupingResolution",
+              "label": "Resolution",
+              "path": null,
+              "control": "slider",
+              "scope": "browser"
+            },
+            {
+              "key": "runGrouping",
+              "label": "Run Grouping",
+              "path": null,
+              "control": "action-button",
+              "scope": "browser"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Memory",
+          "fields": [
+            {
+              "key": "trajectoryView",
+              "label": "Route View",
+              "path": "visualisation.embeddingCloud.trajectoryView",
+              "control": "select",
+              "scope": "server"
+            },
+            {
+              "key": "routeGlow",
+              "label": "Route Glow",
+              "path": "visualisation.embeddingCloud.routeGlow",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "trajectoryPlaybackSpeed",
+              "label": "Playback Speed",
+              "path": "visualisation.embeddingCloud.playbackSpeed",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "showRejected",
+              "label": "Rejected Twigs",
+              "path": "visualisation.embeddingCloud.showRejected",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "dimOffRoute",
+              "label": "Focus Dimming",
+              "path": "visualisation.embeddingCloud.dimOffRoute",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "learningEnabled",
+              "label": "Learning",
+              "path": "visualisation.embeddingCloud.learningEnabled",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "learningTargetRecall",
+              "label": "Target Recall",
+              "path": "visualisation.embeddingCloud.learningTargetRecall",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "learningRate",
+              "label": "Learning Rate",
+              "path": "visualisation.embeddingCloud.learningRate",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "memoryCinematic",
+              "label": "Cinematic Mode",
+              "path": "visualisation.embeddingCloud.cinematic",
+              "control": "toggle",
+              "scope": "server"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Ontology",
+          "fields": [],
+          "panels": [
+            {
+              "id": "ontology",
+              "label": "Ontology browser"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "encode",
+      "label": "Encode",
+      "description": "What colour, size, edges and labels mean.",
+      "hotkey": "3",
+      "subsections": [
+        {
+          "label": "Colour & size",
+          "fields": [
+            {
+              "key": "nodeColor",
+              "label": "Fallback node colour",
+              "path": "visualisation.graphs.knowledge.nodes.baseColor",
+              "control": "color",
+              "scope": "server"
+            },
+            {
+              "key": "colorScheme",
+              "label": "Colour scheme",
+              "path": "visualisation.graphs.knowledge.nodes.colorScheme",
+              "control": "select",
+              "scope": "server"
+            },
+            {
+              "key": "colorBy",
+              "label": "Colour By",
+              "path": "visualisation.graphView.explore.colorBy",
+              "control": "select",
+              "scope": "server"
+            },
+            {
+              "key": "sizeBy",
+              "label": "Size By",
+              "path": "visualisation.graphView.explore.sizeBy",
+              "control": "select",
+              "scope": "server"
+            },
+            {
+              "key": "showLegend",
+              "label": "Show Legend",
+              "path": "visualisation.graphView.explore.showLegend",
+              "control": "toggle",
+              "scope": "server"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Edges",
+          "fields": [
+            {
+              "key": "edgeColor",
+              "label": "Edge colour (fallback)",
+              "path": "visualisation.graphs.knowledge.edges.color",
+              "control": "color",
+              "scope": "server"
+            },
+            {
+              "key": "edgeWidth",
+              "label": "Edge Thickness",
+              "path": "visualisation.graphs.knowledge.edges.baseWidth",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "edgeOpacity",
+              "label": "Edge Opacity",
+              "path": "visualisation.graphs.knowledge.edges.opacity",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "kgEdgeColor",
+              "label": "Edge colour: knowledge graph",
+              "path": "visualisation.graphTypeVisuals.knowledgeGraph.edgeColor",
+              "control": "color",
+              "scope": "server"
+            },
+            {
+              "key": "ontologyEdgeColor",
+              "label": "Edge colour: ontology",
+              "path": "visualisation.graphTypeVisuals.ontology.edgeColor",
+              "control": "color",
+              "scope": "server"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Labels",
+          "fields": [
+            {
+              "key": "enableLabels",
+              "label": "Show Labels",
+              "path": "visualisation.graphs.knowledge.labels.enableLabels",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "labelColor",
+              "label": "Label Color",
+              "path": "visualisation.graphs.knowledge.labels.textColor",
+              "control": "color",
+              "scope": "server"
+            },
+            {
+              "key": "showMetadata",
+              "label": "Show Metadata",
+              "path": "visualisation.graphs.knowledge.labels.showMetadata",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "labelStandoff",
+              "label": "Label Standoff",
+              "path": "visualisation.graphs.knowledge.labels.textPadding",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "labelDistanceThreshold",
+              "label": "Label Draw Distance",
+              "path": "visualisation.graphs.knowledge.labels.labelDistanceThreshold",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "maxLabelWidth",
+              "label": "Max Label Width",
+              "path": "visualisation.graphs.knowledge.labels.maxLabelWidth",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "labelBudget",
+              "label": "Overview Labels",
+              "path": "visualisation.graphView.labels.budget",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "labelDynamicBudget",
+              "label": "Viewport Labels",
+              "path": "visualisation.graphView.labels.dynamicBudget",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "labelSelectedBudget",
+              "label": "Selection Labels",
+              "path": "visualisation.graphView.labels.selectedBudget",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "labelFontPx",
+              "label": "Label Size (px)",
+              "path": "visualisation.graphView.labels.fontPx",
+              "control": "slider",
+              "scope": "server"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Emphasis",
+          "fields": [
+            {
+              "key": "selectionHighlightColor",
+              "label": "Selection Color",
+              "path": "visualisation.interaction.selectionHighlightColor",
+              "control": "color",
+              "scope": "server"
+            },
+            {
+              "key": "greyoutOpacity",
+              "label": "Filtered Edge Opacity",
+              "path": "visualisation.graphView.explore.greyoutOpacity",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "greyoutMix",
+              "label": "Filtered Node Fade",
+              "path": "visualisation.graphView.explore.greyoutMix",
+              "control": "slider",
+              "scope": "server"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Analytic overlays",
+          "fields": [
+            {
+              "key": "showClusters",
+              "label": "Show Clusters",
+              "path": "qualityGates.showClusters",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "showAnomalies",
+              "label": "Show Anomalies",
+              "path": "qualityGates.showAnomalies",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "showCommunities",
+              "label": "Show Communities",
+              "path": "qualityGates.showCommunities",
+              "control": "toggle",
+              "scope": "server"
+            }
+          ],
+          "panels": []
+        }
+      ]
+    },
+    {
+      "id": "layout",
+      "label": "Layout",
+      "description": "Where things sit. Layout settings are one shared document: changing them moves the graph for every viewer and the headset.",
+      "hotkey": "4",
+      "subsections": [
+        {
+          "label": "Mode",
+          "fields": [
+            {
+              "key": "layoutMode",
+              "label": "Layout Mode",
+              "path": "visualisation.graphs.knowledge.physics.layoutMode",
+              "control": "select",
+              "scope": "shared"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Forces",
+          "fields": [
+            {
+              "key": "springK",
+              "label": "Spring Strength",
+              "path": "visualisation.graphs.knowledge.physics.springK",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "springKKnowledge",
+              "label": "Spring: Knowledge",
+              "path": "visualisation.graphs.knowledge.physics.springKKnowledge",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "springKOntology",
+              "label": "Spring: Ontology",
+              "path": "visualisation.graphs.knowledge.physics.springKOntology",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "springKAgent",
+              "label": "Spring: Agent",
+              "path": "visualisation.graphs.knowledge.physics.springKAgent",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "repelK",
+              "label": "Repulsion",
+              "path": "visualisation.graphs.knowledge.physics.repelK",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "restLength",
+              "label": "Node Spacing",
+              "path": "visualisation.graphs.knowledge.physics.restLength",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "centerGravityK",
+              "label": "Center Gravity",
+              "path": "visualisation.graphs.knowledge.physics.centerGravityK",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "gravity",
+              "label": "Gravity",
+              "path": "visualisation.graphs.knowledge.physics.gravity",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "maxForce",
+              "label": "Max Force",
+              "path": "visualisation.graphs.knowledge.physics.maxForce",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "maxVelocity",
+              "label": "Max Velocity",
+              "path": "visualisation.graphs.knowledge.physics.maxVelocity",
+              "control": "slider",
+              "scope": "shared"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Forces › Advanced",
+          "fields": [
+            {
+              "key": "maxRepulsionDist",
+              "label": "Max Repulsion Dist",
+              "path": "visualisation.graphs.knowledge.physics.maxRepulsionDist",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "separationRadius",
+              "label": "Separation Radius",
+              "path": "visualisation.graphs.knowledge.physics.separationRadius",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "gridCellSize",
+              "label": "Grid Cell Size",
+              "path": "visualisation.graphs.knowledge.physics.gridCellSize",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "repulsionSofteningEpsilon",
+              "label": "Repulsion Epsilon",
+              "path": "visualisation.graphs.knowledge.physics.repulsionSofteningEpsilon",
+              "control": "slider",
+              "scope": "shared"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Forces › Communities & constraints",
+          "fields": [
+            {
+              "key": "constraintRampFrames",
+              "label": "Constraint Ramp",
+              "path": "visualisation.graphs.knowledge.physics.constraintRampFrames",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "constraintMaxForcePerNode",
+              "label": "Constraint Max Force",
+              "path": "visualisation.graphs.knowledge.physics.constraintMaxForcePerNode",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "clusterStrength",
+              "label": "Community Cohesion",
+              "path": "visualisation.graphs.knowledge.physics.clusterStrength",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "clusteringAlgorithm",
+              "label": "Community Method",
+              "path": "visualisation.graphs.knowledge.physics.clusteringAlgorithm",
+              "control": "select",
+              "scope": "shared"
+            },
+            {
+              "key": "clusteringResolution",
+              "label": "Community Resolution",
+              "path": "visualisation.graphs.knowledge.physics.clusteringResolution",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "temperature",
+              "label": "Temperature",
+              "path": "visualisation.graphs.knowledge.physics.temperature",
+              "control": "slider",
+              "scope": "shared"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Shape",
+          "fields": [
+            {
+              "key": "linLogMode",
+              "label": "LinLog Mode",
+              "path": "visualisation.graphs.knowledge.physics.linLogMode",
+              "control": "toggle",
+              "scope": "shared"
+            },
+            {
+              "key": "scalingRatio",
+              "label": "FA2 Scaling Ratio",
+              "path": "visualisation.graphs.knowledge.physics.scalingRatio",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "adaptiveSpeed",
+              "label": "Adaptive Speed",
+              "path": "visualisation.graphs.knowledge.physics.adaptiveSpeed",
+              "control": "toggle",
+              "scope": "shared"
+            },
+            {
+              "key": "ssspAlpha",
+              "label": "SSSP Alpha",
+              "path": "visualisation.graphs.knowledge.physics.ssspAlpha",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "axisCompressionZ",
+              "label": "Z axis compression (1 = fully 3D)",
+              "path": "visualisation.graphs.knowledge.physics.axisCompressionZ",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "enableDualDiscLayout",
+              "label": "Dual-disc layout",
+              "path": "visualisation.graphs.knowledge.physics.enableDualDiscLayout",
+              "control": "toggle",
+              "scope": "shared"
+            },
+            {
+              "key": "dagBiasK",
+              "label": "Hierarchy shell force",
+              "path": "visualisation.graphs.knowledge.physics.dagBiasK",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "dagLevelDistance",
+              "label": "Hierarchy shell spacing",
+              "path": "visualisation.graphs.knowledge.physics.dagLevelDistance",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "planeBiasK",
+              "label": "Plane Bias (type strata)",
+              "path": "visualisation.graphs.knowledge.physics.planeBiasK",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "planeSpacing",
+              "label": "Plane Spacing",
+              "path": "visualisation.graphs.knowledge.physics.planeSpacing",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "layerBiasK",
+              "label": "Sugiyama layer force",
+              "path": "visualisation.graphs.knowledge.physics.layerBiasK",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "layerSpacing",
+              "label": "Sugiyama layer spacing",
+              "path": "visualisation.graphs.knowledge.physics.layerSpacing",
+              "control": "slider",
+              "scope": "shared"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Semantic forces › DAG Layering",
+          "fields": [
+            {
+              "key": "semantic.dag.enabled",
+              "label": "DAG Layering",
+              "path": "visualisation.graphs.knowledge.physics.semantic.dag.enabled",
+              "control": "toggle",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.dag.verticalSpacing",
+              "label": "Level Spacing",
+              "path": "visualisation.graphs.knowledge.physics.semantic.dag.verticalSpacing",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.dag.horizontalSpacing",
+              "label": "Sibling Spacing",
+              "path": "visualisation.graphs.knowledge.physics.semantic.dag.horizontalSpacing",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.dag.levelAttraction",
+              "label": "Level Attraction",
+              "path": "visualisation.graphs.knowledge.physics.semantic.dag.levelAttraction",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.dag.siblingRepulsion",
+              "label": "Sibling Repulsion",
+              "path": "visualisation.graphs.knowledge.physics.semantic.dag.siblingRepulsion",
+              "control": "slider",
+              "scope": "shared"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Semantic forces › Type Clustering",
+          "fields": [
+            {
+              "key": "semantic.typeCluster.enabled",
+              "label": "Type Clustering",
+              "path": "visualisation.graphs.knowledge.physics.semantic.typeCluster.enabled",
+              "control": "toggle",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.typeCluster.clusterAttraction",
+              "label": "Attraction",
+              "path": "visualisation.graphs.knowledge.physics.semantic.typeCluster.clusterAttraction",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.typeCluster.clusterRadius",
+              "label": "Cluster Radius",
+              "path": "visualisation.graphs.knowledge.physics.semantic.typeCluster.clusterRadius",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.typeCluster.interClusterRepulsion",
+              "label": "Inter-Cluster Repulsion",
+              "path": "visualisation.graphs.knowledge.physics.semantic.typeCluster.interClusterRepulsion",
+              "control": "slider",
+              "scope": "shared"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Semantic forces › Collision",
+          "fields": [
+            {
+              "key": "semantic.collision.enabled",
+              "label": "Collision",
+              "path": "visualisation.graphs.knowledge.physics.semantic.collision.enabled",
+              "control": "toggle",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.collision.minDistance",
+              "label": "Minimum Distance",
+              "path": "visualisation.graphs.knowledge.physics.semantic.collision.minDistance",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.collision.collisionStrength",
+              "label": "Strength",
+              "path": "visualisation.graphs.knowledge.physics.semantic.collision.collisionStrength",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.collision.nodeRadius",
+              "label": "Node Radius",
+              "path": "visualisation.graphs.knowledge.physics.semantic.collision.nodeRadius",
+              "control": "slider",
+              "scope": "shared"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Semantic forces › Weighted Springs",
+          "fields": [
+            {
+              "key": "semantic.attributeSpring.enabled",
+              "label": "Weighted Springs",
+              "path": "visualisation.graphs.knowledge.physics.semantic.attributeSpring.enabled",
+              "control": "toggle",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.attributeSpring.baseSpringK",
+              "label": "Base Strength",
+              "path": "visualisation.graphs.knowledge.physics.semantic.attributeSpring.baseSpringK",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.attributeSpring.weightMultiplier",
+              "label": "Weight Influence",
+              "path": "visualisation.graphs.knowledge.physics.semantic.attributeSpring.weightMultiplier",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.attributeSpring.restLengthMin",
+              "label": "Shortest Rest Length",
+              "path": "visualisation.graphs.knowledge.physics.semantic.attributeSpring.restLengthMin",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.attributeSpring.restLengthMax",
+              "label": "Longest Rest Length",
+              "path": "visualisation.graphs.knowledge.physics.semantic.attributeSpring.restLengthMax",
+              "control": "slider",
+              "scope": "shared"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Semantic forces › Physicality Clustering",
+          "fields": [
+            {
+              "key": "semantic.physicalityCluster.enabled",
+              "label": "Physicality Clustering",
+              "path": "visualisation.graphs.knowledge.physics.semantic.physicalityCluster.enabled",
+              "control": "toggle",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.physicalityCluster.clusterAttraction",
+              "label": "Attraction",
+              "path": "visualisation.graphs.knowledge.physics.semantic.physicalityCluster.clusterAttraction",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.physicalityCluster.clusterRadius",
+              "label": "Cluster Radius",
+              "path": "visualisation.graphs.knowledge.physics.semantic.physicalityCluster.clusterRadius",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.physicalityCluster.interPhysicalityRepulsion",
+              "label": "Inter-Cluster Repulsion",
+              "path": "visualisation.graphs.knowledge.physics.semantic.physicalityCluster.interPhysicalityRepulsion",
+              "control": "slider",
+              "scope": "shared"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Semantic forces › Role Clustering",
+          "fields": [
+            {
+              "key": "semantic.roleCluster.enabled",
+              "label": "Role Clustering",
+              "path": "visualisation.graphs.knowledge.physics.semantic.roleCluster.enabled",
+              "control": "toggle",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.roleCluster.clusterAttraction",
+              "label": "Attraction",
+              "path": "visualisation.graphs.knowledge.physics.semantic.roleCluster.clusterAttraction",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.roleCluster.clusterRadius",
+              "label": "Cluster Radius",
+              "path": "visualisation.graphs.knowledge.physics.semantic.roleCluster.clusterRadius",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.roleCluster.interRoleRepulsion",
+              "label": "Inter-Cluster Repulsion",
+              "path": "visualisation.graphs.knowledge.physics.semantic.roleCluster.interRoleRepulsion",
+              "control": "slider",
+              "scope": "shared"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Semantic forces › Maturity Layering",
+          "fields": [
+            {
+              "key": "semantic.maturityLayout.enabled",
+              "label": "Maturity Layering",
+              "path": "visualisation.graphs.knowledge.physics.semantic.maturityLayout.enabled",
+              "control": "toggle",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.maturityLayout.verticalSpacing",
+              "label": "Stage Spacing",
+              "path": "visualisation.graphs.knowledge.physics.semantic.maturityLayout.verticalSpacing",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.maturityLayout.levelAttraction",
+              "label": "Stage Attraction",
+              "path": "visualisation.graphs.knowledge.physics.semantic.maturityLayout.levelAttraction",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.maturityLayout.stageSeparation",
+              "label": "Stage Separation",
+              "path": "visualisation.graphs.knowledge.physics.semantic.maturityLayout.stageSeparation",
+              "control": "slider",
+              "scope": "shared"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Semantic forces › Cross-Domain Links",
+          "fields": [
+            {
+              "key": "semantic.crossDomain.enabled",
+              "label": "Cross-Domain Links",
+              "path": "visualisation.graphs.knowledge.physics.semantic.crossDomain.enabled",
+              "control": "toggle",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.crossDomain.baseStrength",
+              "label": "Base Strength",
+              "path": "visualisation.graphs.knowledge.physics.semantic.crossDomain.baseStrength",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.crossDomain.linkCountMultiplier",
+              "label": "Per-Link Boost",
+              "path": "visualisation.graphs.knowledge.physics.semantic.crossDomain.linkCountMultiplier",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.crossDomain.maxStrengthBoost",
+              "label": "Maximum Boost",
+              "path": "visualisation.graphs.knowledge.physics.semantic.crossDomain.maxStrengthBoost",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "semantic.crossDomain.restLength",
+              "label": "Rest Length",
+              "path": "visualisation.graphs.knowledge.physics.semantic.crossDomain.restLength",
+              "control": "slider",
+              "scope": "shared"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Simulation",
+          "fields": [
+            {
+              "key": "enabled",
+              "label": "Physics Enabled",
+              "path": "visualisation.graphs.knowledge.physics.enabled",
+              "control": "toggle",
+              "scope": "shared"
+            },
+            {
+              "key": "resetLayout",
+              "label": "Reset Layout",
+              "path": null,
+              "control": "action-button",
+              "scope": "shared"
+            },
+            {
+              "key": "autoBalance",
+              "label": "Auto Balance",
+              "path": "visualisation.graphs.knowledge.physics.autoBalance",
+              "control": "toggle",
+              "scope": "shared"
+            },
+            {
+              "key": "dt",
+              "label": "Time Step",
+              "path": "visualisation.graphs.knowledge.physics.dt",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "iterations",
+              "label": "Iterations",
+              "path": "visualisation.graphs.knowledge.physics.iterations",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "warmupIterations",
+              "label": "Warmup Iterations",
+              "path": "visualisation.graphs.knowledge.physics.warmupIterations",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "coolingRate",
+              "label": "Cooling Rate",
+              "path": "visualisation.graphs.knowledge.physics.coolingRate",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "globalSpeed",
+              "label": "Global Speed",
+              "path": "visualisation.graphs.knowledge.physics.globalSpeed",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "damping",
+              "label": "Damping",
+              "path": "visualisation.graphs.knowledge.physics.damping",
+              "control": "slider",
+              "scope": "shared"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Simulation › Bounds",
+          "fields": [
+            {
+              "key": "enableBounds",
+              "label": "Enable Bounds",
+              "path": "visualisation.graphs.knowledge.physics.enableBounds",
+              "control": "toggle",
+              "scope": "shared"
+            },
+            {
+              "key": "boundsSize",
+              "label": "Bounds Size",
+              "path": "visualisation.graphs.knowledge.physics.boundsSize",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "boundaryDamping",
+              "label": "Boundary Damping",
+              "path": "visualisation.graphs.knowledge.physics.boundaryDamping",
+              "control": "slider",
+              "scope": "shared"
+            }
+          ],
+          "panels": []
+        }
+      ]
+    },
+    {
+      "id": "look",
+      "label": "Look",
+      "description": "How it renders: node and edge drawing, lighting, glow, ambience and animation.",
+      "hotkey": "5",
+      "subsections": [
+        {
+          "label": "Nodes",
+          "fields": [
+            {
+              "key": "nodeSize",
+              "label": "Node size",
+              "path": "visualisation.graphs.knowledge.nodes.nodeSize",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "spriteSize",
+              "label": "Node Dot Size (px)",
+              "path": "visualisation.graphView.nodes.spriteSizePx",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "gemLodDistance",
+              "label": "Gem Distance",
+              "path": "visualisation.graphView.nodes.gemLodDistance",
+              "control": "slider",
+              "scope": "server"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Close-up nodes (gems)",
+          "fields": [
+            {
+              "key": "gemIor",
+              "label": "Gem IOR",
+              "path": "visualisation.gemMaterial.ior",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "gemTransmission",
+              "label": "Gem Transmission",
+              "path": "visualisation.gemMaterial.transmission",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "gemClearcoat",
+              "label": "Gem Clearcoat",
+              "path": "visualisation.gemMaterial.clearcoat",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "gemClearcoatRoughness",
+              "label": "Clearcoat Rough",
+              "path": "visualisation.gemMaterial.clearcoatRoughness",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "gemEmissiveIntensity",
+              "label": "Gem Emissive",
+              "path": "visualisation.gemMaterial.emissiveIntensity",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "gemIridescence",
+              "label": "Gem Iridescence",
+              "path": "visualisation.gemMaterial.iridescence",
+              "control": "slider",
+              "scope": "server"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Edges",
+          "fields": [
+            {
+              "key": "overviewEdgesEnabled",
+              "label": "Overview Edges",
+              "path": "visualisation.graphView.overviewEdges.enabled",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "overviewEdgeWidth",
+              "label": "Edge Width (px)",
+              "path": "visualisation.graphView.overviewEdges.widthPx",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "overviewEdgeMaxWidth",
+              "label": "Max Edge Width (px)",
+              "path": "visualisation.graphView.overviewEdges.maxWidthPx",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "overviewEdgeFadeNear",
+              "label": "Fade Start (px)",
+              "path": "visualisation.graphView.overviewEdges.fadeNearPx",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "overviewEdgeFadeFar",
+              "label": "Fade End (px)",
+              "path": "visualisation.graphView.overviewEdges.fadeFarPx",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "overviewEdgeMinOpacity",
+              "label": "Long-Edge Opacity",
+              "path": "visualisation.graphView.overviewEdges.minOpacity",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "glassAtCloseZoom",
+              "label": "Glass Edges Up Close",
+              "path": "visualisation.graphView.overviewEdges.glassAtCloseZoom",
+              "control": "toggle",
+              "scope": "server"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Lighting",
+          "fields": [
+            {
+              "key": "ambientLight",
+              "label": "Ambient Light",
+              "path": "visualisation.rendering.ambientLightIntensity",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "directionalLight",
+              "label": "Direct Light",
+              "path": "visualisation.rendering.directionalLightIntensity",
+              "control": "slider",
+              "scope": "server"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Emphasis glow",
+          "fields": [
+            {
+              "key": "glow",
+              "label": "Emphasis glow",
+              "path": "visualisation.glow.enabled",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "glowIntensity",
+              "label": "Glow Intensity",
+              "path": "visualisation.glow.intensity",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "glowRadius",
+              "label": "Glow Radius",
+              "path": "visualisation.glow.radius",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "glowThreshold",
+              "label": "Glow Threshold",
+              "path": "visualisation.glow.threshold",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "bloomScope",
+              "label": "Glow scope",
+              "path": "visualisation.graphView.nodes.bloomScope",
+              "control": "select",
+              "scope": "server"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Ambience",
+          "fields": [
+            {
+              "key": "sceneEffectsEnabled",
+              "label": "Scene Effects",
+              "path": "visualisation.sceneEffects.enabled",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "particleCount",
+              "label": "Particle Count",
+              "path": "visualisation.sceneEffects.particleCount",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "particleOpacity",
+              "label": "Particle Opacity",
+              "path": "visualisation.sceneEffects.particleOpacity",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "particleDrift",
+              "label": "Particle Drift",
+              "path": "visualisation.sceneEffects.particleDrift",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "wispsEnabled",
+              "label": "Energy Wisps",
+              "path": "visualisation.sceneEffects.wispsEnabled",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "wispCount",
+              "label": "Wisp Count",
+              "path": "visualisation.sceneEffects.wispCount",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "wispOpacity",
+              "label": "Wisp Opacity",
+              "path": "visualisation.sceneEffects.wispOpacity",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "wispDriftSpeed",
+              "label": "Wisp Speed",
+              "path": "visualisation.sceneEffects.wispDriftSpeed",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "fogEnabled",
+              "label": "Fog",
+              "path": "visualisation.sceneEffects.fogEnabled",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "fogOpacity",
+              "label": "Fog opacity",
+              "path": "visualisation.sceneEffects.fogOpacity",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "atmosphereResolution",
+              "label": "Fog detail",
+              "path": "visualisation.sceneEffects.atmosphereResolution",
+              "control": "slider",
+              "scope": "server"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Animation",
+          "fields": [
+            {
+              "key": "nodeAnimations",
+              "label": "Node Animations",
+              "path": "visualisation.animations.enableNodeAnimations",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "pulseEnabled",
+              "label": "Pulse Effect",
+              "path": "visualisation.animations.pulseEnabled",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "pulseSpeed",
+              "label": "Pulse Speed",
+              "path": "visualisation.animations.pulseSpeed",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "pulseStrength",
+              "label": "Pulse Strength",
+              "path": "visualisation.animations.pulseStrength",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "selectionWave",
+              "label": "Selection Wave",
+              "path": "visualisation.animations.selectionWaveEnabled",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "waveSpeed",
+              "label": "Wave Speed",
+              "path": "visualisation.animations.waveSpeed",
+              "control": "slider",
+              "scope": "server"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Motion smoothing",
+          "fields": [
+            {
+              "key": "tweeningEnabled",
+              "label": "Smooth Node Movement",
+              "path": "visualisation.graphs.knowledge.tweening.enabled",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "tweeningResponseMs",
+              "label": "Node Chase Time (ms)",
+              "path": "visualisation.graphs.knowledge.tweening.responseMs",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "tweeningMaxDivergence",
+              "label": "Maximum Node Jump",
+              "path": "visualisation.graphs.knowledge.tweening.maxDivergence",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "tweeningSnapThreshold",
+              "label": "Snap Distance",
+              "path": "visualisation.graphs.knowledge.tweening.snapThreshold",
+              "control": "slider",
+              "scope": "server"
+            }
+          ],
+          "panels": []
+        }
+      ]
+    },
+    {
+      "id": "agents",
+      "label": "Agents & Governance",
+      "description": "Who is acting and what was decided: agent operations and appearance, attribution and the provenance timeline.",
+      "hotkey": "6",
+      "subsections": [
+        {
+          "label": "Agent operations",
+          "fields": [
+            {
+              "key": "agentDemoToggle",
+              "label": "Toggle Agent Demo",
+              "path": null,
+              "control": "action-button",
+              "scope": "browser"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Agent appearance",
+          "fields": [
+            {
+              "key": "agentBaseColor",
+              "label": "Node Color",
+              "path": "visualisation.graphs.visionclaw.nodes.baseColor",
+              "control": "color",
+              "scope": "server"
+            },
+            {
+              "key": "agentShowTrails",
+              "label": "Motion Trails",
+              "path": "visualisation.graphTypeVisuals.agent.showTrails",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "agentTrailLength",
+              "label": "Trail Length",
+              "path": "visualisation.graphTypeVisuals.agent.trailLength",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "agentBioluminescence",
+              "label": "Bioluminescent Intensity",
+              "path": "visualisation.graphTypeVisuals.agent.bioluminescentIntensity",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "agentNucleusGlow",
+              "label": "Nucleus Glow",
+              "path": "visualisation.graphTypeVisuals.agent.nucleusGlowIntensity",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "agentBreathingSpeed",
+              "label": "Breathing Speed",
+              "path": "visualisation.graphTypeVisuals.agent.breathingSpeed",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "agentBreathingAmplitude",
+              "label": "Breathing Amplitude",
+              "path": "visualisation.graphTypeVisuals.agent.breathingAmplitude",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "agentBeamRadius",
+              "label": "Action Beam Radius",
+              "path": "visualisation.graphTypeVisuals.agent.beamRadius",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "agentBeamOpacity",
+              "label": "Action Beam Opacity",
+              "path": "visualisation.graphTypeVisuals.agent.beamOpacity",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "agentNameplateLod",
+              "label": "Nameplate LOD",
+              "path": "visualisation.graphTypeVisuals.agent.nameplateLod",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "agentNameplateFullDistance",
+              "label": "Nameplate Full Distance",
+              "path": "visualisation.graphTypeVisuals.agent.nameplateFullDistance",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "kgAttentionHeat",
+              "label": "File-Attention Heat",
+              "path": "visualisation.graphTypeVisuals.knowledgeGraph.attentionHeatEnabled",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "kgAttentionHeatHalfLife",
+              "label": "Attention Heat Half-Life",
+              "path": "visualisation.graphTypeVisuals.knowledgeGraph.attentionHeatHalfLife",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "agentOffsetToggle",
+              "label": "Agent Offset Animation",
+              "path": null,
+              "control": "action-button",
+              "scope": "browser"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Agent colours",
+          "fields": [
+            {
+              "key": "agentColorCoordinator",
+              "label": "Coordinator",
+              "path": "visualisation.rendering.agentColors.coordinator",
+              "control": "color",
+              "scope": "server"
+            },
+            {
+              "key": "agentColorCoder",
+              "label": "Coder",
+              "path": "visualisation.rendering.agentColors.coder",
+              "control": "color",
+              "scope": "server"
+            },
+            {
+              "key": "agentColorArchitect",
+              "label": "Architect",
+              "path": "visualisation.rendering.agentColors.architect",
+              "control": "color",
+              "scope": "server"
+            },
+            {
+              "key": "agentColorAnalyst",
+              "label": "Analyst",
+              "path": "visualisation.rendering.agentColors.analyst",
+              "control": "color",
+              "scope": "server"
+            },
+            {
+              "key": "agentColorTester",
+              "label": "Tester",
+              "path": "visualisation.rendering.agentColors.tester",
+              "control": "color",
+              "scope": "server"
+            },
+            {
+              "key": "agentColorResearcher",
+              "label": "Researcher",
+              "path": "visualisation.rendering.agentColors.researcher",
+              "control": "color",
+              "scope": "server"
+            },
+            {
+              "key": "agentColorReviewer",
+              "label": "Reviewer",
+              "path": "visualisation.rendering.agentColors.reviewer",
+              "control": "color",
+              "scope": "server"
+            },
+            {
+              "key": "agentColorOptimizer",
+              "label": "Optimizer",
+              "path": "visualisation.rendering.agentColors.optimizer",
+              "control": "color",
+              "scope": "server"
+            },
+            {
+              "key": "agentColorDocumenter",
+              "label": "Documenter",
+              "path": "visualisation.rendering.agentColors.documenter",
+              "control": "color",
+              "scope": "server"
+            },
+            {
+              "key": "agentColorQueen",
+              "label": "Queen",
+              "path": "visualisation.rendering.agentColors.queen",
+              "control": "color",
+              "scope": "server"
+            },
+            {
+              "key": "agentColorDefault",
+              "label": "Default / Other",
+              "path": "visualisation.rendering.agentColors.default",
+              "control": "color",
+              "scope": "server"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Governance",
+          "fields": [
+            {
+              "key": "showAttribution",
+              "label": "Show Node Attribution",
+              "path": "provenance.showAttribution",
+              "control": "toggle",
+              "scope": "browser"
+            },
+            {
+              "key": "showGateChips",
+              "label": "Show Gate Chips",
+              "path": "provenance.showGateChips",
+              "control": "toggle",
+              "scope": "browser"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Governance › Timeline",
+          "fields": [
+            {
+              "key": "enableTimeline",
+              "label": "Enable Timeline Scrubber",
+              "path": "provenance.enableTimeline",
+              "control": "toggle",
+              "scope": "browser"
+            },
+            {
+              "key": "diffMode",
+              "label": "Timeline Diff Mode",
+              "path": "provenance.diffMode",
+              "control": "toggle",
+              "scope": "browser"
+            }
+          ],
+          "panels": []
+        }
+      ]
+    },
+    {
+      "id": "system",
+      "label": "System",
+      "description": "How the app is running: performance, connection, account and sync, voice, and developer logging.",
+      "hotkey": "7",
+      "subsections": [
+        {
+          "label": "Performance",
+          "fields": [
+            {
+              "key": "maxEdgesCeiling",
+              "label": "Edge memory budget",
+              "path": "visualisation.rendering.maxEdgesCeiling",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "softwareFallback",
+              "label": "Software WebGL Fallback",
+              "path": "visualisation.rendering.softwareFallback",
+              "control": "select",
+              "scope": "server"
+            },
+            {
+              "key": "labelLayoutEvery",
+              "label": "Label Layout Cadence (frames)",
+              "path": "visualisation.rendering.labelLayoutEvery",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "autoAdjust",
+              "label": "Auto-Adjust Quality",
+              "path": "qualityGates.autoAdjust",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "minFpsThreshold",
+              "label": "Min FPS Threshold",
+              "path": "qualityGates.minFpsThreshold",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "ruvectorEnabled",
+              "label": "RuVector Integration",
+              "path": "qualityGates.ruvectorEnabled",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "webgpuRenderer",
+              "label": "WebGPU Renderer",
+              "path": null,
+              "control": "action-button",
+              "scope": "browser"
+            },
+            {
+              "key": "rendererInfo",
+              "label": "Renderer Info",
+              "path": "rendererCapabilities",
+              "control": "readonly",
+              "scope": "browser"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Connection",
+          "fields": [
+            {
+              "key": "customBackendURL",
+              "label": "Custom Backend URL",
+              "path": "system.customBackendUrl",
+              "control": "text",
+              "scope": "browser"
+            },
+            {
+              "key": "streamChunkNodes",
+              "label": "Stream Chunk Size (nodes)",
+              "path": "visualisation.graphs.knowledge.physics.streamChunkNodes",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "streamMoveThreshold",
+              "label": "Stream Move Threshold",
+              "path": "visualisation.graphs.knowledge.physics.streamMoveThreshold",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "streamAckTimeoutMs",
+              "label": "Stream Ack Timeout (ms)",
+              "path": "visualisation.graphs.knowledge.physics.streamAckTimeoutMs",
+              "control": "slider",
+              "scope": "shared"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Account & sync",
+          "fields": [
+            {
+              "key": "nostr",
+              "label": "Nostr Login",
+              "path": "auth.nostr",
+              "control": "nostr-button",
+              "scope": "browser"
+            },
+            {
+              "key": "authEnabled",
+              "label": "Auth Enabled",
+              "path": "auth.enabled",
+              "control": "toggle",
+              "scope": "browser"
+            },
+            {
+              "key": "authRequired",
+              "label": "Auth Required",
+              "path": "auth.required",
+              "control": "toggle",
+              "scope": "browser"
+            }
+          ],
+          "panels": [
+            {
+              "id": "solid",
+              "label": "Solid Pod"
+            }
+          ]
+        },
+        {
+          "label": "Services",
+          "fields": [
+            {
+              "key": "pocketTtsVoice",
+              "label": "Voice",
+              "path": "pocketTts.defaultVoice",
+              "control": "text",
+              "scope": "browser"
+            },
+            {
+              "key": "pocketTtsSpeed",
+              "label": "Speech Speed",
+              "path": "pocketTts.defaultSpeed",
+              "control": "slider",
+              "scope": "browser"
+            }
+          ],
+          "panels": []
+        },
+        {
+          "label": "Developer",
+          "fields": [
+            {
+              "key": "enableDebug",
+              "label": "Debug Mode",
+              "path": "system.debug.enabled",
+              "control": "toggle",
+              "scope": "browser"
+            },
+            {
+              "key": "enableDataDebug",
+              "label": "Data Debug",
+              "path": "system.debug.enableDataDebug",
+              "control": "toggle",
+              "scope": "browser"
+            },
+            {
+              "key": "enableWebsocketDebug",
+              "label": "WebSocket Debug",
+              "path": "system.debug.enableWebsocketDebug",
+              "control": "toggle",
+              "scope": "browser"
+            },
+            {
+              "key": "logBinaryHeaders",
+              "label": "Log Binary Headers",
+              "path": "system.debug.logBinaryHeaders",
+              "control": "toggle",
+              "scope": "browser"
+            },
+            {
+              "key": "logFullJson",
+              "label": "Log Full JSON",
+              "path": "system.debug.logFullJson",
+              "control": "toggle",
+              "scope": "browser"
+            },
+            {
+              "key": "enablePhysicsDebug",
+              "label": "Physics Debug",
+              "path": "system.debug.enablePhysicsDebug",
+              "control": "toggle",
+              "scope": "browser"
+            },
+            {
+              "key": "enableNodeDebug",
+              "label": "Node Debug",
+              "path": "system.debug.enableNodeDebug",
+              "control": "toggle",
+              "scope": "browser"
+            },
+            {
+              "key": "enableShaderDebug",
+              "label": "Shader Debug",
+              "path": "system.debug.enableShaderDebug",
+              "control": "toggle",
+              "scope": "browser"
+            },
+            {
+              "key": "enableMatrixDebug",
+              "label": "Matrix Debug",
+              "path": "system.debug.enableMatrixDebug",
+              "control": "toggle",
+              "scope": "browser"
+            },
+            {
+              "key": "enablePerformanceDebug",
+              "label": "Performance Debug",
+              "path": "system.debug.enablePerformanceDebug",
+              "control": "toggle",
+              "scope": "browser"
+            }
+          ],
+          "panels": []
+        }
+      ]
+    }
+  ]
+}

@@ -297,7 +297,6 @@ pub struct NodeSettingsDTO {
     pub quality: String,
     pub enable_instancing: bool,
     pub enable_hologram: bool,
-    pub enable_metadata_shape: bool,
     pub enable_metadata_visualisation: bool,
 }
 

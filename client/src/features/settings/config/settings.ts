@@ -9,15 +9,12 @@ export interface NodeSettings {
   // the semantic schemes. An analytic mode falls through to 'type' colouring for
   // nodes the server left without that signal, so no node goes dark.
   colorScheme?: 'type' | 'domain' | 'base' | 'community' | 'cluster' | 'centrality' | 'sssp' | 'cycles';
-  sizeScheme?: 'degree' | 'fileSize' | 'hybrid';
-  perNodeGlow?: boolean;
   metalness: number;
   opacity: number;
   roughness: number;
   nodeSize: number; 
   quality: 'low' | 'medium' | 'high';
   enableInstancing: boolean;
-  enableMetadataShape: boolean;
   enableMetadataVisualisation: boolean;
   enableImportance?: boolean;
   nodeTypeVisibility?: {
@@ -34,8 +31,6 @@ export interface EdgeSettings {
   color: string;
   enableArrows: boolean;
   opacity: number;
-  colorByType?: boolean;
-  widthByWeight?: boolean;
   widthRange: [number, number];
   quality: 'low' | 'medium' | 'high';
   enableFlowEffect: boolean;
@@ -243,12 +238,9 @@ export interface AnimationSettings {
 
 // Label settings
 export interface LabelSettings {
-  desktopFontSize: number;
   enableLabels: boolean;
   labelDistanceThreshold?: number; // Max camera distance for visible labels (default 500)
   textColor: string;
-  textOutlineColor: string;
-  textOutlineWidth: number;
   textResolution: number;
   textPadding: number;
   billboardMode: 'camera' | 'vertical';
@@ -447,7 +439,6 @@ export interface KnowledgeGraphVisualSettings {
 
 export interface OntologyVisualSettings {
   edgeColor?: string;  // default '#AA96DA'
-  ringTintByClass?: boolean;
   glowStrength?: number;
   orbitalRingCount?: number;
   orbitalRingSpeed?: number;
@@ -462,30 +453,15 @@ export interface OntologyVisualSettings {
 }
 
 export interface AgentVisualSettings {
-  membraneOpacity?: number;
   nucleusGlowIntensity?: number;
   breathingSpeed?: number;
   breathingAmplitude?: number;
   workloadInfluence?: number;
   tokenRateInfluence?: number;
   tokenRateCap?: number;
-  showHealthBar?: boolean;
   showTokenRate?: boolean;
   showTaskCount?: boolean;
   bioluminescentIntensity?: number;
-  /** Client-only: hue-rotate each agent's base colour by a stable per-swarm
-   *  offset so swarms read as related-but-distinct families (swarmTint, applySwarmTint).
-   *  No Rust field — persisted via localStorage like the other graphTypeVisuals. */
-  swarmTint?: boolean;
-  /** Client-only: four configurable health→glow stops (excellent/good/warning/
-   *  critical) consumed by agentVisualConstants.healthGlowColor. Defaults preserve
-   *  the historical six-tier ramp; ported from the legacy BotsControlPanel. */
-  healthColors?: {
-    excellent?: string;
-    good?: string;
-    warning?: string;
-    critical?: string;
-  };
   /** Client-only: action-beam (0x23 AGENT_ACTION) cylinder radius in world units,
    *  read by GraphManager → TransientBeamsLayer. Default 0.35. */
   beamRadius?: number;
@@ -626,6 +602,8 @@ export interface GraphViewSettings {
     /** Numeric column driving size, or 'none' for today's sizing. */
     sizeBy: string;
     showLegend: boolean;
+    /** Remove filtered-out nodes instead of greying them out (ADR-2189 §5, useGraphFiltering). */
+    hideFiltered: boolean;
     /** Alpha of a greyed-out edge. */
     greyoutOpacity: number;
     /** How far a greyed-out node's colour mixes toward the background (0..1). */
@@ -806,9 +784,7 @@ export interface QualityGatesSettings {
   /** Colour nodes by SSSP distance from the active source (ADR-031 D6, wire offset 28). */
   showSSSP: boolean;
   ruvectorEnabled: boolean;
-  gnnPhysics: boolean;
   minFpsThreshold: number;
-  maxNodeCount: number;
   autoAdjust: boolean;
   // Ontology constraint weight (propagated to GPU actors). The semantic-force parameters are
   // NOT here: they are the physics settings' `semantic` group.
@@ -870,16 +846,6 @@ export interface NodeFilterSettings {
   includeLinkedPages?: boolean;
 }
 
-// Decision-record overlay settings (W-G phase-1, client-only, default-off).
-// Gate whether the graph surfaces governed dl:DecisionRecord overlays and
-// derived, bounded decision-chain reachability. Client-only: no server bucket.
-export interface DecisionsSettings {
-  /** Overlay derived, bounded decision-chain reachability (never asserted truth). */
-  showDecisionChains: boolean;
-  /** Highlight direct dl:precedentFor edges on the selected decision node. */
-  highlightPrecedents: boolean;
-}
-
 // Provenance overlay settings (W-G phase-1, client-only, default-off). Gate the
 // node-panel attribution section and the proposal-list governance-gate chips.
 // The Whelk chip reads as asserted-projection classifier consistency, never
@@ -915,7 +881,6 @@ export interface Settings {
   // Node filter settings for graph visualization
   nodeFilter?: NodeFilterSettings;
   // W-G phase-1 client-only decision-record overlays (default-off)
-  decisions?: DecisionsSettings;
   // W-G phase-1 client-only provenance/attribution overlays (default-off)
   provenance?: ProvenanceSettings;
   // Client-side tweening for server-authoritative positions

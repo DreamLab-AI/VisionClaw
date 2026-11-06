@@ -6,6 +6,12 @@ const post = vi.fn();
 const get = vi.fn();
 const request = vi.fn();
 const storeSet = vi.fn();
+// ADR-2189: every CommandInput setting change goes through the one client write path.
+const applyWrites = vi.fn();
+vi.mock('../../../control-center/state/settingWrites', async (orig) => ({
+  ...(await orig<typeof import('../../../control-center/state/settingWrites')>()),
+  applySettingWrites: (...a: unknown[]) => applyWrites(...a),
+}));
 
 vi.mock('../../../../services/api/UnifiedApiClient', () => ({
   unifiedApiClient: {
@@ -50,6 +56,7 @@ describe('CommandInput Jev option', () => {
     get.mockReset();
     request.mockReset();
     storeSet.mockReset();
+    applyWrites.mockReset();
     post.mockImplementation(async (url: string) => {
       if (url === SETTINGS_ASSISTANT) return { data: { taskId: 'abcdef012345' } };
       return { data: { used: false } };
@@ -77,7 +84,11 @@ describe('CommandInput Jev option', () => {
   it('deterministic keyword commands never consult Jev', async () => {
     get.mockResolvedValue({ data: { enabled: { 'settings-patch': true }, available: true } });
     await submit('increase repulsion');
-    await waitFor(() => expect(request).toHaveBeenCalled());
+    // a store write through the Spread dial's transfer function, not a raw physics PUT
+    await waitFor(() => expect(applyWrites).toHaveBeenCalled());
+    const writes = applyWrites.mock.calls[0][0] as Array<{ path: string }>;
+    expect(writes.map((w) => w.path)).toContain('visualisation.graphs.knowledge.physics.repelK');
+    expect(request).not.toHaveBeenCalled();
     expect(get).not.toHaveBeenCalled();
     expect(post.mock.calls.some(([u]) => u === '/jev/command')).toBe(false);
   });
@@ -95,9 +106,9 @@ describe('CommandInput Jev option', () => {
     expect(panel.textContent).toContain('Repulsion');
     expect(panel.textContent).toContain('300');
     expect(post.mock.calls.some(([u]) => u === SETTINGS_ASSISTANT)).toBe(false);
-    expect(storeSet).not.toHaveBeenCalled(); // proposal only until the user clicks
+    expect(applyWrites).not.toHaveBeenCalled(); // proposal only until the user clicks
     fireEvent.click(screen.getByText('Apply'));
-    expect(storeSet).toHaveBeenCalledWith('physics.repelK', 300);
+    expect(applyWrites).toHaveBeenCalledWith([{ path: 'physics.repelK', value: 300 }]);
   });
 
   it('review can fall through to the assistant on request', async () => {

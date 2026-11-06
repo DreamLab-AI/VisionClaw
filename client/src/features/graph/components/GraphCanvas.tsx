@@ -38,6 +38,7 @@ import EchoPulseLayer from '../../control-center/echo/EchoPulseLayer';
 // Bi-temporal provenance timeline scrubber (ADR-049) — bottom-docked HTML
 // overlay, gated on the client-only provenance.enableTimeline flag (default off).
 import TimelineScrubber from './TimelineScrubber';
+import { OverviewEdgeNotice } from '../../control-center/integrationSlots';
 
 // Gaussian splat scenes (ADR-2170): a scene-level layer plus its info panel.
 import { SplatScene, SplatInfoPanel } from '../../splats';
@@ -45,109 +46,7 @@ import { SplatScene, SplatInfoPanel } from '../../splats';
 // Store and utils
 import { useSettingsStore } from '../../../store/settingsStore';
 import { graphDataManager, type GraphData } from '../managers/graphDataManager';
-import { CAMERA_FIT_EVENT } from '../hooks/useCameraAutoFit';
 
-// ============================================================================
-// Fit-view control — frames the whole graph bbox on demand
-// ============================================================================
-//
-// Dispatches CAMERA_FIT_EVENT, which useCameraAutoFit (inside the Canvas) picks
-// up and uses to reframe the camera around the node bounding box. HTML overlay
-// so it lives outside the R3F tree, matching the LayoutModeIndicator pattern.
-const FitViewButton: React.FC = () => {
-  const handleFit = () => window.dispatchEvent(new CustomEvent(CAMERA_FIT_EVENT));
-  return (
-    <button
-      onClick={handleFit}
-      aria-label="Fit graph to view"
-      title="Fit view (frame the whole graph)"
-      style={{
-        position: 'absolute',
-        bottom: '14px',
-        right: '14px',
-        zIndex: 100,
-        backgroundColor: 'rgba(10, 10, 30, 0.7)',
-        color: 'rgba(255,255,255,0.85)',
-        padding: '6px 12px',
-        borderRadius: '6px',
-        fontSize: '12px',
-        fontFamily: '"Inter", "Segoe UI", sans-serif',
-        border: '1px solid rgba(255,255,255,0.15)',
-        cursor: 'pointer',
-        backdropFilter: 'blur(8px)',
-        pointerEvents: 'auto',
-        userSelect: 'none',
-      }}
-    >
-      ⤢ Fit view
-    </button>
-  );
-};
-
-// ============================================================================
-// Layout Mode Indicator — displays current layout mode above the canvas
-// ============================================================================
-
-const LAYOUT_MODE_LABELS: Record<string, string> = {
-  'force-directed':  'Force Directed',
-  'dag-topdown':     'DAG Top-Down',
-  'dag-radial':      'DAG Radial',
-  'dag-leftright':   'DAG Left-Right',
-  'type-clustering': 'Type Clustering',
-  'forceDirected':   'Force Directed',
-  'dagLeftRight':    'DAG Left-Right',
-  'typeClustering':  'Type Clustering',
-  'hierarchical':    'Hierarchical',
-  'radial':          'Radial',
-  'spectral':        'Spectral',
-  'temporal':        'Temporal',
-  'clustered':       'Clustered',
-};
-
-const LayoutModeIndicator: React.FC = () => {
-  const layoutMode = useSettingsStore(s =>
-    s.settings?.visualisation?.graphs?.knowledge?.physics?.layoutMode as string | undefined
-  );
-  const [transitioning, setTransitioning] = useState(false);
-  const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (!layoutMode) return;
-    setTransitioning(true);
-    if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
-    transitionTimerRef.current = setTimeout(() => setTransitioning(false), 1200);
-    return () => {
-      if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
-    };
-  }, [layoutMode]);
-
-  if (!layoutMode) return null;
-
-  const label = LAYOUT_MODE_LABELS[layoutMode] || layoutMode;
-
-  return (
-    <div style={{
-      position: 'absolute',
-      bottom: '14px',
-      left: '50%',
-      transform: 'translateX(-50%)',
-      zIndex: 100,
-      backgroundColor: 'rgba(0, 0, 0, 0.55)',
-      color: transitioning ? '#34d399' : 'rgba(255,255,255,0.65)',
-      padding: '3px 10px',
-      borderRadius: '4px',
-      fontSize: '10px',
-      letterSpacing: '0.05em',
-      fontFamily: 'monospace',
-      border: `1px solid ${transitioning ? 'rgba(52,211,153,0.5)' : 'rgba(255,255,255,0.1)'}`,
-      transition: 'color 0.3s, border-color 0.3s',
-      pointerEvents: 'none',
-      userSelect: 'none',
-    }}>
-      {transitioning ? `Transitioning to ${label}...` : `Layout: ${label}`}
-    </div>
-  );
-};
 
 // ============================================================================
 // Camera aspect sync — keeps the perspective projection square to the canvas
@@ -519,11 +418,22 @@ const GraphCanvas: React.FC = () => {
                 {showStats && <Stats />}
             </Canvas>
 
-            {/* Layout mode indicator — rendered in HTML overlay above the canvas */}
-            <LayoutModeIndicator />
+            {/* ADR-2189 §4: Fit lives in the dock and the layout mode in the Status
+                flyout; the canvas no longer floats either over the chrome. */}
 
-            {/* Fit-view control — reframes the camera on the whole graph bbox */}
-            {canvasReady && nodeCount > 0 && <FitViewButton />}
+            {/* ADR-2181: edge and node-buffer truncation notice (render lane), outside
+                the Canvas at the top centre: the warnings region (ADR-2189 §4), clear of
+                the dock, the timeline and the corner chips. */}
+            <OverviewEdgeNotice
+              style={{
+                left: '50%',
+                transform: 'translateX(-50%)',
+                top: 'var(--cc-edge, 1rem)',
+                bottom: 'auto',
+                zIndex: 40,
+                whiteSpace: 'nowrap',
+              }}
+            />
 
             {/* Bi-temporal provenance timeline (ADR-049) — bottom-docked overlay,
                 mounted only when the client-only provenance.enableTimeline flag is on. */}

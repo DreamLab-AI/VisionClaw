@@ -6,6 +6,9 @@ import { unifiedApiClient } from '../../../services/api/UnifiedApiClient';
 import { ALL_FIELDS } from '../../control-center/registry/settingsRegistry';
 import { commandRegistry } from '../../command-palette/CommandRegistry';
 import { planJevCommand, type JevReview } from '../../../services/jev/commandFlow';
+import { applySettingWrites, physicsWrites, type SettingWrite } from '../../control-center/state/settingWrites';
+import { MACROS_BY_ID } from '../../control-center/registry/macros';
+import { DEFAULT_PHYSICS_SETTINGS } from '../../../api/settings/defaults';
 
 interface CommandInputProps {
   isCollapsed: boolean;
@@ -42,10 +45,17 @@ function validateCommand(cmd: string): { valid: boolean; message: string } {
 
 interface SettingsAction {
   description: string;
+  /**
+   * Setting changes. Applied through the one client write path
+   * (applySettingWrites, ADR-2189): store + autosave queue + layout side effect,
+   * exactly as if the user had moved the control in the settings panel.
+   */
+  writes?: SettingWrite[];
+  /** Non-setting server actions only (e.g. running a clustering job). */
   endpoint?: string;
   method?: string;
   body?: Record<string, unknown>;
-  localAction?: () => void;
+  localAction?: () => void | Promise<void>;
   /** When set, processCommand routes the raw command to the settings-aware LLM
    *  in agentbox instead of running a deterministic local action. */
   isLlmFallback?: boolean;
@@ -143,24 +153,12 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
     if (lower.includes('hide') || lower.includes('disable') || lower.includes('off')) {
       actions.push({
         description: 'Disabling cluster hulls',
-        localAction: () => {
-          const ss = useSettingsStore.getState();
-          ss?.updateSettings?.((draft: any) => {
-            if (draft.visualisation?.clusterHulls) draft.visualisation.clusterHulls.enabled = false;
-          });
-        },
+        writes: [{ path: 'visualisation.clusterHulls.enabled', value: false }],
       });
     } else {
       actions.push({
         description: 'Enabling cluster hulls',
-        localAction: () => {
-          const ss = useSettingsStore.getState();
-          ss?.updateSettings?.((draft: any) => {
-            if (!draft.visualisation) draft.visualisation = {};
-            if (!draft.visualisation.clusterHulls) draft.visualisation.clusterHulls = {};
-            draft.visualisation.clusterHulls.enabled = true;
-          });
-        },
+        writes: [{ path: 'visualisation.clusterHulls.enabled', value: true }],
       });
     }
   }
@@ -170,12 +168,11 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
   // force constant.
   if (lower.includes('repul') || lower.includes('spread')) {
     const increase = lower.includes('increase') || lower.includes('more') || lower.includes('spread');
-    const value = increase ? 400 : 100;
+    // The Spread dial owns these numbers: the same transfer function the dock uses.
+    const t = increase ? 0.9 : 0.15;
     actions.push({
-      description: `Setting repulsion to ${value}`,
-      endpoint: '/api/settings/physics',
-      method: 'PUT',
-      body: { repelK: value },
+      description: `Setting Spread to ${Math.round(t * 100)}%`,
+      writes: MACROS_BY_ID.density.apply(t),
     });
   }
 
@@ -203,9 +200,7 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
       if ('axisCompressionZ' in discBody) parts.push(`flatten→${discBody.axisCompressionZ}`);
       actions.push({
         description: `Disc layout: ${parts.join(', ')}`,
-        endpoint: '/api/settings/physics',
-        method: 'PUT',
-        body: discBody,
+        writes: physicsWrites(discBody),
       });
     }
   }
@@ -216,9 +211,7 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
     const value = increase ? 5.0 : 1.0;
     actions.push({
       description: `Setting spring strength to ${value}`,
-      endpoint: '/api/settings/physics',
-      method: 'PUT',
-      body: { springK: value },
+      writes: physicsWrites({ springK: value }),
     });
   }
 
@@ -227,9 +220,7 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
     const value = lower.includes('increase') || lower.includes('more') ? 0.8 : 0.3;
     actions.push({
       description: `Setting damping to ${value}`,
-      endpoint: '/api/settings/physics',
-      method: 'PUT',
-      body: { damping: value },
+      writes: physicsWrites({ damping: value }),
     });
   }
 
@@ -238,10 +229,7 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
     const show = !lower.includes('hide');
     actions.push({
       description: `${show ? 'Showing' : 'Hiding'} knowledge nodes`,
-      localAction: () => {
-        const ss = useSettingsStore.getState();
-        ss?.set?.('visualisation.graphs.knowledge.nodes.nodeTypeVisibility.knowledge', show);
-      },
+      writes: [{ path: 'visualisation.graphs.knowledge.nodes.nodeTypeVisibility.knowledge', value: show }],
     });
   }
 
@@ -250,10 +238,7 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
     const show = !lower.includes('hide');
     actions.push({
       description: `${show ? 'Showing' : 'Hiding'} ontology nodes`,
-      localAction: () => {
-        const ss = useSettingsStore.getState();
-        ss?.set?.('visualisation.graphs.knowledge.nodes.nodeTypeVisibility.ontology', show);
-      },
+      writes: [{ path: 'visualisation.graphs.knowledge.nodes.nodeTypeVisibility.ontology', value: show }],
     });
   }
 
@@ -264,12 +249,11 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
     const normalized = threshold > 1 ? threshold / 100 : threshold;
     actions.push({
       description: `Filtering to quality >= ${normalized}`,
-      localAction: () => {
-        const ss = useSettingsStore.getState();
-        ss?.set?.('nodeFilter.enabled', true);
-        ss?.set?.('nodeFilter.filterByQuality', true);
-        ss?.set?.('nodeFilter.qualityThreshold', normalized);
-      },
+      writes: [
+        { path: 'nodeFilter.enabled', value: true },
+        { path: 'nodeFilter.filterByQuality', value: true },
+        { path: 'nodeFilter.qualityThreshold', value: normalized },
+      ],
     });
   }
 
@@ -278,10 +262,7 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
     const hide = !lower.includes('show');
     actions.push({
       description: `${hide ? 'Hiding' : 'Showing'} orphan (degree-0) nodes`,
-      localAction: () => {
-        const ss = useSettingsStore.getState();
-        ss?.set?.('nodeFilter.minConnections', hide ? 1 : 0);
-      },
+      writes: [{ path: 'nodeFilter.minConnections', value: hide ? 1 : 0 }],
     });
   }
 
@@ -292,10 +273,7 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
     if (value > 1) value = value / 100;
     actions.push({
       description: `Setting node opacity to ${value}`,
-      localAction: () => {
-        const ss = useSettingsStore.getState();
-        ss?.set?.('visualisation.graphs.knowledge.nodes.opacity', value);
-      },
+      writes: [{ path: 'visualisation.graphs.knowledge.nodes.opacity', value }],
     });
   }
 
@@ -304,10 +282,7 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
     const show = !lower.includes('hide') && !lower.includes('off');
     actions.push({
       description: `${show ? 'Showing' : 'Hiding'} labels`,
-      localAction: () => {
-        const ss = useSettingsStore.getState();
-        ss?.set?.('visualisation.graphs.knowledge.labels.enableLabels', show);
-      },
+      writes: [{ path: 'visualisation.graphs.knowledge.labels.enableLabels', value: show }],
     });
   }
 
@@ -317,11 +292,15 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
   if ((lower.includes('reset') || lower.includes('default'))
     && !lower.includes('separat') && !lower.includes('flatten') && !/\bflat\b/.test(lower)) {
     actions.push({
-      description: 'Resetting physics to defaults',
-      endpoint: '/api/settings/physics',
-      method: 'PUT',
-      // Canonical defaults — mirror DEFAULT_PHYSICS_SETTINGS exactly.
-      body: { repelK: 120, springK: 12.0, damping: 0.9, restLength: 50, maxVelocity: 100 },
+      description: 'Resetting forces to defaults',
+      // Read from the shipped defaults, never restated here.
+      writes: physicsWrites({
+        repelK: DEFAULT_PHYSICS_SETTINGS.repelK,
+        springK: DEFAULT_PHYSICS_SETTINGS.springK,
+        damping: DEFAULT_PHYSICS_SETTINGS.damping,
+        restLength: DEFAULT_PHYSICS_SETTINGS.restLength,
+        maxVelocity: DEFAULT_PHYSICS_SETTINGS.maxVelocity,
+      }),
     });
   }
 
@@ -329,14 +308,11 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
   if (lower.includes('glow') || lower.includes('bloom')) {
     const enable = !lower.includes('off') && !lower.includes('disable');
     actions.push({
-      description: `${enable ? 'Enabling' : 'Disabling'} bloom`,
-      localAction: () => {
-        const ss = useSettingsStore.getState();
-        ss?.updateSettings?.((draft: any) => {
-          if (draft.visualisation?.bloom) draft.visualisation.bloom.enabled = enable;
-          if (draft.visualisation?.glow) draft.visualisation.glow.enabled = enable;
-        });
-      },
+      description: `${enable ? 'Enabling' : 'Disabling'} emphasis glow`,
+      writes: [
+        { path: 'visualisation.bloom.enabled', value: enable },
+        { path: 'visualisation.glow.enabled', value: enable },
+      ],
     });
   }
 
@@ -357,61 +333,32 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
   if ((lower.includes('semantic') && lower.includes('cluster')) || lower.includes('group by')) {
     actions.push({
       description: 'Enabling community cohesion + Leiden detection',
-      endpoint: '/api/settings/physics',
-      method: 'PUT',
-      body: { clusterStrength: 0.005, clusteringAlgorithm: 'leiden', clusteringResolution: 1.0, clusteringIterations: 50 },
+      writes: physicsWrites({ clusterStrength: 0.005, clusteringAlgorithm: 'leiden', clusteringResolution: 1.0, clusteringIterations: 50 }),
     });
     actions.push({
       description: 'Enabling cluster visualization',
-      localAction: () => {
-        const ss = useSettingsStore.getState();
-        ss?.updateSettings?.((draft: any) => {
-          if (!draft.qualityGates) draft.qualityGates = {};
-          draft.qualityGates.showClusters = true;
-          draft.qualityGates.semanticForces = true;
-          if (!draft.visualisation) draft.visualisation = {};
-          if (!draft.visualisation.clusterHulls) draft.visualisation.clusterHulls = {};
-          draft.visualisation.clusterHulls.enabled = true;
-        });
-      },
+      // (The retired qualityGates.semanticForces write is gone: ADR-2140 moved it into physics.semantic.)
+      writes: [
+        { path: 'qualityGates.showClusters', value: true },
+        { path: 'visualisation.clusterHulls.enabled', value: true },
+      ],
     });
   }
 
   // "less overwhelming labels", "fewer labels", "reduce label clutter"
   if (lower.includes('overwhelm') || lower.includes('clutter') || lower.includes('fewer label') || lower.includes('less label')) {
     actions.push({
-      description: 'Reducing label visibility for clarity',
-      localAction: () => {
-        const ss = useSettingsStore.getState();
-        ss?.updateSettings?.((draft: any) => {
-          const labels = draft.visualisation?.graphs?.knowledge?.labels;
-          if (labels) {
-            // Raw target values (no scaling) within the slider bounds.
-            labels.labelDistanceThreshold = 600;
-            labels.desktopFontSize = 0.25;
-            labels.showMetadata = false;
-          }
-        });
-      },
+      description: 'Fewer labels: lowering the overview label budget',
+      // The Labels dial owns the number (ADR-2186 budget).
+      writes: [...MACROS_BY_ID.focus.apply(0.15), { path: 'visualisation.graphs.knowledge.labels.showMetadata', value: false }],
     });
   }
 
   // "more labels", "bigger labels", "I can't read the labels"
   if ((lower.includes('more') || lower.includes('bigger') || lower.includes('read')) && lower.includes('label')) {
     actions.push({
-      description: 'Increasing label visibility',
-      localAction: () => {
-        const ss = useSettingsStore.getState();
-        ss?.updateSettings?.((draft: any) => {
-          const labels = draft.visualisation?.graphs?.knowledge?.labels;
-          if (labels) {
-            // Raw target values (no scaling) within the slider bounds.
-            labels.labelDistanceThreshold = 1600;
-            labels.desktopFontSize = 0.6;
-            labels.enableLabels = true;
-          }
-        });
-      },
+      description: 'More labels: raising the overview label budget',
+      writes: [...MACROS_BY_ID.focus.apply(0.8), { path: 'visualisation.graphs.knowledge.labels.enableLabels', value: true }],
     });
   }
 
@@ -422,17 +369,11 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
     const showOntology = lower.includes('ontology');
     actions.push({
       description: `Showing: ${[showKnowledge && 'knowledge', showOntology && 'ontology', showAgent && 'agents'].filter(Boolean).join(', ')}`,
-      localAction: () => {
-        const ss = useSettingsStore.getState();
-        ss?.updateSettings?.((draft: any) => {
-          const vis = draft.visualisation?.graphs?.knowledge?.nodes?.nodeTypeVisibility;
-          if (vis) {
-            vis.knowledge = showKnowledge;
-            vis.ontology = showOntology;
-            vis.agent = showAgent;
-          }
-        });
-      },
+      writes: [
+        { path: 'visualisation.graphs.knowledge.nodes.nodeTypeVisibility.knowledge', value: showKnowledge },
+        { path: 'visualisation.graphs.knowledge.nodes.nodeTypeVisibility.ontology', value: showOntology },
+        { path: 'visualisation.graphs.knowledge.nodes.nodeTypeVisibility.agent', value: showAgent },
+      ],
     });
   }
 
@@ -441,16 +382,9 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
     const mode = lower.includes('radial') ? 'radial' : lower.includes('left') ? 'dagLeftRight' : 'hierarchical';
     actions.push({
       description: `Switching to ${mode} layout`,
-      localAction: () => {
-        const ss = useSettingsStore.getState();
-        ss?.updateSettings?.((draft: any) => {
-          if (!draft.qualityGates) draft.qualityGates = {};
-          draft.qualityGates.semanticForces = true;
-          // The layout mode is the stored physics.layoutMode (ADR-2140).
-          const physics = draft?.visualisation?.graphs?.knowledge?.physics;
-          if (physics) physics.layoutMode = mode;
-        });
-      },
+      // The layout mode is the stored physics.layoutMode (ADR-2140); the write path
+      // also asks the server for the transition, as the Layout › Mode select does.
+      writes: [{ path: 'visualisation.graphs.knowledge.physics.layoutMode', value: mode }],
     });
   }
 
@@ -507,17 +441,18 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
           const solidPod = (await import('../../../services/SolidPodService')).default;
           const view = await solidPod.loadGraphView(viewName);
           if (view) {
-            const ss = useSettingsStore.getState();
+            const writes: SettingWrite[] = [];
             if (view.physics) {
-              await unifiedApiClient.put('/settings/physics', view.physics);
+              // Keep only the stored values: a saved view may carry unset (undefined) keys.
+              const physics = Object.fromEntries(
+                Object.entries(view.physics as Record<string, unknown>).filter(([, v]) => v !== undefined),
+              );
+              writes.push(...physicsWrites(physics));
             }
-            if (view.nodeTypeVisibility && ss?.updateSettings) {
-              ss.updateSettings((draft: any) => {
-                if (draft.visualisation?.graphs?.knowledge?.nodes) {
-                  draft.visualisation.graphs.knowledge.nodes.nodeTypeVisibility = view.nodeTypeVisibility;
-                }
-              });
+            if (view.nodeTypeVisibility) {
+              writes.push({ path: 'visualisation.graphs.knowledge.nodes.nodeTypeVisibility', value: view.nodeTypeVisibility });
             }
+            applySettingWrites(writes);
           }
         } catch (e) {
           console.error('Failed to load view:', e);
@@ -585,8 +520,11 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
 }
 
 async function executeAction(action: SettingsAction): Promise<void> {
+  if (action.writes?.length) {
+    applySettingWrites(action.writes);
+  }
   if (action.localAction) {
-    action.localAction();
+    await action.localAction();
   }
   if (action.endpoint) {
     // Route through unifiedApiClient so the auth interceptor injects credentials
@@ -752,7 +690,7 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isCollapsed }) => {
     if (!jevReview || jevReview.review.kind !== 'patch') return;
     const { patch } = jevReview.review;
     try {
-      useSettingsStore.getState().set(patch.path as never, patch.proposed as never);
+      applySettingWrites([{ path: patch.path, value: patch.proposed }]);
       addStatus(`Applied ${patch.label} = ${String(patch.proposed)}`);
     } catch (e) {
       addStatus(`Could not apply: ${e instanceof Error ? e.message : 'unknown error'}`);
@@ -785,8 +723,8 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isCollapsed }) => {
     // dock / SettingsPanel / StatusCluster overlays; pointer-events restored
     // because the cc-root wrapper is pointer-events:none.
     <div
-      className="cc-glass cc-glass--overlay cc-panel-transition fixed bottom-28 left-1/2 z-40 -translate-x-1/2 p-3 pointer-events-auto"
-      style={{ width: 'min(92vw, 560px)' }}
+      className="cc-glass cc-glass--overlay cc-panel-transition fixed left-1/2 -translate-x-1/2 p-3 pointer-events-auto"
+      style={{ width: 'min(92vw, 560px)', bottom: 'var(--cc-dock-clearance, 7rem)', zIndex: 'var(--cc-z-popover, 45)' as unknown as number }}
     >
       <form onSubmit={handleSubmit} className="flex items-center gap-2">
         <span
@@ -801,6 +739,8 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isCollapsed }) => {
           value={command}
           onChange={(e) => setCommand(e.target.value)}
           onFocus={handleInputFocus}
+          aria-label="Ask: describe the view you want in plain language"
+          data-testid="command-input-field"
           placeholder={isProcessing ? 'Command queued…' : 'Configure view — ask in plain language…'}
           className="w-full rounded-md border border-border/60 bg-input/40 px-3 py-1.5 font-mono text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-ring"
         />

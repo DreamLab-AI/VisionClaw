@@ -63,7 +63,7 @@ function prefersReducedMotion(): boolean {
 export interface ControlCenterUIState {
   /** Whether the slide-out SettingsPanel is open. */
   openPanel: boolean;
-  /** Active rail entry: a semantic group id ('motion'…'system') or a bespoke
+  /** Active rail entry: a section id ('layers'…'system', ADR-2189) or a bespoke
    *  panel id ('solid' | 'ontology'). Null when nothing is selected. */
   activeGroup: string | null;
   /** Dock collapsed to a single pill (Cmd/Ctrl+. hero mode). */
@@ -73,6 +73,10 @@ export interface ControlCenterUIState {
   /** Persisted width (px) of the docked SettingsPanel. User-resizable via the
    *  GlassPanel edge handle; clamped to [PANEL_MIN_WIDTH, PANEL_MAX_WIDTH]. */
   panelWidth: number;
+  /** ADR-2185 explore panel (right drawer) open; only used once gv-explore supplies it. */
+  explorePanelOpen: boolean;
+  /** Generated keyboard-shortcut sheet open ('?'). */
+  shortcutSheetOpen: boolean;
 
   /** Open the panel to a group/panel id (used by hotkeys, rail, reveal). */
   openGroup: (id: string) => void;
@@ -86,6 +90,8 @@ export interface ControlCenterUIState {
   setEchoPulseEnabled: (enabled: boolean) => void;
   /** Set + persist the docked panel width (clamped). */
   setPanelWidth: (width: number) => void;
+  setExplorePanelOpen: (open: boolean) => void;
+  setShortcutSheetOpen: (open: boolean) => void;
 }
 
 export const useControlCenterUI = create<ControlCenterUIState>((set) => ({
@@ -94,6 +100,8 @@ export const useControlCenterUI = create<ControlCenterUIState>((set) => ({
   dockCollapsed: false,
   echoPulseEnabled: !prefersReducedMotion(),
   panelWidth: readStoredPanelWidth(),
+  explorePanelOpen: false,
+  shortcutSheetOpen: false,
 
   openGroup: (id) => set({ openPanel: true, activeGroup: id }),
   closePanel: () => set({ openPanel: false }),
@@ -107,6 +115,8 @@ export const useControlCenterUI = create<ControlCenterUIState>((set) => ({
   toggleDock: () => set((s) => ({ dockCollapsed: !s.dockCollapsed })),
   setDockCollapsed: (collapsed) => set({ dockCollapsed: collapsed }),
   setEchoPulseEnabled: (enabled) => set({ echoPulseEnabled: enabled }),
+  setExplorePanelOpen: (open) => set({ explorePanelOpen: open }),
+  setShortcutSheetOpen: (open) => set({ shortcutSheetOpen: open }),
   setPanelWidth: (width) => {
     const w = clampPanelWidth(width);
     persistPanelWidth(w);
