@@ -121,7 +121,9 @@ Rules for the seven sections:
 
 ### 2. Registry-driven mechanism
 - `GroupData` gains `section` (one of the seven ids above). The rail and dock render sections, and the old group ids become subsections.
-- `buildManifest` emits a new `ia.json` (section → subsection → field keys and labels). It sits beside `settings-manifest.json` and is copied into `xr-client/data/` the same way `semantic_fields.json` is. `hud.gd` builds its tab bar from it, so the two clients cannot drift apart.
+- `buildManifest` (run by `scripts/emit-settings-manifest.ts`) emits a new `ia.json` (section → subsection → field keys and labels). It writes two committed copies: one beside `settings-manifest.json`, and one at `xr-client/data/ia.json`. `hud.gd` builds its tab bar from the XR copy.
+  - The precedent is `semantic_fields.json`. Its two copies (`client/src/features/control-center/registry/semanticFields.json` and `xr-client/data/semantic_fields.json`, which are byte-identical today) are pinned to their Rust source by a test at `crates/visionclaw-domain/src/types/semantic_config.rs:659-660`.
+  - `ia.json`'s source is the TypeScript registry, so its pin is a Vitest test instead. The test regenerates the document and asserts that both committed copies equal it. That way the two clients cannot drift apart silently.
 - Each field gets a derived **scope** from `serverBucketFor`: `shared` (physics), `server` (other buckets) or `browser` (null). `SettingRow` shows it as a badge.
   - `shared` controls carry the text "Changes the layout for everyone".
   - The dock's Layout dials carry the same marker.
@@ -262,6 +264,8 @@ This table is the subgroup-level map. The per-path table, all 268 rows, is Appen
   - The dock needs a responsive layout.
   - The chips need one shared corner and z-index scheme.
 - **XR work.** `hud.gd` must read `ia.json` and persist its view preferences (colour mode, layout mode, Reduce motion, Low-cost visuals, HUD position) to `xr_prefs.cfg`.
+- **ADR-2181 premise.** ADR-2181 §2 says edge colour "keeps today's `colorByType`". Today that toggle does nothing: type colouring and weight-based width are both applied unconditionally (`useEdgeBufferComputation.ts:130-135`). The "Colour by" and "Width by" selects defined here make that behaviour visible and adjustable.
+- **Governing doc.** No governing document is amended by this proposal. On acceptance, the IA and the scope badges are added to `docs/XR-client.md` and to the desktop governing document in the same change, as AGENTS.md requires.
 - **Retargeted dials.** Labels and Glow change meaning. Users with saved dial positions will see a different result after upgrading. This is accepted: the old targets are superseded by ADR-2182 and ADR-2186.
 
 ## Verification
@@ -272,7 +276,7 @@ This table is the subgroup-level map. The per-path table, all 268 rows, is Appen
 - Mapping table: generated from `settings-manifest.json` by a subgroup → section map with per-path overrides. It has 268 rows and 0 unmapped (K 213, D 37, M 8, R 6, W 4).
 - **Acceptance checks for the implementation:**
   - Every manifest field has a `section`.
-  - `ia.json` equals the HUD tab list.
+  - A Vitest parity test shows both committed `ia.json` copies equal the regenerated document. A GUT test shows the HUD tab list equals `ia.json`'s sections.
   - Each hotkey in an aria-label fires its handler (unit test).
   - At 1024x768 and 1280x900, `elementsFromPoint` at the centre of every dock, chip and Fit control returns that control.
   - The dead-scan script reports 0 paths with no reader.
