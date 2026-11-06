@@ -1,5 +1,5 @@
 import React, { useMemo, useCallback, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useFrame } from '@react-three/fiber';
 import { enableBloom } from '../../../rendering/bloomLayer';
 import * as THREE from 'three';
 import {
@@ -38,84 +38,18 @@ import type { GemMaterialSettings, GlowSettings } from '../../settings/config/se
  * (overlapping nodes) case by scaling to zero.
  */
 const EDGE_INITIAL = 1024;
-/** Frames between camera checks for the close-zoom tube LOD. */
-const LOD_REFRESH_FRAMES = 6;
 const DEFAULT_EDGE_CEILING = 65536;
 
 /**
- * ADR-2181 D3: glass tubes as the close-zoom level of detail. When set, only
- * edges whose nearer endpoint is within `maxDistance` of the camera are drawn
- * as tubes, nearest first, at most `budget`; the screen-space overview edges
- * draw the rest. `maxDistance` 0 draws no tubes. Null = today's behaviour
- * (every edge a tube), used when overview edges are disabled.
+ * ADR-2181 D3: under the overview layer the edge hook feeds these tubes only
+ * the tube subset (overview/tubeSelect.ts), so the mesh draws what it is given.
  */
-export interface GlassTubeLod {
-  maxDistance: number;
-  budget: number;
-}
-
-/** Tubes drawn at most under the close-zoom LOD. */
-export const TUBE_BUDGET = 4096;
-
 interface GlassEdgesProps {
   points: number[];
   settings: any;
   colorOverride?: string;
-  lod?: GlassTubeLod | null;
   /** Put the tubes on the selective-bloom layer (the selection's edges). */
   bloom?: boolean;
-}
-
-/**
- * Pick the edges to draw as tubes under the close-zoom LOD: an edge qualifies
- * when either endpoint is within `maxDistance` of the camera; nearest first,
- * capped at `budget`. Writes edge indices to `out` and returns their count.
- * `scratch` holds squared distances (grow-only, caller-owned).
- */
-export interface TubeSelectScratch {
-  slot: Uint32Array;
-  dist: Float32Array;
-  byDist: (a: number, b: number) => number;
-}
-
-/** Grow-only scratch for selectCloseTubes; the comparator is created once. */
-export function createTubeSelectScratch(): TubeSelectScratch {
-  const s: TubeSelectScratch = { slot: new Uint32Array(0), dist: new Float32Array(0), byDist: (a, b) => s.dist[a] - s.dist[b] };
-  return s;
-}
-
-export function selectCloseTubes(
-  pts: ArrayLike<number>, edgeCount: number, camX: number, camY: number, camZ: number,
-  maxDistance: number, budget: number, out: Int32Array, scratch: Float32Array,
-  sort: TubeSelectScratch = createTubeSelectScratch(),
-): number {
-  const lim2 = maxDistance > 0 ? maxDistance * maxDistance : 0;
-  if (lim2 === 0 || budget <= 0) return 0;
-  let n = 0;
-  for (let i = 0; i < edgeCount && n < out.length; i++) {
-    const o = i * 6;
-    const ax = pts[o] - camX, ay = pts[o + 1] - camY, az = pts[o + 2] - camZ;
-    const bx = pts[o + 3] - camX, by = pts[o + 4] - camY, bz = pts[o + 5] - camZ;
-    const d2 = Math.min(ax * ax + ay * ay + az * az, bx * bx + by * by + bz * bz);
-    if (!(d2 <= lim2)) continue;
-    out[n] = i;
-    scratch[n] = d2;
-    n++;
-  }
-  if (n <= budget) return n;
-  // Keep the `budget` nearest. Candidates are gathered in edge order up to
-  // out.length (the caller sizes it at 4× the budget), so the scan is bounded;
-  // this sort runs at the LOD cadence only, never per frame.
-  if (sort.slot.length < n) { sort.slot = new Uint32Array(n); sort.dist = new Float32Array(n); }
-  sort.dist.set(scratch.subarray(0, n));
-  const slot = sort.slot.subarray(0, n);
-  for (let k = 0; k < n; k++) slot[k] = k;
-  slot.sort(sort.byDist);
-  const keep = slot.subarray(0, budget);
-  keep.sort(); // back to edge order
-  // keep[k] >= k (ascending distinct slots), so compacting in place is safe
-  for (let k = 0; k < budget; k++) out[k] = out[keep[k]];
-  return budget;
 }
 
 export interface GlassEdgesHandle {
@@ -203,15 +137,11 @@ function computeInstanceMatrices(
   limit?: number,
   dataLength?: number,
   radiusFactors?: Float32Array | null,
-  selection?: Int32Array | null,
-  selectionCount = 0,
 ): number {
   const total = Math.floor((dataLength ?? pts.length) / 6);
-  const edgeCount = Math.min(selection ? selectionCount : total, capacity);
+  const edgeCount = Math.min(total, capacity);
   const renderCount = limit !== undefined ? Math.min(limit, edgeCount) : edgeCount;
-  for (let j = 0; j < renderCount; j++) {
-    // j = instance slot; i = edge index in pts (equal unless a LOD selection compacts)
-    const i = selection ? selection[j] : j;
+  for (let i = 0; i < renderCount; i++) {
     const off = i * 6;
     tmpSrc.set(pts[off], pts[off + 1], pts[off + 2]);
     tmpTgt.set(pts[off + 3], pts[off + 4], pts[off + 5]);
@@ -225,7 +155,7 @@ function computeInstanceMatrices(
     if (len < 1e-6) {
       // Collapsed/overlapping nodes (adjLen <= 0 case in ADR-04 D2)
       tmpMat.makeScale(0, 0, 0);
-      mesh.setMatrixAt(j, tmpMat);
+      mesh.setMatrixAt(i, tmpMat);
       continue;
     }
     tmpDir.normalize();
@@ -247,7 +177,7 @@ function computeInstanceMatrices(
     const r = radiusFactors ? radiusFactors[i] : 1.0;
     tmpScale.set(r, len, r);
     tmpMat.compose(tmpPos, tmpQuat, tmpScale);
-    mesh.setMatrixAt(j, tmpMat);
+    mesh.setMatrixAt(i, tmpMat);
   }
 
   mesh.count = renderCount;
@@ -278,20 +208,10 @@ function allocateMesh(
 }
 
 export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
-  ({ points, settings, colorOverride, lod = null, bloom = false }, ref) => {
+  ({ points, settings, colorOverride, bloom = false }, ref) => {
     const meshRef = useRef<THREE.InstancedMesh | null>(null);
-    const { camera } = useThree();
-    // Close-zoom LOD state (ADR-2181 D3): the last imperative inputs, so a camera
-    // move can re-select without waiting for the edge pass; the compacting
-    // selection (instance slot → edge index) that updateColors follows.
-    const lodRef = useRef<GlassTubeLod | null>(lod);
-    lodRef.current = lod;
     const bloomRef = useRef(bloom);
     bloomRef.current = bloom;
-    const lastPtsRef = useRef<{ pts: number[]; len: number } | null>(null);
-    const lastColorsRef = useRef<{ colors: Float32Array; count: number } | null>(null);
-    const selRef = useRef<{ idx: Int32Array; dist: Float32Array; count: number; sort: TubeSelectScratch }>({ idx: new Int32Array(0), dist: new Float32Array(0), count: 0, sort: createTubeSelectScratch() });
-    const lodCamRef = useRef({ x: NaN, y: NaN, z: NaN, frame: 0, lod: null as GlassTubeLod | null });
     const edgeRevealRef = useRef(0);
     const totalEdgesRef = useRef(0);
     const instanceColorsActiveRef = useRef(false);
@@ -575,24 +495,10 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
           return;
         }
         const edgeCount = Math.floor(len / 6);
-        lastPtsRef.current = { pts: newPts, len };
-        const l = lodRef.current;
-        if (l) {
-          const sel = selRef.current;
-          const cap = Math.min(edgeCount, Math.max(0, l.budget) * 4 + 1);
-          if (sel.idx.length < cap) { sel.idx = new Int32Array(cap); sel.dist = new Float32Array(cap); }
-          sel.count = selectCloseTubes(newPts, edgeCount, camera.position.x, camera.position.y, camera.position.z,
-            l.maxDistance, l.budget, sel.idx, sel.dist, sel.sort);
-          const activeMesh = ensureCapacity(Math.max(1, sel.count));
-          computeInstanceMatrices(activeMesh, newPts, capacityRef.current, undefined, len, radiusFactorsRef.current, sel.idx, sel.count);
-          lodCamRef.current.x = camera.position.x; lodCamRef.current.y = camera.position.y; lodCamRef.current.z = camera.position.z;
-          lodCamRef.current.lod = l;
-          return;
-        }
         const activeMesh = ensureCapacity(edgeCount);
         computeInstanceMatrices(activeMesh, newPts, capacityRef.current, undefined, len, radiusFactorsRef.current);
       },
-      [ensureCapacity, camera],
+      [ensureCapacity],
     );
 
     // Convert per-edge raw weights -> precomputed X/Z radius factors. The edge
@@ -640,20 +546,8 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
         if (!m || !m.instanceColor) return;
         const attr = m.instanceColor as THREE.InstancedBufferAttribute;
         const dst = attr.array as Float32Array;
-        lastColorsRef.current = { colors, count };
-        if (lodRef.current) {
-          // compacted: instance slot j shows edge sel.idx[j]
-          const sel = selRef.current;
-          const n = Math.min(sel.count, Math.floor(dst.length / 3));
-          for (let j = 0; j < n; j++) {
-            const i = sel.idx[j];
-            if (i >= count) continue;
-            dst[j * 3] = colors[i * 3]; dst[j * 3 + 1] = colors[i * 3 + 1]; dst[j * 3 + 2] = colors[i * 3 + 2];
-          }
-        } else {
-          const len = Math.min(count * 3, dst.length, colors.length);
-          dst.set(colors.subarray(0, len));
-        }
+        const len = Math.min(count * 3, dst.length, colors.length);
+        dst.set(colors.subarray(0, len));
         attr.needsUpdate = true;
         // When per-instance colors are active, set base color to white
         // so the instance colors come through unmodified by material tint
@@ -691,24 +585,9 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
         mat.emissiveIntensity = emissiveBase + Math.sin(clock.elapsedTime * pulseSpeed) * emissiveAmplitude;
       }
 
-      // Close-zoom LOD: the camera moved (or the LOD changed) since the last
-      // selection — re-select from the last imperative inputs, at most every
-      // LOD_REFRESH_FRAMES frames (the edge pass itself skips while settled).
-      const lc = lodCamRef.current;
-      const l = lodRef.current;
-      if (l && lastPtsRef.current && ++lc.frame >= LOD_REFRESH_FRAMES) {
-        lc.frame = 0;
-        const dx = camera.position.x - lc.x, dy = camera.position.y - lc.y, dz = camera.position.z - lc.z;
-        const eps = Math.max(0.5, l.maxDistance * 0.02);
-        if (lc.lod !== l || !(dx * dx + dy * dy + dz * dz <= eps * eps)) {
-          updatePoints(lastPtsRef.current.pts, lastPtsRef.current.len);
-          if (lastColorsRef.current) updateColors(lastColorsRef.current.colors, lastColorsRef.current.count);
-        }
-      }
-
       // Progressive edge reveal: ramp up each frame (initial prop-based load only).
       // Yields permanently once the imperative hot loop takes over.
-      if (!imperativeActiveRef.current && !lodRef.current && m && edgeRevealRef.current < totalEdgesRef.current && points.length >= 6) {
+      if (!imperativeActiveRef.current && m && edgeRevealRef.current < totalEdgesRef.current && points.length >= 6) {
         edgeRevealRef.current = Math.min(
           edgeRevealRef.current + EDGE_REVEAL_BATCH,
           totalEdgesRef.current,

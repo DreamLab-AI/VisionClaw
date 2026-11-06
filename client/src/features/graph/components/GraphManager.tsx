@@ -37,7 +37,7 @@ import { setSharedNodePositions, setSharedNodeIdToIndexMap } from '../contexts/N
 import { OverviewLayer, resolveGraphView } from '../overview/OverviewLayer'
 import { useNodeEncodingSync } from '../overview/useNodeEncodingSync'
 import { useOverviewLive } from '../overview/overviewLive'
-import { TUBE_BUDGET, type GlassTubeLod } from './GlassEdges'
+import { TUBE_BUDGET, type GlassTubeLod } from '../overview/tubeSelect'
 import { setHoveredNodeEmphasis } from '../explore/filterRegistry'
 import type { GraphViewSettings } from '../../settings/config/settings'
 
@@ -531,6 +531,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
     highlightEdgePoints,
     setEdgePoints,
     setHighlightEdgePoints,
+    tubeLod,
   })
 
   // Proxy ref: useGraphEventHandlers expects RefObject<InstancedMesh>. The guard
@@ -708,7 +709,6 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
       <GlassEdges
         ref={edgeFlowRef}
         points={edgePoints}
-        lod={tubeLod}
         settings={settings?.visualisation?.graphs?.knowledge?.edges || settings?.visualisation?.edges || defaultEdgeSettings}
         colorOverride={
           graphMode === 'knowledge_graph'

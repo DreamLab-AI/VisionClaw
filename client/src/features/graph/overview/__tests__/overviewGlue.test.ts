@@ -3,7 +3,6 @@ import * as THREE from 'three';
 import { NodePositionTexture, texelOf, POSITION_TEX_WIDTH } from '../nodePositionTexture';
 import { LabelBudgetRunner } from '../labelRunner';
 import { LABEL_REFRESH_MS, TIER_SELECTION } from '../labelBudget';
-import { selectCloseTubes } from '../../components/GlassEdges';
 import { resolveInferredPairs } from '../../components/InferredEdges';
 import { resolveGraphView } from '../OverviewLayer';
 import { HIGHLIGHT_FILTERED_OUT, HIGHLIGHT_SELECTED, highlightMask } from '../../state/highlightMask';
@@ -44,21 +43,6 @@ describe('NodePositionTexture (GPU node source)', () => {
     expect(t.height).toBeGreaterThanOrEqual(2);
     expect(texelOf(POSITION_TEX_WIDTH + 1)).toEqual([1, 1]);
     t.dispose();
-  });
-});
-
-describe('glass tubes as close-zoom LOD (ADR-2181 D3)', () => {
-  // 4 edges along x, endpoints at x = 10k and 10k + 1
-  const pts = [0, 1, 2, 3].flatMap((k) => [10 * k, 0, 0, 10 * k + 1, 0, 0]);
-  it('keeps only edges with an endpoint within the distance, nearest first, within the budget', () => {
-    const out = new Int32Array(8), d = new Float32Array(8);
-    expect(selectCloseTubes(pts, 4, 0, 0, 0, 12, 10, out, d)).toBe(2);
-    expect(Array.from(out.slice(0, 2))).toEqual([0, 1]);
-    expect(selectCloseTubes(pts, 4, 31, 0, 0, 100, 2, out, d)).toBe(2);
-    expect(Array.from(out.slice(0, 2)).sort()).toEqual([2, 3]);
-  });
-  it('distance 0 (glassAtCloseZoom off) draws no tubes', () => {
-    expect(selectCloseTubes(pts, 4, 0, 0, 0, 0, 10, new Int32Array(8), new Float32Array(8))).toBe(0);
   });
 });
 
