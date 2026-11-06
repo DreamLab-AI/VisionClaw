@@ -18,6 +18,11 @@ impl UnifiedGPUCompute {
     /// `sssp_device_distances` so the force kernel can read them without an
     /// extra host-device round-trip.
     pub fn run_sssp(&mut self, source_idx: usize, delta: Option<f32>) -> Result<Vec<f32>> {
+        // An unchecked source indexed past the host buffers and panicked the actor. The
+        // message is the one the visibility gate also gives for a hidden source.
+        if source_idx >= self.num_nodes {
+            return Err(anyhow!("source node {} out of range", source_idx));
+        }
         self.sssp_available = false;
 
         let result = (|| -> Result<Vec<f32>> {

@@ -8,6 +8,7 @@
 //! forwards `GetGraphData` to the graph state actor it owns.
 
 use actix::Addr;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::actors::graph_service_supervisor::GraphServiceSupervisor;
@@ -23,11 +24,31 @@ pub fn caller_view(
     graph: &Arc<GraphData>,
     caller: &crate::settings::OptionalAuth,
 ) -> Arc<GraphData> {
+    caller_view_for(graph, caller.0.as_ref().map(|u| u.pubkey.as_str()))
+}
+
+/// [`caller_view`] for a caller known only by pubkey (`None` is anonymous).
+pub fn caller_view_for(graph: &Arc<GraphData>, pubkey: Option<&str>) -> Arc<GraphData> {
     visionclaw_domain::utils::visibility_filter::visible_subgraph(
         graph,
-        caller.0.as_ref().map(|u| u.pubkey.as_str()),
+        pubkey,
         visionclaw_domain::utils::visibility_filter::filter_enabled(),
     )
+}
+
+/// GPU analysers answer in positions of `graph.nodes`, which equal node ids only while the graph
+/// is compact (a `remove_node` leaves a gap until the next reload). A position counts as visible
+/// only when its node is in the caller's `view` AND its id is its position, so any drift fails
+/// closed rather than letting a hidden node through under a visible node's number.
+pub fn visible_positions(graph: &GraphData, view: &GraphData) -> HashSet<u32> {
+    let seen: HashSet<u32> = view.nodes.iter().map(|n| n.id).collect();
+    graph
+        .nodes
+        .iter()
+        .enumerate()
+        .filter(|(i, n)| n.id as usize == *i && seen.contains(&n.id))
+        .map(|(i, _)| i as u32)
+        .collect()
 }
 
 /// Fetch the current graph, or a message saying why it is unavailable.

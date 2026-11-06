@@ -31,6 +31,7 @@ mod sssp_handlers;
 pub mod state;
 mod stress_handlers;
 pub mod types;
+mod visible_analytics;
 
 // Clustering handler (separate file, already existed)
 pub mod anomaly;

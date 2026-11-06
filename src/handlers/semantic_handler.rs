@@ -250,23 +250,10 @@ fn visible_ids(
     if Arc::ptr_eq(&view, graph) {
         None
     } else {
-        Some(visible_positions(graph, &view))
+        Some(crate::handlers::graph_access::visible_positions(
+            graph, &view,
+        ))
     }
-}
-
-/// The analyser answers in positions of `graph.nodes`, which equal node ids only while the graph
-/// is compact (a `remove_node` leaves a gap until the next reload). A position counts as visible
-/// only when its node is in the caller's view AND its id is its position, so any drift fails
-/// closed rather than letting a hidden node through under a visible node's number.
-fn visible_positions(graph: &GraphData, view: &GraphData) -> HashSet<u32> {
-    let seen: HashSet<u32> = view.nodes.iter().map(|n| n.id).collect();
-    graph
-        .nodes
-        .iter()
-        .enumerate()
-        .filter(|(i, n)| n.id as usize == *i && seen.contains(&n.id))
-        .map(|(i, _)| i as u32)
-        .collect()
 }
 
 /// The error the analyser gives for a source id past the end of the graph.
@@ -527,7 +514,7 @@ mod response_gate_tests {
             nodes: vec![node(0), node(2)],
             ..GraphData::default()
         };
-        let v = visible_positions(&graph, &view);
+        let v = crate::handlers::graph_access::visible_positions(&graph, &view);
         assert_eq!(v, [0].into_iter().collect::<HashSet<u32>>());
     }
 
