@@ -572,7 +572,7 @@ pub fn build_with_certificates(
     for id in &pages {
         if let (Some(old), Some(new)) = (vault.get(id), patched.get(id)) {
             if old.resource(&vocab.namespace) != new.resource(&vocab.namespace) {
-                push_unique(&mut blockers, Blocker::new("RESOURCE_IMMUTABLE",
+                push_unique(&mut blockers, Blocker::new(vault_core::promotion::RESOURCE_IMMUTABLE,
                     format!("`{id}` changes its resource IRI; amend content without reminting identity")));
             }
         }
@@ -839,7 +839,7 @@ scalars:
         assert!(built
             .blockers
             .iter()
-            .any(|b| b.code == "RESOURCE_IMMUTABLE"));
+            .any(|b| b.code == vault_core::promotion::RESOURCE_IMMUTABLE));
     }
 
     #[test]

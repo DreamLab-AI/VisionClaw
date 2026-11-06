@@ -385,7 +385,7 @@ leading paragraph. `resource` was copied from the fence's `@id`, not recomputed.
 2. **One parser.** `vault-core::parse` is the only code that reads the corpus.
    A second parser — in VisionClaw, in a skill, in a script — is a violation.
 3. **`resource` is immutable.** Minted once, never recomputed, never reused.
-   A changed `resource` is the `RESOURCE_MUTATED` blocker; an amendment that would change an existing page's resource IRI is refused by `vault propose` as `RESOURCE_IMMUTABLE` before it can be posted (`6b811f7a1`).
+   A changed `resource` is the `RESOURCE_IMMUTABLE` blocker: an amendment that would change an existing page's resource IRI is refused by `vault propose` with it before it can be posted (`6b811f7a1`). `RESOURCE_MUTATED`, the name the corpus vocabulary's `validation.blockers` still uses, is an accepted alias read as `RESOURCE_IMMUTABLE` (`vault_core::promotion::BLOCKER_CODE_ALIASES`, the one place an alias lives); the vocabulary file should be updated by its owner.
 4. **Identity is the vault-relative path.** Non-namespace page ids are
    byte-identical to their v1 values; namespace ids derive from `Ns/Title`.
 5. **Path authority is `vault.toml`.** No consumer hard-codes a corpus path.
