@@ -7,6 +7,10 @@ import {
   CLOUD_SETTLE_MS,
   unoccludedRect,
   fitPose,
+  knowledgeBodyBounds,
+  normaliseFitTarget,
+  fitIncludesCloud,
+  DEFAULT_FIT_TARGET,
   type CloudFitInput,
   type Rect,
 } from '../sceneFitBounds';
@@ -73,6 +77,91 @@ describe('sceneFitBounds', () => {
     expect(sceneFitBounds(new Float32Array(0), 0, cloud)).toBeNull();
   });
 });
+
+// ── ADR-2180 fit scopes ──
+describe('sceneFitBounds fit targets (ADR-2180)', () => {
+  const f = separatedFrame();
+  const local = robustBounds(blob.flat(), blob.length)!;
+
+  it("D2: 'scene' is today's sceneFitBounds result exactly, and the default", () => {
+    const pos = projected();
+    const today = sceneFitBounds(pos, pos.length / 3, cloud)!;
+    expect(sceneFitBounds(pos, pos.length / 3, cloud, 'scene')).toEqual(today);
+    expect(sceneFitBounds(pos, pos.length / 3, null, 'scene')).toEqual(sceneFitBounds(pos, pos.length / 3, null));
+  });
+
+  it("'graphs' frames both graph bodies and never the cloud", () => {
+    const pos = projected();
+    expect(sceneFitBounds(pos, pos.length / 3, cloud, 'graphs')).toEqual(sceneFitBounds(pos, pos.length / 3, null));
+  });
+
+  it("'knowledge' frames the knowledge body only, at its vertex", () => {
+    const pos = projected();
+    const fit = sceneFitBounds(pos, pos.length / 3, cloud, 'knowledge')!;
+    const kc = place(f, Vertex.Knowledge, local.centre);
+    expect(Math.hypot(fit.centre[0] - kc[0], fit.centre[1] - kc[1], fit.centre[2] - kc[2])).toBeLessThan(1e-3);
+    expect(fit.radius).toBeCloseTo(local.radius, 3);
+    // the ontology body is outside the frame
+    const oc = place(f, Vertex.Ontology, local.centre);
+    expect(inside(fit, oc, 0)).toBe(false);
+    // and the whole-scene frame is much larger
+    expect(fit.radius).toBeLessThan(sceneFitBounds(pos, pos.length / 3, cloud)!.radius / 2);
+  });
+
+  it("D3 (pure part): 'knowledge' does not depend on the cloud or on the ontology body", () => {
+    const pos = projected();
+    const a = sceneFitBounds(pos, pos.length / 3, null, 'knowledge')!;
+    expect(sceneFitBounds(pos, pos.length / 3, cloud, 'knowledge')).toEqual(a);
+    // move the whole ontology body: the knowledge frame does not move
+    const moved = pos.slice();
+    for (let i = blob.length; i < blob.length * 2; i++) moved[i * 3 + 1] += 500;
+    const b = sceneFitBounds(moved, moved.length / 3, null, 'knowledge')!;
+    expect(b.centre[0]).toBeCloseTo(a.centre[0], 4);
+    expect(b.centre[2]).toBeCloseTo(a.centre[2], 4);
+    expect(b.radius).toBeCloseTo(a.radius, 4);
+  });
+
+  it("'knowledge' is outlier-trimmed: a few far knowledge rows do not shrink the body", () => {
+    const pos = projected();
+    const base = knowledgeBodyBounds(pos, pos.length / 3)!;
+    const withOutliers = Array.from(pos);
+    const kv = f.vertices[Vertex.Knowledge];
+    for (let k = 0; k < 6; k++) withOutliers.push(kv[0] + 40 * k, 3000 + k, kv[2] - 20 * k); // tall spikes above the knowledge vertex
+    const out = knowledgeBodyBounds(withOutliers, withOutliers.length / 3)!;
+    expect(out.radius).toBeLessThan(base.radius * 1.1);
+  });
+
+  it("'knowledge' with no rows: null", () => {
+    expect(sceneFitBounds(new Float32Array(0), 0, cloud, 'knowledge')).toBeNull();
+  });
+
+  it('normalises stored scopes; only the whole scene includes the cloud', () => {
+    expect(DEFAULT_FIT_TARGET).toBe('knowledge');
+    expect(normaliseFitTarget(undefined)).toBe('knowledge');
+    expect(normaliseFitTarget('bogus')).toBe('knowledge');
+    expect(normaliseFitTarget('graphs')).toBe('graphs');
+    expect(normaliseFitTarget('scene')).toBe('scene');
+    expect(fitIncludesCloud('scene')).toBe(true);
+    expect(fitIncludesCloud('graphs')).toBe(false);
+    expect(fitIncludesCloud('knowledge')).toBe(false);
+  });
+
+  it('D1 (pure part): the knowledge body fills at least half the shorter axis after the fit', () => {
+    const pos = projected();
+    const fit = sceneFitBounds(pos, pos.length / 3, cloud, 'knowledge')!;
+    const whole = { left: 0, top: 0, right: VIEW_D1.width, bottom: VIEW_D1.height };
+    const pose = fitPose(fit, { fovDeg: 75, aspect: VIEW_D1.width / VIEW_D1.height }, VIEW_D1, whole);
+    const cam = new THREE.PerspectiveCamera(75, VIEW_D1.width / VIEW_D1.height, 0.1, 1e6);
+    cam.position.set(...pose.position);
+    cam.lookAt(new THREE.Vector3(...pose.target));
+    cam.updateMatrixWorld();
+    const d = cam.position.distanceTo(new THREE.Vector3(...fit.centre));
+    const pxRadius = (fit.radius / (d * Math.tan((75 * Math.PI) / 360))) * (VIEW_D1.height / 2);
+    expect(2 * pxRadius).toBeGreaterThanOrEqual(0.5 * Math.min(VIEW_D1.width, VIEW_D1.height));
+  });
+});
+
+const VIEW_D1 = { width: 1440, height: 900 };
 
 describe('cloudFitKey', () => {
   it('is empty while the cloud is off or unloaded, and names snapshot and scale otherwise', () => {

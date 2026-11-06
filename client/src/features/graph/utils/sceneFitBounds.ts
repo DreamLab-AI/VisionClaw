@@ -1,5 +1,12 @@
 /**
- * What the desktop camera auto-fit frames (ADR-2135).
+ * What the desktop camera auto-fit frames (ADR-2135, scoped by ADR-2180).
+ *
+ * ADR-2180: the fit has three scopes, `visualisation.graphView.fitTarget`:
+ *   - 'knowledge' (the default): the knowledge body alone, from the robust
+ *     (5th–95th percentile) bounds of the rows nearest the knowledge vertex.
+ *     The ontology body and the memory cloud never move the frame;
+ *   - 'graphs': both graph bodies, the cloud left out;
+ *   - 'scene': the ADR-2135 behaviour described below, cloud included.
  *
  * The layout is always separated: the graph broadcast spans the knowledge and
  * ontology vertices, and the memory cloud, ten graphs wide, sits behind them
@@ -13,8 +20,8 @@
  * `cloudFitKey`): the cloud turning on, a new snapshot, or a new cloudScale.
  */
 
-import { type RobustBounds } from '../../../utils/robustBounds';
-import { separatedFrame, place, Vertex, type Vec3 } from '../triLayout';
+import { robustBounds, type RobustBounds } from '../../../utils/robustBounds';
+import { separatedFrame, place, Vertex, isMerged, nearestGraphVertex, unplace, type Vec3 } from '../triLayout';
 import { cloudPlacement, graphBoundsFor } from '../../visualisation/memoryCloud/cloudFrame';
 
 /** quiet time after the cloud's framing input changes before the camera refits */
@@ -50,15 +57,67 @@ function enclose(spheres: Sphere[]): RobustBounds {
   return { centre, radius };
 }
 
+/** ADR-2180 fit scope (`visualisation.graphView.fitTarget`). */
+export type FitTarget = 'knowledge' | 'graphs' | 'scene';
+
+export const DEFAULT_FIT_TARGET: FitTarget = 'knowledge';
+
+/** Normalise a stored or requested scope; anything unknown is the default. */
+export function normaliseFitTarget(value: unknown): FitTarget {
+  return value === 'graphs' || value === 'scene' || value === 'knowledge' ? value : DEFAULT_FIT_TARGET;
+}
+
+/** Whether the memory cloud joins the frame under this scope (ADR-2180 D2/D3). */
+export function fitIncludesCloud(target: FitTarget): boolean {
+  return target === 'scene';
+}
+
+/**
+ * Robust bounds of the knowledge body, in scene space: the rows whose nearest
+ * graph vertex is the knowledge vertex, folded into the body frame, trimmed to
+ * their 5th–95th percentile box, and placed back at the knowledge vertex. When
+ * the layout is merged, or no row sits nearer the knowledge vertex, every row
+ * counts (there is then no other body to exclude).
+ */
+export function knowledgeBodyBounds(positions: ArrayLike<number>, count: number): RobustBounds | null {
+  const frame = separatedFrame();
+  const rows = Math.max(0, Math.min(Math.floor(count), Math.floor(positions.length / 3)));
+  if (rows === 0) return null;
+  if (isMerged(frame)) return robustBounds(positions, rows);
+  const local = new Float32Array(rows * 3);
+  let n = 0;
+  const p: Vec3 = [0, 0, 0];
+  for (let i = 0; i < rows; i++) {
+    p[0] = positions[i * 3]; p[1] = positions[i * 3 + 1]; p[2] = positions[i * 3 + 2];
+    if (!Number.isFinite(p[0]) || !Number.isFinite(p[1]) || !Number.isFinite(p[2])) continue;
+    if (nearestGraphVertex(frame, p) !== Vertex.Knowledge) continue;
+    const l = unplace(frame, Vertex.Knowledge, p);
+    local[n * 3] = l[0]; local[n * 3 + 1] = l[1]; local[n * 3 + 2] = l[2];
+    n++;
+  }
+  if (n === 0) {
+    const all = graphBoundsFor(positions, rows);
+    return all ? { centre: place(frame, Vertex.Knowledge, all.centre), radius: all.radius } : null;
+  }
+  const b = robustBounds(local, n);
+  return b ? { centre: place(frame, Vertex.Knowledge, b.centre), radius: b.radius } : null;
+}
+
 /**
  * Bounds the camera should frame. `cloud` is null when the memory cloud is
  * off or has no snapshot yet; the fit then covers the two graphs only.
+ * `target` defaults to 'scene' so callers that need the whole scene (the agent
+ * stop-edge, splat registration) keep ADR-2135's sphere; the camera fit passes
+ * the user's `graphView.fitTarget`. The cloud is used only under 'scene'.
  */
 export function sceneFitBounds(
   positions: ArrayLike<number>,
   count: number,
   cloud: CloudFitInput | null,
+  target: FitTarget = 'scene',
 ): RobustBounds | null {
+  if (target === 'knowledge') return knowledgeBodyBounds(positions, count);
+  if (target === 'graphs') cloud = null;
   const frame = separatedFrame();
   const local = graphBoundsFor(positions, count);
   if (!local) return null;

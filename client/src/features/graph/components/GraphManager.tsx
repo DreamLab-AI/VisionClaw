@@ -177,7 +177,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   const [activeLayoutMode, setActiveLayoutMode] = useState<string>('')
   const [layoutTransitioning, setLayoutTransitioning] = useState(false)
 
-  const { requestFit: requestCameraFit } = useCameraAutoFit(nodePositionsRef, graphData.nodes.length)
+  const { tickFit: tickCameraFit } = useCameraAutoFit(nodePositionsRef, graphData.nodes.length)
 
   const [edgePoints, setEdgePoints]               = useState<number[]>([])
   const [highlightEdgePoints, setHighlightEdgePoints] = useState<number[]>([])
@@ -467,7 +467,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
       const dragIndex = dragNodeId === null ? -1 : (nodeIdToIndexMap.get(dragNodeId) ?? -1)
       if (dragIndex >= 0) drawnPositions.applyDrag(dragIndex, dragDataRef.current.currentNodePos3D)
 
-      requestCameraFit()
+      tickCameraFit()
 
       const positionsValid = drawn.length >= graphData.nodes.length * 3
 
