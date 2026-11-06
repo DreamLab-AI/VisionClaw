@@ -133,18 +133,31 @@ pub struct NodeFilterSettings {
     /// matching the client (schemaMappings) and the runtime client filter default.
     #[serde(default)]
     pub include_linked_pages: bool,
+
+    /// Opt-in server-side removal. Off (the default, and the value a persisted
+    /// document without the field reads as), the quality / authority predicates
+    /// only grey nodes on each client (ADR-2183 D2); on, the server also drops
+    /// failing nodes from the /wss stream of every desktop client (each sends it
+    /// in `filter_update`). The XR client never sends it, so it only greys.
+    #[serde(default)]
+    pub server_remove: bool,
 }
 
 impl Default for NodeFilterSettings {
+    /// Off, 0.4 when switched on (ADR-2183 implementation notes): the authored
+    /// quality score greys hubs above 0.5 and is no better than random there;
+    /// 0.4 greys only its bottom band (0.35). Mirrored by the client's
+    /// `NODE_FILTER_DEFAULTS` and `tests/node-filter-parity.json`.
     fn default() -> Self {
         Self {
-            enabled: true,
-            quality_threshold: 0.9,
+            enabled: false,
+            quality_threshold: 0.4,
             authority_threshold: 0.5,
             filter_by_quality: true,
             filter_by_authority: false,
             filter_mode: "or".to_string(),
             include_linked_pages: false,
+            server_remove: false,
         }
     }
 }

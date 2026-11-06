@@ -156,8 +156,15 @@
           "fields": [
             {
               "key": "filterEnabled",
-              "label": "Filter on server (hides nodes for every viewer)",
+              "label": "Quality filter (greys nodes)",
               "path": "nodeFilter.enabled",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "serverRemove",
+              "label": "Also remove on server (desktop viewers)",
+              "path": "nodeFilter.serverRemove",
               "control": "toggle",
               "scope": "server"
             },

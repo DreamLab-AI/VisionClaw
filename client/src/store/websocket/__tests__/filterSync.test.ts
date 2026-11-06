@@ -128,8 +128,22 @@ describe('filterSync', () => {
     expect(isFilterResponseExpected()).toBe(false);
   });
 
-  it('an enabled filter arms the shrink-guard acceptance window', () => {
+  it('an enabled filter without server removal does not arm the window (it only greys)', () => {
     expectFilterResponseFor({ ...baseFilter, enabled: true, filterByQuality: true });
+    expect(isFilterResponseExpected()).toBe(false);
+  });
+
+  it('an enabled filter with server removal arms the shrink-guard acceptance window', () => {
+    expectFilterResponseFor({ ...baseFilter, enabled: true, filterByQuality: true, serverRemove: true });
     expect(isFilterResponseExpected()).toBe(true);
+  });
+
+  it('serverRemove is part of the de-duplicated snapshot', () => {
+    syncFilterToServer(get, { force: true });
+    setupFilterSubscription(get);
+    settingsState = { settings: { nodeFilter: { ...baseFilter, serverRemove: true } } };
+    notifyStore();
+    expect(sendFilterUpdate).toHaveBeenCalledTimes(2);
+    expect(sendFilterUpdate.mock.calls[1][0]).toMatchObject({ serverRemove: true });
   });
 });

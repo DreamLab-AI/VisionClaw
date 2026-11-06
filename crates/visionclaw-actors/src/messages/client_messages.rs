@@ -84,6 +84,9 @@ pub struct UpdateClientFilter {
     pub max_nodes: Option<i32>,
     #[serde(default = "default_include_linked_pages")]
     pub include_linked_pages: bool,
+    /// Opt-in server-side removal (absent = false: grey-out only, ADR-2183 D2).
+    #[serde(default)]
+    pub server_remove: bool,
 }
 
 // ---------------------------------------------------------------------------

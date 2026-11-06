@@ -70,6 +70,8 @@ export interface FilterUpdateParams {
   filterByAuthority?: boolean;
   filterMode?: string;
   includeLinkedPages?: boolean;
+  /** Opt-in: the server also removes non-matching nodes (default false). */
+  serverRemove?: boolean;
 }
 
 export interface NodePositionUpdate {
@@ -99,6 +101,7 @@ export interface FilterSnapshot {
   filterByAuthority?: boolean;
   filterMode?: string;
   includeLinkedPages?: boolean;
+  serverRemove?: boolean;
 }
 
 // Store state interface

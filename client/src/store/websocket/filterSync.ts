@@ -84,6 +84,7 @@ function currentFilterSnapshot(): FilterSnapshot | null {
     filterByAuthority: nodeFilter.filterByAuthority,
     filterMode: nodeFilter.filterMode,
     includeLinkedPages: nodeFilter.includeLinkedPages,
+    serverRemove: nodeFilter.serverRemove ?? false,
   };
 }
 
@@ -96,7 +97,8 @@ function sameSnapshot(a: FilterSnapshot | null, b: FilterSnapshot): boolean {
     a.filterByQuality === b.filterByQuality &&
     a.filterByAuthority === b.filterByAuthority &&
     a.filterMode === b.filterMode &&
-    a.includeLinkedPages === b.includeLinkedPages
+    a.includeLinkedPages === b.includeLinkedPages &&
+    a.serverRemove === b.serverRemove
   );
 }
 
@@ -117,12 +119,13 @@ export function syncFilterToServer(get: FilterSyncGet, opts: { force?: boolean }
 
 /**
  * Arm the shrink-guard acceptance window only when the filter can NARROW the
- * graph. A disabled filter is answered with the full graph, so nothing smaller
- * may be accepted on its behalf — otherwise the capped connect-time
- * initialGraphLoad would replace a full REST topology.
+ * graph: enabled AND opted in to server-side removal. Otherwise the server
+ * answers with the full (scoped) graph and only greys on the client (ADR-2183
+ * D2), so nothing smaller may be accepted on its behalf — or the capped
+ * connect-time initialGraphLoad would replace a full REST topology.
  */
-export function expectFilterResponseFor(filter: Pick<FilterUpdateParams, 'enabled'>) {
-  if (filter.enabled) {
+export function expectFilterResponseFor(filter: Pick<FilterUpdateParams, 'enabled' | 'serverRemove'>) {
+  if (filter.enabled && filter.serverRemove) {
     expectFilterResponse();
   }
 }

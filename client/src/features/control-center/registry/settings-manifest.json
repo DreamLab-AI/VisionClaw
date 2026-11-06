@@ -1,7 +1,7 @@
 {
   "version": "2.0",
   "generatedFrom": "settingsRegistry.ts",
-  "count": 246,
+  "count": 247,
   "groups": [
     {
       "id": "layers",
@@ -15,7 +15,7 @@
       "label": "Explore",
       "testid": "group-explore",
       "hotkey": "2",
-      "fieldCount": 27
+      "fieldCount": 28
     },
     {
       "id": "encode",
@@ -288,7 +288,20 @@
       "sourceGroup": "quality",
       "subgroup": "Filters",
       "scope": "server",
-      "label": "Filter on server (hides nodes for every viewer)",
+      "label": "Quality filter (greys nodes)",
+      "clientOnly": false,
+      "server": "nodeFilter"
+    },
+    {
+      "key": "serverRemove",
+      "path": "nodeFilter.serverRemove",
+      "testid": "setting-nodeFilter.serverRemove",
+      "control": "toggle",
+      "group": "explore",
+      "sourceGroup": "quality",
+      "subgroup": "Filters",
+      "scope": "server",
+      "label": "Also remove on server (desktop viewers)",
       "clientOnly": false,
       "server": "nodeFilter"
     },

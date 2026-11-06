@@ -516,12 +516,12 @@ class GraphDataManager {
     this.selfHealFrameCounter = (this.selfHealFrameCounter + 1) % 120;
     if (this.selfHealFrameCounter !== 0) return;
     if (this.nodeIdMap.size === 0) return; // topology not loaded yet
-    // A server-side node filter makes the local graph an intentional SUBSET:
+    // Opted-in server-side removal makes the local graph an intentional SUBSET:
     // binary frames may legitimately reference ids we dropped, and a refetch
     // here would fight the filter — re-expanding the view the user just
     // narrowed. Self-heal only applies to the unfiltered view.
     const nf = useSettingsStore.getState().settings?.nodeFilter;
-    if (nf?.enabled && (nf.filterByQuality || nf.filterByAuthority)) return;
+    if (nf?.enabled && nf.serverRemove && (nf.filterByQuality || nf.filterByAuthority)) return;
     const now = Date.now();
     if (now - this.lastSelfHealRefetch < 30_000) return; // refetch cooldown
     try {

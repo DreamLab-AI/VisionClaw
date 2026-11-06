@@ -161,6 +161,7 @@ async fn a_client_that_never_reads_is_closed_after_the_stall_timeout() {
             filter_mode: "or".to_string(),
             max_nodes: None,
             include_linked_pages: false,
+            server_remove: false,
         })
         .await
         .unwrap()

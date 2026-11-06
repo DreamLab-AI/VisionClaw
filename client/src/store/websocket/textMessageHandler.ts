@@ -40,11 +40,11 @@ function scheduleGraphRefetch(revision: number | undefined, reason: string | und
     );
     graphDataManager.fetchInitialData()
       .then(() => {
-        // REST returns the UNFILTERED graph; if the user has quality gates
-        // active, re-assert the server-side filter so the refetch doesn't
-        // silently expand a filtered view back to the full graph.
+        // REST returns the UNFILTERED graph; if the user opted in to server-side
+        // removal, re-assert it so the refetch doesn't silently expand a
+        // filtered view back to the full graph. (Grey-out is client-side.)
         const nf = useSettingsStore.getState().settings?.nodeFilter;
-        if (nf?.enabled && (nf.filterByQuality || nf.filterByAuthority)) {
+        if (nf?.enabled && nf.serverRemove && (nf.filterByQuality || nf.filterByAuthority)) {
           reassertFilter(nf);
         }
       })
@@ -59,7 +59,7 @@ function scheduleGraphRefetch(revision: number | undefined, reason: string | und
   }, GRAPH_UPDATED_REFETCH_DEBOUNCE_MS);
 }
 
-function reassertFilter(nf: { enabled?: boolean; filterByQuality?: boolean; filterByAuthority?: boolean; qualityThreshold?: number; authorityThreshold?: number; filterMode?: string; includeLinkedPages?: boolean }) {
+function reassertFilter(nf: { enabled?: boolean; filterByQuality?: boolean; filterByAuthority?: boolean; qualityThreshold?: number; authorityThreshold?: number; filterMode?: string; includeLinkedPages?: boolean; serverRemove?: boolean }) {
   import('./index').then(({ useWebSocketStore }) => {
     useWebSocketStore.getState().sendFilterUpdate({
       enabled: nf.enabled,
@@ -69,6 +69,7 @@ function reassertFilter(nf: { enabled?: boolean; filterByQuality?: boolean; filt
       filterByAuthority: nf.filterByAuthority,
       filterMode: nf.filterMode,
       includeLinkedPages: nf.includeLinkedPages,
+      serverRemove: nf.serverRemove,
     });
   }).catch(() => { /* store unavailable — next user change re-syncs */ });
 }

@@ -1,24 +1,18 @@
 /**
- * Characterisation of node filtering under the shipped defaults (ADR-2183).
+ * Characterisation of node filtering (ADR-2183, implementation notes 2026-11-06).
  *
- * The server's `NodeFilterSettings::default()` (src/settings/models.rs:147-158) is
- * `enabled: true, quality_threshold: 0.9, filter_by_quality: true,
- * filter_by_authority: false, filter_mode: "or", include_linked_pages: false`,
- * and the client store receives exactly that.
+ * Before the 2026-11-06 fix the server default was `enabled: true,
+ * quality_threshold: 0.9, filter_by_quality: true, filter_by_authority: false,
+ * filter_mode: "or"`, and in OR mode a disabled predicate passed vacuously, so
+ * the 0.9 threshold greyed nothing. Now only ENABLED predicates combine: the same
+ * settings test quality alone, in OR as in AND. Unscored nodes are neutral to the
+ * quality predicate (they used to fall back to degree / 10). The shipped default
+ * is off at 0.4 (src/settings/models.rs, explore/nodeFilter.ts); the old 0.9
+ * object is kept below as a strict fixture because it exercises the predicate.
  *
- * WHY ~9.6k NODES RENDER although only 184 of 7,528 scored nodes reach 0.9:
- * in OR mode a disabled predicate passes vacuously. `filter_by_authority` is
- * false, so `passesAuthority = !filterByAuthority || … = true` for EVERY node,
- * and `passesQuality || passesAuthority` is always true. The quality threshold
- * removes nothing. The Rust mirror has the same arm (src/actors/client_filter.rs
- * :85-92, :134-140) and its own test says so ("Or mode with
- * filter_by_authority=false would pass all", client_filter.rs:215). The only
- * default removal is the linked_page gate (include_linked_pages: false).
- *
- * This file pinned that behaviour before ADR-2183 (commit 4da09d226: the AND-mode
- * and minConnections sets below were REMOVED from visibleNodes). Since ADR-2183 the
- * same sets are GREYED through the highlight mask (`filter:settings`) and the
- * render set keeps them; `explore.hideFiltered` restores the removal.
+ * ADR-2183 D2: what the predicates reject is GREYED through the highlight mask
+ * (`filter:settings`) and the render set keeps it; `explore.hideFiltered`
+ * restores the removal. The only removal is the linked_page scope (D4).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
@@ -36,7 +30,7 @@ import { useGraphFiltering } from '../useGraphFiltering';
 import { HighlightMask, HIGHLIGHT_FILTERED_OUT } from '../../state/highlightMask';
 import { writeFilter, activeFilterSources } from '../../explore/filterRegistry';
 
-/** The server default, as the client store receives it (camelCase). */
+/** The pre-2026-11-06 server default (camelCase): a strict quality-only filter. */
 const SERVER_DEFAULT_NODE_FILTER: NodeFilterSettings = {
   enabled: true,
   qualityThreshold: 0.9,
@@ -79,27 +73,37 @@ const run = (data: GraphData, degree: Map<string, number>) => {
 const greyedOnMask = (data: GraphData) =>
   data.nodes.filter((n) => mask.bitsFor(String(n.id)) & HIGHLIGHT_FILTERED_OUT).map((n) => Number(n.id));
 
-/** The former AND-mode result: 2 scored ≥ 0.9 plus unscored pages (ids 79..100) with degree ≥ 9. */
-const AND_KEPT = [1, 2, ...Array.from({ length: 22 }, (_, k) => 78 + k).filter((i) => i % 12 >= 9).map((i) => i + 1)];
+/** Kept by quality ≥ 0.9: the 2 scored ≥ 0.9 plus every unscored node (pages 79..100 and the
+ *  three owl classes 111..113), which are neutral to the quality predicate. */
+const AND_KEPT = [1, 2, ...Array.from({ length: 22 }, (_, k) => 79 + k), 111, 112, 113];
 const NON_STUB = (data: GraphData) => data.nodes.filter((n) => n.metadata?.type !== 'linked_page').map((n) => Number(n.id));
 
-describe('useGraphFiltering under the server defaults', () => {
+describe('useGraphFiltering with a strict quality-only filter', () => {
   beforeEach(() => { nodeFilter = { ...SERVER_DEFAULT_NODE_FILTER }; hideFiltered = undefined; });
 
-  it('OR mode with authority off greys nothing; only linked_page stubs are removed', () => {
+  it('OR mode with authority off tests quality alone (no vacuous pass)', () => {
     const { data, degree } = corpus();
     const r = run(data, degree);
-    // 113 delivered − 10 linked_page = 103: the 0.9 quality threshold acts on nothing.
+    // 113 delivered − 10 linked_page = 103 rendered; the scored pages below 0.9 grey.
     expect(r.visibleNodes).toHaveLength(103);
     expect(r.visibleNodes.some((n) => n.metadata?.type === 'linked_page')).toBe(false);
-    expect(r.greyedNodeIds.size).toBe(0);
-    // nothing greyed → no active filter source (no "1 filter active" chip by default)
-    expect(activeFilterSources(mask)).toEqual([]);
+    const expectedGreyed = NON_STUB(data).filter((id) => !AND_KEPT.includes(id));
+    expect([...r.greyedNodeIds].map(Number).sort((a, b) => a - b)).toEqual(expectedGreyed);
     // the index map always covers the full delivered set
     expect(r.nodeIdToIndexMap.size).toBe(113);
   });
 
-  it('AND mode greys (no longer removes) what the quality threshold used to remove', () => {
+  it('the shipped default (off) greys nothing; only linked_page stubs are removed', () => {
+    nodeFilter = undefined;
+    const { data, degree } = corpus();
+    const r = run(data, degree);
+    expect(r.visibleNodes).toHaveLength(103);
+    expect(r.greyedNodeIds.size).toBe(0);
+    // nothing greyed → no active filter source (no "1 filter active" chip by default)
+    expect(activeFilterSources(mask)).toEqual([]);
+  });
+
+  it('AND mode greys (does not remove) what fails the quality threshold', () => {
     nodeFilter = { ...SERVER_DEFAULT_NODE_FILTER, filterMode: 'and' };
     const { data, degree } = corpus();
     const r = run(data, degree);
@@ -111,8 +115,8 @@ describe('useGraphFiltering under the server defaults', () => {
     expect(activeFilterSources(mask)).toEqual(['filter:settings']);
   });
 
-  it('minConnections and minMaturity grey independently of filterMode', () => {
-    nodeFilter = { ...SERVER_DEFAULT_NODE_FILTER, minConnections: 11, minMaturity: 'growing' };
+  it('minConnections and minMaturity grey independently of the quality filter', () => {
+    nodeFilter = { ...SERVER_DEFAULT_NODE_FILTER, enabled: false, minConnections: 11, minMaturity: 'growing' };
     const { data, degree } = corpus();
     const r = run(data, degree);
     expect(r.visibleNodes).toHaveLength(103);
@@ -135,7 +139,7 @@ describe('useGraphFiltering under the server defaults', () => {
     const index = new Map(data.nodes.map((n, i) => [String(n.id), i]));
     mask = new HighlightMask(() => index);
     const { result } = renderHook(() => useGraphFiltering(data, new Map(), degree, { mask }));
-    // the pre-ADR-2183 AND-mode result
+    // the removal the quality threshold implies
     expect(result.current.visibleNodes.map((n) => Number(n.id)).sort((a, b) => a - b)).toEqual(AND_KEPT);
     // a widget filter (include only node 1) removes node 2 as well
     act(() => { writeFilter('filter:explore:test', ['1'], 'include', mask); });

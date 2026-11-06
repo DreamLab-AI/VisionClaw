@@ -124,6 +124,8 @@ export interface NodeFilterSettings {
   filterByAuthority: boolean;
   filterMode: 'or' | 'and';
   includeLinkedPages: boolean;
+  /** Opt-in server-side removal (absent on older servers = false). */
+  serverRemove?: boolean;
 }
 
 /** The server's `LayoutMode` serde names (crates/visionclaw-domain/src/types/layout.rs). */

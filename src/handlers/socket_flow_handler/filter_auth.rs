@@ -325,6 +325,11 @@ pub(crate) fn handle_filter_update(
                 .or_else(|| filter_data.get("include_linked_pages"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true),
+            server_remove: filter_data
+                .get("server_remove")
+                .or_else(|| filter_data.get("serverRemove"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
         };
 
         info!(
@@ -367,6 +372,7 @@ pub(crate) fn handle_filter_update(
                             filter_by_authority: update.filter_by_authority,
                             filter_mode: update.filter_mode.clone(),
                             max_nodes: update.max_nodes.map(|n| n as i64),
+                            server_remove: update.server_remove,
                         };
                         ctx.spawn(actix::fut::wrap_future::<_, SocketFlowServer>(async move {
                             match serde_json::to_value(&user_filter) {
