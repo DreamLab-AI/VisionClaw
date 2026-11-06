@@ -33,6 +33,27 @@ export interface GlassTubeLod {
 /** Tubes drawn at most while the overview edges are live. */
 export const TUBE_BUDGET = 4096;
 
+/**
+ * The tube LOD for the frame loop, or null to feed every edge as a tube.
+ *
+ * Null only when the overview edges are off or have faulted: then the tubes
+ * are the whole edge layer (the safety valve). While the overview edges are
+ * enabled and merely pending (positions not yet in the texture, material
+ * still building), the tubes already take the subset: feeding every edge in
+ * that window grew GlassEdges to its ceiling and warned on large graphs, only
+ * to shrink a few frames later. The trade-off is that the far edges are
+ * blank for those first frames instead of drawn as tubes.
+ */
+export function resolveTubeLod(s: {
+  enabled: boolean;
+  edgesFaulted: boolean;
+  glassAtCloseZoom: boolean;
+  gemLodDistance: number;
+}): GlassTubeLod | null {
+  if (!s.enabled || s.edgesFaulted) return null;
+  return { maxDistance: s.glassAtCloseZoom ? s.gemLodDistance : 0, budget: TUBE_BUDGET };
+}
+
 const EMPHASIS = HIGHLIGHT_SELECTED | HIGHLIGHT_HOVERED | HIGHLIGHT_FOCUS_NEIGHBOUR;
 
 /** Node → incident plan edges, compressed sparse rows. Built once per plan. */

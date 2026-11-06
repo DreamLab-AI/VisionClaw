@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildEdgeAdjacency, createTubeSelectScratch, emphasisNodes, selectTubeEdges, type GlassTubeLod,
+  buildEdgeAdjacency, createTubeSelectScratch, emphasisNodes, resolveTubeLod, selectTubeEdges, TUBE_BUDGET,
+  type GlassTubeLod,
 } from '../tubeSelect';
 import { fillEdgeFrame, createEdgeFrameBuffers, type EdgePlan } from '../../hooks/edgeBufferPlan';
 import {
@@ -115,5 +116,27 @@ describe('highlight tubes walk the selected node only (no O(E) scan)', () => {
     const pairs = (buf: number[], n: number) => Array.from({ length: n }, (_, k) => `${buf[k * 6]}-${buf[k * 6 + 3]}`).sort();
     expect(pairs(b.highlight, viaAdj)).toEqual(pairs(a.highlight, full));
     expect(b.highlight.length).toBe(3 * 6); // sized to the degree, not E
+  });
+});
+
+describe('resolveTubeLod (ADR-2181 D3: the tube layer never takes the full edge set while the overview is on)', () => {
+  const on = { enabled: true, glassAtCloseZoom: true, gemLodDistance: 90 };
+
+  it('feeds the subset while the overview edges are still pending (positions or material not ready)', () => {
+    // The startup window: overview enabled, not yet live, not faulted. Feeding every
+    // edge here grew GlassEdges to its 65536 ceiling and warned on a 140k-edge graph.
+    expect(resolveTubeLod({ ...on, edgesFaulted: false })).toEqual({ maxDistance: 90, budget: TUBE_BUDGET });
+  });
+
+  it('emphasis-only tubes when glass at close zoom is off', () => {
+    expect(resolveTubeLod({ ...on, glassAtCloseZoom: false, edgesFaulted: false })).toEqual({ maxDistance: 0, budget: TUBE_BUDGET });
+  });
+
+  it('feeds every edge (null) when the overview edges are disabled', () => {
+    expect(resolveTubeLod({ ...on, enabled: false, edgesFaulted: false })).toBeNull();
+  });
+
+  it('feeds every edge (null) when the overview edges faulted: the tubes are the fallback', () => {
+    expect(resolveTubeLod({ ...on, edgesFaulted: true })).toBeNull();
   });
 });

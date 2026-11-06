@@ -23,6 +23,7 @@ import React, { useMemo, useRef, useEffect, useLayoutEffect } from 'react';
 import * as THREE from 'three';
 import { agentMarkerPosition } from '../agentMarkerPass';
 import { useFrame } from '@react-three/fiber';
+import { setLineDrawCount } from './lineDrawCount';
 
 /* R3F maps three.js props onto JSX host elements (args, position, rotation, intensity...);
    these are not DOM properties. react/no-unknown-property is not enforced in this config. */
@@ -192,7 +193,6 @@ export const AgentTrail: React.FC<AgentTrailProps> = ({
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    geometry.setDrawRange(0, 0);
     const material = new THREE.LineBasicMaterial({
       vertexColors: true,
       transparent: true,
@@ -203,6 +203,7 @@ export const AgentTrail: React.FC<AgentTrailProps> = ({
     });
     const line = new THREE.Line(geometry, material);
     line.frustumCulled = false;
+    setLineDrawCount(line, 0);
     return { line, geometry, material, positions, colors, ring: createTrailRing(capacity) };
   }, [capacity]);
 
@@ -257,7 +258,7 @@ export const AgentTrail: React.FC<AgentTrailProps> = ({
 
     (trail.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
     (trail.geometry.attributes.color as THREE.BufferAttribute).needsUpdate = true;
-    trail.geometry.setDrawRange(0, count);
+    setLineDrawCount(trail.line, count);
   });
 
   return <primitive object={trail.line} />;
