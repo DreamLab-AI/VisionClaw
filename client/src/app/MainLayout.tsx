@@ -92,32 +92,41 @@ const MainLayoutContent: React.FC = () => {
       {/* Right-click additive-expansion menu — driven by visionclaw:node-contextmenu */}
       <NodeContextMenu />
 
-      {/* D2/D8 (PRD-023 WP-3): per-agent steering + swarm observability, opened
-          behind an agent-node selection or the ambient "Agents" pill. */}
-      <AgentOpsSurface />
+      {/* ADR-2189 §4: the corner chips share one bottom row below the dock, so
+          no chip can cover a dock control. Left: agents, then governance. */}
+      <div className="cc-corner cc-corner--left" data-testid="corner-left">
+        {/* D2/D8 (PRD-023 WP-3): per-agent steering + swarm observability, opened
+            behind an agent-node selection or the ambient "Agents" pill. */}
+        <AgentOpsSurface />
 
-      {/* REC-2/D3 (PRD-023 WP-4): broker case queue + ambient ACSP open-case
-          indicator, driven by broker:* WS events. */}
-      <AcspCaseQueue />
+        {/* REC-2/D3 (PRD-023 WP-4): broker case queue + ambient ACSP open-case
+            indicator, driven by broker:* WS events. */}
+        <AcspCaseQueue />
+      </div>
 
-      {/* REC-4 (PRD-023 WP-8, ADR-043 resurrection): four-KPI dashboard —
-          Augmentation Ratio + Trust Variance computed live; Mesh Velocity +
-          HITL Precision render "awaiting data source". */}
-      <KpiPanel />
+      {/* Right: status (outermost), then KPIs. */}
+      <div className="cc-corner cc-corner--right" data-testid="corner-right">
+        {/* Unified system-status surface: connection telemetry, agent summary,
+            the SpacePilot connect + secure-context guidance, the layout mode and
+            an honest layout-motion readout. */}
+        <aside aria-label="System status">
+          <StatusSurface />
+        </aside>
 
-      {/* Unified system-status surface — dock-anchored badge carrying connection
-          telemetry, agent/bots summary, the SpacePilot connect + support/secure-
-          context guidance, and an honest layout-motion readout. Replaces the old
-          top-right StatusCluster pill and the standalone SpaceMouseStatus banner. */}
-      <aside aria-label="System status">
-        <StatusSurface />
-      </aside>
+        {/* REC-4 (PRD-023 WP-8, ADR-043 resurrection): four-KPI dashboard —
+            Augmentation Ratio + Trust Variance computed live; Mesh Velocity +
+            HITL Precision render "awaiting data source". */}
+        <KpiPanel />
+      </div>
 
       {/* OntologyPanel is accessed via the control panel's ontology tab, not rendered as overlay */}
 
       {!hasVoiceSupport && (
+        // ADR-2189 §4: warnings sit at the top centre, never over a control.
         <aside
-          className="fixed bottom-20 left-4 z-40 max-w-sm pointer-events-auto"
+          className="fixed left-1/2 -translate-x-1/2 max-w-sm pointer-events-auto"
+          style={{ top: 'var(--cc-edge, 1rem)', zIndex: 'var(--cc-z-toast, 100)' as unknown as number }}
+          data-testid="browser-support-warning"
           role="alert"
           aria-live="polite"
         >

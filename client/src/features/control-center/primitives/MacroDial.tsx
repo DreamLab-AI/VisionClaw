@@ -10,6 +10,7 @@
 
 import React, { useCallback, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
+import { Users } from 'lucide-react';
 import { cn } from '../../../utils/classNameUtils';
 import '../styles/control-center.css';
 
@@ -26,7 +27,14 @@ export interface MacroDialProps {
   disabled?: boolean;
   size?: number;
   accentColor?: string;
+  /** Plain-language readout of what the dial currently sets (announced as aria-valuetext). */
+  valueText?: string;
+  /** The dial writes the shared layout document: show the "affects everyone" marker. */
+  shared?: boolean;
 }
+
+/** Text appended to a shared dial's tooltip and accessible value (ADR-2189 §2). */
+export const SHARED_DIAL_TEXT = 'Changes the layout for everyone';
 
 const CLAMP = (n: number) => Math.min(1, Math.max(0, n));
 // Drag distance (px) that spans the full 0..1 range.
@@ -44,9 +52,14 @@ export const MacroDial: React.FC<MacroDialProps> = ({
   onCommit,
   step = 0.05,
   disabled = false,
-  size = 56,
+  size = 48,
   accentColor,
+  valueText,
+  shared = false,
 }) => {
+  const pct = Math.round(CLAMP(value) * 100);
+  const ariaValueText = `${pct}%${valueText ? ` — ${valueText}` : ''}${shared ? `. ${SHARED_DIAL_TEXT}` : ''}`;
+  const title = `${label}: ${valueText ?? `${pct}%`}${shared ? `\n${SHARED_DIAL_TEXT}` : ''}`;
   const [dragging, setDragging] = useState(false);
   const dragStartRef = useRef<{ y: number; startValue: number } | null>(null);
 
@@ -129,9 +142,12 @@ export const MacroDial: React.FC<MacroDialProps> = ({
         aria-valuemin={0}
         aria-valuemax={1}
         aria-valuenow={Number(value.toFixed(3))}
+        aria-valuetext={ariaValueText}
+        title={title}
+        data-scope={shared ? 'shared' : 'browser'}
         aria-disabled={disabled}
         aria-orientation="vertical"
-        className={cn('cc-macro-dial', disabled && 'opacity-50 pointer-events-none')}
+        className={cn('cc-macro-dial relative', disabled && 'opacity-50 pointer-events-none')}
         style={{ width: size, height: size }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -171,6 +187,15 @@ export const MacroDial: React.FC<MacroDialProps> = ({
           size={size * 0.32}
           className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-foreground pointer-events-none"
         />
+        {shared && (
+          <span
+            aria-hidden="true"
+            data-testid={`macro-${id}-shared`}
+            className="absolute -top-0.5 -right-0.5 flex items-center justify-center h-4 w-4 rounded-full bg-amber-500/90 text-black pointer-events-none"
+          >
+            <Users size={9} />
+          </span>
+        )}
       </div>
       <span className="cc-field-label select-none">{label}</span>
     </div>

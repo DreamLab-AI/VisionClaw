@@ -41,10 +41,7 @@ export const StatusSurface: React.FC = () => {
   const agentCount = useBotsDataOptional()?.botsData?.nodeCount ?? 0;
 
   return (
-    <div
-      className="fixed bottom-6 right-4 z-40 flex flex-col items-end gap-2"
-      style={{ pointerEvents: 'auto' }}
-    >
+    <div className="relative flex flex-col items-end gap-2" data-corner-item="status">
       {expanded && (
         <StatusFlyout
           websocketStatus={websocketStatus}

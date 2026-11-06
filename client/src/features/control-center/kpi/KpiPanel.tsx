@@ -52,7 +52,7 @@ export const KpiPanel: React.FC = () => {
   const headline = tiles.find((t) => t.computed && t.valueText);
 
   return (
-    <div className="fixed bottom-20 right-4 z-40 flex flex-col items-end gap-2" style={{ pointerEvents: 'auto' }}>
+    <div className="relative flex flex-col items-end gap-2" data-corner-item="kpi">
       {expanded && (
         <GlassPanel
           elevation="overlay"

@@ -9,8 +9,9 @@
  */
 
 import React from 'react';
-import { Lock, Info } from 'lucide-react';
-import type { RegistryField } from '../registry/types';
+import { Lock, Info, Users, Cloud, Monitor } from 'lucide-react';
+import type { RegistryField, SettingScope } from '../registry/types';
+import { scopeForField, SCOPE_TEXT } from '../registry/manifest';
 import { useSettingField } from '../hooks/useSettingField';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { Tooltip, TooltipProvider } from '../../design-system/components/Tooltip';
@@ -34,8 +35,33 @@ export interface SettingRowProps {
 }
 
 export function testIdFor(field: RegistryField, groupId: string): string {
-  return field.path ? `setting-${field.path}` : `setting-${groupId}.${field.key}`;
+  return field.path ? `setting-${field.path}` : `setting-${field.sourceGroup ?? groupId}.${field.key}`;
 }
+
+const SCOPE_ICON: Record<SettingScope, typeof Users> = { shared: Users, server: Cloud, browser: Monitor };
+const SCOPE_SHORT: Record<SettingScope, string> = { shared: 'Everyone', server: 'Account', browser: 'Browser' };
+
+/**
+ * Where this setting is stored (ADR-2189 §2). Shared controls always show the
+ * badge; account and browser scope show a quiet icon with the full text on hover
+ * and in the accessible name, so it is clear which settings follow the user.
+ */
+export const ScopeBadge: React.FC<{ scope: SettingScope; testId: string }> = ({ scope, testId }) => {
+  const Icon = SCOPE_ICON[scope];
+  return (
+    <span
+      className="cc-scope-badge"
+      data-scope={scope}
+      data-testid={`${testId}-scope`}
+      role="img"
+      aria-label={SCOPE_TEXT[scope]}
+      title={SCOPE_TEXT[scope]}
+    >
+      <Icon size={9} aria-hidden="true" />
+      {scope === 'shared' && <span>{SCOPE_SHORT[scope]}</span>}
+    </span>
+  );
+};
 
 const NO_HEADER_TYPES = new Set(['action-button', 'nostr-button', 'readonly']);
 
@@ -80,6 +106,7 @@ export const SettingRow: React.FC<SettingRowProps> = ({ field, groupId, localVal
         )}
         {field.isPowerUserOnly && <Lock size={10} className="text-amber-500" aria-label="Power user only" />}
       </div>
+      <ScopeBadge scope={scopeForField(field)} testId={testId} />
     </div>
   );
 

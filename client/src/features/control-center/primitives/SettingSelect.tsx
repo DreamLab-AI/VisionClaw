@@ -38,6 +38,8 @@ function labelize(value: string): string {
 }
 
 export const SettingSelect: React.FC<SettingSelectProps> = ({ field, testId, value, onChange, disabled }) => {
+  // ADR-2189 §6: a field may name its options ("sssp" → "Graph distance (SSSP)").
+  const display = (option: string) => field.optionLabels?.[option] ?? labelize(option);
   const handleValueChange = useCallback(
     (next: string) => {
       onChange(next);
@@ -53,14 +55,14 @@ export const SettingSelect: React.FC<SettingSelectProps> = ({ field, testId, val
             reflects the store even before the listbox is first opened (Radix
             otherwise resolves item text lazily on open). Empty value falls
             through to the placeholder. */}
-        <SelectValue placeholder={field.options?.[0] ? labelize(field.options[0]) : undefined}>
-          {value ? labelize(value) : null}
+        <SelectValue placeholder={field.options?.[0] ? display(field.options[0]) : undefined}>
+          {value ? display(value) : null}
         </SelectValue>
       </SelectTrigger>
       <SelectContent>
         {field.options?.map((option) => (
           <SelectItem key={option} value={option}>
-            {labelize(option)}
+            {display(option)}
           </SelectItem>
         ))}
       </SelectContent>

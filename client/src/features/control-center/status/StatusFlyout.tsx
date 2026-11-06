@@ -152,6 +152,9 @@ export const StatusFlyout: React.FC<StatusFlyoutProps> = ({ websocketStatus, spa
   const isFullyConnected = websocketStatus === 'connected' && nodeCount > 0 && feedFresh;
 
   const physics = describePhysicsState(usePhysicsState());
+  const layoutMode = useSettingsStore(
+    (st) => st.settings?.visualisation?.graphs?.knowledge?.physics?.layoutMode as string | undefined,
+  );
   const physicsColor: Record<PhysicsTone, string> = { moving: '#f59e0b', settled: '#22c55e', paused: '#60a5fa', unknown: '#ef4444' };
   const motionColor = motion === 'morphing' ? '#f59e0b' : motion === 'stale' ? '#ef4444' : '#22c55e';
   const motionLabel = motion === 'morphing' ? 'Morphing' : motion === 'stale' ? 'Feed stale' : 'Settled';
@@ -262,6 +265,8 @@ export const StatusFlyout: React.FC<StatusFlyoutProps> = ({ websocketStatus, spa
       >
         <Waves size={12} style={{ color: motionColor }} />
         <span className="cc-helper-text">Layout</span>
+        {/* ADR-2189 §4: the layout mode lives here (it used to float over the dock). */}
+        <span data-testid="status-layout-mode" className="cc-helper-text ml-1 truncate">{layoutModeLabel(layoutMode)}</span>
         <span className="ml-auto font-semibold" style={{ color: motionColor }}>{motionLabel}</span>
       </div>
 
@@ -277,6 +282,23 @@ export const StatusFlyout: React.FC<StatusFlyoutProps> = ({ websocketStatus, spa
     </GlassPanel>
   );
 };
+
+/** Display names for the stored physics.layoutMode values (ADR-2140). */
+const LAYOUT_MODE_LABELS: Record<string, string> = {
+  forceDirected: 'Force directed',
+  hierarchical: 'Hierarchical',
+  radial: 'Radial',
+  dagLeftRight: 'DAG left-right',
+  typeClustering: 'Type clustering',
+  spectral: 'Spectral',
+  clustered: 'Clustered',
+  temporal: 'Temporal',
+};
+
+export function layoutModeLabel(mode: string | undefined): string {
+  if (!mode) return '';
+  return LAYOUT_MODE_LABELS[mode] ?? mode;
+}
 
 /**
  * Agents summary + the multi-agent lifecycle affordances ported from the

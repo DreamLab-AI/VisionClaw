@@ -4,18 +4,33 @@
  * | Key            | Action                                                    |
  * |----------------|-----------------------------------------------------------|
  * | Cmd/Ctrl+K     | (owned by CommandPalette — NOT bound here, no double-bind)|
- * | 1–8            | open SettingsPanel to that semantic group                 |
+ * | 1–7            | open SettingsPanel to that section (ADR-2189, registry order) |
+ * | /              | Explore: the explore panel (or Settings › Explore) + search |
  * | Cmd/Ctrl+.     | toggle dock (hero mode)                                   |
  * | Esc            | close the open SettingsPanel                              |
- * | ?              | open help                                                 |
+ * | ?              | open the generated shortcut sheet                         |
  * | ←/→ ↑/↓        | (native to the focused dial/slider — not intercepted)     |
  *
- * Digit + '?' hotkeys are suppressed while a text field / CommandInput is focused.
+ * Digit, '/' and '?' hotkeys are suppressed while a text field / CommandInput is focused.
+ * The same map is listed by help/ShortcutSheet from help/controlCenterBindings.
  */
 
 import { useEffect } from 'react';
 import { REGISTRY } from '../registry/settingsRegistry';
 import { useControlCenterUI } from '../state/useControlCenterUI';
+import { ExplorePanel } from '../integrationSlots';
+
+/** Focus the first search box in the open explore surface (panel, else the settings filter). */
+function focusExploreSearch(): void {
+  const run = () => {
+    const el =
+      document.querySelector<HTMLInputElement>('[data-explore-search]') ??
+      document.querySelector<HTMLInputElement>('[data-testid="settings-panel"] input[type="search"], [data-testid="settings-panel"] input');
+    el?.focus();
+  };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => requestAnimationFrame(run));
+  else run();
+}
 
 function isTextEntry(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -53,7 +68,7 @@ export function useControlCenterHotkeys(): void {
           // Radix's own Escape handler dismiss the dropdown. See defect-2.
           if (
             typeof document !== 'undefined' &&
-            document.querySelector('[data-radix-popper-content-wrapper], [role="listbox"]')
+            document.querySelector('[data-radix-popper-content-wrapper], [role="listbox"], [role="dialog"][data-state="open"]')
           ) {
             return;
           }
@@ -66,19 +81,28 @@ export function useControlCenterHotkeys(): void {
       // Everything below is suppressed while typing.
       if (isTextEntry(e.target)) return;
 
-      // 1–9 → open the matching semantic group (realises the old dead buttonKey badges).
-      if (e.key >= '1' && e.key <= '9') {
-        const group = REGISTRY[Number(e.key) - 1];
-        if (group) {
-          e.preventDefault();
-          ui.openGroup(group.id);
-        }
+      // 1–7 → open the section whose hotkey this is (generated from registry order).
+      const section = REGISTRY.find((g) => g.hotkey === e.key);
+      if (section) {
+        e.preventDefault();
+        ui.openGroup(section.id);
         return;
       }
 
-      // ? → help (broadcast; a help surface may subscribe).
+      // / → Explore: the explore panel once gv-explore supplies it, else Settings › Explore.
+      if (e.key === '/') {
+        e.preventDefault();
+        if (ExplorePanel) ui.setExplorePanelOpen(true);
+        else ui.openGroup('explore');
+        focusExploreSearch();
+        return;
+      }
+
+      // ? → the shortcut sheet. Opened directly (and also broadcast, for any
+      // other help surface that listens).
       if (e.key === '?') {
         e.preventDefault();
+        ui.setShortcutSheetOpen(true);
         window.dispatchEvent(new CustomEvent('controlcenter:help'));
       }
     };

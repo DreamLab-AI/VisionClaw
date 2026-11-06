@@ -189,7 +189,7 @@ export const AcspCaseQueue: React.FC = () => {
   };
 
   return (
-    <div className="fixed bottom-20 left-4 z-40 flex flex-col items-start gap-2" style={{ pointerEvents: 'auto' }}>
+    <div className="relative flex flex-col items-start gap-2" data-corner-item="governance">
       {expanded && (
         <GlassPanel
           elevation="overlay"
