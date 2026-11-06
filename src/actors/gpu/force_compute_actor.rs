@@ -3221,6 +3221,28 @@ impl Handler<GetGPUStatus> for ForceComputeActor {
     }
 }
 
+/// The node id of GPU slot `i`, or `None` when the slot has no mapping (the buffer outran the
+/// id map, e.g. mid-upload).
+fn slot_node_id(gpu_index_to_node_id: &[u32], i: usize) -> Option<u32> {
+    gpu_index_to_node_id.get(i).copied()
+}
+
+#[cfg(test)]
+mod slot_node_id_tests {
+    use super::slot_node_id;
+
+    #[test]
+    fn an_unmapped_slot_has_no_node_id() {
+        let map = [7u32, 9];
+        assert_eq!(slot_node_id(&map, 1), Some(9));
+        assert_eq!(
+            slot_node_id(&map, 2),
+            None,
+            "never label a slot with its own index"
+        );
+    }
+}
+
 impl Handler<GetCurrentPositions> for ForceComputeActor {
     type Result = Result<CurrentPositionsSnapshot, String>;
 
@@ -3239,12 +3261,14 @@ impl Handler<GetCurrentPositions> for ForceComputeActor {
         let mut max_z = f32::MIN;
         let mut total_ke: f64 = 0.0;
 
+        let mut mapped: usize = 0;
         for (i, (pos, vel)) in self.position_velocity_buffer.iter().enumerate() {
-            let node_id = self
-                .gpu_index_to_node_id
-                .get(i)
-                .copied()
-                .unwrap_or(i as u32);
+            // A slot with no node id is skipped: labelling it with its index could name a
+            // different, visible node (review L2).
+            let Some(node_id) = slot_node_id(&self.gpu_index_to_node_id, i) else {
+                continue;
+            };
+            mapped += 1;
             positions.push((node_id, pos.x, pos.y, pos.z));
 
             if pos.x < min_x {
@@ -3270,7 +3294,11 @@ impl Handler<GetCurrentPositions> for ForceComputeActor {
             total_ke += 0.5 * v2;
         }
 
-        let avg_ke = if num > 0 { total_ke / num as f64 } else { 0.0 };
+        let avg_ke = if mapped > 0 {
+            total_ke / mapped as f64
+        } else {
+            0.0
+        };
         // Honest settlement: the pause latch (energy plateau) or a sub-epsilon
         // frame run — not the instantaneous single-frame KE. `avg_ke` (this
         // frame's mean per-node KE) is still reported as the live energy.
