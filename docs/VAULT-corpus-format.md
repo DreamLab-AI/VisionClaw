@@ -140,7 +140,14 @@ folder is gone and pages sit at each vault root. The folders beside them —
 Obsidian furniture: `vault-core` reports a markdown file under one of them as a
 skip (`vault_core::page::FURNITURE_DIRS`) and the ingest never lists it
 (`visionclaw_domain::vault::VAULT_FURNITURE_DIRS`). A namespace one level down
-may reuse those names.
+may reuse those names. Ingest applies one exclusion rule on every source,
+`visionclaw_domain::vault::is_excluded_from_ingest`: furniture at the first
+component, any dot-folder, and a `bak/` folder at any depth. `_misc/` is
+**ingested** (it is an unpublished namespace, `vault_core::page::UNPUBLISHED_DIRS`,
+a publication rule, not an existence rule); its nodes are visible or private by
+`public:` like any page. Until 2026-11-06 the local walk skipped `_misc/` and any
+furniture-named folder at any depth while the GitHub listings did not (ADR-2114
+amendment).
 
 - `vault.toml` is the single path authority. No consumer hard-codes a corpus path;
   agentbox's manifest `[vault].root` supplies the root and every sub-path derives

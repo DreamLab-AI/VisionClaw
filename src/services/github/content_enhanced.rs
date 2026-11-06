@@ -123,13 +123,12 @@ impl EnhancedContentAPI {
                 continue;
             }
 
-            // Skip backup, app-config and non-content paths (ADR-2040 D6).
-            if entry_path.contains("/bak/")
-                || entry_path.contains("/.recycle/")
-                || entry_path.contains("/journals/")
-                || entry_path.contains("/.obsidian/")
-                || entry_path.contains("/.trash/")
-            {
+            // Skip furniture, backup and app-config paths: the one ingest rule (ADR-2040 D6),
+            // the same one the local walk prunes with.
+            if visionclaw_domain::vault::is_repo_path_excluded_from_ingest(
+                entry_path,
+                self.client.base_paths(),
+            ) {
                 continue;
             }
 
@@ -240,14 +239,12 @@ impl EnhancedContentAPI {
             } else if file_type == "dir" {
                 let dir_path = file["path"].as_str().unwrap_or("");
 
-                // Skip backup, recycle, journal, and app-config directories
-                // (ADR-2040 D6 adds `.obsidian` and `.trash`).
-                if dir_path.contains("/bak")
-                    || dir_path.contains("/.recycle")
-                    || dir_path.contains("/journals")
-                    || dir_path.contains("/.obsidian")
-                    || dir_path.contains("/.trash")
-                {
+                // Skip furniture, backup and app-config directories: the one ingest rule
+                // (ADR-2040 D6), the same one the local walk prunes with.
+                if visionclaw_domain::vault::is_repo_path_excluded_from_ingest(
+                    dir_path,
+                    self.client.base_paths(),
+                ) {
                     debug!(
                         "list_markdown_files: Skipping excluded directory: {}",
                         dir_path

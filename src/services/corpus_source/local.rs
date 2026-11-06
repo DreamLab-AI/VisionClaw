@@ -22,25 +22,6 @@ pub const DEFAULT_VAULT_BASE_PATHS: &str = "knowledge,working";
 /// The vocabulary's location relative to the vault root (contract C1).
 pub const VOCABULARY_PATH: &str = "ontology/vocabulary.yaml";
 
-/// Directory names never descended into: app config, backups, bins, the
-/// Obsidian furniture at a vault root
-/// ([`visionclaw_domain::vault::VAULT_FURNITURE_DIRS`]: `templates/`,
-/// `bases/`, `assets/`, `journals/`) and the non-content namespaces the vault
-/// contract excludes from KG ingest (`docs/VAULT-corpus-format.md` V4,
-/// ADR-2040 D6). Any name starting with `.` is skipped as well.
-const SKIP_DIRS: &[&str] = &[
-    ".obsidian",
-    ".trash",
-    ".recycle",
-    ".git",
-    "bak",
-    "templates",
-    "bases",
-    "assets",
-    "journals",
-    "_misc",
-];
-
 /// Walks a vault on disk: every `.md` file under each configured base path,
 /// keyed on `mtime:size` so an unchanged file is skipped by the incremental
 /// filter without reading it.
@@ -130,7 +111,7 @@ impl LocalDirectorySource {
             return Err(format!("no such corpus path: {}", dir.display()));
         }
         let mut pages = Vec::new();
-        walk(&dir, prefix, &mut pages)?;
+        walk(&dir, prefix, &self.slash_paths, &mut pages)?;
         pages.sort_by(|a, b| a.path.cmp(&b.path));
         Ok(pages)
     }
@@ -160,11 +141,6 @@ fn path_to_slash(path: &Path) -> String {
         .join("/")
 }
 
-/// Whether a directory name is excluded from the walk.
-fn is_skipped_dir(name: &str) -> bool {
-    name.starts_with('.') || SKIP_DIRS.iter().any(|s| name.eq_ignore_ascii_case(s))
-}
-
 /// `mtime:size`, the local change marker. Stable across runs for an untouched
 /// file and different the moment the file is rewritten.
 fn change_marker(meta: &std::fs::Metadata) -> String {
@@ -178,8 +154,15 @@ fn change_marker(meta: &std::fs::Metadata) -> String {
 }
 
 /// Recursive walk rooted at `dir`, emitting vault-relative paths prefixed by
-/// `rel_prefix`.
-fn walk(dir: &Path, rel_prefix: &str, out: &mut Vec<CorpusPage>) -> Result<(), String> {
+/// `rel_prefix`. A folder is pruned by the shared ingest rule
+/// ([`visionclaw_domain::vault::is_excluded_from_ingest`], judged relative to its base path
+/// in `bases`), the rule the GitHub listings and the sync's identity check use too.
+fn walk(
+    dir: &Path,
+    rel_prefix: &str,
+    bases: &[String],
+    out: &mut Vec<CorpusPage>,
+) -> Result<(), String> {
     let entries =
         std::fs::read_dir(dir).map_err(|e| format!("read_dir {}: {}", dir.display(), e))?;
     for entry in entries {
@@ -209,11 +192,11 @@ fn walk(dir: &Path, rel_prefix: &str, out: &mut Vec<CorpusPage>) -> Result<(), S
         let rel = format!("{}/{}", rel_prefix, name);
 
         if meta.is_dir() {
-            if is_skipped_dir(&name) {
+            if visionclaw_domain::vault::is_repo_path_excluded_from_ingest(&rel, bases) {
                 debug!("skipping excluded vault directory: {}", rel);
                 continue;
             }
-            walk(&path, &rel, out)?;
+            walk(&path, &rel, bases, out)?;
         } else if meta.is_file() {
             if !name.to_ascii_lowercase().ends_with(".md") || name.starts_with('.') {
                 continue;
@@ -336,7 +319,8 @@ mod tests {
 
     /// A flat vault with both halves, the Obsidian furniture at each root
     /// (`.obsidian/`, `templates/`, `bases/`, `assets/`, `journals/`), an
-    /// `_misc` namespace, a nested page and a non-markdown asset.
+    /// `_misc` namespace (ingested: unpublished is not unloaded), a nested page and a
+    /// non-markdown asset.
     fn fixture_vault() -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
@@ -351,7 +335,7 @@ mod tests {
         write("knowledge/nested/Gamma.md", "nested gamma\n");
         write("knowledge/.obsidian/workspace.json", "{}");
         write("knowledge/.obsidian/types.md", "not a page");
-        write("knowledge/_misc/Scratch.md", "ignored");
+        write("knowledge/_misc/Scratch.md", "unpublished, still a page");
         write("knowledge/templates/Class.md", "---\ntype: Class\n---\n");
         write("knowledge/bases/All Classes.md", "not a page");
         write("knowledge/assets/diagram.md", "not a page");
@@ -384,12 +368,35 @@ mod tests {
                 "knowledge/Alpha.md",
                 "knowledge/Beta.md",
                 "knowledge/nested/Gamma.md",
+                "knowledge/_misc/Scratch.md",
                 "working/Journal Entry.md",
                 "working/podcast-evidence/Episode One.md",
             ]),
-            "both vaults ingest with nested namespaces kept; .obsidian, _misc, \
+            "both vaults ingest with nested namespaces and _misc kept; .obsidian, \
              the furniture folders, dotfiles, non-markdown and out-of-base paths do not"
         );
+    }
+
+    /// The walk prunes with the shared rule (`is_excluded_from_ingest`), so it agrees with the
+    /// GitHub listings: `_misc/` and a namespace named like furniture below the root are
+    /// pages; a `bak/` folder at any depth is not.
+    #[tokio::test]
+    async fn the_walk_uses_the_shared_exclusion_rule() {
+        let vault = fixture_vault();
+        let write = |rel: &str| {
+            let path = vault.path().join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "page").unwrap();
+        };
+        write("knowledge/Ns/assets/Page.md");
+        write("knowledge/Ns/bak/Old.md");
+        write("knowledge/bak/Old.md");
+        let pages = source(vault.path()).list_pages().await.unwrap();
+        let paths: HashSet<&str> = pages.iter().map(|p| p.path.as_str()).collect();
+        assert!(paths.contains("knowledge/_misc/Scratch.md"), "{paths:?}");
+        assert!(paths.contains("knowledge/Ns/assets/Page.md"), "{paths:?}");
+        assert!(!paths.contains("knowledge/Ns/bak/Old.md"), "{paths:?}");
+        assert!(!paths.contains("knowledge/bak/Old.md"), "{paths:?}");
     }
 
     /// One assertion per furniture folder, so a regression names the folder.
@@ -478,6 +485,7 @@ mod tests {
             vec![
                 "knowledge/Alpha.md",
                 "knowledge/Beta.md",
+                "knowledge/_misc/Scratch.md",
                 "knowledge/nested/Gamma.md",
             ]
         );
@@ -494,7 +502,7 @@ mod tests {
         std::fs::remove_dir_all(vault.path().join("working")).unwrap();
         let pages = source(vault.path()).list_pages().await.unwrap();
         assert!(pages.iter().all(|p| p.path.starts_with("knowledge/")));
-        assert_eq!(pages.len(), 3);
+        assert_eq!(pages.len(), 4);
     }
 
     #[tokio::test]
