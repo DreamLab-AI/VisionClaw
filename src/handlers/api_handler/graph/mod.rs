@@ -2415,4 +2415,48 @@ mod visibility_parity_tests {
     fn rest_graph_data_matches_wss_for_the_owner() {
         assert_parity(Some(OWNER_A), &[1, 2]);
     }
+
+    /// ADR-2184/2185: the temporal keys a node takes from its `Metadata` reach the caller on both
+    /// the REST load and the `/wss` load, with identical values.
+    #[test]
+    fn temporal_metadata_keys_reach_both_graph_loads() {
+        use chrono::{TimeZone, Utc};
+        let mut graph = fixture();
+        let meta = Metadata {
+            last_modified: Utc.with_ymd_and_hms(2026, 11, 6, 9, 30, 0).unwrap(),
+            last_commit: Some(Utc.with_ymd_and_hms(2026, 11, 5, 18, 0, 0).unwrap()),
+            change_count: Some(3),
+            ..Metadata::default()
+        };
+        meta.write_temporal_keys(&mut graph.nodes[0].metadata);
+        let expected = [
+            ("last_modified", "2026-11-06T09:30:00Z"),
+            ("last_commit", "2026-11-05T18:00:00Z"),
+            ("change_count", "3"),
+        ];
+
+        let arc = std::sync::Arc::new(graph.clone());
+        let (rest_nodes, _, _) = graph_data_projection(&arc, &no_filters(), None, true);
+        let (wss_nodes, _) = initial_graph_load_projection(&graph, None, true, usize::MAX);
+        let rest = rest_nodes
+            .iter()
+            .find(|n| n.id == 1)
+            .expect("public node on REST");
+        let wss = wss_nodes
+            .iter()
+            .find(|n| n.id == 1)
+            .expect("public node on /wss");
+        for (key, value) in expected {
+            assert_eq!(
+                rest.metadata.get(key).map(String::as_str),
+                Some(value),
+                "REST {key}"
+            );
+            assert_eq!(
+                wss.metadata.get(key).map(String::as_str),
+                Some(value),
+                "/wss {key}"
+            );
+        }
+    }
 }
