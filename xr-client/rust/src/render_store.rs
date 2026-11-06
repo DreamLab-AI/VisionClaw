@@ -644,6 +644,10 @@ pub struct RenderStore {
     filter_inputs: HashMap<u32, crate::settings_sync::FilterInputs>,
     filter_hidden: HashSet<u32>,
     filter_dirty: bool,
+    // ADR-2188 D4 per-slot highlight mask. Interactive filters (the received
+    // nodeFilter and the type show/hide filter) write FILTERED_OUT here instead of
+    // removing nodes; selection, hover, search and focus write their own bits.
+    highlight: crate::highlight::HighlightMask,
     // Node-mesh LOD: the impostor-tier buffer from the last LOD build and the
     // gem-tier ids it chose (hysteresis input for the next build).
     impostor_buf: Vec<f32>,
@@ -762,7 +766,8 @@ impl RenderStore {
         self.domain_rgb_cache.clear();
         self.filter_inputs.clear();
         self.filter_hidden.clear();
-        self.filter_dirty = self.node_filter.is_some();
+        self.highlight.clear();
+        self.filter_dirty = true;
         self.impostor_buf.clear();
         self.ribbon_buf.clear();
         // Parked slots hold the old id space's drawn sets and buffers: drop them.
@@ -891,6 +896,8 @@ impl RenderStore {
         // Called for every node of every frame: only a real change invalidates.
         if self.node_kind.insert(node_id, class_code) != Some(class_code) {
             self.touch();
+            // A kind change can move the node in or out of a hidden class.
+            self.filter_dirty |= self.type_hidden.contains(&true);
         }
     }
 
@@ -1220,13 +1227,16 @@ impl RenderStore {
         removed
     }
 
-    /// Show or hide a whole node class (Wave 2, Feature 3). Out-of-range codes are
-    /// ignored. Hidden-class nodes drop from `build_node_buffer`; their edges then
-    /// fail the both-endpoints-drawn test in `build_edge_buffer` and disappear too.
+    /// Show or grey out a whole node class (Wave 2, Feature 3; ADR-2188 D4). Out-of-range
+    /// codes are ignored. A hidden class is an interactive filter, so its nodes stay
+    /// drawn and are marked FILTERED_OUT in the highlight mask (greyed, edges at low
+    /// alpha) at the next node pack; they are not removed.
     pub fn set_type_visible(&mut self, class_code: u8, visible: bool) {
-        self.touch();
         if let Some(slot) = self.type_hidden.get_mut(class_code as usize) {
-            *slot = !visible;
+            if *slot != !visible {
+                *slot = !visible;
+                self.filter_dirty = true;
+            }
         }
     }
 
@@ -1238,16 +1248,20 @@ impl RenderStore {
         }
     }
 
-    /// Whether a specific node is visible under the current type filter. A node
-    /// with no recorded kind is treated as visible (fail-open).
-    fn node_visible(&self, id: u32) -> bool {
-        if self.filter_hidden.contains(&id) {
-            return false;
-        }
+    /// Whether the type show/hide filter excludes this node. A node with no
+    /// recorded kind is never excluded (fail-open).
+    fn type_excluded(&self, id: u32) -> bool {
         match self.node_kind.get(&id) {
-            Some(&c) => self.is_type_visible(c),
-            None => true,
+            Some(&c) => !self.is_type_visible(c),
+            None => false,
         }
+    }
+
+    /// Whether an interactive filter greys this node out (as of the last node pack).
+    pub fn is_filtered_out(&self, id: u32) -> bool {
+        self.id_index
+            .get(&id)
+            .is_some_and(|&slot| self.highlight.get(slot) & crate::highlight::FILTERED_OUT != 0)
     }
 
     /// Replace the per-edge style map from parallel `pairs`/`codes` (Feature 4).
@@ -1515,6 +1529,37 @@ impl RenderStore {
     /// carry a non-empty label are eligible — this drives the wand search-teleport
     /// "top labels" radial (Wave 2, Feature 2), which needs something to show.
     /// Stable id order breaks centrality ties.
+    /// Order label candidates by priority (ADR-2186 D2, ADR-2188 D5): wire
+    /// centrality first, then degree, then the smaller id. Drops unknown ids, nodes
+    /// with no label and greyed-out nodes (ADR-2183 D3: greyed nodes get no label).
+    /// The scene pins selected / hovered / held nodes ahead of this order itself.
+    pub fn rank_label_candidates(&self, ids: &[u32]) -> Vec<u32> {
+        let mut ranked: Vec<(f32, u32, u32)> = Vec::with_capacity(ids.len());
+        let mut seen: HashSet<u32> = HashSet::with_capacity(ids.len());
+        for &id in ids {
+            let Some(&slot) = self.id_index.get(&id) else {
+                continue;
+            };
+            if !seen.insert(id) {
+                continue;
+            }
+            if self.meta.get(&id).is_none_or(|m| m.label.is_empty()) {
+                continue;
+            }
+            if self.highlight.level_of(slot) == crate::highlight::LEVEL_GREY {
+                continue;
+            }
+            ranked.push((self.centrality[slot], self.degree_of(id), id));
+        }
+        ranked.sort_by(|a, b| {
+            b.0.partial_cmp(&a.0)
+                .unwrap_or(Ordering::Equal)
+                .then(b.1.cmp(&a.1))
+                .then(a.2.cmp(&b.2))
+        });
+        ranked.into_iter().map(|r| r.2).collect()
+    }
+
     pub fn top_by_centrality(&self, max: usize) -> Vec<u32> {
         if max == 0 {
             return Vec::new();
@@ -1657,7 +1702,7 @@ impl RenderStore {
                 continue;
             }
             let canon = self.fold_target(id);
-            if self.fold_hidden.contains(&canon) || !self.node_visible(canon) {
+            if self.fold_hidden.contains(&canon) || self.is_filtered_out(canon) {
                 continue;
             }
             // Rank/centrality reflect the matching node; the returned id is `canon`
@@ -1763,7 +1808,7 @@ impl RenderStore {
                 self.anomaly.push(anomaly);
                 self.cluster.push(0);
                 self.community.push(community_id);
-                self.filter_dirty |= self.node_filter.is_some();
+                self.filter_dirty |= self.node_filter.is_some() || self.type_hidden.contains(&true);
                 self.touch();
             }
         }
@@ -1953,8 +1998,8 @@ impl RenderStore {
     }
 
     /// Append one node instance for `id` to `buf`, updating the drawn set + render
-    /// arrays. No-op if the id is L1-hidden, type-filtered out, already drawn this
-    /// build, or absent from the store. Shared by the fold-aware draw path so a
+    /// arrays. No-op if the id is L1-hidden, already drawn this build, or absent from
+    /// the store. A filtered-out node IS packed; the highlight mask greys it. Shared by the fold-aware draw path so a
     /// representative and its in-transit members are packed uniformly. A node with
     /// a live label fade is packed into `faded` (transparent pass, COLOR.a = its
     /// alpha) instead of `buf`; it still enters the drawn set and render arrays so
@@ -1968,7 +2013,7 @@ impl RenderStore {
         size_lo: f32,
         size_hi: f32,
     ) {
-        if self.fold_hidden.contains(&id) || !self.node_visible(id) || self.drawn.contains(&id) {
+        if self.fold_hidden.contains(&id) || self.drawn.contains(&id) {
             return;
         }
         let Some(&slot) = self.id_index.get(&id) else {
@@ -2092,11 +2137,12 @@ impl RenderStore {
             };
             if let Some(tf) = edge_transform12(self.positions[ss], self.positions[ts], radius_comp)
             {
-                // 12 transform + 4 INSTANCE_CUSTOM: r/g/b reserved (0), a = relation
-                // style code (0 untyped / 1 typed / 2 subclass) for the edge shader.
+                // 12 transform + 4 INSTANCE_CUSTOM: r = greyed (ADR-2188 D4: an
+                // endpoint is filtered out), g/b reserved (0), a = relation style code
+                // (0 untyped / 1 typed / 2 subclass) for the edge shader.
                 let style = self.edge_style_of(os, ot) as f32;
                 buf.extend_from_slice(&tf);
-                buf.extend_from_slice(&[0.0, 0.0, 0.0, style]);
+                buf.extend_from_slice(&[crate::highlight::edge_grey(&self.highlight, ss, ts), 0.0, 0.0, style]);
                 if let Some(k) = keys.as_deref_mut() {
                     let (a, b) = if s < t { (s, t) } else { (t, s) };
                     k.push(((a as u64) << 32) | b as u64);
@@ -2502,25 +2548,78 @@ impl RenderStore {
         self.filter_hidden.len()
     }
 
+    /// Recompute FILTERED_OUT for every node from the received filter and the type
+    /// filter (ADR-2188 D4). Event-driven: runs only when an input changed.
     fn refresh_filter(&mut self) {
         if !self.filter_dirty {
             return;
         }
         self.filter_dirty = false;
         self.filter_hidden.clear();
-        let Some(f) = self.node_filter else {
-            return;
-        };
-        for &id in &self.ids {
-            if self.node_kind.get(&id) == Some(&KIND_AGENT) {
+        let f = self.node_filter;
+        for i in 0..self.ids.len() {
+            let id = self.ids[i];
+            let Some(&slot) = self.id_index.get(&id) else {
                 continue;
-            }
-            let inp = self.filter_inputs.get(&id).copied().unwrap_or_default();
-            if !f.passes(&inp, self.degree_of(id)) {
+            };
+            // Agents are never filtered by the received filter (desktop and server
+            // filter graph nodes only); the type filter can still grey class 2.
+            let by_filter = match f {
+                Some(f) if self.node_kind.get(&id) != Some(&KIND_AGENT) => {
+                    let inp = self.filter_inputs.get(&id).copied().unwrap_or_default();
+                    !f.passes(&inp, self.degree_of(id))
+                }
+                _ => false,
+            };
+            if by_filter {
                 self.filter_hidden.insert(id);
             }
+            let out = by_filter || self.type_excluded(id);
+            self.highlight
+                .set_bit(slot, crate::highlight::FILTERED_OUT, out);
         }
     }
+
+    /// Replace `bit` (SELECTED, HOVERED, SEARCH_HIT or FOCUS_NEIGHBOUR) with exactly
+    /// `ids`. FILTERED_OUT is owned by the filters and cannot be written here.
+    /// Takes effect on the next pack without invalidating the pack plans: the mask
+    /// is applied on the per-frame path (`highlight::apply`). Returns whether any
+    /// byte changed.
+    pub fn set_highlight_ids(&mut self, bit: u8, ids: &[u32]) -> bool {
+        let bit = bit & crate::highlight::ALL & !crate::highlight::FILTERED_OUT;
+        if bit == 0 {
+            return false;
+        }
+        let before = self.highlight.version();
+        // Clear only the slots that lose the bit, so an unchanged set is a no-op.
+        let keep: HashSet<usize> = ids.iter().filter_map(|id| self.id_index.get(id).copied()).collect();
+        for slot in 0..self.positions.len() {
+            let on = keep.contains(&slot);
+            self.highlight.set_bit(slot, bit, on);
+        }
+        self.highlight.version() != before
+    }
+
+    /// Flag byte of a node (0 if unknown).
+    pub fn highlight_flags_of(&self, id: u32) -> u8 {
+        self.id_index.get(&id).map_or(0, |&slot| self.highlight.get(slot))
+    }
+
+    /// ADR-2183 level of a node (normal if unknown).
+    pub fn highlight_level_of(&self, id: u32) -> u8 {
+        crate::highlight::level(self.highlight_flags_of(id))
+    }
+
+    /// Nodes an interactive filter currently greys out.
+    pub fn filtered_out_count(&self) -> usize {
+        self.highlight.count(crate::highlight::FILTERED_OUT)
+    }
+
+    /// Changes whenever any highlight byte changes.
+    pub fn highlight_version(&self) -> u64 {
+        self.highlight.version()
+    }
+
 
     fn hull_points(&self) -> Vec<crate::hulls::HullPoint> {
         self.render_ids
@@ -2528,6 +2627,10 @@ impl RenderStore {
             .zip(self.render_positions.iter())
             .filter_map(|(id, &pos)| {
                 let slot = *self.id_index.get(id)?;
+                // A greyed-out node is not part of the view's structure (ADR-2183).
+                if self.highlight.level_of(slot) == crate::highlight::LEVEL_GREY {
+                    return None;
+                }
                 Some(crate::hulls::HullPoint {
                     cluster_id: self.cluster[slot],
                     community_id: self.community[slot],
@@ -4022,7 +4125,10 @@ mod tests {
     // --- Wave 2 Feature 3: type show/hide filter ----------------------------
 
     #[test]
-    fn type_filter_hides_class_and_its_edges() {
+    fn type_filter_greys_the_class_and_its_edges_without_removing_them() {
+        // ADR-2188 D4 (ADR-2183 P3): before 2026-11-06 a hidden class dropped from the
+        // buffer and its edges vanished (commit 8b48931ac pins that in GUT). Now the
+        // class stays drawn, greyed, and its edges carry the grey flag in custom.r.
         let mut s = RenderStore::new();
         s.upsert(1, [0.0, 0.0, 0.0], 0, 0.0, 0.0);
         s.upsert(2, [0.0, 2.0, 0.0], 0, 0.0, 0.0);
@@ -4030,26 +4136,111 @@ mod tests {
         s.set_node_kind(1, KIND_KNOWLEDGE);
         s.set_node_kind(2, KIND_ONTOLOGY);
         s.set_node_kind(3, KIND_KNOWLEDGE);
-        // All visible initially.
-        assert_eq!(
-            s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9).len(),
-            3 * NODE_STRIDE
-        );
-        // Hide ontology → node 2 drops; nodes 1,3 remain.
+        let before = s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9);
+        assert_eq!(before.len(), 3 * NODE_STRIDE);
         s.set_type_visible(KIND_ONTOLOGY, false);
         assert!(!s.is_type_visible(KIND_ONTOLOGY));
         let buf = s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9);
-        assert_eq!(buf.len(), 2 * NODE_STRIDE, "hidden-class node dropped");
-        assert_eq!(s.render_ids(), &[1, 3]);
-        // Edge 1→2 loses an endpoint (2 hidden) → dropped; edge 1→3 survives.
+        assert_eq!(buf.len(), 3 * NODE_STRIDE, "a filtered class is still drawn");
+        assert_eq!(s.render_ids(), &[1, 2, 3]);
+        assert_eq!(s.highlight_level_of(2), crate::highlight::LEVEL_GREY);
+        assert_eq!(s.filtered_out_count(), 1);
+        // Node 2 (index 1): custom.a level 0, desaturated colour, no halo tell.
+        let n2 = &buf[NODE_STRIDE..2 * NODE_STRIDE];
+        assert_eq!(n2[19], 0.0, "custom.a carries the grey level");
+        assert_eq!(n2[16], 0.0, "no centrality halo on a greyed node");
+        assert!((n2[12] - n2[13]).abs() < 0.05 && (n2[13] - n2[14]).abs() < 0.05, "desaturated");
+        assert_eq!(buf[19], 1.0, "node 1 normal");
+        // Both edges drawn; the one touching node 2 is flagged grey.
         let ebuf = s.build_edge_buffer(&[1, 2, 1, 3], 0.1);
-        assert_eq!(ebuf.len(), EDGE_STRIDE_TYPED, "edge to hidden node removed");
-        // Re-show restores it.
+        assert_eq!(ebuf.len(), 2 * EDGE_STRIDE_TYPED, "the edge to a greyed node stays");
+        assert_eq!(ebuf[12], 1.0, "1-2 greyed (custom.r)");
+        assert_eq!(ebuf[EDGE_STRIDE_TYPED + 12], 0.0, "1-3 normal");
+        // Re-show clears the grey.
         s.set_type_visible(KIND_ONTOLOGY, true);
-        assert_eq!(
-            s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9).len(),
-            3 * NODE_STRIDE
-        );
+        let after = s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9);
+        assert_eq!(after.len(), 3 * NODE_STRIDE);
+        assert_eq!(s.filtered_out_count(), 0);
+        assert_eq!(&after[12..16], &before[12..16], "colour restored");
+    }
+
+    #[test]
+    fn mask_is_applied_on_the_plan_path_without_invalidating_the_plan() {
+        // A hover or selection write must reach the headset's LOD path, which replays
+        // the pack plan while visual_epoch is unchanged, and must not force a repack.
+        let mut s = RenderStore::new();
+        for i in 0..4u32 {
+            s.upsert(i + 1, [i as f32 * 3.0, 0.0, 0.0], 0, 0.5, 0.0);
+            s.set_node_kind(i + 1, KIND_OTHER);
+        }
+        let ids = [1, 2, 3, 4];
+        let cam = [100.0, 0.0, 0.0];
+        s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, 1.0);
+        s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, 1.0);
+        let epoch = s.visual_epoch;
+        let plain = s.impostor_node_buffer().to_vec();
+        assert_eq!(plain.len(), 4 * NODE_STRIDE);
+        assert!(s.set_highlight_ids(crate::highlight::HOVERED, &[3]));
+        assert!(!s.set_highlight_ids(crate::highlight::HOVERED, &[3]), "unchanged set is a no-op");
+        s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, 1.0);
+        assert_eq!(s.visual_epoch, epoch, "a mask write never bumps the epoch");
+        let lit = s.impostor_node_buffer().to_vec();
+        let k = lit
+            .chunks(NODE_STRIDE)
+            .position(|c| (c[11] - 0.0).abs() < 1e-6 && (c[3] - 6.0).abs() < 1e-6)
+            .expect("node 3 present");
+        let c = &lit[k * NODE_STRIDE..(k + 1) * NODE_STRIDE];
+        let p = &plain[k * NODE_STRIDE..(k + 1) * NODE_STRIDE];
+        assert_eq!(c[19], 2.0, "emphasis level in custom.a");
+        assert!((c[0] / p[0] - crate::highlight::EMPHASIS_SIZE).abs() < 1e-4, "larger");
+        assert!(c[12] > p[12] - 1e-6 && c[13] >= p[13] && c[14] >= p[14], "lifted colour");
+        // A filtered-out node that is hovered is emphasised, not greyed.
+        s.set_type_visible(KIND_OTHER, false);
+        s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, 1.0);
+        assert_eq!(s.highlight_level_of(3), crate::highlight::LEVEL_EMPHASIS);
+        assert_eq!(s.highlight_level_of(1), crate::highlight::LEVEL_GREY);
+        assert!(s.set_highlight_ids(crate::highlight::HOVERED, &[]));
+        assert_eq!(s.highlight_level_of(3), crate::highlight::LEVEL_GREY);
+    }
+
+    #[test]
+    fn the_far_ribbons_pick_up_a_mask_change_on_the_plan_path() {
+        let mut s = RenderStore::new();
+        s.upsert(1, [0.0, 0.0, 0.0], 0, 0.5, 0.0);
+        s.upsert(2, [5.0, 0.0, 0.0], 0, 0.5, 0.0);
+        s.upsert(3, [0.0, 5.0, 0.0], 0, 0.5, 0.0);
+        let ids = [1, 2, 3];
+        let pairs = [1, 2, 1, 3];
+        let cam = [100.0, 100.0, 100.0];
+        for _ in 0..2 {
+            s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, 1.0);
+            s.build_edge_buffer_lod(&pairs, 0.1, cam, 0, 1.0);
+        }
+        assert!(s.ribbon_edge_buffer().chunks(EDGE_STRIDE_TYPED).all(|e| e[12] == 0.0));
+        s.set_node_kind(2, KIND_ONTOLOGY);
+        s.set_type_visible(KIND_ONTOLOGY, false);
+        s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, 1.0);
+        s.build_edge_buffer_lod(&pairs, 0.1, cam, 0, 1.0);
+        let greyed = s.ribbon_edge_buffer().chunks(EDGE_STRIDE_TYPED).filter(|e| e[12] == 1.0).count();
+        assert_eq!(greyed, 1, "exactly the edge touching the greyed node");
+        assert_eq!(s.ribbon_edge_buffer().len(), 2 * EDGE_STRIDE_TYPED, "nothing removed");
+    }
+
+    #[test]
+    fn greyed_nodes_get_no_hull_and_no_label_rank() {
+        let mut s = RenderStore::new();
+        s.upsert(1, [0.0, 0.0, 0.0], 0, 0.9, 0.0);
+        s.upsert(2, [1.0, 0.0, 0.0], 0, 0.5, 0.0);
+        s.upsert(3, [2.0, 0.0, 0.0], 0, 0.1, 0.0);
+        for id in 1..=3u32 {
+            s.meta.insert(id, NodeMeta { label: format!("n{id}"), ..Default::default() });
+        }
+        assert_eq!(s.rank_label_candidates(&[3, 1, 2, 1, 99]), vec![1, 2, 3], "centrality first, dedup, unknown dropped");
+        s.set_node_kind(1, KIND_ONTOLOGY);
+        s.set_type_visible(KIND_ONTOLOGY, false);
+        let _ = s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9);
+        assert_eq!(s.rank_label_candidates(&[1, 2, 3]), vec![2, 3], "a greyed node gets no label");
+        assert_eq!(s.hull_points().len(), 2, "a greyed node is not hulled");
     }
 
     #[test]
@@ -4834,9 +5025,8 @@ mod tests {
     }
 
     #[test]
-    fn a_link_with_a_filtered_end_is_not_drawn_and_is_not_unresolved() {
-        // Owner rule 5: a link follows the same drawn test as the edge pack. A hidden class
-        // removes the node, its edges and every link ending on it.
+    fn a_link_with_a_filtered_end_follows_the_edge_drawn_test() {
+        // Owner rule 5: a link follows the same drawn test as the edge pack.
         let (mut a, _, pairs) = chain_store();
         a.set_node_kind(3, KIND_ONTOLOGY);
         let ids = (1..=6).collect::<Vec<i32>>();
@@ -4846,21 +5036,24 @@ mod tests {
         pack_links(&[Some(&a)], &[vol(IDENT)], &specs, &IDENT, &mut out);
         assert_eq!(out.links, 1, "both ends drawn: the link is drawn");
 
+        // ADR-2188 D4: a hidden class is an interactive filter and greys out, so the
+        // node, its edge and the link ending on it all stay drawn (the same drawn test).
         a.set_type_visible(KIND_ONTOLOGY, false);
         let _ = a.build_node_buffer(&ids, 1.0, 0.7, 1.9);
+        assert_eq!(a.highlight_level_of(3), crate::highlight::LEVEL_GREY);
         let edges = a.build_edge_buffer(&pairs, 0.1);
         assert!(
-            !edges.as_chunks::<16>().0.iter().any(|e| joins(e, a.position_of(3), a.position_of(4))),
-            "the edge to the hidden node is gone"
+            edges.as_chunks::<16>().0.iter().any(|e| joins(e, a.position_of(3), a.position_of(4))),
+            "the edge to the greyed node stays"
         );
         pack_links(&[Some(&a)], &[vol(IDENT)], &specs, &IDENT, &mut out);
-        assert_eq!(out.links, 0, "a link to a hidden end is not drawn");
-        assert_eq!(out.unresolved, 0, "hidden is skipped, not unresolved");
+        assert_eq!(out.links, 1, "a link to a greyed end is still drawn");
+        assert_eq!(out.unresolved, 0);
 
         // The source end filtered gives the same answer.
         let rev = [spec((0, 5, 0), (0, 3, 0))];
         pack_links(&[Some(&a)], &[vol(IDENT)], &rev, &IDENT, &mut out);
-        assert_eq!((out.links, out.unresolved), (0, 0));
+        assert_eq!((out.links, out.unresolved), (1, 0));
 
         a.set_type_visible(KIND_ONTOLOGY, true);
         let _ = a.build_node_buffer(&ids, 1.0, 0.7, 1.9);

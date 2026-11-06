@@ -470,6 +470,7 @@ func select_volume_node(vid: StringName, conn_id: StringName, node_id: int, extr
 		_selection_label.text = "%s · %s" % [vname, label]
 	if hud != null and hud.has_method("set_selection_info"):
 		hud.set_selection_info(vname, label)
+	_write_selection_highlight()
 	_update_highlight_marks()
 
 
@@ -490,6 +491,7 @@ func clear_volume_selection() -> void:
 		_selection_label.visible = false
 	if hud != null and hud.has_method("set_selection_info"):
 		hud.set_selection_info("", "")
+	_write_selection_highlight()
 
 
 func _add_highlight(vid: StringName, conn_id: StringName, node_id: int) -> void:
@@ -869,10 +871,9 @@ var _grab_eval_ends: PackedInt32Array = PackedInt32Array()
 # A small pool of world-space Label3D anchors shown only for the nodes closest to
 # the camera, so text stays sparse. World-space (positioned at graph_root xform ×
 # server_pos) so text size is constant in metres regardless of the fit scale.
-const LABEL_POOL_SIZE: int = 12
+# Pool size is LabelBudget.POOL_SIZE (8 ranked + 4 pinned = 12, ADR-2188 D5).
 const LABEL_UPDATE_SEC: float = 0.25          # 4 Hz refresh, not per frame
-const LABEL_PROXIMITY_M: float = 0.5          # world-metre radius (outer fade edge)
-const LABEL_INNER_M: float = 0.25             # full-opacity radius
+# Label reach and fade: LabelBudget.LABEL_REACH_M / LABEL_FULL_M (ADR-2188 D5).
 const LABEL_TITLE_PX: float = 0.0006          # pixel_size → ~1.9 cm title text
 const LABEL_TITLE_FONT: int = 32
 const LABEL_DETAIL_FONT: int = 20
@@ -900,6 +901,11 @@ var _m4_ray_observed: bool = false
 var _observe_http: HTTPRequest = null
 
 var _last_targeted_id: int = -1
+# When the ray last reported a node (ms), and the hover last written to a mask.
+var _last_targeted_ms: int = -1
+var _hover_hl_id: int = -1
+var _hover_hl_conn: StringName = &""
+var _hover_hl_vol: StringName = &""
 var _last_targeted_vol: StringName = &""   # volume the ray last targeted a node in
 
 # Double-click (node-open) detection: two grabs of the same node within the window.
@@ -1104,6 +1110,19 @@ const MemorySearchScript := preload("res://scripts/memory_search.gd")
 var _memory_search: Node = null
 # Node-mesh LOD (PRD-008 triangle budget): far-tier impostor MultiMesh.
 const NodeLod := preload("res://scripts/node_lod.gd")
+# ADR-2188: overview sizing/fade maths and the dropped-edge readout, the label
+# budget, and the highlight-mask writer (pointer and query state → Rust mask).
+const OverviewLod := preload("res://scripts/overview_lod.gd")
+const LabelBudget := preload("res://scripts/label_budget.gd")
+const HighlightWriter := preload("res://scripts/highlight_writer.gd")
+var _hl_writer: RefCounted = HighlightWriter.new()
+# Dropped-edge readout last pushed to the HUD (drawn, total), so it updates on change only.
+var _edge_readout_drawn: int = -1
+var _edge_readout_total: int = -1
+# Eye-buffer pixels per radian last pushed to the overview shaders.
+var _px_per_rad: float = 0.0
+var _px_per_rad_accum: float = 1.0
+const PX_PER_RAD_SEC: float = 1.0
 var _impostors: MultiMeshInstance3D = null
 var _ribbons: MultiMeshInstance3D = null       # far-tier edge ribbons (edge LOD)
 # One FrameBudget pass (xr-cloud's frame_budget.rs) shared by the graph's near
@@ -1754,12 +1773,67 @@ func _pack_volumes() -> void:
 		var gem_cap: int = int(share.get("gem_nodes", _budget.caps["gem_nodes"]))
 		var cyl_cap: int = int(share.get("cylinder_edges", _budget.caps["cylinder_edges"]))
 		src.pack(cam_world, node_ratio, edge_ratio, gem_cap, cyl_cap, NodeLod.NEAR_RADIUS_M, NodeLod.NEAR_EDGE_RADIUS_M)
+	_update_edge_readout()
+
+
+## ADR-2188 D2 / ADR-2179 P4: sum what the shown volumes drew against the edges they
+## have and show "Edges N of M drawn" in the HUD header whenever any were dropped.
+## Integer compares per frame; the HUD is touched only when a count changes.
+func _update_edge_readout() -> void:
+	var drawn: int = 0
+	var total: int = 0
+	for vid: StringName in _sources:
+		var src = _sources[vid]
+		if src == null or not src.has_method("dropped_edges"):
+			continue
+		var v: Node3D = _volumes.get(vid, null)
+		if v == null or not v.visible_state:
+			continue
+		drawn += int(src.drawn_edges())
+		total += int(src.edge_total)
+	if drawn == _edge_readout_drawn and total == _edge_readout_total:
+		return
+	_edge_readout_drawn = drawn
+	_edge_readout_total = total
+	if hud != null and hud.has_method("set_edge_readout"):
+		hud.set_edge_readout(OverviewLod.edge_readout(drawn, total))
+
+
+## Feed the overview shaders the eye buffer's pixels per radian (ADR-2188 D1/D2):
+## the node pixel floor and the ribbon width and length fade are in pixels. Polled
+## once a second; the materials are touched only when the value changes.
+func _update_px_per_rad(delta: float) -> void:
+	_px_per_rad_accum += delta
+	if _px_per_rad_accum < PX_PER_RAD_SEC:
+		return
+	_px_per_rad_accum = 0.0
+	var cam: Camera3D = get_viewport().get_camera_3d()
+	if cam == null:
+		return
+	# In the headset the eye's own projection gives the FOV (XRCamera3D.fov is not
+	# the runtime's); its horizontal FOV against the per-eye render width. On the
+	# desktop, Camera3D.fov is vertical (keep_aspect = KEEP_HEIGHT) against the height.
+	var ppr: float = 0.0
+	var xr: XRInterface = XRServer.primary_interface
+	if xr != null and xr.is_initialized() and get_viewport().use_xr and xr.has_method("get_projection_for_view"):
+		var rt: Vector2 = xr.get_render_target_size()
+		if rt.x > 0.0 and rt.y > 0.0:
+			var proj: Projection = xr.get_projection_for_view(0, rt.x / rt.y, cam.near, cam.far)
+			ppr = OverviewLod.px_per_rad(rt.x, proj.get_fov())
+	if ppr <= 0.0:
+		ppr = OverviewLod.px_per_rad(float(get_viewport().get_visible_rect().size.y), cam.fov)
+	if is_equal_approx(ppr, _px_per_rad):
+		return
+	_px_per_rad = ppr
+	for mmi: MultiMeshInstance3D in [_impostors, _ribbons]:
+		if mmi != null and mmi.material_override is ShaderMaterial:
+			(mmi.material_override as ShaderMaterial).set_shader_parameter("px_per_rad", ppr)
 
 
 # Build the reusable Label3D pool once. Anchors live in world space (siblings of
 # GraphRoot) so their metre-sized text is unaffected by the graph fit scale.
 func _init_label_pool() -> void:
-	for i: int in range(LABEL_POOL_SIZE):
+	for i: int in range(LabelBudget.POOL_SIZE):
 		var anchor := Node3D.new()
 		anchor.name = "NodeLabel%d" % i
 		anchor.visible = false
@@ -1784,9 +1858,13 @@ func _init_label_pool() -> void:
 		_label_pool.append(anchor)
 
 
-# Show labels for the nodes nearest the camera (plus the grabbed node), fading with
-# distance. Runs at LABEL_UPDATE_SEC cadence; reuses the pool (no allocation churn
-# beyond the one nodes_near query array).
+# Priority-ranked label budget (ADR-2188 D5, ADR-2186): the held, selected and
+# hovered nodes are pinned (always labelled, with their detail line); query
+# variables come next; then the candidates in front of the eye within
+# LabelBudget.LABEL_REACH_M, ranked by Rust (centrality, then degree; greyed-out
+# and unlabelled nodes dropped) and thinned by a coarse angular collision grid,
+# up to LabelBudget.DEFAULT_BUDGET. Runs at LABEL_UPDATE_SEC cadence, not per
+# frame; reuses the pool. Ranked labels show a title only (one draw call each).
 func _update_proximity_labels() -> void:
 	if _label_pool.is_empty():
 		return
@@ -1797,48 +1875,53 @@ func _update_proximity_labels() -> void:
 	if cam == null:
 		_hide_all_labels()
 		return
-	var cam_world: Vector3 = cam.global_position
+	_sync_query_highlight()
+	var cam_xf: Transform3D = cam.global_transform
+	var cam_world: Vector3 = cam_xf.origin
 	var gxf: Transform3D = graph_root.global_transform
 	var cam_server: Vector3 = gxf.affine_inverse() * cam_world
-	# Radius tracks the fit scale: a fixed world-metre reach maps to a larger
+	# Reach tracks the fit scale: a fixed world-metre reach maps to a larger
 	# server-space radius when the graph is scaled down.
-	var radius_server: float = LABEL_PROXIMITY_M / maxf(_graph_scale, 0.0001)
-	# Query more than the pool so unlabelled near-nodes don't starve labelled ones.
-	var near: PackedInt32Array = _binary_client.nodes_near(cam_server, radius_server, LABEL_POOL_SIZE * 2)
-	# Build the shown list: grabbed node first (always labelled), then nearest
-	# labelled nodes up to the pool size.
-	var shown: Array = []
-	# Labels are placed through GraphRoot (the knowledge frame): only nodes held in
-	# the knowledge volume belong in this pool.
-	for held: int in _held_ids(OVERLAY_VOLUME):
-		shown.append(held)
-	# Query variables are always labelled (with their ?vN badge), regardless of
-	# proximity, so the assembled pattern stays legible while the user works.
-	for mid: int in _query.marked_ids():
-		if shown.size() >= LABEL_POOL_SIZE:
-			break
-		if not shown.has(mid):
-			shown.append(mid)
+	var reach_server: float = LabelBudget.LABEL_REACH_M / maxf(_graph_scale, 0.0001)
+	var near: PackedInt32Array = _binary_client.nodes_near(cam_server, reach_server, LabelBudget.CANDIDATES)
 	var overlay_mask: int = int(VOLUME_BINDINGS[OVERLAY_VOLUME]["mask"])
+	# Labels sit in GraphRoot's frame, which is the overlay volume's: a node drawn in
+	# another volume would be labelled in the wrong place. Keep only candidates of
+	# this volume that are in front of the eye; their grid cell feeds the collision test.
+	var cells: Dictionary = {}
+	var candidates := PackedInt32Array()
 	for id: int in near:
-		if shown.size() >= LABEL_POOL_SIZE:
-			break
-		if shown.has(id):
-			continue
-		# Labels sit in GraphRoot's frame, which is the overlay volume's: a node
-		# drawn in another volume would be labelled in the wrong place.
 		var cls: int = _vc_conn.class_of(id) if _vc_conn != null else -1
 		if cls >= 0 and not (overlay_mask & (1 << cls)):
 			continue
-		if _binary_client.label_of(id) != "":
-			shown.append(id)
+		var cell: Variant = LabelBudget.cell_of(cam_xf, gxf * _binary_client.node_position(id))
+		if cell == null:
+			continue
+		cells[id] = cell
+		candidates.append(id)
+	var pinned := PackedInt32Array()
+	for held: int in _held_ids(OVERLAY_VOLUME):
+		pinned.append(held)
+	if _sel_node >= 0 and _sel_volume == OVERLAY_VOLUME:
+		pinned.append(_sel_node)
+	if HighlightWriter.hover_live(_last_targeted_ms, Time.get_ticks_msec()) and _last_targeted_vol == OVERLAY_VOLUME:
+		pinned.append(_last_targeted_id)
+	var ranked := PackedInt32Array()
+	for mid: int in _query.marked_ids():
+		ranked.append(mid)
+	if _binary_client.has_method("rank_labels"):
+		ranked.append_array(_binary_client.rank_labels(candidates))
+	else:
+		ranked.append_array(candidates)
+	var shown: PackedInt32Array = LabelBudget.select(pinned, ranked, LabelBudget.DEFAULT_BUDGET, cells)
 	var labelled: PackedInt32Array = PackedInt32Array()
-	for i: int in range(LABEL_POOL_SIZE):
+	for i: int in range(_label_pool.size()):
 		var anchor: Node3D = _label_pool[i]
 		if i >= shown.size():
 			anchor.visible = false
 			continue
 		var node_id: int = shown[i]
+		var is_pinned: bool = pinned.has(node_id)
 		var server_pos: Vector3 = _binary_client.node_position(node_id)
 		var world_pos: Vector3 = gxf * server_pos
 		anchor.global_position = world_pos
@@ -1848,41 +1931,92 @@ func _update_proximity_labels() -> void:
 		# Prefix a query variable's label with its ?vN badge so a marked node reads
 		# as the variable it stands for.
 		var vlabel: String = _query.var_name(node_id)
+		var base_label: String = _binary_client.label_of(node_id)
+		if base_label.is_empty():
+			base_label = "#%d" % node_id
 		if vlabel != "":
-			title.text = "%s  %s" % [vlabel, _binary_client.label_of(node_id)]
+			title.text = "%s  %s" % [vlabel, base_label]
 		else:
-			title.text = _binary_client.label_of(node_id)
-		# Fold badge: a representative shows "(+N)" for the members collapsed into
-		# it — the label path is the primary consumer of the fold badge count (the
-		# halo shader also rings it via INSTANCE_CUSTOM.g).
+			title.text = base_label
+		# Fold badge: a representative shows "(+N)" for the members collapsed into it.
 		if _binary_client.has_method("fold_badge_of"):
 			var badge: int = _binary_client.fold_badge_of(node_id)
 			if badge > 0:
 				title.text += "  (+%d)" % badge
-		var d: String = _binary_client.detail_of(node_id)
-		# Agent task line (ADR-140, Pillar 3 / P4): if this node is an agent with a
-		# current task, surface it in the proximity Detail line so the swarm's work
-		# reads at a glance up close — takes precedence over the generic node detail.
-		if _binary_client.has_method("agent_task"):
-			var task: String = _binary_client.agent_task(node_id)
-			if task != "":
-				d = "⚙ %s" % task
+		# Detail line only on pinned labels (selected / hovered / held), so a ranked
+		# label is one draw call. Agent task line (ADR-140, Pillar 3 / P4) wins.
+		var d: String = ""
+		if is_pinned:
+			d = _binary_client.detail_of(node_id)
+			if _binary_client.has_method("agent_task"):
+				var task: String = _binary_client.agent_task(node_id)
+				if task != "":
+					d = "⚙ %s" % task
 		detail.text = d
 		detail.visible = d != ""
-		# Fade: full opacity within LABEL_INNER_M, linear to 0 at the radius edge.
-		# The grabbed node and every query variable are always fully shown.
+		# Fade with distance; pinned labels and query variables are always fully shown.
 		var a: float = 1.0
-		if not _held_ids(OVERLAY_VOLUME).has(node_id) and not _query.is_marked(node_id):
-			var dist: float = cam_world.distance_to(world_pos)
-			a = clampf(
-				1.0 - (dist - LABEL_INNER_M) / maxf(LABEL_PROXIMITY_M - LABEL_INNER_M, 0.001),
-				0.0, 1.0
-			)
+		if not is_pinned and not _query.is_marked(node_id):
+			a = LabelBudget.fade(cam_world.distance_to(world_pos))
 		title.modulate = Color(1.0, 1.0, 1.0, a)
 		detail.modulate = Color(0.8, 0.85, 0.95, a)
-		if a > LABEL_VISIBLE_MIN_A:
+		# The node's own see-through fade (Rust LABEL_FADE_ALPHA) is for text sitting
+		# inside a near sphere: only pinned labels and those within SPHERE_FADE_M get
+		# it, so the ranked overview hubs further out stay opaque.
+		if a > LABEL_VISIBLE_MIN_A and (is_pinned or cam_world.distance_to(world_pos) <= LabelBudget.SPHERE_FADE_M):
 			labelled.append(node_id)
 	_set_labelled_nodes(labelled)
+
+
+# ADR-2188 D4: query variables are the headset's search hits (SEARCH_HIT bit).
+# Polled at the label cadence; the writer calls Rust only when the set changes.
+func _sync_query_highlight() -> void:
+	if _vc_conn == null or _query == null:
+		return
+	var ids := PackedInt32Array()
+	for mid: int in _query.marked_ids():
+		ids.append(mid)
+	_hl_writer.write(_vc_conn.conn_id, _binary_client, HighlightWriter.SEARCH_HIT, ids)
+
+
+# ADR-2188 D4: the hovered node (HOVERED bit) on the connection whose volume the ray
+# hit, cleared once the ray has not reported it for HOVER_HOLD_MS. Integer compares
+# per frame; Rust is called only when the hovered id changes.
+func _update_hover_highlight() -> void:
+	var live: bool = HighlightWriter.hover_live(_last_targeted_ms, Time.get_ticks_msec())
+	var want_id: int = _last_targeted_id if live else -1
+	if want_id == _hover_hl_id and (want_id < 0 or _last_targeted_vol == _hover_hl_vol):
+		return
+	var want_conn: StringName = &""
+	if live and VOLUME_BINDINGS.has(_last_targeted_vol):
+		want_conn = VOLUME_BINDINGS[_last_targeted_vol]["conn"]
+	_hover_hl_vol = _last_targeted_vol if live else &""
+	if _hover_hl_conn != &"" and _hover_hl_conn != want_conn:
+		var old: Node = _conns.get(_hover_hl_conn, null)
+		if old != null:
+			_hl_writer.write(_hover_hl_conn, old.client, HighlightWriter.HOVERED, PackedInt32Array())
+	_hover_hl_id = want_id
+	_hover_hl_conn = want_conn
+	var conn: Node = _conns.get(want_conn, null)
+	if conn != null:
+		var ids := PackedInt32Array([want_id]) if want_id >= 0 else PackedInt32Array()
+		_hl_writer.write(want_conn, conn.client, HighlightWriter.HOVERED, ids)
+
+
+# ADR-2188 D4: the selected node (SELECTED) and its direct neighbours
+# (FOCUS_NEIGHBOUR) on its own connection; both cleared on every other connection.
+# Event-driven: runs on select and clear only.
+func _write_selection_highlight() -> void:
+	for cid: StringName in _conns:
+		var conn: Node = _conns[cid]
+		if conn == null or conn.client == null:
+			continue
+		if cid == _sel_conn and _sel_node >= 0:
+			_hl_writer.write(cid, conn.client, HighlightWriter.SELECTED, PackedInt32Array([_sel_node]))
+			_hl_writer.write(cid, conn.client, HighlightWriter.FOCUS_NEIGHBOUR, HighlightWriter.neighbours_for(conn.client, _sel_node))
+		else:
+			_hl_writer.write(cid, conn.client, HighlightWriter.SELECTED, PackedInt32Array())
+			_hl_writer.write(cid, conn.client, HighlightWriter.FOCUS_NEIGHBOUR, PackedInt32Array())
 
 
 func _hide_all_labels() -> void:
@@ -2847,6 +2981,8 @@ func _physics_process(delta: float) -> void:
 	# Rust node drag looks at it.
 	_update_volume_trigger()
 	_update_interaction()
+	_update_hover_highlight()
+	_update_px_per_rad(delta)
 	if _hl_count > 0:
 		_update_highlight_marks()
 	_update_selection(delta)
@@ -4383,6 +4519,11 @@ func _on_conn_connected_changed(conn_id: StringName, connected: bool) -> void:
 
 func _on_conn_topology_changed(conn_id: StringName, _generation: int) -> void:
 	# Wire ids are scoped to a topology generation, including active hand holds.
+	# A new topology resets the store's highlight mask: re-send from scratch.
+	_hl_writer.forget(conn_id)
+	if _hover_hl_conn == conn_id:
+		_hover_hl_id = -1
+		_hover_hl_conn = &""
 	for vid: StringName in _sources:
 		if VOLUME_BINDINGS[vid]["conn"] == conn_id:
 			_release_grab(vid)
@@ -4648,6 +4789,7 @@ func _on_node_targeted(node_id: int, _distance: float) -> void:
 		_radial_pick_capture = node_id
 		return
 	_last_targeted_vol = _grab_volume_of(node_id)
+	_last_targeted_ms = Time.get_ticks_msec()
 	emit_signal("node_targeted_in_scene", node_id)
 	if node_id != _last_targeted_id:
 		print("GraphScene DEBUG: node_targeted id=%d dist=%.2f" % [node_id, _distance])

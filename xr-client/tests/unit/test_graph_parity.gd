@@ -136,7 +136,11 @@ func test_node_filter_frame_changes_the_visible_node_count() -> void:
 	assert_true(consumed)
 	assert_eq(str(parity.last_event.get("kind")), "node_filter")
 	assert_true(p[1]._selection_dirty, "draw domain marked for rebuild")
-	assert_eq(_drawn(client, [1, 2, 3]), 1, "low quality and linked_page nodes hidden")
+	# ADR-2188 D4: the filter greys out (highlight level 0) instead of removing.
+	assert_eq(_drawn(client, [1, 2, 3]), 3, "filtered nodes stay drawn")
+	assert_eq(int(client.highlight_level_of(2)), 0, "low quality node greyed")
+	assert_eq(int(client.highlight_level_of(3)), 0, "linked_page node greyed")
+	assert_eq(int(client.highlight_level_of(1)), 1, "passing node normal")
 	assert_eq(int(client.filter_hidden_count()), 2)
 	assert_eq(p[2].notices.size(), 1, "operator told why the view changed")
 

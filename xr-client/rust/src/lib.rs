@@ -32,6 +32,7 @@ pub mod cloud_frame;
 pub mod domain_palette;
 pub mod frame_budget;
 pub mod gaze;
+pub mod highlight;
 pub mod hulls;
 pub mod interaction;
 pub mod link_index;

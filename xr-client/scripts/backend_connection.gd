@@ -207,6 +207,14 @@ func node_ids_for_mask(mask: int) -> PackedInt32Array:
 
 
 ## Edge pairs inside `mask`, heaviest first, at most `max_pairs` (flattened).
+## Edges with both ends in `mask`, before any cap (ADR-2188 D2 dropped-edge
+## count); -1 when the client cannot say.
+func edge_count_for_mask(mask: int) -> int:
+	if client != null and client.has_method("edge_count_for_mask"):
+		return int(client.edge_count_for_mask(mask))
+	return -1
+
+
 func edges_for_mask(mask: int, max_pairs: int) -> PackedInt32Array:
 	if client != null and client.has_method("edges_for_mask"):
 		return client.edges_for_mask(mask, max_pairs)
