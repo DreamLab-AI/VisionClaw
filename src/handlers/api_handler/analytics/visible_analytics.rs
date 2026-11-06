@@ -12,8 +12,6 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 use visionclaw_domain::models::graph::GraphData;
 
 use crate::actors::gpu::analytics_telemetry::ExecutionPath;
-use crate::actors::gpu::connected_components_actor::ConnectedComponentsResult;
-use crate::actors::gpu::shortest_path_actor::SSSPResult;
 use crate::handlers::api_handler::analytics::Cluster;
 
 /// The undirected weighted adjacency the GPU uploads (`ForceComputeActor`): every edge in both
@@ -56,16 +54,31 @@ impl PartialOrd for Frontier {
     }
 }
 
-/// Single-source shortest paths from `source` (a visible position) over the visible subgraph,
-/// shaped as the GPU actor's result: unreachable and hidden positions are `INFINITY`,
-/// `nodes_reached`/`max_distance` are taken before the `max_distance` cap, and the cap sets
-/// longer distances to `f32::MAX`.
+/// The SSSP reply for a caller whose view hides nodes: only visible nodes reachable within
+/// the cap, keyed by node id. A per-index array would name every hidden id by its slot.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct VisibleSsspResult {
+    /// Distance from the source to each reachable visible node, keyed by node id. Unreachable
+    /// nodes and nodes beyond `max_distance` are absent.
+    pub distances: std::collections::BTreeMap<u32, f32>,
+    /// The source node id.
+    pub source_idx: usize,
+    /// Visible nodes reached (before the cap, as the actor counts).
+    pub nodes_reached: usize,
+    /// Largest distance found (before the cap, as the actor reports).
+    pub max_distance: f32,
+    /// Computation time in milliseconds.
+    pub computation_time_ms: u64,
+}
+
+/// Single-source shortest paths from `source` (a visible position) over the visible subgraph.
+/// `nodes_reached` and `max_distance` are taken before the `max_distance` cap, as the actor does.
 pub(crate) fn visible_sssp(
     graph: &GraphData,
     visible: &HashSet<u32>,
     source: usize,
     max_distance: Option<f32>,
-) -> SSSPResult {
+) -> VisibleSsspResult {
     let start = std::time::Instant::now();
     let adj = visible_adjacency(graph, visible);
     let mut dist = vec![f32::INFINITY; graph.nodes.len()];
@@ -83,18 +96,19 @@ pub(crate) fn visible_sssp(
             }
         }
     }
-    let reached: Vec<f32> = dist.iter().copied().filter(|d| *d < f32::MAX).collect();
+    let reached: Vec<(u32, f32)> = dist
+        .iter()
+        .enumerate()
+        .filter(|(i, d)| d.is_finite() && visible.contains(&(*i as u32)))
+        .map(|(i, &d)| (i as u32, d))
+        .collect();
     let nodes_reached = reached.len();
-    let max_seen = reached.iter().copied().fold(0.0f32, f32::max);
-    if let Some(cap) = max_distance {
-        for d in &mut dist {
-            if *d > cap {
-                *d = f32::MAX;
-            }
-        }
-    }
-    SSSPResult {
-        distances: dist,
+    let max_seen = reached.iter().map(|&(_, d)| d).fold(0.0f32, f32::max);
+    VisibleSsspResult {
+        distances: reached
+            .into_iter()
+            .filter(|&(_, d)| max_distance.is_none_or(|cap| d <= cap))
+            .collect(),
         source_idx: source,
         nodes_reached,
         max_distance: max_seen,
@@ -102,8 +116,27 @@ pub(crate) fn visible_sssp(
     }
 }
 
-/// Label of a position hidden from the caller: never a real component label.
-pub(crate) const HIDDEN_LABEL: u32 = u32::MAX;
+/// The components reply for a caller whose view hides nodes: a label per visible node id only,
+/// labels numbered densely from 0 in order of each component's smallest member.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct VisibleComponentsResult {
+    /// Component label of each visible node, keyed by node id.
+    pub labels: std::collections::BTreeMap<u32, u32>,
+    /// Number of visible components.
+    pub num_components: usize,
+    /// Size of each visible component, largest first.
+    pub component_sizes: Vec<usize>,
+    /// Largest visible component size.
+    pub largest_component_size: usize,
+    /// Whether the visible subgraph is connected.
+    pub is_connected: bool,
+    /// Iterations (0: union-find).
+    pub iterations: u32,
+    /// Computation time in milliseconds.
+    pub computation_time_ms: u64,
+    /// The path that ran (the CPU visible-subgraph path, not a GPU fallback).
+    pub execution_path: ExecutionPath,
+}
 
 fn find(parent: &mut [usize], x: usize) -> usize {
     let mut r = x;
@@ -119,12 +152,12 @@ fn find(parent: &mut [usize], x: usize) -> usize {
     r
 }
 
-/// Connected components of the visible subgraph. A component is labelled by its smallest
-/// position; hidden positions get [`HIDDEN_LABEL`] and count towards nothing.
+/// Connected components of the visible subgraph; hidden nodes are absent and count towards
+/// nothing.
 pub(crate) fn visible_components(
     graph: &GraphData,
     visible: &HashSet<u32>,
-) -> ConnectedComponentsResult {
+) -> VisibleComponentsResult {
     let start = std::time::Instant::now();
     let n = graph.nodes.len();
     let adj = visible_adjacency(graph, visible);
@@ -137,18 +170,30 @@ pub(crate) fn visible_components(
             }
         }
     }
-    let mut labels = vec![HIDDEN_LABEL; n];
-    let mut sizes: HashMap<u32, usize> = HashMap::new();
-    for (i, label) in labels.iter_mut().enumerate() {
+    let mut roots: std::collections::BTreeMap<u32, usize> = std::collections::BTreeMap::new();
+    for i in 0..n {
         if visible.contains(&(i as u32)) {
-            let root = find(&mut parent, i) as u32;
-            *label = root;
-            *sizes.entry(root).or_default() += 1;
+            roots.insert(i as u32, find(&mut parent, i));
         }
     }
-    let mut component_sizes: Vec<usize> = sizes.values().copied().collect();
+    // Dense labels: components numbered in order of their smallest visible member.
+    let mut dense: HashMap<usize, u32> = HashMap::new();
+    let mut sizes: Vec<usize> = Vec::new();
+    let labels: std::collections::BTreeMap<u32, u32> = roots
+        .into_iter()
+        .map(|(id, root)| {
+            let next = dense.len() as u32;
+            let label = *dense.entry(root).or_insert(next);
+            if label as usize == sizes.len() {
+                sizes.push(0);
+            }
+            sizes[label as usize] += 1;
+            (id, label)
+        })
+        .collect();
+    let mut component_sizes = sizes;
     component_sizes.sort_unstable_by(|a, b| b.cmp(a));
-    ConnectedComponentsResult {
+    VisibleComponentsResult {
         labels,
         num_components: component_sizes.len(),
         largest_component_size: component_sizes.first().copied().unwrap_or(0),
@@ -259,10 +304,14 @@ mod tests {
     fn sssp_never_routes_through_or_reaches_a_hidden_node() {
         let (g, v) = fixture();
         let r = visible_sssp(&g, &v, 0, None);
-        assert_eq!(r.distances[0], 0.0);
-        assert!(r.distances[1].is_infinite(), "hidden reads as unreachable");
-        assert_eq!(r.distances[2], 5.0, "the short way runs through hidden 1");
-        assert!(r.distances[3].is_infinite());
+        assert_eq!(r.distances.get(&0), Some(&0.0));
+        assert_eq!(r.distances.get(&1), None, "a hidden node is never named");
+        assert_eq!(
+            r.distances.get(&2),
+            Some(&5.0),
+            "the short way runs through hidden 1"
+        );
+        assert_eq!(r.distances.get(&3), None, "unreachable is absent");
         assert_eq!((r.nodes_reached, r.max_distance), (2, 5.0));
     }
 
@@ -270,7 +319,7 @@ mod tests {
     fn sssp_cap_matches_the_gpu_shape() {
         let (g, v) = fixture();
         let r = visible_sssp(&g, &v, 0, Some(2.0));
-        assert_eq!(r.distances[2], f32::MAX);
+        assert_eq!(r.distances.get(&2), None, "beyond the cap is omitted");
         assert_eq!(
             r.max_distance, 5.0,
             "taken before the cap, as the actor does"
@@ -282,15 +331,57 @@ mod tests {
         let (mut g, v) = fixture();
         g.edges.retain(|e| !(e.source == 0 && e.target == 2));
         let r = visible_components(&g, &v);
-        assert_eq!(r.labels[1], HIDDEN_LABEL);
+        assert_eq!(r.labels.get(&1), None, "a hidden node gets no label");
         assert_ne!(
-            r.labels[0], r.labels[2],
+            r.labels[&0], r.labels[&2],
             "0 and 2 met only through hidden 1"
         );
         assert_eq!(r.num_components, 3);
         assert_eq!(r.component_sizes, vec![1, 1, 1]);
         assert!(!r.is_connected);
         assert!(!r.execution_path.is_fallback());
+    }
+
+    /// Review item 5: a gated reply must not be a whole-graph-length array, which spells out the
+    /// exact hidden ids (and their count) as the INFINITY / u32::MAX slots.
+    #[test]
+    fn gated_sssp_json_names_only_visible_reachable_ids() {
+        let (g, v) = fixture();
+        let json = serde_json::to_value(visible_sssp(&g, &v, 0, None)).unwrap();
+        let d = json["distances"]
+            .as_object()
+            .expect("distances keyed by node id, not a per-index array");
+        let keys: Vec<&str> = d.keys().map(String::as_str).collect();
+        assert_eq!(
+            keys,
+            vec!["0", "2"],
+            "hidden 1 and unreachable 3 are absent"
+        );
+        assert_eq!(d["2"], 5.0);
+        assert_eq!(json["nodes_reached"], 2);
+        let capped = serde_json::to_value(visible_sssp(&g, &v, 0, Some(2.0))).unwrap();
+        let keys: Vec<&String> = capped["distances"].as_object().unwrap().keys().collect();
+        assert_eq!(keys, vec!["0"], "beyond the cap is omitted, not f32::MAX");
+    }
+
+    #[test]
+    fn gated_components_json_labels_only_visible_ids_densely() {
+        let (mut g, v) = fixture();
+        g.edges.retain(|e| !(e.source == 0 && e.target == 2));
+        let json = serde_json::to_value(visible_components(&g, &v)).unwrap();
+        let labels = json["labels"]
+            .as_object()
+            .expect("labels keyed by node id, not a per-index array");
+        let keys: Vec<&str> = labels.keys().map(String::as_str).collect();
+        assert_eq!(keys, vec!["0", "2", "3"], "no slot for hidden 1");
+        let mut got: Vec<u64> = labels.values().map(|l| l.as_u64().unwrap()).collect();
+        got.sort_unstable();
+        assert_eq!(
+            got,
+            vec![0, 1, 2],
+            "component labels are dense, not positions"
+        );
+        assert_eq!(json["num_components"], 3);
     }
 
     #[test]

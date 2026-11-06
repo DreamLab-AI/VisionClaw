@@ -56,12 +56,34 @@ pub struct ConnectedComponentsRequest {
     pub convergence_threshold: Option<f32>,
 }
 
+/// An SSSP result: the actor's per-index array for a caller who can see every node, or the
+/// id-keyed visible result for a caller whose view hides nodes (ADR-060). Untagged, so an
+/// ungated reply is byte-identical to before.
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum SsspPayload {
+    /// Whole graph, indexed by position.
+    Whole(SSSPResult),
+    /// Visible nodes only, keyed by node id.
+    Visible(super::visible_analytics::VisibleSsspResult),
+}
+
+/// A connected-components result, whole-graph or visible-only (see [`SsspPayload`]).
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum ComponentsPayload {
+    /// Whole graph, indexed by position.
+    Whole(ConnectedComponentsResult),
+    /// Visible nodes only, keyed by node id.
+    Visible(super::visible_analytics::VisibleComponentsResult),
+}
+
 /// SSSP API response
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SSSPResponse {
     pub success: bool,
-    pub result: Option<SSSPResult>,
+    pub result: Option<SsspPayload>,
     pub error: Option<String>,
 }
 
@@ -79,7 +101,7 @@ pub struct APSPResponse {
 #[serde(rename_all = "camelCase")]
 pub struct ConnectedComponentsResponse {
     pub success: bool,
-    pub result: Option<ConnectedComponentsResult>,
+    pub result: Option<ComponentsPayload>,
     pub error: Option<String>,
 }
 
@@ -153,11 +175,13 @@ pub async fn compute_sssp(
             }
             return ok_json!(SSSPResponse {
                 success: true,
-                result: Some(super::visible_analytics::visible_sssp(
-                    &graph,
-                    &visible,
-                    payload.source_idx,
-                    payload.max_distance,
+                result: Some(SsspPayload::Visible(
+                    super::visible_analytics::visible_sssp(
+                        &graph,
+                        &visible,
+                        payload.source_idx,
+                        payload.max_distance,
+                    )
                 )),
                 error: None,
             });
@@ -184,7 +208,7 @@ pub async fn compute_sssp(
                 );
                 ok_json!(SSSPResponse {
                     success: true,
-                    result: Some(result),
+                    result: Some(SsspPayload::Whole(result)),
                     error: None,
                 })
             }
@@ -308,8 +332,8 @@ pub async fn compute_connected_components(
         Ok(Some((graph, visible))) => {
             return ok_json!(ConnectedComponentsResponse {
                 success: true,
-                result: Some(super::visible_analytics::visible_components(
-                    &graph, &visible,
+                result: Some(ComponentsPayload::Visible(
+                    super::visible_analytics::visible_components(&graph, &visible,)
                 )),
                 error: None,
             });
@@ -333,7 +357,7 @@ pub async fn compute_connected_components(
                 );
                 ok_json!(ConnectedComponentsResponse {
                     success: true,
-                    result: Some(result),
+                    result: Some(ComponentsPayload::Whole(result)),
                     error: None,
                 })
             }
