@@ -5,7 +5,8 @@ import * as THREE from 'three';
 import { isWebGPURenderer } from '../../../rendering/rendererFactory';
 import { createGlyphAtlas, type GlyphAtlasResult } from '../../../rendering/text/GlyphAtlas';
 import { layoutText, layoutTextInline, type GlyphInstance } from '../../../rendering/text/textLayout';
-import { createTextMaterial, type TextMaterialResult } from '../../../rendering/text/createTextMaterial';
+import { createTextMaterial, createTextUniforms, createTslTextMaterial, type TextMaterialResult } from '../../../rendering/text/createTextMaterial';
+import { onRenderFault } from '../../../rendering/renderFaults';
 import { computeOcclusionMask, type OcclusionCandidate } from '../../../rendering/text/labelOcclusion';
 import type { Node as GraphNode } from '../managers/graphDataManager';
 import type { GraphVisualMode } from '../hooks/useGraphVisualState';
@@ -224,12 +225,13 @@ function buildLabelLines(
   return lines;
 }
 
-// ===== WebGPU budgeted DOM layer =====
-// The glyph material is a GLSL ShaderMaterial, which WebGPURenderer cannot
-// compile. Until a TSL glyph material lands (ADR-2186 D4), WebGPU draws the
-// SAME budgeted selection as WebGL (LabelBudgetRunner) as projected CSS labels
-// in one <Html> container, so the DOM count is capped at the budget
-// (budget + dynamicBudget + selectedBudget), not the node count.
+// ===== WebGPU budgeted DOM fallback =====
+// ADR-2186 D4: both renderers draw labels as instanced glyph quads
+// (InstancedLabelsGlyph; GLSL material on WebGL, TSL on WebGPU), so the
+// WebGPU path draws 0 DOM labels. This DOM layer remains only as the fallback
+// while the TSL glyph material is building, or if it failed to build or its
+// draw faulted: the SAME budgeted selection (LabelBudgetRunner) as projected
+// CSS labels in one <Html> container, capped at the budget.
 
 interface WebGPULabel {
   screenX: number;
@@ -265,13 +267,28 @@ export const InstancedLabels: React.FC<InstancedLabelsProps> = (props) => {
     ssspResult: props.ssspResult,
   };
 
-  // WebGPU path: use HTML fallback
-  if (isWebGPURenderer) {
-    return <InstancedLabelsWebGPU {...forwardedProps} />;
-  }
+  return <InstancedLabelsSwitch {...forwardedProps} />;
+};
 
-  // WebGL instanced path
-  return <InstancedLabelsWebGL {...forwardedProps} />;
+/** Glyph material state on the live renderer (WebGL is always 'ready'). */
+export type GlyphStatus = 'building' | 'ready' | 'failed';
+
+/**
+ * Whether the budgeted DOM fallback draws: only on WebGPU, and only while the
+ * TSL glyph material is not ready (building, failed, or its draw faulted).
+ */
+export function labelsUseDomFallback(webgpu: boolean, status: GlyphStatus): boolean {
+  return webgpu && status !== 'ready';
+}
+
+const InstancedLabelsSwitch: React.FC<InstancedLabelsProps> = (props) => {
+  const [status, setStatus] = React.useState<GlyphStatus>(isWebGPURenderer ? 'building' : 'ready');
+  return (
+    <>
+      {status !== 'failed' && <InstancedLabelsGlyph {...props} onStatus={setStatus} />}
+      {labelsUseDomFallback(isWebGPURenderer, status) && <InstancedLabelsWebGPU {...props} />}
+    </>
+  );
 };
 
 // ---------- WebGPU fallback implementation ----------
@@ -457,12 +474,12 @@ const InstancedLabelsWebGPU: React.FC<WebGPUProps> = ({
 // `InstancedLabels` builds a typed forwarding object so missing props are
 // compile errors. The runtime guard below (for `nodePositionsRef` absent)
 // remains as a developer sanity check that emits a single warn.
-type WebGLProps = InstancedLabelsProps;
+type GlyphProps = InstancedLabelsProps & { onStatus: (s: GlyphStatus) => void };
 
-const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
+const InstancedLabelsGlyph: React.FC<GlyphProps> = ({
   nodes, nodeIdToIndexMap, nodePositionsRef, labelPositionsRef,
   settings, graphMode, perNodeVisualModeMap, connectionCountMap,
-  hierarchyMap, graphTypeVisuals, ssspResult,
+  hierarchyMap, graphTypeVisuals, ssspResult, onStatus,
 }) => {
   const { camera, size } = useThree();
   const meshRef = useRef<THREE.Mesh>(null);
@@ -489,9 +506,12 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
   }>>([]);
 
   // Create atlas, material, and geometry once
-  const { geometry, matResult, atlas } = useMemo(() => {
+  const { geometry, uniforms, glslMaterial, atlas } = useMemo(() => {
     const a = createGlyphAtlas();
-    const m = createTextMaterial(a.texture);
+    // WebGL: the cached GLSL material and its uniforms. WebGPU: fresh uniforms;
+    // the TSL material binds to this geometry and is built below.
+    const glsl: TextMaterialResult | null = isWebGPURenderer ? null : createTextMaterial(a.texture);
+    const uniforms = glsl ? glsl.uniforms : createTextUniforms(a.texture);
 
     // Unit quad: two triangles, 4 vertices with positions in 0..1
     const geo = new THREE.InstancedBufferGeometry();
@@ -526,7 +546,7 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
 
     geo.instanceCount = 0;
 
-    return { geometry: geo, matResult: m, atlas: a };
+    return { geometry: geo, uniforms, glslMaterial: glsl ? glsl.material : null, atlas: a };
   }, [glyphCap]);
 
   // Dispose on unmount
@@ -536,6 +556,42 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
     };
   }, [geometry]);
 
+  // ADR-2186 D4: the glyph material for the live renderer. WebGL uses the
+  // GLSL one at once; WebGPU builds the TSL twin, and reports 'failed' (the
+  // DOM fallback takes over) if it cannot.
+  const [material, setMaterial] = React.useState<THREE.Material | null>(glslMaterial);
+  const onStatusRef = useRef(onStatus);
+  onStatusRef.current = onStatus;
+  React.useEffect(() => {
+    if (glslMaterial) { setMaterial(glslMaterial); onStatusRef.current('ready'); return; }
+    let cancelled = false;
+    let built: THREE.Material | null = null;
+    onStatusRef.current('building');
+    createTslTextMaterial(uniforms, geometry).then((m) => {
+      if (cancelled) { m.dispose(); return; }
+      built = m;
+      setMaterial(m);
+      onStatusRef.current('ready');
+    }).catch((err) => {
+      if (cancelled) return;
+      console.warn('[InstancedLabels] TSL glyph material failed; using the budgeted DOM fallback:', err);
+      onStatusRef.current('failed');
+    });
+    return () => { cancelled = true; built?.dispose(); };
+  }, [glslMaterial, uniforms, geometry]);
+
+  // A draw that throws on WebGPU (the renderObject guard) also falls back.
+  React.useEffect(() => {
+    const mesh = meshRef.current;
+    if (!mesh || glslMaterial) return;
+    onRenderFault(mesh, (err) => {
+      mesh.visible = false;
+      console.warn('[InstancedLabels] glyph draw faulted; using the budgeted DOM fallback:', err);
+      onStatusRef.current('failed');
+    });
+    return () => onRenderFault(mesh, null);
+  }, [material, glslMaterial]);
+
   // Priority 0 (default): runs after GraphManager (-2) and GemNodes (-1),
   // ensuring nodePositionsRef.current is populated for this frame.
   useFrame(() => {
@@ -544,8 +600,8 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
 
     // --- Camera uniforms (always needed for billboard orientation) ---
     camera.updateMatrixWorld();
-    matResult.uniforms.uCamRight.value.setFromMatrixColumn(camera.matrixWorld, 0);
-    matResult.uniforms.uCamUp.value.setFromMatrixColumn(camera.matrixWorld, 1);
+    uniforms.uCamRight.value.setFromMatrixColumn(camera.matrixWorld, 0);
+    uniforms.uCamUp.value.setFromMatrixColumn(camera.matrixWorld, 1);
 
     // --- Camera motion detection: hide labels during fast movement ---
     frameCountRef.current++;
@@ -761,6 +817,6 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
   });
 
   return (
-    <mesh ref={meshRef} geometry={geometry} material={matResult.material} frustumCulled={false} renderOrder={10} />
+    material ? <mesh ref={meshRef} geometry={geometry} material={material} frustumCulled={false} renderOrder={10} /> : null
   );
 };
