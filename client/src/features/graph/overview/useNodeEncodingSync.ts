@@ -6,7 +6,9 @@
  * slots. It re-encodes only when an input changes: the node list, the index
  * map, the connection counts, the colour scheme / base colour / anomaly
  * overlay / node size / per-type visuals, the analytics buffer, or an explicit
- * `requestNodeReencode()` (the explore lane calls it after `setEncoder`).
+ * encoder change (`nodeEncoding.setEncoder` bumps `encoderVersion` and
+ * notifies), or an explicit `requestNodeReencode()` for a change the encoder
+ * object does not show (e.g. a column's data changed under the same encoder).
  * Mounted from GraphManager; its useFrame runs at -1.5, after GraphManager's
  * -2 pass and before GemNodes (-1) reads the buffers.
  */
@@ -25,7 +27,7 @@ import {
 
 let reencodeEpoch = 0;
 
-/** Ask for a re-encode on the next frame (after `nodeEncoding.setEncoder`, or a column change). */
+/** Ask for a re-encode on the next frame when the encoder is unchanged but its inputs moved. */
 export function requestNodeReencode(): void {
   reencodeEpoch++;
 }
@@ -43,7 +45,7 @@ export interface NodeEncodingSyncInputs {
 /** Comparable snapshot of every encodeAll input. */
 interface Key {
   nodes: unknown; map: unknown; cc: unknown; hier: unknown; gtv: unknown; analytics: unknown;
-  scheme: unknown; base: unknown; anomalies: unknown; nodeSize: unknown; epoch: number;
+  scheme: unknown; base: unknown; anomalies: unknown; nodeSize: unknown; epoch: number; encoder: number;
 }
 
 export function useNodeEncodingSync({ nodes, nodeIdToIndexMap, connectionCountMap, hierarchyMap }: NodeEncodingSyncInputs): void {
@@ -80,12 +82,12 @@ export function useNodeEncodingSync({ nodes, nodeIdToIndexMap, connectionCountMa
       prev && prev.nodes === nodes && prev.map === nodeIdToIndexMap && prev.cc === connectionCountMap &&
       prev.hier === hierarchyMap && prev.gtv === graphTypeVisuals && prev.analytics === analyticsRef.current &&
       prev.scheme === colorScheme && prev.base === baseNodeColor && prev.anomalies === showAnomalies &&
-      prev.nodeSize === nodeSize && prev.epoch === reencodeEpoch
+      prev.nodeSize === nodeSize && prev.epoch === reencodeEpoch && prev.encoder === nodeEncoding.encoderVersion
     ) return;
     lastRef.current = {
       nodes, map: nodeIdToIndexMap, cc: connectionCountMap, hier: hierarchyMap, gtv: graphTypeVisuals,
       analytics: analyticsRef.current, scheme: colorScheme, base: baseNodeColor, anomalies: showAnomalies,
-      nodeSize, epoch: reencodeEpoch,
+      nodeSize, epoch: reencodeEpoch, encoder: nodeEncoding.encoderVersion,
     };
     const ctx = ctxRef.current;
     ctx.connectionCountMap = connectionCountMap;

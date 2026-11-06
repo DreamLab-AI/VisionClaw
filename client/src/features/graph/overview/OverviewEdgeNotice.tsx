@@ -1,11 +1,12 @@
 /**
- * In-canvas notice for truncated overview edges (ADR-2181 D4: "N of M edges
- * drawn"; the console is not enough). A plain DOM element, to be mounted by
+ * In-canvas notice for truncated overview edges and a short worker position
+ * buffer (ADR-2181 D4: "N of M edges drawn", "N of M nodes drawn"; the
+ * console is not enough). A plain DOM element, to be mounted by
  * the menus lane inside the canvas container (outside the R3F <Canvas>). It
- * renders nothing while every edge is drawn.
+ * renders nothing while every edge and every node is drawn.
  */
 import React from 'react';
-import { useOverviewEdgeReport, overviewEdgeNoticeText } from './overviewEdgeStore';
+import { useOverviewEdgeReport, overviewEdgeNoticeText, useNodeBufferReport, nodeBufferNoticeText } from './overviewEdgeStore';
 
 export interface OverviewEdgeNoticeProps {
   className?: string;
@@ -14,8 +15,11 @@ export interface OverviewEdgeNoticeProps {
 
 export const OverviewEdgeNotice: React.FC<OverviewEdgeNoticeProps> = ({ className, style }) => {
   const report = useOverviewEdgeReport();
-  const text = overviewEdgeNoticeText(report);
-  if (!text) return null;
+  const nodes = useNodeBufferReport();
+  const edgeText = overviewEdgeNoticeText(report);
+  const nodeText = nodeBufferNoticeText(nodes);
+  if (!edgeText && !nodeText) return null;
+  const text = [nodeText, edgeText].filter(Boolean).join(' · ');
   return (
     <div
       role="status"

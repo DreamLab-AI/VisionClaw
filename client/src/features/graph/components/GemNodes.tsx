@@ -84,6 +84,8 @@ export interface GemNodesProps {
   onPointerUp: (event: ThreeEvent<PointerEvent>) => void;
   onPointerMissed: () => void;
   onDoubleClick: (event: ThreeEvent<MouseEvent>) => void;
+  /** Pointer left this mesh's nodes (hover end). */
+  onPointerOut?: (event: ThreeEvent<PointerEvent>) => void;
   /** Right-click a node — used by the additive-expansion context menu. */
   onContextMenu?: (event: ThreeEvent<MouseEvent>) => void;
   selectedNodeId: string | null;
@@ -195,7 +197,7 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
   const {
     nodes, graphMode, perNodeVisualModeMap, nodePositionsRef,
     connectionCountMap, hierarchyMap, settings, ssspResult,
-    onPointerDown, onPointerMove, onPointerUp, onPointerMissed, onDoubleClick, onContextMenu,
+    onPointerDown, onPointerMove, onPointerUp, onPointerMissed, onDoubleClick, onContextMenu, onPointerOut,
     selectedNodeId, forceMode, instanceIdBase,
   } = props;
 
@@ -1262,7 +1264,8 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
       object={mesh}
       ref={handleCommittedMesh}
       onPointerDown={(e: ThreeEvent<PointerEvent>) => onPointerDown(shiftInstanceId(e))}
-      onPointerMove={onPointerMove}
+      onPointerMove={(e: ThreeEvent<PointerEvent>) => onPointerMove(shiftInstanceId(e))}
+      onPointerOut={onPointerOut}
       onPointerUp={onPointerUp}
       onPointerMissed={onPointerMissed}
       onDoubleClick={(e: ThreeEvent<MouseEvent>) => onDoubleClick(shiftInstanceId(e))}

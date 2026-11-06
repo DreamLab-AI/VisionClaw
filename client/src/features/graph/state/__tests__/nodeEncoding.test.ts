@@ -98,7 +98,7 @@ describe('default node encoder (ADR-2184 D4) reproduces GemNodes', () => {
     expect(enc.sizes[2]).toBe(0); // slot with no delivered node
   });
 
-  it('setEncoder swaps one half and keeps the default other half; version bumps per encodeAll', () => {
+  it('setEncoder swaps one half and keeps the default other half; version bumps per setEncoder and encodeAll', () => {
     const enc = new NodeEncoding(() => idx);
     const versions: number[] = [];
     enc.subscribe((v) => versions.push(v));
@@ -108,7 +108,9 @@ describe('default node encoder (ADR-2184 D4) reproduces GemNodes', () => {
     expect(enc.sizes[0]).toBe(Math.fround(DEFAULT_NODE_ENCODER.size(NODES[0], 0, { connectionCountMap: CC, nodeSize: 1 })));
     enc.setEncoder(null);
     enc.encodeAll(NODES, { connectionCountMap: CC });
-    expect(versions).toEqual([1, 2]);
+    // setEncoder bumps and notifies too (so the renderer re-encodes at once)
+    expect(versions).toEqual([1, 2, 3, 4]);
+    expect(enc.encoderVersion).toBe(2);
   });
 
 });

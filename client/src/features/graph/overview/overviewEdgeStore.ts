@@ -58,3 +58,42 @@ export function overviewEdgeNoticeText(r: OverviewEdgeReport): string | null {
   const fmt = (n: number) => n.toLocaleString('en-GB');
   return `${fmt(r.drawn)} of ${fmt(r.total)} edges drawn (highest weight first)`;
 }
+
+// --- Worker position buffer (ADR-2181 D4: the same rule as edges) ------------
+
+export interface NodeBufferReport {
+  /** Nodes delivered (graphData.nodes). */
+  total: number;
+  /** Nodes the position buffer holds (and so can draw). */
+  drawn: number;
+  truncated: boolean;
+}
+
+const EMPTY_NODES: NodeBufferReport = { total: 0, drawn: 0, truncated: false };
+let currentNodes: NodeBufferReport = EMPTY_NODES;
+
+/** Published by graphWorkerProxy whenever it sizes the position buffer for a topology. */
+export function publishNodeBufferReport(r: NodeBufferReport): void {
+  if (r.total === currentNodes.total && r.drawn === currentNodes.drawn && r.truncated === currentNodes.truncated) return;
+  currentNodes = { total: r.total, drawn: r.drawn, truncated: r.truncated };
+  for (const l of listeners) l();
+}
+
+export function getNodeBufferReport(): NodeBufferReport {
+  return currentNodes;
+}
+
+export function resetNodeBufferReport(): void {
+  publishNodeBufferReport(EMPTY_NODES);
+}
+
+export function useNodeBufferReport(): NodeBufferReport {
+  return useSyncExternalStore(subscribeOverviewEdgeReport, getNodeBufferReport, getNodeBufferReport);
+}
+
+/** The node notice text, or null when every node fits. */
+export function nodeBufferNoticeText(r: NodeBufferReport): string | null {
+  if (!r.truncated) return null;
+  const fmt = (n: number) => n.toLocaleString('en-GB');
+  return `${fmt(r.drawn)} of ${fmt(r.total)} nodes drawn (position buffer full)`;
+}

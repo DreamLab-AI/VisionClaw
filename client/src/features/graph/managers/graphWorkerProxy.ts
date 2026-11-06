@@ -33,6 +33,7 @@
  *     caller may acknowledge it.
  */
 
+import { publishNodeBufferReport } from '../overview/overviewEdgeStore';
 import { wrap, transfer, Remote } from 'comlink';
 import type { GraphWorkerType, NodeMetadata } from '../workers/graph.worker';
 import { createLogger } from '../../../utils/loggerConfig';
@@ -101,14 +102,28 @@ if (!WORKER_USES_SAB) {
 // ── Internal state ───────────────────────────────────────────────────────
 
 // SAB capacity. The worker writes currentPositions at stride 3 (x,y,z) and the
-// renderer reads at stride 3, so usable node slots = (MAX_NODES * POSITION_FLOATS_PER_NODE) / 3.
-// The full KG∪Agent graph after a GitHub sync exceeds 14.5k nodes; at 10k the tail
-// overflowed the SAB and rendered as NaN/garbage (the 3D "blob"). Sized to cover
-// large graphs with generous headroom (~66k node slots, 800KB SAB).
-const MAX_NODES = 50_000;
+// renderer reads at stride 3, so usable node slots = floats / 3. The initial
+// allocation (INITIAL_NODES × 4 floats ≈ 66k node slots, 800 KB) covers today's
+// graphs; ADR-2181 D4: it is no longer a ceiling — setGraphTopology grows the
+// SAB from the delivered node count (sharedCapacityFor), and a node count the
+// buffer still cannot hold is reported in-canvas (publishNodeBufferReport),
+// never truncated silently.
+const INITIAL_NODES = 50_000;
 const POSITION_FLOATS_PER_NODE = 4; // x,y,z + padding (matches worker layout)
-const POSITION_BUFFER_FLOATS = MAX_NODES * POSITION_FLOATS_PER_NODE;
+const POSITION_BUFFER_FLOATS = INITIAL_NODES * POSITION_FLOATS_PER_NODE;
 const POSITION_BUFFER_BYTES = POSITION_BUFFER_FLOATS * 4;
+
+/**
+ * Float length the position SAB needs for `nodeCount` nodes, or null when
+ * `currentFloats` already holds them (stride-3 reads). Grows to the next power
+ * of two of the node count, at POSITION_FLOATS_PER_NODE floats per node.
+ */
+export function sharedCapacityFor(nodeCount: number, currentFloats: number): number | null {
+  const need = Math.max(0, Math.floor(nodeCount)) * 3;
+  if (need <= currentFloats) return null;
+  const slots = 2 ** Math.ceil(Math.log2(Math.max(1, nodeCount)));
+  return slots * POSITION_FLOATS_PER_NODE;
+}
 
 class GraphWorkerProxy {
   private static instance: GraphWorkerProxy;
@@ -179,7 +194,7 @@ class GraphWorkerProxy {
         this.sharedPositionView = new Float32Array(this.sharedBuffer);
         await this.workerApi.setupSharedPositions(this.sharedBuffer);
         logger.info(
-          `SAB attached: ${POSITION_BUFFER_BYTES} bytes for ${MAX_NODES} nodes`,
+          `SAB attached: ${POSITION_BUFFER_BYTES} bytes for ${INITIAL_NODES} nodes (grows with the graph)`,
         );
       } catch (err) {
         logger.warn(
@@ -316,7 +331,36 @@ class GraphWorkerProxy {
     if (!this.workerApi) {
       throw new Error('Worker not initialized; call initialize() first');
     }
+    await this.ensureSharedCapacity(graph.nodes.length);
     await this.workerApi.setGraphData(graph);
+  }
+
+  /**
+   * ADR-2181 D4 (worker buffer): grow the position SAB to hold `nodeCount`
+   * nodes before the topology arrives, so the worker never truncates. If the
+   * allocation fails, keep the old buffer and report the shortfall in-canvas.
+   * Comlink mode transfers the full array each frame and needs nothing.
+   */
+  private async ensureSharedCapacity(nodeCount: number): Promise<void> {
+    if (!WORKER_USES_SAB || !this.sharedPositionView || !this.workerApi) {
+      publishNodeBufferReport({ total: nodeCount, drawn: nodeCount, truncated: false });
+      return;
+    }
+    const floats = sharedCapacityFor(nodeCount, this.sharedPositionView.length);
+    if (floats !== null) {
+      try {
+        const buffer = new SharedArrayBuffer(floats * 4);
+        await this.workerApi.setupSharedPositions(buffer);
+        this.sharedBuffer = buffer;
+        this.sharedPositionView = new Float32Array(buffer);
+        logger.info(`SAB grown to ${floats * 4} bytes for ${nodeCount} nodes`);
+      } catch (err) {
+        logger.warn('SAB growth failed; the node tail will not draw:', err);
+      }
+    }
+    const held = Math.floor(this.sharedPositionView.length / 3);
+    const drawn = Math.min(nodeCount, held);
+    publishNodeBufferReport({ total: nodeCount, drawn, truncated: drawn < nodeCount });
   }
 
   // ── D7 method 4: dispose ──────────────────────────────────────────────

@@ -156,6 +156,7 @@ export class NodeEncoding {
   private _colors = new Float32Array(0);
   private _sizes = new Float32Array(0);
   private _version = 0;
+  private _encoderVersion = 0;
   private encoder: NodeEncoder = DEFAULT_NODE_ENCODER;
   private readonly listeners = new Set<NodeEncodingListener>();
   private resolver: NodeIndexResolver;
@@ -180,13 +181,21 @@ export class NodeEncoding {
 
   /**
    * Replace the active encoder. Either half may be given; the other half stays the
-   * default. Pass `null` to restore the default. Takes effect on the next `encodeAll`.
+   * default. Pass `null` to restore the default. Bumps `version` and notifies the
+   * listeners, so the one encodeAll caller (the renderer's useNodeEncodingSync)
+   * re-encodes at once; the buffers keep the previous encoding until it does.
    */
   setEncoder(encoder: Partial<NodeEncoder> | null): void {
     this.encoder = encoder
       ? { color: encoder.color ?? DEFAULT_NODE_ENCODER.color, size: encoder.size ?? DEFAULT_NODE_ENCODER.size }
       : DEFAULT_NODE_ENCODER;
+    this._encoderVersion++;
+    this._version++;
+    for (const l of this.listeners) l(this._version);
   }
+
+  /** Bumps on every setEncoder (not on encodeAll): "the encoder changed, re-encode". */
+  get encoderVersion(): number { return this._encoderVersion; }
 
   getEncoder(): NodeEncoder { return this.encoder; }
 

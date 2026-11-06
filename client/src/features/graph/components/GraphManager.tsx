@@ -38,10 +38,20 @@ import { OverviewLayer, resolveGraphView } from '../overview/OverviewLayer'
 import { useNodeEncodingSync } from '../overview/useNodeEncodingSync'
 import { useOverviewLive } from '../overview/overviewLive'
 import { TUBE_BUDGET, type GlassTubeLod } from './GlassEdges'
-import { highlightMask, HIGHLIGHT_SELECTED } from '../state/highlightMask'
+import { highlightMask, HIGHLIGHT_SELECTED, HIGHLIGHT_HOVERED } from '../state/highlightMask'
 import type { GraphViewSettings } from '../../settings/config/settings'
 
 const logger = createLogger('GraphManager')
+
+/**
+ * Hover emphasis. INTEGRATION NOTE: the explore lane exports
+ * `setHoveredNodeEmphasis` from features/graph/explore; on merge, delete this
+ * local definition and import theirs. It writes the same source name
+ * ('emph:hover'), so the two are interchangeable.
+ */
+function setHoveredNodeEmphasis(id: string | null): void {
+  highlightMask.setEmphasis('emph:hover', HIGHLIGHT_HOVERED, id ? [id] : null)
+}
 
 // Re-export GraphVisualMode from the hook for downstream consumers
 export type { GraphVisualMode } from '../hooks/useGraphVisualState';
@@ -338,9 +348,12 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   // ADR-2183 D2: the selection is one emphasis source of the highlight mask, so
   // sprites, edges, labels and bloom see it like any other writer's emphasis.
   useEffect(() => {
-    highlightMask.setEmphasis('render:selection', HIGHLIGHT_SELECTED, selectedNodeId ? [selectedNodeId] : null)
+    highlightMask.setEmphasis('emph:selection', HIGHLIGHT_SELECTED, selectedNodeId ? [selectedNodeId] : null)
   }, [selectedNodeId])
-  useEffect(() => () => highlightMask.clearSource('render:selection'), [])
+  useEffect(() => () => {
+    highlightMask.clearSource('emph:selection')
+    setHoveredNodeEmphasis(null)
+  }, [])
 
   // Fly-to interpolation state: captured start endpoints + which destination we
   // captured them for (object identity distinguishes a NEW fly). Interpolating
@@ -594,6 +607,26 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   // Shared pointer-miss + double-click handlers (one identity reused by all
   // three population meshes). event.instanceId is GLOBAL — each GemNodes adds
   // its instanceIdBase before delegating, so it indexes typeFilteredNodes here.
+  // Hover (ADR-2183 D2): the node under the pointer is an emphasis source, so
+  // it gets a gem, a halo and a label like any emphasised node. Written only
+  // when the hovered node changes. Instance ids arrive GLOBAL (GemNodes adds
+  // instanceIdBase), so they index typeFilteredNodes.
+  const handleNodePointerMove = useCallback((event: ThreeEvent<PointerEvent>) => {
+    handlePointerMove(event)
+    const node = event.instanceId !== undefined ? typeFilteredNodes[event.instanceId] : undefined
+    const id = node ? String(node.id) : null
+    if (id !== animationStateRef.current.hoveredNode) {
+      animationStateRef.current.hoveredNode = id
+      setHoveredNodeEmphasis(id)
+    }
+  }, [handlePointerMove, typeFilteredNodes])
+  const handleNodePointerOut = useCallback(() => {
+    if (animationStateRef.current.hoveredNode !== null) {
+      animationStateRef.current.hoveredNode = null
+      setHoveredNodeEmphasis(null)
+    }
+  }, [])
+
   const handlePointerMissed = useCallback(() => {
     if (dragDataRef.current.pointerDown) handlePointerUp()
     setSelectedNodeId(null)
@@ -675,7 +708,8 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
             settings={settings}
             ssspResult={normalizedSSSPResult}
             onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
+            onPointerMove={handleNodePointerMove}
+            onPointerOut={handleNodePointerOut}
             onPointerUp={(event: any) => handlePointerUp(event)}
             onPointerMissed={handlePointerMissed}
             onDoubleClick={handleNodeDoubleClick}
