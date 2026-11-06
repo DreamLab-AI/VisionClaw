@@ -82,11 +82,6 @@ const XR_ONLY: Dictionary = {
 	"system": ["Headset", "Help & keys"],
 }
 
-## Subsections whose controls change the server's shared physics document, so they
-## carry the "shared" scope text (ADR-2189 §2: physics is one global document).
-const SHARED_GROUPS: Array[String] = ["Forces", "Mode", "Shape", "Semantic forces"]
-
-
 ## Parse an ia.json document. Returns {"ok", "error", "sections", "scopes"}, where
 ## each section is {"id", "label", "hotkey", "subsections": Array[String]}. On any
 ## problem `ok` is false and the fallback sections and scopes are returned.

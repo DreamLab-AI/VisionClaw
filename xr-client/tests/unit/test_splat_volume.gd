@@ -629,16 +629,17 @@ func test_the_hud_splat_button_appears_with_a_loaded_scene_and_emits_enter_and_l
 	assert_eq(hud._splat_button.text, "Leave Splat Scene")
 	hud._splat_button.pressed.emit()
 	assert_signal_emitted_with_parameters(hud, "control_pressed", ["splat_leave"])
-	hud._show_tab("layout")
+	hud._show_tab("layers")
 	await get_tree().process_frame
-	var page: Control = hud._pages["layout"]
-	assert_lte(page.get_combined_minimum_size().y, hud._tabs_host.size.y + 1.0, "the Layout page still fits its host with the button")
+	var page: Control = hud._pages["layers"]
+	assert_lte(page.get_combined_minimum_size().y, hud._tabs_host.size.y + 1.0, "the Layers page still fits its host with the button")
 
 
-func test_the_session_row_has_a_splat_toggle_that_reads_the_scene_state() -> void:
+func test_layers_has_a_splat_toggle_that_reads_the_scene_state() -> void:
+	# ADR-2189: Layers › Splat scene holds the on/off switch (it was in the Session row).
 	var hud := await _hud()
-	assert_not_null(hud._splat_toggle, "beside KG, Onto and Code in the volume row")
-	assert_eq(hud._splat_toggle.get_parent(), (hud._volume_buttons[&"codescape"] as Button).get_parent())
+	assert_not_null(hud._splat_toggle)
+	assert_true((hud._pages["layers"] as Control).is_ancestor_of(hud._splat_toggle), "on the Layers page")
 	assert_eq(hud._splat_toggle.text, "Splat off", "off until GraphScene says otherwise")
 	watch_signals(hud)
 	hud._splat_toggle.pressed.emit()
@@ -653,7 +654,7 @@ func test_the_session_row_has_a_splat_toggle_that_reads_the_scene_state() -> voi
 	assert_eq(hud._splat_toggle.text, "Splat off", "hidden wins over loaded")
 
 
-func test_the_layout_group_shows_while_on_with_enter_live_only_once_loaded() -> void:
+func test_the_splat_group_shows_while_on_with_enter_live_only_once_loaded() -> void:
 	var hud := await _hud()
 	hud.set_splat_state({"enabled": true, "loading": true})
 	assert_true(hud._splat_header.visible, "on: the group is there even before a variant lands")
@@ -667,16 +668,16 @@ func test_the_layout_group_shows_while_on_with_enter_live_only_once_loaded() -> 
 	assert_false(hud._splat_button.disabled)
 	assert_eq(hud._splat_button.text, "Enter Splat Scene")
 	hud.set_splat_state({"enabled": false})
-	assert_false(hud._splat_row.visible, "off: the Layout page costs nothing")
+	assert_false(hud._splat_row.visible, "off: the Layers page costs nothing")
 
 
-func test_the_session_volume_row_still_fits_the_panel_with_the_splat_toggle() -> void:
+func test_the_session_volume_row_still_fits_the_page_beside_the_rail() -> void:
 	var hud := await _hud()
 	hud.set_splat_state({"enabled": true, "failure": "x"})
 	hud.set_volume_state(&"knowledge", {&"knowledge": {"shown": false, "online": false, "name": "Knowledge Graph"}})
-	var row: Control = hud._splat_toggle.get_parent()
-	assert_lte(row.get_combined_minimum_size().x, hud._tabs_host.size.x + 1.0,
-		"eight buttons, longest faces, inside the page width")
+	var row: Control = (hud._volume_buttons[&"codescape"] as Button).get_parent()
+	assert_lte(row.get_combined_minimum_size().x, hud._tabs_host.size.x - hud.RAIL_W - hud.RAIL_GAP + 1.0,
+		"seven buttons, longest faces, inside the page width beside the rail")
 
 
 func test_the_splat_scene_is_off_by_default() -> void:

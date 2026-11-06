@@ -5,7 +5,7 @@ version: 0.1.33
 status: draft-for-ratification
 verified_commit: 
 changelog:
-  - "0.1.33 (2026-11-06): ADR-2189 XR side built (headless GUT evidence only, no headset). The HUD tab bar is the seven sections of `data/ia.json` (a byte-identical copy of the desktop's generated file from feat/gv-menus 600b2846b) plus Fit, Legend and Explore; a rail picks a section's pages (two levels). The Graph tab is split across Layers, Encode and Look; the splat group moves to Layers; a System › Headset page adds dwell, haptics and Low-cost visuals; Encode › Labels adds the label budget and label text size; view preferences persist in `xr_prefs.cfg`. The HUD type filter stays population scoping (removes), per ADR-2189 §5. Supersedes the 'XR side not built' note of feat/gv-menus' 0.1.32. HUD structure section amended; Invariants and verified_commit untouched."
+  - "0.1.33 (2026-11-06): ADR-2189 XR side built (headless GUT evidence only, no headset). The HUD tab bar is the seven sections of `data/ia.json` (a byte-identical copy of the desktop's generated file from feat/gv-menus 600b2846b) plus Fit, Legend and Explore; a rail picks a section's pages (two levels). The Graph tab is split across Layers, Encode and Look; the splat controls move to Layers; a System › Headset page adds dwell, haptics and Low-cost visuals; Encode › Labels adds the label budget and label text size; Fit restores the arrangement after a two-hand turn or scale; Edges ± now sets the share of each volume's edges; view preferences (including Reduce motion, Low-cost visuals and colour mode) persist in `xr_prefs.cfg`. The HUD type filter stays population scoping (removes), per ADR-2189 §5. Supersedes the 'XR side not built' note of feat/gv-menus' 0.1.32. HUD structure section amended; Invariants and verified_commit untouched."
   - "0.1.32 (2026-11-06): ADR-2188 D1-D5 (partial; headless GUT and Rust unit evidence only, no GL render, no headset). Overview tier: pixel-floored impostors, screen-width length-faded ribbons, the dropped-edge readout in the HUD header, a per-slot highlight mask in Rust under which the received nodeFilter greys out instead of removing (the type filter stays population scoping and removes, ADR-2189 §5), emphasis by colour, size and outline (no bloom), and a priority-ranked label budget of 8 + 4 pinned. New section 'Overview-first rendering (ADR-2188)'; the Desktop-parity filter sentence is amended. Invariants and verified_commit untouched."
   - "0.1.31 (2026-11-05): ADR-2178 (proposed, partial, staged): the merged splat space. A staged splat asset (manifest `stage {metresPerUnit, focus}`) can be entered at viewer scale with the ontology volume hanging between the start and the focus; the other volumes hide. Layout page Merge button and scale steps (`xr.merged_splat_scale`). New section only; Current State, Invariants and verified_commit untouched."
   - "0.1.30 (2026-11-04): ADR-2170 HUD amendment: a Splat on/off toggle in the Session volume row (stored in `xr.splat_scene`, which outranks `XR_SPLATS`; the first press builds the volume live); the Layout page's Splat Scene group shows whenever the scene is on, with a loading or failure line until a variant lands. Headless GUT only."
@@ -1068,61 +1068,66 @@ equals a fresh build. The copy committed here is byte-identical to feat/gv-menus
 `600b2846b` (sha256 `e46be5f8…`).
 
 - **What the headset takes from it.** Section ids, labels, order and hotkeys, the
-  subsection names and the scope texts (`scripts/hud_ia.gd:93` `load_doc`). Its
+  subsection names and the scope texts (`scripts/hud_ia.gd:88` `load_doc`). Its
   fields are desktop registry paths, which the headset does not render one by one.
   A missing or malformed file, or one without exactly the seven ids, falls back to a
   built-in copy of the seven, which `tests/unit/test_hud_ia.gd` checks against the file.
 - **Two levels.** The tab bar holds the seven sections (Agents & Governance shows as
   "Agents") plus Fit, Legend and Explore: ten buttons, as many as the old ten tabs
   (`hud.gd:506`). A rail of up to three buttons beside the page picks the section's
-  page (`hud.gd:1947`). The rail costs width, not height, so the 532 px rule holds,
-  and the GUT fit tests check both height and width. `_show_tab(<page id>)` still
-  opens any page by id, together with its section and rail entry (`hud.gd:1909`). A
-  section remembers the page last shown in it (`_show_section`, `hud.gd:1929`).
+  page (`hud.gd:1956`). The rail costs width, not height, so the 532 px rule holds.
+  Headless GUT checks every page's minimum height and width beside the rail
+  (`test_hud_ia.gd`), including Query with the keyboard open. The GL-metrics HUD fit
+  gate in CI is the real check of rendered text and was not run here. `_show_tab(<page id>)` still
+  opens any page by id, together with its section and rail entry (`hud.gd:1918`). A
+  section remembers the page last shown in it (`_show_section`, `hud.gd:1938`).
 - **XR placement** (`hud_ia.gd:44` `XR_PAGES`). Every page sits in exactly one
   section. Each rail label and group name is either one of that section's
   `ia.json` subsections or listed as headset-only (`XR_ONLY`). A GUT test pins both.
   | Section | Pages (rail) | Notes |
   |---|---|---|
-  | Layers | Populations | Type toggles (population scoping: they **remove**, ADR-2189 §5), memory cloud and cloud colour, cluster hulls, splat scene (moved from Layout) |
+  | Layers | Populations | Type toggles (population scoping: they **remove**, ADR-2189 §5), memory cloud and cloud colour, cluster hulls, the splat on/off switch (moved from the Session row) and Enter / Merge (moved from Layout) |
   | Explore | Query builder · Pins | Query builder and memory search; pins |
   | Encode | Colour & size · Legend | Colour mode; label budget and label text size; the colour key |
   | Layout | Mode · Shape · Semantic forces | Mode and Forces (Reset Layout, Spread ±); hierarchy and view, planes, radial shells, cycles and links; the semantic forces |
-  | Look | Nodes | Node ±, Edges ±, Reduce motion, the physics status line |
+  | Look | Nodes | Node ±, Edges ± (the share of each volume's edges asked for, applied to the ADR-2188 edge limit), Reduce motion, the physics status line |
   | Agents & Governance | Agent operations | The swarm roster |
-  | System | Connection · Headset · Help & keys | Session; dwell, haptics, Low-cost visuals; the cheat sheet |
+  | System | Connection · Headset · Help & keys | Session (Reconnect now sits beside the connection line); dwell, haptics, Low-cost visuals; the cheat sheet |
 - **Scope.** The Layout and Shapes pages show `ia.json`'s `scopes.shared` text
   ("Changes the layout for everyone"; `hud.gd:562`), because their controls write
   the one global physics document. Headset-local controls carry no badge: the
   desktop's "This browser only" is the wrong wording in a headset.
-- **Header buttons (ADR-2189 §3).** Fit drops the two-hand manual latch and refits
-  the focused volume's content to its box, the volume's own auto-fit
-  (`graph_scene.gd:2011`, `spatial_volume.gd:156` `refit`). ADR-2180's fit scopes are
-  not built in XR. Legend opens Encode › Legend and Explore opens Explore › Query
+- **Header buttons (ADR-2189 §3).** Fit undoes the two-hand turn and scale. That
+  gesture moves the whole volume arrangement, and Reset Layout leaves it alone. Fit
+  then refits the focused volume's content to its box, without touching the physics
+  layout (`graph_scene.gd:2033`, `spatial_volume.gd:156` `refit`). ADR-2180's fit
+  scopes are not built in XR. Legend opens Encode › Legend and Explore opens Explore › Query
   builder.
 - **New headset controls (audit finding 13).** All are handled in
-  `graph_scene.gd:1983` and persisted in `xr_prefs.cfg` (`xr_prefs.gd:156`).
+  `graph_scene.gd:1991` and persisted in `xr_prefs.cfg` (`xr_prefs.gd:156`).
   - Label budget: 0–8 in steps of 2, never past the pool's ranked budget (ADR-2188 D5).
   - Label text size: 0.75–2×. It scales `Label3D.pixel_size` and the detail offset,
     and widens the label collision grid with the text.
   - Gaze dwell: 400–800 ms in 100 ms steps, set in the Rust selection arbiter
     (`rust/src/selection.rs:267` `set_dwell_ms`, clamped to its band).
-  - Haptics on or off, which gates every controller pulse.
-  - The stored values are re-applied on boot (`graph_scene.gd:2037`).
+  - Haptics on or off. It gates every controller pulse, including the beat-tap pulse.
+  - The stored values are re-applied on boot (`graph_scene.gd:2062`).
+  - Reduce motion, Low-cost visuals and the VisionClaw colour mode now persist too.
+    An explicit `XR_REDUCED_MOTION` / `XR_VISUAL_QUALITY` launch value still wins.
+  - Under GUT these view preferences are inert unless a test sets
+    `XrPrefs.path_override`, so one test's toggle cannot change the next scene's
+    defaults.
 - **Capabilities.** On a backend that lacks a page's capability (Codescape: Forces,
   Swarm, Pins), that page leaves the rail. A section with no page left leaves the
-  tab bar, so Agents & Governance hides on Codescape (`hud.gd:1788`).
+  tab bar, so Agents & Governance hides on Codescape (`hud.gd:1797`).
 - **Not built, or decided otherwise.**
   - **Dials.** XR has Spread (±) and Labels (the budget). There is no Motion, Glow or
     Atmosphere stepper. Glow has no XR target because bloom is off (Invariant 2),
     and the other two were not mapped to an XR effect.
-  - **Persistence.** Colour mode, Reduce motion, Low-cost visuals and the HUD
-    position still do not persist. Layout mode is deliberately not persisted: it
-    POSTs `/api/layout/mode`, which is shared, so re-applying it on boot would change
-    every viewer's layout.
-  - **Edges ±** adjusts `_edge_show_count`, whose list no longer feeds a draw (the
-    volumes pack their own edges; see *Overview-first rendering*). It changes only
-    the status text.
+  - **Persistence.** The HUD position does not persist; there is no clean grab-release
+    hook to save it from. Layout mode is deliberately not persisted: it POSTs
+    `/api/layout/mode`, which is shared, so re-applying it on boot would change every
+    viewer's layout.
   - **The desktop's five `xr.*` settings** (`enabled`, `quality`, `renderScale`,
     `enableHandTracking`, `enableHaptics`) were never read here. Haptics is now a
     headset-local preference. Render scale is a genuine headset concern, but it

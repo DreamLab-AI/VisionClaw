@@ -58,6 +58,8 @@ var counts: Dictionary = {}
 ## Edges with both ends in this volume's class mask, before any limit (read with
 ## the pair list). `edge_total - drawn_edges()` is what the HUD reports as dropped.
 var edge_total: int = 0
+## Share of the edges to ask for (Look › Edges, Edges ±): 1 = all, up to the ceiling.
+var edge_share: float = 1.0
 
 ## role → MultiMeshInstance3D whose mesh and material this source copies
 ## (GraphScene's own NodesMulti, EdgesMulti, … at wiring time).
@@ -128,7 +130,7 @@ func content_pairs() -> PackedInt32Array:
 		# Unknown total (-1): ask for the ceiling and count what came back.
 		var total: int = int(conn.edge_count_for_mask(mask)) if conn.has_method("edge_count_for_mask") else -1
 		var fresh: PackedInt32Array = conn.edges_for_mask(mask,
-			OverviewLod.edge_draw_limit(total) if total >= 0 else OverviewLod.EDGE_DRAW_CEILING)
+			OverviewLod.edge_draw_limit(total, edge_share) if total >= 0 else OverviewLod.EDGE_DRAW_CEILING)
 		edge_total = total if total >= 0 else fresh.size() / 2
 		if fresh != _pairs:
 			_pairs = fresh

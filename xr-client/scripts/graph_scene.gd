@@ -1129,6 +1129,12 @@ var _label_budget: int = LabelBudget.DEFAULT_BUDGET
 var _label_text_scale: float = 1.0
 var _dwell_ms: int = 600
 var _haptics_on: bool = true
+# The arrangement's transform before any two-hand turn or scale (Fit restores it).
+var _arrangement_home: Transform3D = Transform3D.IDENTITY
+# Look › Edges: the share of each volume's edges to draw (Edges ±), applied to the
+# volumes' data-sized edge limit (ADR-2188 D2), so the readout counts what it hides.
+var _edge_share: float = 1.0
+const EDGE_SHARE_MIN: float = 0.05
 var _impostors: MultiMeshInstance3D = null
 var _ribbons: MultiMeshInstance3D = null       # far-tier edge ribbons (edge LOD)
 # One FrameBudget pass (xr-cloud's frame_budget.rs) shared by the graph's near
@@ -1380,6 +1386,7 @@ func _ready() -> void:
 		_binary_client.set_own_pubkey(str(_nostr_auth.pubkey_hex()))
 	_parity.setup(self, _binary_client, graph_root, hud)
 	_parity.apply_backend_palette("visionclaw")
+	_restore_colour_mode()
 	if graph_root != null:
 		# Template only now: the volumes' sources copy its mesh and material.
 		_impostors = NodeLod.make_impostor_instance()
@@ -1417,6 +1424,7 @@ func _build_volumes() -> void:
 	_arrangement = VolumeArrangementScript.new()
 	_arrangement.name = "VolumeArrangement"
 	add_child(_arrangement)
+	_arrangement_home = _arrangement.transform
 	var templates := {
 		"nodes": nodes_multi, "faded": nodes_faded_multi, "halos": nodes_halo_multi,
 		"impostors": _impostors, "edges": edges_multi, "ribbons": _ribbons,
@@ -2005,12 +2013,29 @@ func _handle_view_pref(action: String) -> bool:
 	return true
 
 
-## Fit (ADR-2189 §3): drop the two-hand manual latch and refit the focused volume's
-## content to its box (the volume's own auto-fit). ADR-2180's fit scopes (focus body,
-## both graphs, whole scene) are not built in XR.
+## Look › Edges (Edges ±): the share of each volume's edges asked for. Each source
+## re-reads its pair list at once; the "Edges N of M drawn" readout includes what
+## the share leaves out.
+func _set_edge_share(share: float) -> void:
+	_edge_share = clampf(share, EDGE_SHARE_MIN, 1.0)
+	for vid: StringName in _sources:
+		var src = _sources[vid]
+		if src != null and "edge_share" in src:
+			src.edge_share = _edge_share
+			src.invalidate()
+	_refresh_controls_status()
+
+
+## Fit (ADR-2189 §3): undo the two-hand turn and scale (which moves the whole volume
+## arrangement, and which Reset Layout leaves alone) and refit the focused volume's
+## content to its box. The physics layout is not touched. ADR-2180's fit scopes
+## (focus body, both graphs, whole scene) are not built in XR.
 func fit_focused_volume() -> void:
 	_manual_transform = false
 	_two_hand_active = false
+	_manip_session_base_scale = -1.0
+	if _arrangement != null:
+		_arrangement.transform = _arrangement_home
 	var v: Node3D = _volumes.get(_focused_volume, null)
 	if v == null:
 		v = _volumes.get(OVERLAY_VOLUME, null)
@@ -2041,6 +2066,22 @@ func _apply_view_prefs() -> void:
 	_haptics_on = XrPrefs.get_flag(XrPrefs.KEY_HAPTICS, true)
 	_apply_label_text_scale()
 	_sync_view_pref_hud()
+
+
+# Encode › Colour & size: the VisionClaw colour mode persists (ADR-2189 audit
+# finding 13). Only for the VisionClaw backend: a Codescape switch re-applies that
+# backend's own palette (graph_parity apply_backend_palette).
+func _store_colour_mode() -> void:
+	if _binary_client != null and _binary_client.has_method("get_color_mode") and _volume_mode(_focused_volume) == "visionclaw":
+		XrPrefs.set_number(XrPrefs.KEY_COLOUR_MODE, int(_binary_client.get_color_mode()))
+
+
+func _restore_colour_mode() -> void:
+	if not XrPrefs.has_value(XrPrefs.KEY_COLOUR_MODE) or _binary_client == null or not _binary_client.has_method("set_color_mode"):
+		return
+	_binary_client.set_color_mode(clampi(int(XrPrefs.get_number(XrPrefs.KEY_COLOUR_MODE, 0)), 0, 2))
+	if _parity != null and _parity.has_method("_refresh_hud"):
+		_parity._refresh_hud()
 
 
 func _sync_view_pref_hud() -> void:
@@ -2317,6 +2358,8 @@ func _on_hud_control(action: String) -> void:
 	if not needed.is_empty() and not _gate_for_volume(_focused_volume, needed, action.get_slice(":", 0).replace("_", " ")):
 		return
 	if _parity != null and _parity.handle_control(action):
+		if action == "color_mode_toggle":
+			_store_colour_mode()
 		return
 	if action.begins_with("beat_") or action.begins_with("memory_bursts:"):
 		if _beat != null:
@@ -2343,12 +2386,8 @@ func _on_hud_control(action: String) -> void:
 			_request_spread(1.2, 1.15)
 		"spread_minus":
 			_request_spread(0.8, 0.85)
-		"edges_plus":
-			_edge_show_count = int(round(float(_edge_show_count) * 1.4))
-			_apply_edge_slice()
-		"edges_minus":
-			_edge_show_count = int(round(float(_edge_show_count) * 0.7))
-			_apply_edge_slice()
+		"edges_plus", "edges_minus":
+			_set_edge_share(_edge_share * (1.4 if action == "edges_plus" else 0.7))
 		"node_size_plus":
 			_node_size_factor = clampf(_node_size_factor * 1.25, NODE_SIZE_FACTOR_MIN, NODE_SIZE_FACTOR_MAX)
 		"node_size_minus":
@@ -2453,8 +2492,8 @@ func _refresh_controls_status() -> void:
 		# "nodes drawn/known": the draw budget against every node the server sent, so a
 		# graph shown partially (only edge-endpoint nodes are drawn) is never mistaken
 		# for the whole graph.
-		hud.set_controls_status("repelK %.0f  restLen %.0f  edges %d/%d  nodes drawn<=%d of %d  node×%.2f  dag %s/%.0f  z%.2f  fold L%d  pin %d  physics %s%s%s%s" % [
-			_repel_k, _rest_length, _edge_show_count, _edge_budget, _node_budget, _known_nodes(), _node_size_factor,
+		hud.set_controls_status("repelK %.0f  restLen %.0f  edges %d%%  nodes drawn<=%d of %d  node×%.2f  dag %s/%.0f  z%.2f  fold L%d  pin %d  physics %s%s%s%s" % [
+			_repel_k, _rest_length, int(round(_edge_share * 100.0)), _node_budget, _known_nodes(), _node_size_factor,
 			dag, _dag_level_distance, _z_compression, _fold_level, _pinned_ids.size(),
 			_physics_state_text if not _physics_state_text.is_empty() else "…", busy, fold, err])
 	# Reflect the toggle/pin state on the button faces (press-only, no per-frame cost).

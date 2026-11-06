@@ -677,6 +677,18 @@ func _build_layers_page() -> VBoxContainer:
 	_memory_route_label.visible = false
 	memory_row.add_child(_memory_route_label)
 	page.add_child(memory_row)
+	# ADR-2170: the splat scene is not a graph volume (no focus, no server). Its on/off
+	# switch sits in Layers › Splat scene with Enter (ADR-2189; it was in the Session row).
+	var splat_toggle_row := HBoxContainer.new()
+	splat_toggle_row.name = "SplatToggleRow"
+	_splat_toggle = _press_fire(Button.new()) as Button
+	_splat_toggle.name = "SplatToggle"
+	_splat_toggle.custom_minimum_size = Vector2(0, BTN_H)
+	_splat_toggle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_splat_toggle.set_meta(HINT_META, "Turn the Gaussian splat scene on or off (remembered). Enter it below once it has loaded")
+	_splat_toggle.pressed.connect(func() -> void: emit_signal("control_pressed", "splat_toggle"))
+	splat_toggle_row.add_child(_splat_toggle)
+	page.add_child(splat_toggle_row)
 	_build_splat_group(page)
 	return page
 
@@ -713,8 +725,8 @@ func _build_look_page() -> VBoxContainer:
 	page.add_child(gn)
 	page.add_child(_group_header("Edges"))
 	var ge := _grid(3)
-	ge.add_child(_action_btn("Edges +", "edges_plus", "Show more edges"))
-	ge.add_child(_action_btn("Edges -", "edges_minus", "Show fewer edges"))
+	ge.add_child(_action_btn("Edges +", "edges_plus", "Draw more of each volume's edges (heaviest first, up to the triangle budget)"))
+	ge.add_child(_action_btn("Edges -", "edges_minus", "Draw fewer of each volume's edges; the header counts what is left out"))
 	page.add_child(ge)
 	page.add_child(_group_header("Animation"))
 	page.add_child(_comfort_toggle("Reduce motion", "visual_motion", true, "Keep the scene calm"))
@@ -1562,17 +1574,23 @@ func _build_session_page() -> VBoxContainer:
 	_mute_toggle.set_meta(HINT_META, "Mute / unmute your microphone")
 	_mute_toggle.toggled.connect(_on_mute_toggled)
 	page.add_child(_mute_toggle)
+	# Reconnect sits beside the connection line it acts on, so the volume row below
+	# fits the page beside the ADR-2189 rail.
+	var status_row := HBoxContainer.new()
+	status_row.name = "ConnectionStatusRow"
 	_conn_status_label = _mk_label("Connection: off", "Graph socket state")
-	page.add_child(_conn_status_label)
-	# Reconnect and the backend toggle share one row so the page keeps its height.
-	var conn_row := HBoxContainer.new()
+	_conn_status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	status_row.add_child(_conn_status_label)
 	var reconnect := _press_fire(Button.new()) as Button
 	reconnect.text = "Reconnect"
 	reconnect.custom_minimum_size = Vector2(0, BTN_H)
-	reconnect.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	reconnect.set_meta(HINT_META, "Force-reconnect the graph & presence sockets")
 	reconnect.pressed.connect(func() -> void: emit_signal("reconnect_pressed"))
-	conn_row.add_child(reconnect)
+	status_row.add_child(reconnect)
+	page.add_child(status_row)
+	# The focus, front and enter buttons and the volume toggles share one row so the
+	# page keeps its height.
+	var conn_row := HBoxContainer.new()
 	_focus_button = _press_fire(Button.new()) as Button
 	_focus_button.custom_minimum_size = Vector2(0, BTN_H)
 	_focus_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1615,15 +1633,6 @@ func _build_session_page() -> VBoxContainer:
 		b.pressed.connect(func() -> void: emit_signal("control_pressed", "volume_toggle:%s" % vid))
 		vol_row.add_child(b)
 		_volume_buttons[vid] = b
-	# ADR-2170: the splat scene is not a graph volume (no focus, no server), but it is
-	# switched beside them. Entering it is on the Layout page.
-	_splat_toggle = _press_fire(Button.new()) as Button
-	_splat_toggle.name = "SplatToggle"
-	_splat_toggle.custom_minimum_size = Vector2(0, BTN_H)
-	_splat_toggle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_splat_toggle.set_meta(HINT_META, "Turn the Gaussian splat scene on or off (remembered). Enter it from the Layout tab")
-	_splat_toggle.pressed.connect(func() -> void: emit_signal("control_pressed", "splat_toggle"))
-	vol_row.add_child(_splat_toggle)
 	set_volume_state(_focused_volume, {})
 	set_splat_state({})
 	page.add_child(_build_beat_row())

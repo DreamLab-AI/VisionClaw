@@ -138,14 +138,24 @@ func test_fit_legend_and_explore() -> void:
 		assert_eq(b.action_mode, BaseButton.ACTION_MODE_BUTTON_PRESS, "Invariant 4")
 
 
-func test_new_pages_fit_their_host_in_height_and_width() -> void:
-	var hud := await _make_hud()
+func _assert_fits(hud: Node3D, page_name: String, label: String) -> void:
 	var host: Control = hud.get_node(TABS)
-	for page_name in ["LayersPage", "EncodePage", "LookPage", "HeadsetPage", "LayoutPage", "ShapesPage"]:
-		var page: Control = hud.get_node("%s/%s" % [TABS, page_name])
-		var need: Vector2 = page.get_combined_minimum_size()
-		assert_lte(need.y, host.size.y + 1.0, "%s height %.0f ≤ %.0f" % [page_name, need.y, host.size.y])
-		assert_lte(need.x, host.size.x - hud.RAIL_W - hud.RAIL_GAP + 1.0, "%s width %.0f fits beside the rail" % [page_name, need.x])
+	var page: Control = hud.get_node("%s/%s" % [TABS, page_name])
+	var need: Vector2 = page.get_combined_minimum_size()
+	assert_lte(need.y, host.size.y + 1.0, "%s height %.0f ≤ %.0f" % [label, need.y, host.size.y])
+	assert_lte(need.x, host.size.x - hud.RAIL_W - hud.RAIL_GAP + 1.0, "%s width %.0f fits beside the rail" % [label, need.x])
+
+
+func test_every_page_fits_its_host_in_height_and_width_beside_the_rail() -> void:
+	var hud := await _make_hud()
+	for pid: String in hud.TAB_ORDER:
+		_assert_fits(hud, "%sPage" % hud.TAB_LABELS[pid], pid)
+	# The tightest page: Query with the on-screen keyboard open (four rows of ten keys).
+	hud._show_tab("query")
+	hud._show_query_mode("memory")
+	hud.open_memory_keyboard()
+	await get_tree().process_frame
+	_assert_fits(hud, "QueryPage", "query with the keyboard open")
 
 
 func test_physics_pages_carry_the_shared_scope_text_from_ia_json() -> void:
@@ -239,6 +249,71 @@ func test_the_scene_steps_persists_and_applies_the_headset_controls() -> void:
 	assert_eq(int(again._selection.dwell_ms()), 800)
 	assert_false(again._haptics_on)
 	again.queue_free()
+	await get_tree().process_frame
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(XrPrefs.path()))
+	XrPrefs.path_override = ""
+
+
+func test_fit_undoes_the_two_hand_turn_and_scale_and_leaves_physics_alone() -> void:
+	var scene: Node3D = (load("res://scenes/GraphScene.tscn") as PackedScene).instantiate()
+	add_child(scene)
+	await get_tree().process_frame
+	var home: Transform3D = scene._arrangement.transform
+	# What _apply_two_hand_manip writes: the whole arrangement, turned and scaled.
+	scene._arrangement.global_transform = Transform3D(Basis(Vector3.UP, 0.7).scaled(Vector3.ONE * 3.0), Vector3(1, 0.5, -2))
+	scene._manual_transform = true
+	var physics_before: float = scene._repel_k
+	scene._on_hud_control("fit_view")
+	assert_true(scene._arrangement.transform.is_equal_approx(home), "Fit restores the arrangement")
+	assert_false(scene._manual_transform)
+	assert_eq(scene._repel_k, physics_before, "no physics write")
+	scene.queue_free()
+	await get_tree().process_frame
+
+
+func test_edges_plus_minus_change_what_each_volume_asks_for() -> void:
+	var scene: Node3D = (load("res://scenes/GraphScene.tscn") as PackedScene).instantiate()
+	add_child(scene)
+	await get_tree().process_frame
+	scene._on_hud_control("edges_minus")
+	assert_almost_eq(scene._edge_share, 0.7, 1e-6)
+	for vid: StringName in scene._sources:
+		assert_almost_eq(float(scene._sources[vid].edge_share), 0.7, 1e-6, "%s asks for 70 %%" % vid)
+	for _i in range(20):
+		scene._on_hud_control("edges_minus")
+	assert_almost_eq(scene._edge_share, scene.EDGE_SHARE_MIN, 1e-6, "floored")
+	for _i in range(20):
+		scene._on_hud_control("edges_plus")
+	assert_eq(scene._edge_share, 1.0, "capped at all of them")
+	scene.queue_free()
+	await get_tree().process_frame
+
+
+func test_comfort_and_colour_mode_are_restored_from_the_stored_choice() -> void:
+	if not OS.get_environment("XR_REDUCED_MOTION").is_empty() or not OS.get_environment("XR_VISUAL_QUALITY").is_empty():
+		pending("an XR_REDUCED_MOTION / XR_VISUAL_QUALITY launch value outranks the stored choice")
+		return
+	XrPrefs.path_override = "user://xr_prefs.ia_comfort_test.cfg"
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(XrPrefs.path()))
+	XrPrefs.set_flag(XrPrefs.KEY_REDUCED_MOTION, false)
+	XrPrefs.set_flag(XrPrefs.KEY_LOW_COST, true)
+	XrPrefs.set_number(XrPrefs.KEY_COLOUR_MODE, 1)
+	var scene: Node3D = (load("res://scenes/GraphScene.tscn") as PackedScene).instantiate()
+	add_child(scene)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var env: Node = scene.find_child("SpatialEnvironment", true, false)
+	if env != null and env.has_method("get_visual_comfort"):
+		var st: Dictionary = env.get_visual_comfort()
+		assert_false(bool(st["reduced_motion"]), "Reduce motion off, as stored")
+		assert_true(bool(st["low_cost"]), "Low-cost visuals on, as stored")
+	else:
+		fail_test("GraphScene has a SpatialEnvironment with get_visual_comfort")
+	assert_eq(int(scene._binary_client.get_color_mode()), 1, "community colouring, as stored")
+	# Pressing the toggles stores the new choice.
+	scene._on_hud_control("color_mode_toggle")
+	assert_eq(int(XrPrefs.get_number(XrPrefs.KEY_COLOUR_MODE, -1)), int(scene._binary_client.get_color_mode()))
+	scene.queue_free()
 	await get_tree().process_frame
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(XrPrefs.path()))
 	XrPrefs.path_override = ""

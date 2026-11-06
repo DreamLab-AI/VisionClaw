@@ -158,10 +158,32 @@ const KEY_LABEL_TEXT_SCALE := "label_text_scale"
 ## System › Headset: gaze-dwell time in ms (selection arbiter band 400–800) and haptics.
 const KEY_DWELL_MS := "dwell_ms"
 const KEY_HAPTICS := "haptics"
+## Look › Animation / System › Performance comfort toggles (audit finding 13), and the
+## VisionClaw colour mode (Encode › Colour & size: 0 domain, 1 community, 2 codescape).
+const KEY_REDUCED_MOTION := "reduced_motion"
+const KEY_LOW_COST := "low_cost_visuals"
+const KEY_COLOUR_MODE := "colour_mode_visionclaw"
+
+
+## The view preferences below are inert in a GUT run unless the test sets
+## `path_override`: many tests press these toggles through GraphScene, and a value
+## one test left in the shared test file must not change the next scene's defaults.
+static func _view_prefs_live() -> bool:
+	return not path_override.is_empty() or not _under_gut()
+
+
+## Whether a stored value exists for `key` (a view preference the operator set).
+static func has_value(key: String) -> bool:
+	if not _view_prefs_live():
+		return false
+	var cfg := ConfigFile.new()
+	return cfg.load(path()) == OK and cfg.has_section_key(SECTION, key)
 
 
 ## A stored number under `key`, else `fallback` (missing file, key or a non-number).
 static func get_number(key: String, fallback: float) -> float:
+	if not _view_prefs_live():
+		return fallback
 	var cfg := ConfigFile.new()
 	if cfg.load(path()) == OK and cfg.has_section_key(SECTION, key):
 		var v: Variant = cfg.get_value(SECTION, key)
@@ -171,6 +193,8 @@ static func get_number(key: String, fallback: float) -> float:
 
 
 static func set_number(key: String, value: float) -> int:
+	if not _view_prefs_live():
+		return OK
 	var cfg := ConfigFile.new()
 	var _ignored := cfg.load(path())
 	cfg.set_value(SECTION, key, value)
@@ -179,6 +203,8 @@ static func set_number(key: String, value: float) -> int:
 
 ## A stored boolean under `key`, else `fallback`.
 static func get_flag(key: String, fallback: bool) -> bool:
+	if not _view_prefs_live():
+		return fallback
 	var cfg := ConfigFile.new()
 	if cfg.load(path()) == OK and cfg.has_section_key(SECTION, key):
 		var v: Variant = cfg.get_value(SECTION, key)
@@ -188,6 +214,8 @@ static func get_flag(key: String, fallback: bool) -> bool:
 
 
 static func set_flag(key: String, on: bool) -> int:
+	if not _view_prefs_live():
+		return OK
 	var cfg := ConfigFile.new()
 	var _ignored := cfg.load(path())
 	cfg.set_value(SECTION, key, on)
