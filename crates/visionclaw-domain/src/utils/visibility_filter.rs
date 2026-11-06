@@ -305,23 +305,25 @@ impl PageNames {
         row.belongs_to_domain.retain(|v| !self.is_hidden(v));
     }
 
+    /// Scrub only node keys whose values are page references (N3): `is_subclass_of`
+    /// (`[[Parent]]` links, joined ",") and `tags` (`#tag` / `tags::`, joined ", "). Plain
+    /// frontmatter text such as `domain` / `source_domain` is left alone, because removing a
+    /// value that merely shares a hidden page's name would itself reveal that page.
     fn scrub_node(&self, node: &mut Node) {
-        if let Some(list) = node.metadata.get("is_subclass_of") {
+        for (key, sep) in [("is_subclass_of", ","), ("tags", ", ")] {
+            let Some(list) = node.metadata.get(key) else {
+                continue;
+            };
             let kept: Vec<&str> = list
                 .split(',')
                 .map(str::trim)
                 .filter(|v| !v.is_empty() && !self.is_hidden(v))
                 .collect();
             if kept.is_empty() {
-                node.metadata.remove("is_subclass_of");
-            } else {
-                let joined = kept.join(",");
-                node.metadata.insert("is_subclass_of".to_string(), joined);
-            }
-        }
-        for key in ["domain", "source_domain"] {
-            if node.metadata.get(key).is_some_and(|v| self.is_hidden(v)) {
                 node.metadata.remove(key);
+            } else {
+                let joined = kept.join(sep);
+                node.metadata.insert(key.to_string(), joined);
             }
         }
     }
@@ -730,7 +732,9 @@ mod subgraph_tests {
 
     /// ADR-060 M1: a visible page that links to, subclasses or sits in a hidden page must not
     /// carry the hidden page's name. `topic_counts` keys are page names, so they are kept only
-    /// when they name a visible page; the vocabulary fields drop only names of removed pages.
+    /// when they name a visible page; the page-reference fields (`is_subclass_of`,
+    /// `belongs_to_domain`, `tags`) drop only names of removed pages; plain text such as `domain`
+    /// is never touched (N2, N3).
     #[test]
     fn hidden_page_names_are_scrubbed_from_visible_rows_and_nodes() {
         let mut g = (*graph()).clone();
@@ -746,6 +750,10 @@ mod subgraph_tests {
         g.nodes[0]
             .metadata
             .insert("source_domain".into(), "ai".into());
+        // `#tag` / `tags::` values are page references (N2), joined ", " by the parser.
+        g.nodes[0]
+            .metadata
+            .insert("tags".into(), "unowned, Unowned Secret, public".into());
         let row = g.metadata.get_mut("public.md").unwrap();
         row.topic_counts = [("unowned".to_string(), 2), ("public".to_string(), 1)]
             .into_iter()
@@ -766,10 +774,17 @@ mod subgraph_tests {
         assert_eq!(row.belongs_to_domain, vec!["ai".to_string()]);
         let n = &out.nodes[0].metadata;
         assert_eq!(n.get("is_subclass_of").map(String::as_str), Some("Thing"));
+        // N3: `domain` is plain frontmatter text, not a page reference. Dropping it because a
+        // hidden page shares the name would itself reveal that page.
         assert_eq!(
-            n.get("domain"),
-            None,
-            "a hidden page named as the domain is dropped"
+            n.get("domain").map(String::as_str),
+            Some("unowned"),
+            "a plain domain value must not vanish because a hidden page shares its name"
+        );
+        assert_eq!(
+            n.get("tags").map(String::as_str),
+            Some("public"),
+            "a tag naming a hidden page is a page reference and is scrubbed"
         );
         assert_eq!(n.get("source_domain").map(String::as_str), Some("ai"));
 
