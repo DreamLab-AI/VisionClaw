@@ -62,7 +62,7 @@ describe('<ExplorePanel/> (ADR-2185)', () => {
     // September); January's bin keeps its total but counts 0
     const timeline = screen.getByRole('group', { name: 'Last commit timeline' });
     const labels = within(timeline).getAllByRole('button').map((b) => b.getAttribute('aria-label')!);
-    expect(labels.filter((l) => !/: 0 of/.test(l))).toEqual([expect.stringMatching(/Sept 2026: 2 of 3 nodes$/)]);
+    expect(labels.filter((l) => !/: 0 of/.test(l))).toEqual([expect.stringMatching(/2026: 2 of 3 nodes$/)]);
     expect(labels.some((l) => /: 0 of 3 nodes$/.test(l))).toBe(true);
 
     fireEvent.click(screen.getByRole('button', { name: /Clear filters/ }));

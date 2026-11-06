@@ -57,7 +57,20 @@ class Registry {
 const registries = new WeakMap<HighlightMask, Registry>();
 function reg(mask: HighlightMask): Registry {
   let r = registries.get(mask);
-  if (!r) { r = new Registry(); registries.set(mask, r); }
+  if (!r) {
+    const created = new Registry();
+    registries.set(mask, created);
+    // Someone else may clear a source (mask.clearAll / clearSource): drop our record
+    // of it, so isFilteredOut and hideFiltered follow the mask. Bumps only on a prune.
+    mask.subscribe(() => {
+      const live = new Set(mask.activeSources());
+      let pruned = false;
+      for (const k of [...created.filters.keys()]) if (!live.has(k)) { created.filters.delete(k); pruned = true; }
+      for (const k of [...created.emphasis.keys()]) if (!live.has(k)) created.emphasis.delete(k);
+      if (pruned) created.bump();
+    });
+    r = created;
+  }
   return r;
 }
 

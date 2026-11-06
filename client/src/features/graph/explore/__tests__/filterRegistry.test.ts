@@ -59,3 +59,20 @@ describe('filterRegistry (ADR-2183 mask writes)', () => {
     expect(() => writeEmphasis('filter:x', HIGHLIGHT_SEARCH_HIT, ['a'], mask)).toThrow();
   });
 });
+
+describe('filterRegistry follows external clears', () => {
+  it('prunes a source cleared on the mask directly, so isFilteredOut and hideFiltered agree with the graph', () => {
+    const index = new Map([['a', 0], ['b', 1]]);
+    const mask = new HighlightMask(() => index);
+    writeFilter('filter:x', ['a'], 'include', mask);
+    expect(isFilteredOut('b', mask)).toBe(true);
+    const v = filterRegistryVersion(mask);
+    mask.clearAll();
+    expect(isFilteredOut('b', mask)).toBe(false);
+    expect(filterRegistryVersion(mask)).toBeGreaterThan(v);
+    // an unrelated recomposition (hover) does not bump the registry
+    const v2 = filterRegistryVersion(mask);
+    setHoveredNodeEmphasis('a', mask);
+    expect(filterRegistryVersion(mask)).toBe(v2);
+  });
+});

@@ -35,13 +35,22 @@ const source: SourceState = {
   refs: 0, unsubscribe: null, timer: null, nodes: null, indexMap: new Map(), analytics: null,
 };
 
+function sameFloats(a: Float32Array | null, b: Float32Array | null): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i] && !(Number.isNaN(a[i]) && Number.isNaN(b[i]))) return false;
+  return true;
+}
+
 function rebuild(store: ExploreStore): void {
   if (!source.nodes) return;
-  source.analytics = nodeAnalyticsStore.getIndexedBuffer(source.indexMap);
+  const a = nodeAnalyticsStore.getIndexedBuffer(source.indexMap);
+  // keep a private copy: the store may reuse its buffer
+  source.analytics = a ? a.slice() : null;
   store.setTable({
     nodes: source.nodes,
     indexMap: source.indexMap,
-    analytics: source.analytics,
+    analytics: a,
     nodeFilter: useSettingsStore.getState().settings?.nodeFilter,
   });
 }
@@ -62,9 +71,10 @@ function acquireSource(store: ExploreStore): () => void {
   if (source.refs++ === 0) {
     source.unsubscribe = graphDataManager.onGraphDataChange((d) => onGraphData(d, store));
     source.timer = setInterval(() => {
-      // getIndexedBuffer is cached by (map, analytics version): a new buffer means new frames.
+      // The store's one-slot cache is keyed by map identity and GemNodes reads it
+      // every tick with the shared map, so compare contents, not identity.
       const a = source.nodes ? nodeAnalyticsStore.getIndexedBuffer(source.indexMap) : null;
-      if (a !== source.analytics) rebuild(store);
+      if (!sameFloats(a, source.analytics)) rebuild(store);
     }, ANALYTICS_REFRESH_MS);
   }
   return () => {
