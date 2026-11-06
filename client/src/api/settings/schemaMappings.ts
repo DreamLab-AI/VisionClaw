@@ -118,8 +118,6 @@ export function transformApiToClientSettings(
       // The shipped defaults (explore/nodeFilter.ts NODE_FILTER_DEFAULTS, mirrored
       // by NodeFilterSettings::default()); the persisted server document wins.
       ...NODE_FILTER_DEFAULTS,
-      minConnections: 0,
-      minMaturity: 'off',
       ...(apiResponse.nodeFilter || {}),
     }
   };
