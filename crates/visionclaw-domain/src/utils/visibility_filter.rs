@@ -209,8 +209,16 @@ pub fn visible_subgraph(
     }
 
     let kept_ids: HashSet<u32> = kept.iter().map(|n| n.id).collect();
+    let names = PageNames::new(graph, &kept, &kept_metadata_ids);
     Arc::new(GraphData {
-        nodes: kept.into_iter().cloned().collect(),
+        nodes: kept
+            .into_iter()
+            .map(|n| {
+                let mut n = n.clone();
+                names.scrub_node(&mut n);
+                n
+            })
+            .collect(),
         edges: graph
             .edges
             .iter()
@@ -221,7 +229,11 @@ pub fn visible_subgraph(
             .metadata
             .iter()
             .filter(|(k, _)| kept_metadata_ids.contains(k.as_str()))
-            .map(|(k, v)| (k.clone(), v.clone()))
+            .map(|(k, v)| {
+                let mut v = v.clone();
+                names.scrub_row(&mut v);
+                (k.clone(), v)
+            })
             .collect(),
         id_to_metadata: graph
             .id_to_metadata
@@ -230,6 +242,89 @@ pub fn visible_subgraph(
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect(),
     })
+}
+
+/// The page names a caller may and may not see, for scrubbing references inside visible
+/// rows and nodes (ADR-060 M1). Compared case-insensitively, `.md` trimmed.
+struct PageNames {
+    visible: HashSet<String>,
+    hidden: HashSet<String>,
+}
+
+impl PageNames {
+    fn norm(s: &str) -> String {
+        s.trim().trim_end_matches(".md").to_lowercase()
+    }
+
+    fn new(graph: &GraphData, kept: &[&Node], kept_metadata_ids: &HashSet<&str>) -> Self {
+        let mut visible = HashSet::new();
+        for n in kept {
+            visible.insert(Self::norm(&n.metadata_id));
+            visible.insert(Self::norm(&n.label));
+        }
+        for k in graph.metadata.keys() {
+            if kept_metadata_ids.contains(k.as_str()) {
+                visible.insert(Self::norm(k));
+            }
+        }
+        let kept_ids: HashSet<u32> = kept.iter().map(|n| n.id).collect();
+        let mut hidden = HashSet::new();
+        for n in graph.nodes.iter().filter(|n| !kept_ids.contains(&n.id)) {
+            hidden.insert(Self::norm(&n.metadata_id));
+            hidden.insert(Self::norm(&n.label));
+            if let Some(iri) = &n.owl_class_iri {
+                hidden.insert(Self::norm(iri));
+            }
+            for key in ["file_name", "page_iri", "class_iri"] {
+                if let Some(v) = n.metadata.get(key) {
+                    hidden.insert(Self::norm(v));
+                }
+            }
+        }
+        for (k, row) in &graph.metadata {
+            if !kept_metadata_ids.contains(k.as_str()) {
+                hidden.insert(Self::norm(k));
+                hidden.insert(Self::norm(&row.file_name));
+            }
+        }
+        hidden.remove("");
+        Self { visible, hidden }
+    }
+
+    /// A removed page's name, unless a visible page shares it.
+    fn is_hidden(&self, name: &str) -> bool {
+        let n = Self::norm(name);
+        self.hidden.contains(&n) && !self.visible.contains(&n)
+    }
+
+    fn scrub_row(&self, row: &mut crate::models::metadata::Metadata) {
+        // Topic keys are page names from the metadata store: keep only visible pages.
+        row.topic_counts
+            .retain(|k, _| self.visible.contains(&Self::norm(k)));
+        row.is_subclass_of.retain(|v| !self.is_hidden(v));
+        row.belongs_to_domain.retain(|v| !self.is_hidden(v));
+    }
+
+    fn scrub_node(&self, node: &mut Node) {
+        if let Some(list) = node.metadata.get("is_subclass_of") {
+            let kept: Vec<&str> = list
+                .split(',')
+                .map(str::trim)
+                .filter(|v| !v.is_empty() && !self.is_hidden(v))
+                .collect();
+            if kept.is_empty() {
+                node.metadata.remove("is_subclass_of");
+            } else {
+                let joined = kept.join(",");
+                node.metadata.insert("is_subclass_of".to_string(), joined);
+            }
+        }
+        for key in ["domain", "source_domain"] {
+            if node.metadata.get(key).is_some_and(|v| self.is_hidden(v)) {
+                node.metadata.remove(key);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -631,6 +726,58 @@ mod subgraph_tests {
                 assert_eq!(node_is_visible(n, caller), !drop.contains(&n.id));
             }
         }
+    }
+
+    /// ADR-060 M1: a visible page that links to, subclasses or sits in a hidden page must not
+    /// carry the hidden page's name. `topic_counts` keys are page names, so they are kept only
+    /// when they name a visible page; the vocabulary fields drop only names of removed pages.
+    #[test]
+    fn hidden_page_names_are_scrubbed_from_visible_rows_and_nodes() {
+        let mut g = (*graph()).clone();
+        g.nodes[0].label = "Public".into();
+        g.nodes[1].label = "Owned".into();
+        g.nodes[2].label = "Unowned Secret".into();
+        g.nodes[0]
+            .metadata
+            .insert("is_subclass_of".into(), "Thing,Unowned Secret".into());
+        g.nodes[0]
+            .metadata
+            .insert("domain".into(), "unowned".into());
+        g.nodes[0]
+            .metadata
+            .insert("source_domain".into(), "ai".into());
+        let row = g.metadata.get_mut("public.md").unwrap();
+        row.topic_counts = [("unowned".to_string(), 2), ("public".to_string(), 1)]
+            .into_iter()
+            .collect();
+        row.is_subclass_of = vec!["Thing".into(), "unowned".into()];
+        row.belongs_to_domain = vec!["Unowned Secret".into(), "ai".into()];
+        let g = Arc::new(g);
+
+        let out = visible_subgraph(&g, None, true);
+        let row = &out.metadata["public.md"];
+        let topics: Vec<&String> = row.topic_counts.keys().collect();
+        assert_eq!(
+            topics,
+            vec!["public"],
+            "a hidden page name must not survive as a topic"
+        );
+        assert_eq!(row.is_subclass_of, vec!["Thing".to_string()]);
+        assert_eq!(row.belongs_to_domain, vec!["ai".to_string()]);
+        let n = &out.nodes[0].metadata;
+        assert_eq!(n.get("is_subclass_of").map(String::as_str), Some("Thing"));
+        assert_eq!(
+            n.get("domain"),
+            None,
+            "a hidden page named as the domain is dropped"
+        );
+        assert_eq!(n.get("source_domain").map(String::as_str), Some("ai"));
+
+        // The owner sees their own page named; the unowned one is still scrubbed.
+        let owner = visible_subgraph(&g, Some(OWNER), true);
+        assert!(!owner.metadata["public.md"]
+            .topic_counts
+            .contains_key("unowned"));
     }
 }
 
