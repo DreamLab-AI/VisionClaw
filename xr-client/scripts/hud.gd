@@ -1621,7 +1621,7 @@ func _type_toggle_btn(label: String, key: String) -> Button:
 	var b := _press_fire(Button.new()) as Button
 	b.custom_minimum_size = Vector2(0, BTN_H)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.set_meta(HINT_META, "Show / grey out all %s nodes (ADR-2188: filters grey out, never remove)" % label.to_lower())
+	b.set_meta(HINT_META, "Show / hide all %s nodes" % label.to_lower())
 	_style_type_toggle(b, label, true)
 	b.pressed.connect(func() -> void:
 		var now_visible: bool = not bool(_type_visible.get(key, true))

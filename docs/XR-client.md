@@ -5,7 +5,7 @@ version: 0.1.32
 status: draft-for-ratification
 verified_commit: 
 changelog:
-  - "0.1.32 (2026-11-06): ADR-2188 D1-D5 (partial; headless GUT and Rust unit evidence only, no GL render, no headset). Overview tier: pixel-floored impostors, screen-width length-faded ribbons, the dropped-edge readout in the HUD header, a per-slot highlight mask in Rust under which the received nodeFilter and the type filter grey out instead of removing, emphasis by colour, size and outline (no bloom), and a priority-ranked label budget of 8 + 4 pinned. New section 'Overview-first rendering (ADR-2188)'; the Desktop-parity filter sentence is amended. Invariants and verified_commit untouched."
+  - "0.1.32 (2026-11-06): ADR-2188 D1-D5 (partial; headless GUT and Rust unit evidence only, no GL render, no headset). Overview tier: pixel-floored impostors, screen-width length-faded ribbons, the dropped-edge readout in the HUD header, a per-slot highlight mask in Rust under which the received nodeFilter greys out instead of removing (the type filter stays population scoping and removes, ADR-2189 §5), emphasis by colour, size and outline (no bloom), and a priority-ranked label budget of 8 + 4 pinned. New section 'Overview-first rendering (ADR-2188)'; the Desktop-parity filter sentence is amended. Invariants and verified_commit untouched."
   - "0.1.31 (2026-11-05): ADR-2178 (proposed, partial, staged): the merged splat space. A staged splat asset (manifest `stage {metresPerUnit, focus}`) can be entered at viewer scale with the ontology volume hanging between the start and the focus; the other volumes hide. Layout page Merge button and scale steps (`xr.merged_splat_scale`). New section only; Current State, Invariants and verified_commit untouched."
   - "0.1.30 (2026-11-04): ADR-2170 HUD amendment: a Splat on/off toggle in the Session volume row (stored in `xr.splat_scene`, which outranks `XR_SPLATS`; the first press builds the volume live); the Layout page's Splat Scene group shows whenever the scene is on, with a loading or failure line until a variant lands. Headless GUT only."
   - "0.1.29 (2026-11-04): ADR-2170 accepted (partial, staged; unit and headless-GUT evidence, no GPU render): splat volume, CPU-sorted quad layer and the separate splat account built; the owner accepted Decision 7, amending ADR-2167 and the PRD-008 triangle budget for splat scenes. Off unless `XR_SPLATS=1`. Served format SPZ v3. Splat section only; Current State, Invariants and verified_commit untouched."
@@ -855,9 +855,8 @@ new MultiMesh was added and the draw-call count is unchanged.
   1, carries the level, and edge `custom.r` flags a greyed end; the edge shaders
   draw that edge at `grey_alpha` 0.3 of its alpha (`materials/edge_flow.gdshader:23`).
   The stride is still 16 (Invariant 3).
-  - **Writers.** The received `nodeFilter` and the HUD type show/hide filter now
-    write FILTERED_OUT in `refresh_filter` (`rust/src/render_store.rs:2553`)
-    instead of removing nodes. `HighlightWriter` (`scripts/highlight_writer.gd:37`)
+  - **Writers.** The received `nodeFilter` now writes FILTERED_OUT in
+    `refresh_filter` (`rust/src/render_store.rs:2552`) instead of removing nodes. `HighlightWriter` (`scripts/highlight_writer.gd:37`)
     writes the other bits from the scene, deduplicated:
     - selection and its direct neighbours (≤ 64, found in one Rust pass,
       `neighbours_of`) on select and clear (`graph_scene.gd:2009`);
@@ -866,7 +865,10 @@ new MultiMesh was added and the draw-call count is unchanged.
   - **Greyed nodes** get no label (`rank_label_candidates`, `render_store.rs:1549`)
     and no hull (`render_store.rs:2631`), and are not search hits.
   - **What still removes** (ADR-2183 D4): the fold plan (`fold_hidden`), the server
-    visibility filter and the population scope.
+    visibility filter, the server-side `nodeFilter.enabled` ("Filter on server
+    (hides nodes)" in ADR-2189's Explore › Filters), and population scoping: the HUD
+    type show/hide filter (Layers › Populations, `set_type_visible`), which ADR-2189
+    §5 keeps as removal.
   - **Cross-volume links** follow the edge drawn test, so a link to a greyed end is
     drawn.
 - **Label budget (D5).** Labels are chosen by priority, not proximity
