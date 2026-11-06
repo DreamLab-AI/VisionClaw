@@ -1,131 +1,93 @@
 /**
- * InferredEdges — R3F overlay that renders edges from the inferred named graph
- * (`urn:ngm:graph:ontology:inferred`) in a visually-distinct style: dashed,
- * amber. Mirrors ontosphere's amber-dashed convention (PRD-018 WS-2, ADR-099 D4).
+ * InferredEdges — edges from the inferred named graph
+ * (`urn:ngm:graph:ontology:inferred`), drawn on the overview edge path
+ * (ADR-2181 Consequences: "inferred edges move onto the same path, with a dash
+ * or colour distinction"): screen-space quads whose endpoints come from the
+ * overview node position texture on the GPU, dashed in screen pixels and
+ * tinted amber (ontosphere's amber-dashed convention, PRD-018 WS-2, ADR-099 D4).
  *
- * Why a separate overlay (reuse-first, GPU-only-solving compliant):
- *  - It does NOT modify the optimised GlassEdges instanced pipeline or the
- *    GraphManager per-frame edge hot loop — zero risk to the asserted-edge path.
- *  - It does NO solving/layout. It reads node positions from the drawn-positions
- *    `nodePositionsRef` (the same buffer GlassEdges/labels read) and draws line
- *    segments between the inferred (source → target) node pairs each frame.
+ *  - It does NOT touch the glass-tube pipeline or the GraphManager edge hot loop.
+ *  - No per-frame CPU work: the endpoint pairs are written once per data change.
  *  - Gated by the `showInferred` toggle. Empty inferred set → renders nothing.
+ *  - Greyed endpoints (ADR-2183) drop the edge to greyoutOpacity like any edge.
  *
- * Positions: `nodePositionsRef.current` is a Float32Array laid out [x,y,z] per
- * node, indexed by the node's render index via `nodeIdToIndexMap`.
+ * Must be mounted inside OverviewLayer (it reads the position texture from
+ * OverviewTextureContext); outside it, it renders nothing.
  */
 
-import React, { useMemo, useRef, useEffect } from 'react';
-import { useFrame } from '@react-three/fiber';
-import * as THREE from 'three';
+import React, { useMemo } from 'react';
 import { useInferredEdgesStore } from '../../ontology/store/useInferredEdgesStore';
+import { useSettingsStore } from '../../../store/settingsStore';
+import type { GraphViewSettings } from '../../settings/config/settings';
+import { useOverviewPositionTexture, resolveGraphView } from '../overview/OverviewLayer';
+import { OverviewEdgeLines, type OverviewEdgeData, type OverviewEdgeStyle } from '../overview/OverviewEdgeLines';
 
-/** Default differentiated style — amber, dashed. Matches ADR-099 D4 convention. */
-const INFERRED_COLOR = 0xffb000; // amber
-const DASH_SIZE = 1.4;
-const GAP_SIZE = 0.9;
+/** Differentiated style — amber, dashed. Matches ADR-099 D4 convention. */
+export const INFERRED_COLOR = '#ffb000';
+/** Dash and gap, CSS px (screen-space now, so the pattern holds at every zoom). */
+export const INFERRED_DASH_PX = 6;
+export const INFERRED_GAP_PX = 4;
 const LINE_OPACITY = 0.85;
 
 interface InferredEdgesProps {
-  /** Drawn node positions, [x,y,z] per node, shared with GlassEdges. */
-  nodePositionsRef: React.MutableRefObject<Float32Array | null>;
-  /** Map from string node id to its index in the position buffer. */
+  /** Map from string node id to its render index (the position texture's index). */
   nodeIdToIndexMap: Map<string, number>;
 }
 
-export const InferredEdges: React.FC<InferredEdgesProps> = ({
-  nodePositionsRef,
-  nodeIdToIndexMap,
-}) => {
+/** Resolve inferred (source, target) ids to render-index pairs; unmapped endpoints are dropped. */
+export function resolveInferredPairs(
+  edges: ReadonlyArray<{ sourceId: string | number; targetId: string | number }>,
+  nodeIdToIndexMap: ReadonlyMap<string, number>,
+): { src: Int32Array; tgt: Int32Array; count: number } {
+  const src = new Int32Array(edges.length);
+  const tgt = new Int32Array(edges.length);
+  let n = 0;
+  for (const e of edges) {
+    const si = nodeIdToIndexMap.get(String(e.sourceId));
+    const ti = nodeIdToIndexMap.get(String(e.targetId));
+    if (si === undefined || ti === undefined) continue;
+    src[n] = si; tgt[n] = ti; n++;
+  }
+  return { src, tgt, count: n };
+}
+
+export const InferredEdges: React.FC<InferredEdgesProps> = ({ nodeIdToIndexMap }) => {
+  const positions = useOverviewPositionTexture();
   const showInferred = useInferredEdgesStore((s) => s.showInferred);
   const inferredEdges = useInferredEdgesStore((s) => s.inferredEdges);
+  const stored = useSettingsStore((s) => s.get<GraphViewSettings>('visualisation.graphView'));
+  const gv = useMemo(() => resolveGraphView(stored), [stored]);
 
-  // Resolve each inferred edge to a (srcIndex, tgtIndex) pair once per data
-  // change. Edges whose endpoints aren't in the current render set are dropped.
-  const resolved = useMemo(() => {
-    const pairs: Array<[number, number]> = [];
-    for (const e of inferredEdges) {
-      const si = nodeIdToIndexMap.get(String(e.sourceId));
-      const ti = nodeIdToIndexMap.get(String(e.targetId));
-      if (si !== undefined && ti !== undefined) pairs.push([si, ti]);
-    }
-    return pairs;
+  const data = useMemo<OverviewEdgeData | null>(() => {
+    const r = resolveInferredPairs(inferredEdges, nodeIdToIndexMap);
+    return r.count > 0 ? { count: r.count, src: r.src, tgt: r.tgt } : null;
   }, [inferredEdges, nodeIdToIndexMap]);
 
-  // Pre-allocated geometry sized to the resolved edge count (2 verts/edge).
-  const geometry = useMemo(() => {
-    const geo = new THREE.BufferGeometry();
-    const positions = new Float32Array(Math.max(resolved.length, 1) * 2 * 3);
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    return geo;
-  }, [resolved.length]);
+  const style = useMemo<OverviewEdgeStyle>(() => ({
+    widthPx: Math.max(1.5, gv.overviewEdges.widthPx),
+    maxWidthPx: Math.max(1.5, gv.overviewEdges.widthPx),
+    // inferred edges are sparse and semantic: no length fade
+    fadeNearPx: 1e9,
+    fadeFarPx: 1e9,
+    minOpacity: 1,
+    opacity: LINE_OPACITY,
+    greyoutOpacity: gv.explore.greyoutOpacity,
+    dashed: true,
+    dashPx: INFERRED_DASH_PX,
+    gapPx: INFERRED_GAP_PX,
+    tint: INFERRED_COLOR,
+  }), [gv.overviewEdges.widthPx, gv.explore.greyoutOpacity]);
 
-  const material = useMemo(
-    () =>
-      new THREE.LineDashedMaterial({
-        color: INFERRED_COLOR,
-        dashSize: DASH_SIZE,
-        gapSize: GAP_SIZE,
-        transparent: true,
-        opacity: LINE_OPACITY,
-        depthWrite: false,
-      }),
-    [],
-  );
-
-  const linesRef = useRef<THREE.LineSegments | null>(null);
-
-  // Dispose GPU resources on unmount / geometry swap.
-  useEffect(() => {
-    return () => {
-      geometry.dispose();
-    };
-  }, [geometry]);
-  useEffect(() => {
-    return () => {
-      material.dispose();
-    };
-  }, [material]);
-
-  // Per-frame: pull current positions from the drawn array and update the line buffer.
-  useFrame(() => {
-    if (!showInferred || resolved.length === 0) {
-      if (linesRef.current) linesRef.current.visible = false;
-      return;
-    }
-    const positions = nodePositionsRef.current;
-    if (!positions) return;
-
-    const attr = geometry.getAttribute('position') as THREE.BufferAttribute;
-    const arr = attr.array as Float32Array;
-    let w = 0;
-    for (let i = 0; i < resolved.length; i++) {
-      const [si, ti] = resolved[i];
-      const so = si * 3;
-      const to = ti * 3;
-      arr[w++] = positions[so];
-      arr[w++] = positions[so + 1];
-      arr[w++] = positions[so + 2];
-      arr[w++] = positions[to];
-      arr[w++] = positions[to + 1];
-      arr[w++] = positions[to + 2];
-    }
-    attr.needsUpdate = true;
-    geometry.setDrawRange(0, resolved.length * 2);
-    if (linesRef.current) {
-      linesRef.current.visible = true;
-      // Dashes require per-vertex line distances; recompute as positions move.
-      linesRef.current.computeLineDistances();
-    }
-  });
-
-  if (resolved.length === 0) return null;
-
+  if (!positions || !data) return null;
   return (
-    <lineSegments ref={linesRef} frustumCulled={false}>
-      <primitive object={geometry} attach="geometry" />
-      <primitive object={material} attach="material" />
-    </lineSegments>
+    <OverviewEdgeLines
+      positions={positions}
+      data={data}
+      style={style}
+      visible={showInferred}
+      renderOrder={4}
+      name="inferred-edges"
+    />
   );
 };
 

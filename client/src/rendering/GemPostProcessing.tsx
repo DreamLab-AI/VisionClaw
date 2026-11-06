@@ -4,6 +4,7 @@ import { useSettingsStore } from '../store/settingsStore';
 import * as THREE from 'three';
 import { createLogger } from '../utils/loggerConfig';
 import type { Node as TslNode } from 'three/webgpu';
+import { BLOOM_LAYER } from './bloomLayer';
 import {
   initRenderGuard,
   recordRenderFailure,
@@ -88,7 +89,20 @@ export const GemPostProcessing: React.FC<GemPostProcessingProps> = ({ enabled = 
   const glowSettings = settings?.visualisation?.glow;
   const bloomSettings = settings?.visualisation?.bloom;
 
-  const effectEnabled = glowSettings?.enabled || bloomSettings?.enabled;
+  // ADR-2182 D4: what blooms. 'emphasis' (default) blooms only the bloom layer
+  // (emphasis halos + the selection's tubes) from a camera that sees nothing
+  // else; 'scene' is the global-threshold bloom over the whole scene; 'off'
+  // drops the post-processing pipeline altogether.
+  const bloomScope = (settings?.visualisation?.graphView?.nodes?.bloomScope ?? 'emphasis') as 'emphasis' | 'scene' | 'off';
+  const selective = bloomScope === 'emphasis';
+  const effectEnabled = (glowSettings?.enabled || bloomSettings?.enabled) && bloomScope !== 'off';
+  // The camera the selective bloom pass renders from: a copy of the scene
+  // camera, re-synced every frame, that sees only BLOOM_LAYER.
+  const bloomCamera = useMemo(() => {
+    const c = new THREE.PerspectiveCamera();
+    c.layers.set(BLOOM_LAYER);
+    return c;
+  }, []);
   const ppAvailable = !ppDisabled;
   const isEnabledWebGL = enabled && !isWebGPU && effectEnabled && ppAvailable;
   const isEnabledWebGPU = enabled && isWebGPU && effectEnabled && ppAvailable;
@@ -157,7 +171,28 @@ export const GemPostProcessing: React.FC<GemPostProcessingProps> = ({ enabled = 
           bloomInput = tslMod.rtt(scenePassColor);
         }
 
-        const bloomPass = bloom(bloomInput as TslNode<'vec4'>, strength, radius, threshold);
+        type EmphasisPass = { getTextureNode: (name: string) => TSLTextureNode; dispose?: () => void; updateBefore?: (frame: unknown) => unknown };
+        let emphasisPass: EmphasisPass | null = null;
+        if (selective) {
+          // ADR-2182 D4: bloom only what the bloom-layer camera sees. The
+          // pass renders without the scene background, so only emphasis
+          // geometry (on a clear target) reaches the bloom.
+          const ep = pass(scene, bloomCamera as unknown as THREE.Camera) as unknown as EmphasisPass;
+          const orig = ep.updateBefore?.bind(ep);
+          if (orig) {
+            ep.updateBefore = (frame: unknown) => {
+              const bg = scene.background;
+              scene.background = null;
+              try { return orig(frame); } finally { scene.background = bg; }
+            };
+          }
+          const em = ep.getTextureNode('output');
+          bloomInput = typeof em.toTexture === 'function' ? em.toTexture() : em;
+          emphasisPass = ep;
+        }
+        const emphasisPassRef: EmphasisPass | null = emphasisPass;
+
+        const bloomPass = bloom(bloomInput as TslNode<'vec4'>, strength, radius, selective ? 0 : threshold);
 
         const outputNode = scenePassColor.add(bloomPass);
 
@@ -174,6 +209,7 @@ export const GemPostProcessing: React.FC<GemPostProcessingProps> = ({ enabled = 
           postProcessing.dispose();
           if (bloomPass.dispose) bloomPass.dispose();
           if (scenePass.dispose) scenePass.dispose();
+          emphasisPassRef?.dispose?.();
         };
       } catch (err) {
         logger.warn('[GemPostProcessing] Failed to init WebGPU bloom:', err);
@@ -193,7 +229,7 @@ export const GemPostProcessing: React.FC<GemPostProcessingProps> = ({ enabled = 
   // bloomParamsRef is intentionally NOT a dep — initial values are read from the ref,
   // and live updates are handled by the bloom uniform updater useEffect below.
   // Deps intentionally narrowed; react-hooks/exhaustive-deps is not enforced in this config.
-  }, [isEnabledWebGPU, gl, scene, camera]);
+  }, [isEnabledWebGPU, gl, scene, camera, selective, bloomCamera]);
 
   // Update WebGPU bloom uniforms when settings change without full rebuild
   useEffect(() => {
@@ -201,8 +237,8 @@ export const GemPostProcessing: React.FC<GemPostProcessingProps> = ({ enabled = 
     const bloomNode = bloomNodeRef.current;
     if (bloomNode.strength) bloomNode.strength.value = bloomStrength;
     if (bloomNode.radius) bloomNode.radius.value = bloomRadius;
-    if (bloomNode.threshold) bloomNode.threshold.value = bloomThreshold;
-  }, [isEnabledWebGPU, bloomStrength, bloomRadius, bloomThreshold]);
+    if (bloomNode.threshold) bloomNode.threshold.value = selective ? 0 : bloomThreshold;
+  }, [isEnabledWebGPU, bloomStrength, bloomRadius, bloomThreshold, selective]);
 
   // WebGL EffectComposer path
   useEffect(() => {
@@ -240,15 +276,43 @@ export const GemPostProcessing: React.FC<GemPostProcessingProps> = ({ enabled = 
         const composer = new EffectComposer(gl as unknown as THREE.WebGLRenderer, rt);
         composer.addPass(new RenderPass(scene, camera));
 
-        const bloomPass = new UnrealBloomPass(
-          new THREE.Vector2(rtWidth, rtHeight),
-          strength,
-          radius,
-          threshold
-        );
-        composer.addPass(bloomPass);
-
-        composerRef.current = composer;
+        if (!selective) {
+          const bloomPass = new UnrealBloomPass(
+            new THREE.Vector2(rtWidth, rtHeight),
+            strength,
+            radius,
+            threshold
+          );
+          composer.addPass(bloomPass);
+          composerRef.current = composer;
+        } else {
+          // ADR-2182 D4 selective bloom: a bloom-only composer renders the
+          // bloom layer (bloomCamera) without the background into its own
+          // target; the final composer adds that bloom over the full scene.
+          const { ShaderPass } = await import('three/examples/jsm/postprocessing/ShaderPass.js');
+          const bloomRt = new THREE.WebGLRenderTarget(rtWidth, rtHeight, { type: THREE.HalfFloatType });
+          const bloomComposer = new EffectComposer(gl as unknown as THREE.WebGLRenderer, bloomRt);
+          bloomComposer.renderToScreen = false;
+          bloomComposer.addPass(new RenderPass(scene, bloomCamera));
+          bloomComposer.addPass(new UnrealBloomPass(new THREE.Vector2(rtWidth, rtHeight), strength, radius, 0));
+          const mix = new ShaderPass(new THREE.ShaderMaterial({
+            uniforms: { baseTexture: { value: null }, bloomTexture: { value: bloomComposer.renderTarget2.texture } },
+            vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+            fragmentShader: 'uniform sampler2D baseTexture; uniform sampler2D bloomTexture; varying vec2 vUv; void main() { gl_FragColor = texture2D(baseTexture, vUv) + vec4(texture2D(bloomTexture, vUv).rgb, 0.0); }',
+          }), 'baseTexture');
+          mix.needsSwap = true;
+          composer.addPass(mix);
+          composerRef.current = {
+            render: () => {
+              const bg = scene.background;
+              scene.background = null;
+              try { bloomComposer.render(); } finally { scene.background = bg; }
+              composer.render();
+            },
+            setSize: (w: number, h: number) => { bloomComposer.setSize(w, h); composer.setSize(w, h); },
+            dispose: () => { bloomComposer.dispose(); bloomRt.dispose(); composer.dispose(); },
+          };
+        }
         rtRef.current = rt;
         // Fresh pipeline — reset the failure streak and take render ownership.
         guardRef.current = initRenderGuard();
@@ -272,7 +336,7 @@ export const GemPostProcessing: React.FC<GemPostProcessingProps> = ({ enabled = 
       }
       setPipelineReady(false);
     };
-  }, [isEnabledWebGL, gl, scene, camera, effectParamsWebGL]);
+  }, [isEnabledWebGL, gl, scene, camera, effectParamsWebGL, selective, bloomCamera]);
 
   // Resize EffectComposer when window size changes (WebGL path).
   // Apply the same maxDim cap used during creation to avoid GPU memory blowup.
@@ -304,6 +368,12 @@ export const GemPostProcessing: React.FC<GemPostProcessingProps> = ({ enabled = 
   const renderActive = pipelineReady && !ppDisabled;
   useFrame(() => {
     if (!renderActive) return;
+    if (selective) {
+      // keep the bloom-layer camera on the scene camera (copy() also copies
+      // layers, so restore the bloom-only mask)
+      bloomCamera.copy(camera as THREE.PerspectiveCamera, false);
+      bloomCamera.layers.set(BLOOM_LAYER);
+    }
 
     try {
       if (postProcessingRef.current) {

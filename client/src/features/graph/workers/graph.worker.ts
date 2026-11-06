@@ -200,6 +200,8 @@ class GraphWorker {
     this.positionBuffer = buffer;
     this.positionView = new Float32Array(buffer);
     workerLogger.info(`SharedArrayBuffer set up with ${buffer.byteLength} bytes`);
+    // A replacement (grown) buffer starts empty: fill it now, not on the next frame.
+    this.syncToSharedBuffer();
   }
 
   /**
@@ -223,8 +225,16 @@ class GraphWorker {
     return transfer(out, [out]) as unknown as ArrayBuffer;
   }
 
+  private truncationWarned = false;
+
   private syncToSharedBuffer(): void {
-    syncToSharedBuffer(this.positionView, this.currentPositions);
+    const dropped = syncToSharedBuffer(this.positionView, this.currentPositions);
+    if (dropped > 0 && !this.truncationWarned) {
+      this.truncationWarned = true;
+      workerLogger.warn(`position SAB short by ${dropped} nodes; the main thread reports it in-canvas`);
+    } else if (dropped === 0) {
+      this.truncationWarned = false;
+    }
   }
 
   async updateSettings(settings: Record<string, unknown>): Promise<void> {

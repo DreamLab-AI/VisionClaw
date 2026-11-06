@@ -34,8 +34,24 @@ import { useGraphSelection } from '../hooks/useGraphSelection'
 import { useEdgeBufferComputation } from '../hooks/useEdgeBufferComputation'
 import { nodePageUrl } from '../utils/pageLinks'
 import { setSharedNodePositions, setSharedNodeIdToIndexMap } from '../contexts/NodePositionContext'
+import { OverviewLayer, resolveGraphView } from '../overview/OverviewLayer'
+import { useNodeEncodingSync } from '../overview/useNodeEncodingSync'
+import { useOverviewLive } from '../overview/overviewLive'
+import { TUBE_BUDGET, type GlassTubeLod } from './GlassEdges'
+import { highlightMask, HIGHLIGHT_SELECTED, HIGHLIGHT_HOVERED } from '../state/highlightMask'
+import type { GraphViewSettings } from '../../settings/config/settings'
 
 const logger = createLogger('GraphManager')
+
+/**
+ * Hover emphasis. INTEGRATION NOTE: the explore lane exports
+ * `setHoveredNodeEmphasis` from features/graph/explore; on merge, delete this
+ * local definition and import theirs. It writes the same source name
+ * ('emph:hover'), so the two are interchangeable.
+ */
+function setHoveredNodeEmphasis(id: string | null): void {
+  highlightMask.setEmphasis('emph:hover', HIGHLIGHT_HOVERED, id ? [id] : null)
+}
 
 // Re-export GraphVisualMode from the hook for downstream consumers
 export type { GraphVisualMode } from '../hooks/useGraphVisualState';
@@ -79,6 +95,21 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   const { visibleNodes, nodeIdToIndexMap, expansionState } = useGraphFiltering(graphData, hierarchyMap, connectionCountMap)
 
   useEffect(() => { setSharedNodeIdToIndexMap(nodeIdToIndexMap) }, [nodeIdToIndexMap])
+
+  // ADR-2184 D4: the one encodeAll caller, over the whole delivered node set.
+  useNodeEncodingSync({ nodes: graphData.nodes, nodeIdToIndexMap, connectionCountMap, hierarchyMap })
+
+  // ADR-2181/2182 settings: overview edges on → glass tubes become the
+  // close-zoom LOD (or nothing, when glassAtCloseZoom is off).
+  const graphViewStored = useSettingsStore(s => s.settings?.visualisation?.graphView as GraphViewSettings | undefined)
+  const graphView = useMemo(() => resolveGraphView(graphViewStored), [graphViewStored])
+  // Only once the overview edges are actually drawing (material built): until
+  // then, or if it fails, every edge stays a tube.
+  const overviewLive = useOverviewLive()
+  const tubeLod = useMemo<GlassTubeLod | null>(() => {
+    if (!graphView.overviewEdges.enabled || !overviewLive.edges) return null
+    return { maxDistance: graphView.overviewEdges.glassAtCloseZoom ? graphView.nodes.gemLodDistance : 0, budget: TUBE_BUDGET }
+  }, [graphView.overviewEdges.enabled, overviewLive.edges, graphView.overviewEdges.glassAtCloseZoom, graphView.nodes.gemLodDistance])
 
   // Node-type visibility filtering + per-population partition.
   //
@@ -177,7 +208,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   const [activeLayoutMode, setActiveLayoutMode] = useState<string>('')
   const [layoutTransitioning, setLayoutTransitioning] = useState(false)
 
-  const { requestFit: requestCameraFit } = useCameraAutoFit(nodePositionsRef, graphData.nodes.length)
+  const { tickFit: tickCameraFit } = useCameraAutoFit(nodePositionsRef, graphData.nodes.length)
 
   const [edgePoints, setEdgePoints]               = useState<number[]>([])
   const [highlightEdgePoints, setHighlightEdgePoints] = useState<number[]>([])
@@ -313,6 +344,16 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
     connectionCountMap,
     camera,
   })
+
+  // ADR-2183 D2: the selection is one emphasis source of the highlight mask, so
+  // sprites, edges, labels and bloom see it like any other writer's emphasis.
+  useEffect(() => {
+    highlightMask.setEmphasis('emph:selection', HIGHLIGHT_SELECTED, selectedNodeId ? [selectedNodeId] : null)
+  }, [selectedNodeId])
+  useEffect(() => () => {
+    highlightMask.clearSource('emph:selection')
+    setHoveredNodeEmphasis(null)
+  }, [])
 
   // Fly-to interpolation state: captured start endpoints + which destination we
   // captured them for (object identity distinguishes a NEW fly). Interpolating
@@ -467,7 +508,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
       const dragIndex = dragNodeId === null ? -1 : (nodeIdToIndexMap.get(dragNodeId) ?? -1)
       if (dragIndex >= 0) drawnPositions.applyDrag(dragIndex, dragDataRef.current.currentNodePos3D)
 
-      requestCameraFit()
+      tickCameraFit()
 
       const positionsValid = drawn.length >= graphData.nodes.length * 3
 
@@ -487,7 +528,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   }, -2)
 
   // === Edge buffer computation (extracted hot loop) — its own useFrame(-0.5), after this pass and GemNodes ===
-  useEdgeBufferComputation({
+  const { plan: edgePlan } = useEdgeBufferComputation({
     graphData,
     nodePositionsRef,
     nodeIdToIndexMap,
@@ -566,6 +607,26 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   // Shared pointer-miss + double-click handlers (one identity reused by all
   // three population meshes). event.instanceId is GLOBAL — each GemNodes adds
   // its instanceIdBase before delegating, so it indexes typeFilteredNodes here.
+  // Hover (ADR-2183 D2): the node under the pointer is an emphasis source, so
+  // it gets a gem, a halo and a label like any emphasised node. Written only
+  // when the hovered node changes. Instance ids arrive GLOBAL (GemNodes adds
+  // instanceIdBase), so they index typeFilteredNodes.
+  const handleNodePointerMove = useCallback((event: ThreeEvent<PointerEvent>) => {
+    handlePointerMove(event)
+    const node = event.instanceId !== undefined ? typeFilteredNodes[event.instanceId] : undefined
+    const id = node ? String(node.id) : null
+    if (id !== animationStateRef.current.hoveredNode) {
+      animationStateRef.current.hoveredNode = id
+      setHoveredNodeEmphasis(id)
+    }
+  }, [handlePointerMove, typeFilteredNodes])
+  const handleNodePointerOut = useCallback(() => {
+    if (animationStateRef.current.hoveredNode !== null) {
+      animationStateRef.current.hoveredNode = null
+      setHoveredNodeEmphasis(null)
+    }
+  }, [])
+
   const handlePointerMissed = useCallback(() => {
     if (dragDataRef.current.pointerDown) handlePointerUp()
     setSelectedNodeId(null)
@@ -647,7 +708,8 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
             settings={settings}
             ssspResult={normalizedSSSPResult}
             onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
+            onPointerMove={handleNodePointerMove}
+            onPointerOut={handleNodePointerOut}
             onPointerUp={(event: any) => handlePointerUp(event)}
             onPointerMissed={handlePointerMissed}
             onDoubleClick={handleNodeDoubleClick}
@@ -660,6 +722,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
       <GlassEdges
         ref={edgeFlowRef}
         points={edgePoints}
+        lod={tubeLod}
         settings={settings?.visualisation?.graphs?.knowledge?.edges || settings?.visualisation?.edges || defaultEdgeSettings}
         colorOverride={
           graphMode === 'knowledge_graph'
@@ -675,15 +738,20 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
         points={highlightEdgePoints}
         settings={settings?.visualisation?.graphs?.knowledge?.edges || settings?.visualisation?.edges || defaultEdgeSettings}
         colorOverride={settings?.visualisation?.interaction?.selectionHighlightColor || '#00FFFF'}
+        bloom
       />
 
-      {/* Inferred-graph edges (urn:ngm:graph:ontology:inferred) rendered in a
-          distinct dashed-amber style, gated by the InferencePanel toggle.
-          Additive overlay — does not touch the GlassEdges instanced pipeline. */}
-      <InferredEdges
+      {/* ADR-2181/2182 overview: screen-space edges + node sprites over one GPU
+          node source. Inferred-graph edges (urn:ngm:graph:ontology:inferred) ride
+          the same path, dashed amber, gated by the InferencePanel toggle. */}
+      <OverviewLayer
+        plan={edgePlan}
         nodePositionsRef={nodePositionsRef}
-        nodeIdToIndexMap={nodeIdToIndexMap}
-      />
+        nodeCount={graphData.nodes.length}
+        knowledgeGemRef={knowledgeGemRef}
+      >
+        <InferredEdges nodeIdToIndexMap={nodeIdToIndexMap} />
+      </OverviewLayer>
 
       <KnowledgeRings
         nodes={knowledgeNodes}
