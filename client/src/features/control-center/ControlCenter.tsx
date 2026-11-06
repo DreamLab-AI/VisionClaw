@@ -27,6 +27,7 @@ import { MacroBar } from './macros/MacroBar';
 import { SettingsPanel } from './panels/SettingsPanel';
 import { useControlCenterUI } from './state/useControlCenterUI';
 import { useControlCenterHotkeys } from './hooks/useControlCenterHotkeys';
+import { useExclusiveSidePanels } from './hooks/useExclusiveSidePanels';
 import { useRevealSetting } from './hooks/useRevealSetting';
 import { ShortcutSheet } from './help/ShortcutSheet';
 import { GraphLegend } from './integrationSlots';
@@ -78,6 +79,7 @@ export const ControlCenter: React.FC<ControlPanelProps> = ({
   }, [askOpen]);
 
   useControlCenterHotkeys();
+  useExclusiveSidePanels();
   useRevealSetting();
 
   // Camera-control handoff: connecting a SpacePilot hands the camera to the
