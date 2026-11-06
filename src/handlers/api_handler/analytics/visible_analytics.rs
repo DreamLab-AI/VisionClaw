@@ -1,7 +1,9 @@
 //! Per-node analytics for a caller whose view hides nodes (ADR-060).
 //!
-//! The GPU analysers run over the whole graph and some publish into shared state (SSSP fills
-//! the `node_sssp` stream slot every client receives), so a gated caller never reaches them.
+//! The GPU analysers run over the whole graph, so a gated caller's request never reaches them.
+//! A GPU SSSP run may also be written to the shared `node_sssp` map behind wire slot 28; that
+//! happens only when the request sets `ComputeSSP::publish`, which callers set only when the
+//! graph hides nothing from anyone (`graph_access::stream_safe`).
 //! Their answer is computed here on the CPU over the caller's visible subgraph, in the GPU's
 //! index space (positions of `graph.nodes`) and shape, so a hidden node is indistinguishable
 //! from an unreachable or absent one and no distance or component runs through it.
@@ -272,6 +274,30 @@ pub(crate) fn gate_clusters(
         .collect()
 }
 
+/// Point-to-point SSSP for a caller whose view hides nodes, computed over the visible
+/// subgraph. `source_id`/`target_id` are node ids. A hidden or unknown source gets the same
+/// error; a hidden or unknown target reads as unreachable. Returns
+/// `(distance, exists, nodes_reached)`, with `f32::MAX` for unreachable as the GPU arm does.
+pub(crate) fn visible_point_to_point(
+    graph: &GraphData,
+    visible: &HashSet<u32>,
+    source_id: u32,
+    target_id: u32,
+) -> Result<(f32, bool, usize), String> {
+    let not_found = || format!("Source node {} not found in graph", source_id);
+    let source = graph
+        .nodes
+        .iter()
+        .position(|n| n.id == source_id)
+        .filter(|p| visible.contains(&(*p as u32)))
+        .ok_or_else(not_found)?;
+    let r = visible_sssp(graph, visible, source, None);
+    Ok(match r.distances.get(&target_id) {
+        Some(&d) => (d, true, r.nodes_reached),
+        None => (f32::MAX, false, r.nodes_reached),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -407,5 +433,38 @@ mod tests {
             vec!["small".to_string(), "cluster-0".to_string()]
         );
         assert_eq!(out[0].centroid, Some([1.0, 0.0, 0.0]));
+    }
+
+    #[test]
+    fn point_to_point_never_takes_the_hidden_shortcut() {
+        let (g, v) = fixture();
+        let (d, exists, _) = visible_point_to_point(&g, &v, 0, 2).unwrap();
+        assert!(exists);
+        assert_eq!(
+            d, 5.0,
+            "0->2 is 5 over the view; 2 is the hidden route via 1"
+        );
+    }
+
+    #[test]
+    fn point_to_point_starts_from_the_requested_node() {
+        let (g, v) = fixture();
+        // Node 2 sits at view position 1, which is hidden node 1 in the full graph.
+        let (d, _, _) = visible_point_to_point(&g, &v, 2, 0).unwrap();
+        assert_eq!(
+            d, 5.0,
+            "the run must start at node 2, not at the hidden node at slot 1"
+        );
+    }
+
+    /// Verdict test (the old arm already behaved this way): a hidden source gets exactly the
+    /// error an unknown id gets, so the reply is no existence oracle.
+    #[test]
+    fn point_to_point_hidden_source_reads_as_unknown() {
+        let (g, v) = fixture();
+        assert_eq!(
+            visible_point_to_point(&g, &v, 1, 0).unwrap_err(),
+            "Source node 1 not found in graph"
+        );
     }
 }

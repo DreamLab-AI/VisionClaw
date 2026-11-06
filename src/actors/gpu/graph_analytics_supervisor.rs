@@ -573,6 +573,8 @@ impl Handler<ComputeShortestPaths> for GraphAnalyticsSupervisor {
                         source_idx,
                         max_distance: None,
                         delta: None,
+                        // No visibility decision is made on this path, so it never publishes.
+                        publish: false,
                     })
                     .await
                     .map_err(|e| format!("Communication failed: {}", e))??;

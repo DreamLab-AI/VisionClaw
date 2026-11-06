@@ -51,6 +51,24 @@ pub fn visible_positions(graph: &GraphData, view: &GraphData) -> HashSet<u32> {
         .collect()
 }
 
+/// Whether an analytics run over `graph` may be written to a stream every viewer reads
+/// (the shared `node_sssp` map behind wire slot 28). Only when the anonymous view hides
+/// nothing: then the run was computed over exactly what every viewer may see. Otherwise the
+/// distances would carry hidden shortcuts and sources to other viewers. Fails closed.
+pub fn stream_safe(graph: &Arc<GraphData>) -> bool {
+    stream_safe_for(
+        graph,
+        visionclaw_domain::utils::visibility_filter::filter_enabled(),
+    )
+}
+
+/// [`stream_safe`] with the visibility flag passed in, for tests.
+pub fn stream_safe_for(graph: &Arc<GraphData>, filter_on: bool) -> bool {
+    let anon =
+        visionclaw_domain::utils::visibility_filter::visible_subgraph(graph, None, filter_on);
+    Arc::ptr_eq(&anon, graph)
+}
+
 /// The caller's view and visible positions, for a route whose result comes from a whole-graph
 /// actor. `Ok(None)` means nothing is hidden from this caller (filter off, or every node
 /// visible), so the result passes through untouched and the graph is not fetched when the filter
@@ -79,5 +97,38 @@ pub async fn current_graph(
     match supervisor.send(GetGraphData).await {
         Ok(reply) => reply,
         Err(e) => Err(format!("graph service unavailable: {e}")),
+    }
+}
+
+#[cfg(test)]
+mod stream_safe_tests {
+    use super::*;
+    use visionclaw_domain::models::node::Node;
+
+    fn graph(private_one: bool) -> Arc<GraphData> {
+        let node = |id: u32, public: bool| {
+            let mut n = Node::new_with_id(format!("n{id}"), None);
+            n.id = id;
+            n.metadata.insert("public".into(), public.to_string());
+            n
+        };
+        Arc::new(GraphData {
+            nodes: vec![node(0, true), node(1, !private_one)],
+            ..GraphData::default()
+        })
+    }
+
+    #[test]
+    fn a_run_over_a_graph_with_a_hidden_node_is_never_streamed() {
+        assert!(
+            !stream_safe_for(&graph(true), true),
+            "a graph with a node hidden from anonymous viewers must not reach node_sssp"
+        );
+    }
+
+    #[test]
+    fn an_all_public_graph_or_the_filter_off_may_stream() {
+        assert!(stream_safe_for(&graph(false), true));
+        assert!(stream_safe_for(&graph(true), false));
     }
 }

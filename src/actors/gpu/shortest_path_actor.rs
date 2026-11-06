@@ -33,6 +33,11 @@ pub struct ComputeSSP {
     /// Smaller deltas reduce work per iteration at the cost of more iterations.
     #[serde(default)]
     pub delta: Option<f32>,
+    /// Write this run to the shared `node_sssp` map behind wire slot 28, which every viewer's
+    /// stream may read. Callers set it only when the graph hides nothing from anyone
+    /// (`graph_access::stream_safe`); it defaults to `false`, so an unset flag fails closed.
+    #[serde(default)]
+    pub publish: bool,
 }
 
 /// APSP computation parameters
@@ -218,6 +223,7 @@ impl Handler<ComputeSSP> for ShortestPathActor {
             "ShortestPathActor: Computing SSSP from node {}",
             msg.source_idx
         );
+        let msg_publish = msg.publish;
 
         // Acquire lock, compute, then drop lock before calling update_stats
         let (filtered_distances, nodes_reached, max_distance, computation_time, node_id_map) = {
@@ -306,7 +312,9 @@ impl Handler<ComputeSSP> for ShortestPathActor {
         // (& NODE_ID_MASK). Unreachable nodes (>= f32::MAX) are left absent — the
         // encoder defaults missing nodes to (INFINITY, -1). parent = -1 because
         // run_sssp returns distances only, no predecessor array.
-        if let Some(ref node_sssp) = self.node_sssp {
+        // ADR-060: a run that may carry hidden nodes or a hidden source is returned to its
+        // caller only, never written to the map other viewers' streams read.
+        if let (true, Some(node_sssp)) = (msg_publish, self.node_sssp.as_ref()) {
             if let Ok(mut map) = node_sssp.write() {
                 map.clear();
                 for (gpu_idx, &dist) in filtered_distances.iter().enumerate() {

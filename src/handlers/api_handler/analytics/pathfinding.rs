@@ -164,8 +164,8 @@ pub async fn compute_sssp(
     // ADR-060: a caller whose view hides nodes gets a CPU answer over that view and never
     // reaches the GPU actor (which also publishes to the stream every client receives). A
     // hidden source answers exactly as an id past the end of the graph.
-    match gated_view(&data, &caller).await {
-        Ok(Some((graph, visible))) => {
+    let full = match gated_view(&data, &caller).await {
+        Ok((graph, Some(visible))) => {
             if !visible.contains(&(payload.source_idx as u32)) {
                 return error_json!(SSSPResponse {
                     success: false,
@@ -186,9 +186,9 @@ pub async fn compute_sssp(
                 error: None,
             });
         }
-        Ok(None) => {}
+        Ok((graph, None)) => graph,
         Err(response) => return Ok(response),
-    }
+    };
 
     // ADR-2053: routed through GPUManagerActor -> GraphAnalyticsSupervisor -> the
     // SUPERVISED ShortestPathActor. The standalone actor this used to address was
@@ -198,6 +198,8 @@ pub async fn compute_sssp(
             source_idx: payload.source_idx,
             max_distance: payload.max_distance,
             delta: payload.delta,
+            // Only a run over a graph that hides nothing from anyone reaches node_sssp.
+            publish: crate::handlers::graph_access::stream_safe(&full),
         };
 
         match gpu_manager.send(msg).await {
@@ -328,8 +330,8 @@ pub async fn compute_connected_components(
 
     // ADR-060: components of the caller's view, so no label joins two visible nodes through a
     // hidden one.
-    match gated_view(&data, &caller).await {
-        Ok(Some((graph, visible))) => {
+    let _full = match gated_view(&data, &caller).await {
+        Ok((graph, Some(visible))) => {
             return ok_json!(ConnectedComponentsResponse {
                 success: true,
                 result: Some(ComponentsPayload::Visible(
@@ -338,9 +340,9 @@ pub async fn compute_connected_components(
                 error: None,
             });
         }
-        Ok(None) => {}
+        Ok((graph, None)) => graph,
         Err(response) => return Ok(response),
-    }
+    };
 
     // ADR-2053: supervised path, see compute_sssp above.
     if let Some(ref gpu_manager) = data.gpu_manager_addr {
@@ -398,17 +400,19 @@ fn sssp_source_out_of_range(source_idx: usize) -> String {
     )
 }
 
-/// `Ok(None)` when the caller sees the whole graph (the GPU path serves them unchanged);
-/// `Ok(Some((graph, visible positions)))` when their view hides nodes; `Err` with a ready
-/// response when the graph cannot be read, since then no visibility decision is possible.
+/// `Ok((graph, None))` when the caller sees the whole graph (the GPU path serves them
+/// unchanged); `Ok((graph, Some(visible positions)))` when their view hides nodes; `Err` with
+/// a ready response when the graph cannot be read, since then no visibility decision is
+/// possible. The full graph comes back either way so the GPU path can decide whether its run
+/// may be published to the shared stream ([`stream_safe`](crate::handlers::graph_access::stream_safe)).
 async fn gated_view(
     data: &web::Data<AppState>,
     caller: &crate::settings::OptionalAuth,
 ) -> std::result::Result<
-    Option<(
+    (
         std::sync::Arc<visionclaw_domain::models::graph::GraphData>,
-        std::collections::HashSet<u32>,
-    )>,
+        Option<std::collections::HashSet<u32>>,
+    ),
     HttpResponse,
 > {
     let graph = crate::handlers::graph_access::current_graph(&data.graph_service_addr)
@@ -425,10 +429,10 @@ async fn gated_view(
         })?;
     let view = crate::handlers::graph_access::caller_view(&graph, caller);
     if std::sync::Arc::ptr_eq(&view, &graph) {
-        return Ok(None);
+        return Ok((graph, None));
     }
     let visible = crate::handlers::graph_access::visible_positions(&graph, &view);
-    Ok(Some((graph, visible)))
+    Ok((graph, Some(visible)))
 }
 
 /// Get shortest path statistics
@@ -532,8 +536,11 @@ pub async fn compute_point_to_point(
     );
 
     // Retrieve graph data from the repository
-    let graph_data = match data.graph_repository.get_graph().await {
-        Ok(graph) => crate::handlers::graph_access::caller_view(&graph, &caller),
+    let (full_graph, graph_data) = match data.graph_repository.get_graph().await {
+        Ok(graph) => {
+            let view = crate::handlers::graph_access::caller_view(&graph, &caller);
+            (graph, view)
+        }
         Err(e) => {
             error!("Failed to get graph data: {:?}", e);
             return error_json!(PointToPointResponse {
@@ -644,6 +651,41 @@ pub async fn compute_point_to_point(
             }
         }
         PathAlgorithm::Sssp => {
+            // ADR-060: a caller whose view hides nodes is answered over that view on the CPU.
+            // The GPU actor indexes the *full* graph, so a position in the view would name the
+            // wrong source, and its run would route through hidden nodes and be published to
+            // the shared stream.
+            if !std::sync::Arc::ptr_eq(&full_graph, &graph_data) {
+                let visible =
+                    crate::handlers::graph_access::visible_positions(&full_graph, &graph_data);
+                return match super::visible_analytics::visible_point_to_point(
+                    &full_graph,
+                    &visible,
+                    payload.source_id,
+                    payload.target_id,
+                ) {
+                    Ok((distance, exists, nodes_visited)) => {
+                        let result = PfPathResult {
+                            path: Vec::new(), // SSSP does not track predecessors
+                            distance,
+                            exists,
+                            nodes_visited,
+                            algorithm: "sssp".into(),
+                        };
+                        let json_val = serde_json::to_value(&result).unwrap_or_default();
+                        ok_json!(PointToPointResponse {
+                            success: true,
+                            result: Some(json_val),
+                            error: None,
+                        })
+                    }
+                    Err(e) => error_json!(PointToPointResponse {
+                        success: false,
+                        result: None,
+                        error: Some(e),
+                    }),
+                };
+            }
             // Fall through to the GPU SSSP actor (requires index, not ID).
             // For point-to-point via SSSP, find the node index first.
             // ADR-2053: supervised path, see compute_sssp above.
@@ -671,6 +713,7 @@ pub async fn compute_point_to_point(
                     source_idx,
                     max_distance: None,
                     delta: None,
+                    publish: crate::handlers::graph_access::stream_safe(&full_graph),
                 };
 
                 match gpu_manager.send(msg).await {
