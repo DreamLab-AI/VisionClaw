@@ -18,7 +18,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useSettingsStore } from '../../../store/settingsStore';
+import { useSettingField } from '../../control-center/hooks/useSettingField';
 import { useTimelineStore } from '../../../store/timelineStore';
 
 /** Slider granularity — 1000 steps across the domain is smooth and cheap. */
@@ -74,8 +74,11 @@ const rowStyle: React.CSSProperties = {
 };
 
 const TimelineScrubber: React.FC = () => {
-  // Seed diff mode from the client-only setting (default off).
-  const settingDiffMode = useSettingsStore(s => s.settings?.provenance?.diffMode ?? false);
+  // One control (ADR-2189): the Diff checkbox here and Explore › Timeline ›
+  // Timeline diff in the settings panel are the same setting, written through
+  // the one write path. The timeline store's diffMode follows it.
+  const [settingDiffModeRaw, setSettingDiffMode] = useSettingField<boolean>('provenance.diffMode');
+  const settingDiffMode = settingDiffModeRaw ?? false;
 
   const domainMinMs = useTimelineStore(s => s.domainMinMs);
   const domainMaxMs = useTimelineStore(s => s.domainMaxMs);
@@ -95,9 +98,21 @@ const TimelineScrubber: React.FC = () => {
   const [pos2, setPos2] = useState(SLIDER_STEPS);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Sync store diff mode with the setting seed on mount / when the setting flips.
+  // The store follows the setting, whichever surface flipped it. On a flip
+  // (not on mount, where the initial load below runs) reload the right view.
+  const diffRangeRef = useRef({ ms1: 0, ms2: 0, currentMs: 0 });
+  const diffMountedRef = useRef(false);
   useEffect(() => {
     setDiffMode(settingDiffMode);
+    const first = !diffMountedRef.current;
+    diffMountedRef.current = true;
+    const { ms1: a, ms2: b, currentMs: c } = diffRangeRef.current;
+    if (settingDiffMode) {
+      scheduleLoad(() => void loadDiff(new Date(a).toISOString(), new Date(b).toISOString()));
+    } else if (!first) {
+      scheduleLoad(() => void loadStateAt(new Date(c).toISOString()));
+    }
+    // scheduleLoad/loadDiff/loadStateAt are stable store actions + a ref-backed helper.
   }, [settingDiffMode, setDiffMode]);
 
   // Initial load: highlight state at "now" so the overlay isn't blank on mount.
@@ -117,10 +132,12 @@ const TimelineScrubber: React.FC = () => {
   const ms1 = useMemo(() => posToMs(Math.min(pos1, pos2), domainMinMs, domainMaxMs), [pos1, pos2, domainMinMs, domainMaxMs]);
   const ms2 = useMemo(() => posToMs(Math.max(pos1, pos2), domainMinMs, domainMaxMs), [pos1, pos2, domainMinMs, domainMaxMs]);
 
-  const scheduleLoad = (fn: () => void) => {
+  diffRangeRef.current = { ms1, ms2, currentMs };
+
+  function scheduleLoad(fn: () => void) {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(fn, SCRUB_DEBOUNCE_MS);
-  };
+  }
 
   const onScrub = (next: number) => {
     setPos(next);
@@ -139,18 +156,8 @@ const TimelineScrubber: React.FC = () => {
     scheduleLoad(() => void loadDiff(t1, t2));
   };
 
-  const onToggleDiff = () => {
-    const next = !diffMode;
-    setDiffMode(next);
-    if (next) {
-      const t1 = new Date(ms1).toISOString();
-      const t2 = new Date(ms2).toISOString();
-      scheduleLoad(() => void loadDiff(t1, t2));
-    } else {
-      const t = new Date(currentMs).toISOString();
-      scheduleLoad(() => void loadStateAt(t));
-    }
-  };
+  // Writes the setting; the effect above moves the store and reloads.
+  const onToggleDiff = () => setSettingDiffMode(!settingDiffMode);
 
   return (
     <div style={panelStyle} role="group" aria-label="Provenance timeline scrubber">
@@ -161,11 +168,11 @@ const TimelineScrubber: React.FC = () => {
         <label style={{ ...rowStyle, gap: '6px', cursor: 'pointer' }}>
           <input
             type="checkbox"
-            checked={diffMode}
+            checked={settingDiffMode}
             onChange={onToggleDiff}
-            aria-label="Diff mode"
+            aria-label="Timeline diff"
           />
-          <span style={{ color: diffMode ? '#34d399' : 'rgba(255,255,255,0.6)' }}>Diff</span>
+          <span style={{ color: settingDiffMode ? '#34d399' : 'rgba(255,255,255,0.6)' }}>Diff</span>
         </label>
       </div>
 
