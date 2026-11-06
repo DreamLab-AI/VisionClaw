@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
+verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
 verified_paths: [crates/vault-core/src/vocabulary.rs, crates/vault/tests/el_profile.rs]
 owner: jjohare
 review_trigger: "Activation (staged → live): a green ontology-publish.yml run whose vault build gates the published generation through the closed-world validator. Review: any proposal to emit owl:allValuesFrom, a cardinality restriction or owl:hasValue; a request to validate the Oxigraph store (not the vault) against shapes; the reasoner changing from Whelk to a DL reasoner"
@@ -53,3 +53,5 @@ Commands (`CARGO_TARGET_DIR=/home/devuser/workspace/.cargo-target-prd029`):
 ## Re-verification — 2026-10-07 (clippy sweep)
 
 At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `crates/vault-core/src/vocabulary.rs`: two test asserts become `assert_eq!(.., [])`. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
+
+Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `crates/vault-core/src/vocabulary.rs` reads `validation.blockers` through `canonical_blocker_code` (the `RESOURCE_MUTATED` alias). The EL-profile check is untouched. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.

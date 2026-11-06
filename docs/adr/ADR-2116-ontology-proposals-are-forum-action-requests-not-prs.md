@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 81e71126779b0b312b93ab459058ee8977233331
+verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
 verified_paths: [src/handlers/ontology_agent_handler.rs, tests/rec1_route_guard.rs, crates/vault/src/main.rs, crates/vault/src/propose.rs]
 owner: jjohare
 review_trigger: "the first caller reported still POSTing to /api/ontology-agent/propose; any change to the 410 body, or any new HTTP ontology write route"
@@ -90,3 +90,5 @@ remain in force; this stamp does not repeat historical runtime measurements.
 Governed-path change since the last stamp: `crates/vault/src/propose.rs` (`6b811f7a1`): a blocker `RESOURCE_IMMUTABLE` for an amendment that changes a page's resource IRI, and a formatting change. The retirement of `POST /api/ontology-agent/propose` (the handler and `rec1_route_guard.rs`) is untouched, and `vault propose` still builds a `PatchProposal` and posts a forum 31402. **Decision unaffected:** the added blocker narrows what may be posted without changing the forum-request model.
 
 Re-run: `git diff 974daf5d2..81e711267 -- src/handlers/ontology_agent_handler.rs tests/rec1_route_guard.rs crates/vault/src/main.rs crates/vault/src/propose.rs`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
+
+Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `crates/vault/src/propose.rs` names the `RESOURCE_IMMUTABLE` blocker through the `vault_core::promotion::RESOURCE_IMMUTABLE` constant; the emitted code is byte-identical. The forum-request model is untouched. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.

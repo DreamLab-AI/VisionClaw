@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 81e71126779b0b312b93ab459058ee8977233331
+verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
 verified_paths: [src/services/ontology_generation.rs, .github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).
@@ -217,3 +217,5 @@ Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The gov
 Governed-path change since the last stamp: `src/services/ontology_pull.rs` (`6b811f7a1`). The manifest parser reads an optional `visionflow:sourceSha`, and the up-to-date short-circuit now requires `buildSha` **and** `sourceSha` to agree with the manifest in the pod, in addition to `has_atomic_generation()`. A manifest without `sourceSha` is comparable only with another legacy manifest, so existing releases still short-circuit. Pull-model delivery, SHA256 verification, ACL preservation and manifest-last publication are untouched. **Claims otherwise unchanged; the Decision's comparison sentence and the test summary are amended above to name `sourceSha`**, the same-build-different-source case being `same_build_with_a_different_source_is_not_treated_as_current`.
 
 Re-run: `git diff 5c94c3cbd..81e711267 -- src/services/ontology_generation.rs .github/workflows/ontology-publish.yml src/services/ontology_pull.rs src/main.rs scripts/ontology/pack-pod-resources.py client/src/features/ontology/services/jss/contextLoader.ts client/src/features/ontology/services/jss/schemaParser.ts env.example`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
+
+Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `src/main.rs` builds the `/api/graph-export` handler once before `HttpServer::new` and sweeps expired shares at start-up. Ontology generation and pull wiring are untouched. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.

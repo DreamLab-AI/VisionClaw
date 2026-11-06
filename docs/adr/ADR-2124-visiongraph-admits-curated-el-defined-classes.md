@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: c750046962749715a4efb1b6056c7f40d9865110
+verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
 verified_paths: [crates/vault-core/src/definition.rs, crates/vault-core/src/lib.rs, crates/vault-core/src/vocabulary.rs, crates/vault/src/whelk.rs, crates/vault/src/build/turtle.rs, crates/vault/src/build/mod.rs, crates/vault/src/validate.rs, crates/vault/src/model.rs, crates/vault/src/projection.rs, crates/vault/tests/defined_classes.rs]
 owner: jjohare
 review_trigger: the first `defines-as` key accepted into ontology/vocabulary.yaml; a corpus build whose wall time with Restrictions::Relevant exceeds the CI budget; any proposal to emit a non-EL class expression
@@ -113,3 +113,5 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 Governing document `docs/VAULT-corpus-format.md` still listed this ADR as **PROPOSED, not ratified**; it is brought in line in the same change (see its Reasoning and integrity section, version 2.3.0).
 
 Re-verified 2026-10-30 at c75004696: `crates/vault/src/model.rs` changes one rustdoc link (`[`Actor`](vault_core::okf::Actor)`, the ADR-2147 rustdoc fix). No admission code changed. The decision holds.
+
+Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `crates/vault-core/src/vocabulary.rs` reads `validation.blockers` through `canonical_blocker_code` (the `RESOURCE_MUTATED` alias). Definitions and their checks are untouched. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.

@@ -64,3 +64,5 @@ Without M1 and M2 the work remains a well-tested library; with all four it is th
 - **Keep the learner standalone permanently.** Rejected: two lockfiles, two corpus parsers and two relation vocabularies drift apart, and the learned law could not replace the hand-set table without a migration.
 - **Treat the work as a space-sector product only.** Rejected: partner ranking for joint tenders is the first application that proves the mechanism, not its purpose. The release and ledger primitives are general to multi-principal collaboration.
 - **Build disclosure accounting into the agent layer directly, without the physical law.** Possible, but it loses the closed-form account of what a release reveals, which comes from the Gaussian reading of the spring energy.
+
+Governed-path change (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `docs/DATA-authority-erasure.md` gains the graph-share ownership row and retention note. Not re-stamped: other governed paths changed before this branch. **Decision unaffected.**

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 81e71126779b0b312b93ab459058ee8977233331
+verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
 verified_paths: [crates/vault/Cargo.toml, crates/vault-core/Cargo.toml, crates/vault/src/certificate.rs, crates/vault/src/propose.rs, crates/vault/src/main.rs, crates/vault-core/src/proposal.rs, crates/vault/tests/certificate_oo_cert.rs, crates/visionclaw-ontology/shapes/ontology-class.shacl.ttl, crates/visionclaw-ontology/src/services/jsonld_validator/shacl.rs]
 owner: jjohare
 review_trigger: "Activation (staged → live): the `vault certify` step of ontology-publish.yml exiting 0 on a published generation. Review: the emitter putting a restriction or an equivalence on the subclass side of rdfs:subClassOf (Whelk parity would no longer be structural), a new release of the oo-cert checker changing the oo-cert/1 grammar, or `vault certify` exiting 1 on a published generation"
@@ -69,3 +69,5 @@ library compile check pass; prior runtime and activation limits remain.
 Governed-path change since the last stamp: `crates/vault/src/propose.rs` (`6b811f7a1`): a `RESOURCE_IMMUTABLE` blocker and a line wrap on the `consequence_delta` call. The certificate and consequence-delta construction is unchanged. **Decision unaffected.**
 
 Re-run: `git diff efbd7f6f0..81e711267 -- crates/vault/Cargo.toml crates/vault-core/Cargo.toml crates/vault/src/certificate.rs crates/vault/src/propose.rs crates/vault/src/main.rs crates/vault-core/src/proposal.rs crates/vault/tests/certificate_oo_cert.rs crates/visionclaw-ontology/shapes/ontology-class.shacl.ttl crates/visionclaw-ontology/src/services/jsonld_validator/shacl.rs`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
+
+Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `crates/vault/src/propose.rs` names the `RESOURCE_IMMUTABLE` blocker through a constant; the emitted code is byte-identical. Certificate and consequence-delta construction are untouched. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.
