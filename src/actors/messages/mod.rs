@@ -158,8 +158,7 @@ pub use analytics_messages::{
     ComputePageRank, ComputeSSSP, ComputeShortestPaths, DBSCANParams, DBSCANResult, DBSCANStats,
     ExportClusterAssignments, GetClusteringResults, GetClusteringStatus, GetPageRankResult,
     KMeansParams, KMeansResult, PerformGPUClustering, RunAnomalyDetection, RunCommunityDetection,
-    RunDBSCAN, RunKMeans, SetNodeAnalytics, StartGPUClustering,
-    WriteClusterAnalytics,
+    RunDBSCAN, RunKMeans, SetNodeAnalytics, StartGPUClustering, WriteClusterAnalytics,
 };
 
 // --- agent_messages ---

@@ -52,8 +52,7 @@ pub use analytics_messages::{
     AnomalyDetectionMethod, AnomalyDetectionParams, AnomalyDetectionStats, AnomalyMethod,
     AnomalyParams, ClearPageRankCache, CommunityDetectionAlgorithm, CommunityDetectionParams,
     ComputeAllPairsShortestPaths, ComputeSSSP, DBSCANParams, DBSCANStats, ExportClusterAssignments,
-    GetClusteringResults, GetClusteringStatus, KMeansParams, SetNodeAnalytics,
-    StartGPUClustering,
+    GetClusteringResults, GetClusteringStatus, KMeansParams, SetNodeAnalytics, StartGPUClustering,
 };
 
 // ---------------------------------------------------------------------------

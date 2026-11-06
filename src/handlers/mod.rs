@@ -133,4 +133,3 @@ pub use pay_handler::configure_pay_routes;
 
 // PRD-008: XR presence WebSocket (`/ws/presence`)
 pub mod presence_handler;
-

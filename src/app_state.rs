@@ -383,7 +383,6 @@ pub struct AppState {
             std::collections::HashMap<u32, crate::utils::binary_protocol::NodeAnalytics>,
         >,
     >,
-
 }
 
 impl AppState {
@@ -1140,7 +1139,6 @@ impl AppState {
         graph_service_addr.do_send(update_msg.clone());
 
         if let Some(ref _gpu_addr) = gpu_manager_addr {}
-
 
         info!("[AppState::new] Starting WorkspaceActor");
         let workspace_addr = WorkspaceActor::new().start();
