@@ -10,7 +10,7 @@
 import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import type * as THREE from 'three';
-import { onRenderFault, webglProgramFailure } from '../../../rendering/renderFaults';
+import { debounceFault, onRenderFault, webglProgramFailure } from '../../../rendering/renderFaults';
 import { isOverviewFaulted, markOverviewFault, type OverviewLayerName } from './overviewLive';
 
 /** Frames to wait for a WebGL program before giving up the check. */
@@ -22,10 +22,10 @@ export function useRenderFaultWatch(mesh: THREE.Mesh | null, layer: OverviewLaye
 
   useEffect(() => {
     if (!mesh) return;
-    onRenderFault(mesh, (err) => {
+    onRenderFault(mesh, debounceFault((err) => {
       mesh.visible = false;
       markOverviewFault(layer, err instanceof Error ? err.message : String(err));
-    });
+    }));
     return () => onRenderFault(mesh, null);
   }, [mesh, layer]);
 

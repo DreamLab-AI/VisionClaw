@@ -6,7 +6,7 @@ import { isWebGPURenderer } from '../../../rendering/rendererFactory';
 import { createGlyphAtlas, type GlyphAtlasResult } from '../../../rendering/text/GlyphAtlas';
 import { layoutText, layoutTextInline, type GlyphInstance } from '../../../rendering/text/textLayout';
 import { createTextMaterial, createTextUniforms, createTslTextMaterial, type TextMaterialResult } from '../../../rendering/text/createTextMaterial';
-import { onRenderFault } from '../../../rendering/renderFaults';
+import { debounceFault, onRenderFault } from '../../../rendering/renderFaults';
 import { computeOcclusionMask, type OcclusionCandidate } from '../../../rendering/text/labelOcclusion';
 import type { Node as GraphNode } from '../managers/graphDataManager';
 import type { GraphVisualMode } from '../hooks/useGraphVisualState';
@@ -589,36 +589,39 @@ const InstancedLabelsGlyph: React.FC<GlyphProps> = ({
   // ADR-2186 D4: the glyph material for the live renderer. WebGL uses the
   // GLSL one at once; WebGPU builds the TSL twin, and reports 'failed' (the
   // DOM fallback takes over) if it cannot.
-  const [material, setMaterial] = React.useState<THREE.Material | null>(glslMaterial);
+  // A TSL material is paired with the geometry it binds: after a glyphCap
+  // change the new geometry never draws with the previous material.
+  const [tslBuilt, setTslBuilt] = React.useState<{ material: THREE.Material; geometry: THREE.InstancedBufferGeometry } | null>(null);
+  const material = glslMaterial ?? (tslBuilt && tslBuilt.geometry === geometry ? tslBuilt.material : null);
   const onStatusRef = useRef(onStatus);
   onStatusRef.current = onStatus;
   React.useEffect(() => {
-    if (glslMaterial) { setMaterial(glslMaterial); onStatusRef.current('ready'); return; }
+    if (glslMaterial) { onStatusRef.current('ready'); return; }
     let cancelled = false;
     let built: THREE.Material | null = null;
     onStatusRef.current('building');
     createTslTextMaterial(uniforms, geometry).then((m) => {
       if (cancelled) { m.dispose(); return; }
       built = m;
-      setMaterial(m);
+      setTslBuilt({ material: m, geometry });
       onStatusRef.current('ready');
     }).catch((err) => {
       if (cancelled) return;
       console.warn('[InstancedLabels] TSL glyph material failed; using the budgeted DOM fallback:', err);
       onStatusRef.current('failed');
     });
-    return () => { cancelled = true; built?.dispose(); };
+    return () => { cancelled = true; built?.dispose(); setTslBuilt(null); };
   }, [glslMaterial, uniforms, geometry]);
 
   // A draw that throws on WebGPU (the renderObject guard) also falls back.
   React.useEffect(() => {
     const mesh = meshRef.current;
     if (!mesh || glslMaterial) return;
-    onRenderFault(mesh, (err) => {
+    onRenderFault(mesh, debounceFault((err) => {
       mesh.visible = false;
       console.warn('[InstancedLabels] glyph draw faulted; using the budgeted DOM fallback:', err);
       onStatusRef.current('failed');
-    });
+    }));
     return () => onRenderFault(mesh, null);
   }, [material, glslMaterial]);
 

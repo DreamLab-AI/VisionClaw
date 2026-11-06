@@ -217,10 +217,11 @@ export async function createGemRenderer(defaultProps: Record<string, unknown>) {
               object?.name || object?.type || object?.uuid,
               err instanceof Error ? err.message : err,
             );
-            // ADR-2181 D4: objects that must not vanish silently (the overview
-            // layers) fall back and surface the fault on screen.
-            notifyRenderFault(object, err);
           }
+          // ADR-2181 D4: objects that must not vanish silently (the overview
+          // layers, glyph labels) count every throw; their handlers fall back
+          // after repeated throws (renderFaults.debounceFault).
+          notifyRenderFault(object, err);
         }
       };
 

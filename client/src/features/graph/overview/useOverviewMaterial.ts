@@ -17,25 +17,29 @@ export function useOverviewMaterial<U>(
   glsl: (u: U) => THREE.Material,
   tsl: (u: U, g: THREE.InstancedBufferGeometry) => Promise<THREE.Material>,
 ): THREE.Material | null {
-  const [material, setMaterial] = useState<THREE.Material | null>(null);
+  // The material is paired with the geometry it was built for: a TSL material
+  // binds that geometry's attribute objects, so a new geometry (capacity
+  // growth) must never draw with the previous material, not even for the
+  // frame before the rebuild resolves.
+  const [built, setBuilt] = useState<{ material: THREE.Material; geometry: THREE.InstancedBufferGeometry } | null>(null);
   useEffect(() => {
     let cancelled = false;
-    let built: THREE.Material | null = null;
+    let made: THREE.Material | null = null;
     if (isWebGPURenderer) {
       tsl(uniforms, geometry).then((m) => {
         if (cancelled) { m.dispose(); return; }
-        built = m;
-        setMaterial(m);
+        made = m;
+        setBuilt({ material: m, geometry });
       }).catch((err) => logger.warn('overview TSL material failed to build:', err));
     } else {
-      built = glsl(uniforms);
-      setMaterial(built);
+      made = glsl(uniforms);
+      setBuilt({ material: made, geometry });
     }
     return () => {
       cancelled = true;
-      built?.dispose();
-      setMaterial(null);
+      made?.dispose();
+      setBuilt(null);
     };
   }, [geometry, uniforms, glsl, tsl]);
-  return material;
+  return built && built.geometry === geometry ? built.material : null;
 }

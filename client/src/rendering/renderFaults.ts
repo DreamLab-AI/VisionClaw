@@ -17,7 +17,32 @@ export function onRenderFault(object: THREE.Object3D, handler: RenderFaultHandle
   else delete object.userData[RENDER_FAULT_KEY];
 }
 
-/** Called by the guard. Never throws. */
+/**
+ * Throws on this many separate frames before a fault counts: the guard exists
+ * to absorb transient init failures, so one throw must not disable a layer.
+ */
+export const FAULT_FRAMES = 3;
+/** Throws closer together than this are the same frame. */
+const SAME_FRAME_MS = 8;
+
+/**
+ * Wrap a fault handler so it fires only after throws on FAULT_FRAMES separate
+ * frames. `now` is injectable for tests.
+ */
+export function debounceFault(handler: RenderFaultHandler, frames = FAULT_FRAMES, now: () => number = () => performance.now()): RenderFaultHandler {
+  let count = 0;
+  let last = -Infinity;
+  let fired = false;
+  return (err) => {
+    if (fired) return;
+    const t = now();
+    if (t - last < SAME_FRAME_MS) return;
+    last = t;
+    if (++count >= frames) { fired = true; handler(err); }
+  };
+}
+
+/** Called by the guard on every caught throw. Never throws. */
 export function notifyRenderFault(object: THREE.Object3D | null | undefined, err: unknown): void {
   const h = object?.userData?.[RENDER_FAULT_KEY];
   if (typeof h !== 'function') return;

@@ -156,3 +156,18 @@ describe('overview render faults (ADR-2181 D4: no silent skip)', () => {
     expect(webglProgramFailure({}, mat)).toBeNull();
   });
 });
+
+describe('render faults need repeated throws (the guard absorbs transients)', () => {
+  it('fires only after throws on FAULT_FRAMES separate frames, once', async () => {
+    const { debounceFault, FAULT_FRAMES } = await import('../../../../rendering/renderFaults');
+    let t = 0;
+    const seen: unknown[] = [];
+    const h = debounceFault((e) => seen.push(e), FAULT_FRAMES, () => t);
+    h('a'); h('a-same-frame'); t += 2; h('still-same-frame');
+    expect(seen).toHaveLength(0);
+    for (let k = 1; k < FAULT_FRAMES; k++) { t += 16; h(`f${k}`); }
+    expect(seen).toEqual([`f${FAULT_FRAMES - 1}`]);
+    t += 16; h('later');
+    expect(seen).toHaveLength(1);
+  });
+});
