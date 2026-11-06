@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { installPipelineErrorWatch, notifyRenderFault } from './renderFaults';
 import type { RendererCapabilities } from '../features/settings/config/settings';
 import { createLogger } from '../utils/loggerConfig';
 
@@ -203,6 +204,12 @@ export async function createGemRenderer(defaultProps: Record<string, unknown>) {
       // the entire render loop, we catch the TypeError and skip the object.
       // Precautionary for r183+: the root cause patches are in the materials, but
       // third-party geometry (troika Line2, etc.) can still trigger this edge case.
+      // Pipeline failures never throw on WebGPU; route them to the same
+      // fault handlers (renderFaults.installPipelineErrorWatch).
+      installPipelineErrorWatch(
+        THREE.setConsoleFunction as unknown as Parameters<typeof installPipelineErrorWatch>[0],
+        THREE.getConsoleFunction as unknown as Parameters<typeof installPipelineErrorWatch>[1],
+      );
       const _origRenderObject = renderer.renderObject.bind(renderer);
       const _warnedObjects = new WeakSet<object>();
       renderer.renderObject = function (object: THREE.Object3D, ...rest: unknown[]) {
@@ -217,6 +224,10 @@ export async function createGemRenderer(defaultProps: Record<string, unknown>) {
               err instanceof Error ? err.message : err,
             );
           }
+          // ADR-2181 D4: objects that must not vanish silently (the overview
+          // layers, glyph labels) count every throw; their handlers fall back
+          // after repeated throws (renderFaults.debounceFault).
+          notifyRenderFault(object, err);
         }
       };
 

@@ -3,7 +3,6 @@ import * as THREE from 'three';
 import { NodePositionTexture, texelOf, POSITION_TEX_WIDTH } from '../nodePositionTexture';
 import { LabelBudgetRunner } from '../labelRunner';
 import { LABEL_REFRESH_MS, TIER_SELECTION } from '../labelBudget';
-import { selectCloseTubes } from '../../components/GlassEdges';
 import { resolveInferredPairs } from '../../components/InferredEdges';
 import { resolveGraphView } from '../OverviewLayer';
 import { HIGHLIGHT_FILTERED_OUT, HIGHLIGHT_SELECTED, highlightMask } from '../../state/highlightMask';
@@ -44,21 +43,6 @@ describe('NodePositionTexture (GPU node source)', () => {
     expect(t.height).toBeGreaterThanOrEqual(2);
     expect(texelOf(POSITION_TEX_WIDTH + 1)).toEqual([1, 1]);
     t.dispose();
-  });
-});
-
-describe('glass tubes as close-zoom LOD (ADR-2181 D3)', () => {
-  // 4 edges along x, endpoints at x = 10k and 10k + 1
-  const pts = [0, 1, 2, 3].flatMap((k) => [10 * k, 0, 0, 10 * k + 1, 0, 0]);
-  it('keeps only edges with an endpoint within the distance, nearest first, within the budget', () => {
-    const out = new Int32Array(8), d = new Float32Array(8);
-    expect(selectCloseTubes(pts, 4, 0, 0, 0, 12, 10, out, d)).toBe(2);
-    expect(Array.from(out.slice(0, 2))).toEqual([0, 1]);
-    expect(selectCloseTubes(pts, 4, 31, 0, 0, 100, 2, out, d)).toBe(2);
-    expect(Array.from(out.slice(0, 2)).sort()).toEqual([2, 3]);
-  });
-  it('distance 0 (glassAtCloseZoom off) draws no tubes', () => {
-    expect(selectCloseTubes(pts, 4, 0, 0, 0, 0, 10, new Int32Array(8), new Float32Array(8))).toBe(0);
   });
 });
 
@@ -127,5 +111,88 @@ describe('LabelBudgetRunner (shared by both label paths)', () => {
     expect(got).not.toContain(5);
     highlightMask.clearAll();
     highlightMask.setIndexResolver(sharedNodeIndexResolver);
+  });
+});
+
+describe('overview render faults (ADR-2181 D4: no silent skip)', () => {
+  it('a fault drops the layer out of live, is reported, and clears on unmount', async () => {
+    const live = await import('../overviewLive');
+    live.clearOverviewFaults();
+    live.setOverviewLive('edges', true);
+    live.setOverviewLive('nodes', true);
+    expect(live.isOverviewLive('edges')).toBe(true);
+    expect(live.overviewFaultNoticeText({})).toBeNull();
+
+    live.markOverviewFault('edges', 'drawIndexed(Infinity)');
+    expect(live.isOverviewLive('edges')).toBe(false);
+    expect(live.isOverviewLive('nodes')).toBe(true);
+    const text = live.overviewFaultNoticeText({ edges: 'x' });
+    expect(text).toContain('overview edges');
+    expect(text).toContain('gems and glass tubes');
+    expect(live.overviewFaultNoticeText({ inferred: 'x' })).not.toContain('gems');
+
+    live.clearOverviewFaults();
+    expect(live.isOverviewLive('edges')).toBe(true);
+    live.setOverviewLive('edges', false);
+    live.setOverviewLive('nodes', false);
+  });
+
+  it('the guard hook calls the object handler once and survives a throwing handler', async () => {
+    const { notifyRenderFault, onRenderFault, webglProgramFailure } = await import('../../../../rendering/renderFaults');
+    const obj = new THREE.Mesh();
+    const seen: unknown[] = [];
+    onRenderFault(obj, (e) => seen.push(e));
+    notifyRenderFault(obj, new Error('boom'));
+    expect(seen).toHaveLength(1);
+    onRenderFault(obj, () => { throw new Error('handler'); });
+    expect(() => notifyRenderFault(obj, 'x')).not.toThrow();
+    notifyRenderFault(null, 'x');
+    // WebGL: diagnostics.runnable false → the failure text; runnable or missing → null
+    const mat = new THREE.MeshBasicMaterial();
+    const gl = (d: unknown) => ({ properties: { get: () => ({ currentProgram: { diagnostics: d } }) } });
+    expect(webglProgramFailure(gl({ runnable: false, programLog: 'link failed' }), mat)).toBe('link failed');
+    expect(webglProgramFailure(gl({ runnable: true }), mat)).toBeNull();
+    expect(webglProgramFailure(gl(undefined), mat)).toBeNull();
+    expect(webglProgramFailure({}, mat)).toBeNull();
+  });
+});
+
+describe('render faults need repeated throws (the guard absorbs transients)', () => {
+  it('fires only after throws on FAULT_FRAMES separate frames, once', async () => {
+    const { debounceFault, FAULT_FRAMES } = await import('../../../../rendering/renderFaults');
+    let t = 0;
+    const seen: unknown[] = [];
+    const h = debounceFault((e) => seen.push(e), FAULT_FRAMES, () => t);
+    h('a'); h('a-same-frame'); t += 2; h('still-same-frame');
+    expect(seen).toHaveLength(0);
+    for (let k = 1; k < FAULT_FRAMES; k++) { t += 16; h(`f${k}`); }
+    expect(seen).toEqual([`f${FAULT_FRAMES - 1}`]);
+    t += 16; h('later');
+    expect(seen).toHaveLength(1);
+  });
+});
+
+describe('WebGPU pipeline failures reach the fault path (they never throw)', () => {
+  it('routes three\'s pipeline error by material id and chains the console hook', async () => {
+    const { onPipelineError, routePipelineMessage, installPipelineErrorWatch } = await import('../../../../rendering/renderFaults');
+    const mat = new THREE.MeshBasicMaterial();
+    const seen: string[] = [];
+    onPipelineError(mat, (e) => seen.push(String((e as Error).message)));
+    const msg = `THREE.WebGPURenderer: Async render pipeline creation failed (renderPipeline_OverviewNodeNodeMaterial_${mat.id}): bad WGSL`;
+    expect(routePipelineMessage('warn', msg)).toBe(false);
+    expect(routePipelineMessage('error', msg.replace(`_${mat.id})`, `_${mat.id + 1000})`))).toBe(false);
+    expect(routePipelineMessage('error', msg)).toBe(true);
+    expect(seen).toHaveLength(1);
+
+    let hook: ((t: string, m: string, ...p: unknown[]) => void) | null = null;
+    const forwarded: string[] = [];
+    const prev = (t: string, m: string) => { forwarded.push(`${t}:${m}`); };
+    installPipelineErrorWatch((fn) => { hook = fn; }, () => prev);
+    hook!('error', msg);
+    hook!('log', 'THREE.hello');
+    expect(seen).toHaveLength(2);
+    expect(forwarded).toEqual([`error:${msg}`, 'log:THREE.hello']);
+    onPipelineError(mat, null);
+    expect(routePipelineMessage('error', msg)).toBe(false);
   });
 });

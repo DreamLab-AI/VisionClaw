@@ -162,12 +162,17 @@ function offsetEndpoints(
 /**
  * Fill the edge point, colour and weight buffers for this frame.
  *
+ * With `subset` (plan edge indices, `subsetCount` of them) only those edges are
+ * filled: the glass-tube feed under the overview layer (ADR-2181 D3), whose
+ * cost then scales with the tube budget instead of E.
+ *
  * @returns The number of edges emitted (points hold 6 numbers per edge).
  */
 export function fillEdgeFrame(
   plan: EdgePlan, positions: Float32Array, out: EdgeFrameBuffers,
+  subset?: Int32Array, subsetCount = 0,
 ): number {
-  const n = plan.count
+  const n = subset ? subsetCount : plan.count
   if (out.points.length < n * 6) out.points = new Array<number>(n * 6)
   if (out.colors.length < n * 3) out.colors = new Float32Array(n * 3)
   if (out.weights.length < n) out.weights = new Float32Array(n)
@@ -178,7 +183,8 @@ export function fillEdgeFrame(
   const pWeights = plan.weights
 
   let emitted = 0
-  for (let i = 0; i < n; i++) {
+  for (let k = 0; k < n; k++) {
+    const i = subset ? subset[k] : k
     if (!offsetEndpoints(plan, i, positions)) continue
     if (tmpSrcOff.distanceTo(tmpTgtOff) > 0.1) {
       const p = emitted * 6
@@ -207,13 +213,18 @@ export function fillEdgeFrame(
  */
 export function fillHighlightFrame(
   plan: EdgePlan, positions: Float32Array, selIdx: number, out: EdgeFrameBuffers,
+  /** Node → edge CSR (overview/tubeSelect.buildEdgeAdjacency): walk only the selected node's edges. */
+  adjacency?: { offsets: Int32Array; edges: Int32Array; nodeCount: number } | null,
 ): number {
   if (selIdx < 0) return 0
-  const n = plan.count
+  const useAdj = !!adjacency && selIdx < adjacency.nodeCount
+  const lo = useAdj ? adjacency!.offsets[selIdx] : 0
+  const n = useAdj ? adjacency!.offsets[selIdx + 1] - lo : plan.count
   if (out.highlight.length < n * 6) out.highlight = new Array<number>(n * 6)
   const hl = out.highlight
   let emitted = 0
-  for (let i = 0; i < n; i++) {
+  for (let k = 0; k < n; k++) {
+    const i = useAdj ? adjacency!.edges[lo + k] : k
     if (plan.srcIdx[i] !== selIdx && plan.tgtIdx[i] !== selIdx) continue
     if (!offsetEndpoints(plan, i, positions)) continue
     if (tmpSrcOff.distanceTo(tmpTgtOff) > 0.2) {
@@ -271,6 +282,8 @@ export interface EdgeFrameState {
   edgeHandle: object | null
   highlightHandle: object | null
   selectedNodeId: string | null
+  /** Bumped when the glass-tube subset changes; 0 when feeding every edge. */
+  subsetVersion?: number
 }
 
 /**
@@ -288,6 +301,7 @@ export class EdgeFrameGate {
   private edgeHandle: object | null = null
   private highlightHandle: object | null = null
   private selectedNodeId: string | null = null
+  private subsetVersion = 0
 
   shouldSkip(f: EdgeFrameState): boolean {
     if (f.edgeHandle === null || f.highlightHandle === null) return false
@@ -296,8 +310,14 @@ export class EdgeFrameGate {
       f.edgeHandle === this.edgeHandle &&
       f.highlightHandle === this.highlightHandle &&
       f.selectedNodeId === this.selectedNodeId &&
+      (f.subsetVersion ?? 0) === this.subsetVersion &&
       this.snapshot.matches(f.positions)
     )
+  }
+
+  /** Whether `positions` still matches the last committed frame. */
+  positionsMatch(positions: Float32Array): boolean {
+    return this.snapshot.matches(positions)
   }
 
   commit(f: EdgeFrameState): void {
@@ -305,6 +325,7 @@ export class EdgeFrameGate {
     this.edgeHandle = f.edgeHandle
     this.highlightHandle = f.highlightHandle
     this.selectedNodeId = f.selectedNodeId
+    this.subsetVersion = f.subsetVersion ?? 0
     this.snapshot.record(f.positions)
   }
 }

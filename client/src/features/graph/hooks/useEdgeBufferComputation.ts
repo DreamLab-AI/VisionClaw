@@ -9,7 +9,7 @@
  * when positions, plan, selection and handles are unchanged.
  */
 import { useMemo, useRef } from 'react'
-import { useFrame } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber'
 import type { GraphData } from '../managers/graphDataManager'
 import type { GlassEdgesHandle } from '../components/GlassEdges'
 import type { GraphVisualMode } from './useGraphVisualState'
@@ -18,6 +18,14 @@ import {
   EdgeFrameGate, type EdgeFrameBuffers, type EdgePlan,
 } from './edgeBufferPlan'
 import { createLogger } from '../../../utils/loggerConfig'
+import { highlightMask } from '../state/highlightMask'
+import {
+  buildEdgeAdjacency, createTubeSelectScratch, emphasisNodes, selectTubeEdges,
+  type GlassTubeLod,
+} from '../overview/tubeSelect'
+
+/** Frames between glass-tube subset refreshes while the camera or layout moves. */
+export const TUBE_REFRESH_FRAMES = 6
 
 const logger = createLogger('useEdgeBufferComputation')
 
@@ -42,6 +50,13 @@ export interface EdgeBufferComputationOptions {
   highlightEdgePoints: number[]
   setEdgePoints: (pts: number[]) => void
   setHighlightEdgePoints: (pts: number[]) => void
+  /**
+   * ADR-2181 D3: when set (the overview edges are live), the glass tubes are
+   * fed only the tube subset (overview/tubeSelect.ts): emphasis edges plus
+   * close-zoom edges, at most `budget`. Null feeds every edge (today's path,
+   * the safety valve when the overview layer is off or failed).
+   */
+  tubeLod?: GlassTubeLod | null
 }
 
 /**
@@ -54,8 +69,9 @@ export function useEdgeBufferComputation(opts: EdgeBufferComputationOptions): { 
     perNodeVisualModeMap, hierarchyMap, graphMode, visibleNodeIds,
     graphTypeVisuals, nodeSize, selectedNodeId,
     edgeFlowRef, highlightEdgeFlowRef, highlightEdgePoints,
-    setEdgePoints, setHighlightEdgePoints,
+    setEdgePoints, setHighlightEdgePoints, tubeLod = null,
   } = opts
+  const camera = useThree((s) => s.camera)
 
   // Position-invariant per-edge data (visibility, indices, node radii,
   // colours, weights). Rebuilt only when topology, filters or scaling inputs
@@ -69,6 +85,27 @@ export function useEdgeBufferComputation(opts: EdgeBufferComputationOptions): { 
     [graphData, nodeIdToIndexMap, connectionCountMap, perNodeVisualModeMap, hierarchyMap,
       graphMode, visibleNodeIds, graphTypeVisuals, nodeSize],
   )
+
+  // Node → edge adjacency for the tube subset; built once per plan, and only
+  // while the subset path is in use.
+  const subsetOn = tubeLod !== null
+  const adjacency = useMemo(
+    () => (subsetOn ? buildEdgeAdjacency(plan, graphData.nodes.length) : null),
+    [subsetOn, plan, graphData.nodes.length],
+  )
+  const tubeRef = useRef({
+    out: { idx: new Int32Array(0), count: 0 },
+    scratch: createTubeSelectScratch(),
+    emphasis: new Int32Array(0),
+    emphasisCount: 0,
+    maskVersion: -1,
+    frame: 0,
+    version: 1,
+    lod: null as GlassTubeLod | null,
+    adjacency: null as unknown,
+    cam: { x: NaN, y: NaN, z: NaN },
+    snapshotLen: -1,
+  })
 
   // Frame buffers — grow only, never shrink.
   const buffersRef = useRef<EdgeFrameBuffers | null>(null)
@@ -92,11 +129,42 @@ export function useEdgeBufferComputation(opts: EdgeBufferComputationOptions): { 
     // refiltered/cleared, so node-type visibility toggles had no effect on them.
     if (graphData.nodes.length === 0 || positions.length < graphData.nodes.length * 3) return
 
+    // Glass-tube subset (ADR-2181 D3): re-selected when the mask, plan or LOD
+    // changes, and every TUBE_REFRESH_FRAMES frames while camera or layout
+    // moves. Between refreshes only the subset's endpoints are re-filled.
+    const tube = tubeRef.current
+    if (tubeLod && adjacency) {
+      const maskVersion = highlightMask.version
+      const cam = camera.position
+      const camMoved = cam.x !== tube.cam.x || cam.y !== tube.cam.y || cam.z !== tube.cam.z
+      const structural = maskVersion !== tube.maskVersion || tube.lod !== tubeLod || tube.adjacency !== adjacency
+      tube.frame++
+      if (structural || (tube.frame >= TUBE_REFRESH_FRAMES && (camMoved || !gateRef.current!.positionsMatch(positions)))) {
+        if (maskVersion !== tube.maskVersion || tube.adjacency !== adjacency) {
+          const mask = highlightMask.getMask()
+          if (tube.emphasis.length < mask.length) tube.emphasis = new Int32Array(mask.length)
+          tube.emphasisCount = emphasisNodes(mask, tube.emphasis)
+        }
+        selectTubeEdges({
+          plan, adjacency, positions, mask: highlightMask.getMask(),
+          emphasis: tube.emphasis, emphasisCount: tube.emphasisCount,
+          camX: cam.x, camY: cam.y, camZ: cam.z, lod: tubeLod,
+        }, tube.out, tube.scratch)
+        tube.maskVersion = maskVersion
+        tube.lod = tubeLod
+        tube.adjacency = adjacency
+        tube.cam.x = cam.x; tube.cam.y = cam.y; tube.cam.z = cam.z
+        tube.frame = 0
+        tube.version++
+      }
+    }
+
     const frame = {
       plan, positions,
       edgeHandle: edgeFlowRef.current,
       highlightHandle: highlightEdgeFlowRef.current,
       selectedNodeId,
+      subsetVersion: tubeLod ? tube.version : 0,
     }
     // Nothing that feeds the edge buffers changed since the last frame (the
     // settled steady state): the meshes already hold this exact output.
@@ -105,13 +173,15 @@ export function useEdgeBufferComputation(opts: EdgeBufferComputationOptions): { 
 
     const buffers   = buffersRef.current!
 
-    const emitted = fillEdgeFrame(plan, positions, buffers)
+    const emitted = tubeLod && adjacency
+      ? fillEdgeFrame(plan, positions, buffers, tube.out.idx, tube.out.count)
+      : fillEdgeFrame(plan, positions, buffers)
     const edgePointIdx = emitted * 6
 
     // Highlight edges for selected node
     if (selectedNodeId) {
       const selIdx = nodeIdToIndexMap.get(selectedNodeId) ?? -1
-      const hlCount = fillHighlightFrame(plan, positions, selIdx, buffers)
+      const hlCount = fillHighlightFrame(plan, positions, selIdx, buffers, adjacency)
       const hlIdx = hlCount * 6
       if (highlightEdgeFlowRef.current) {
         highlightEdgeFlowRef.current.updatePoints(buffers.highlight, hlIdx)

@@ -19,7 +19,7 @@ import React, { useMemo } from 'react';
 import { useInferredEdgesStore } from '../../ontology/store/useInferredEdgesStore';
 import { useSettingsStore } from '../../../store/settingsStore';
 import type { GraphViewSettings } from '../../settings/config/settings';
-import { useOverviewPositionTexture, resolveGraphView } from '../overview/OverviewLayer';
+import { useOverviewPositionTexture, resolveGraphView, useBackendGreyoutOpacity } from '../overview/OverviewLayer';
 import { OverviewEdgeLines, type OverviewEdgeData, type OverviewEdgeStyle } from '../overview/OverviewEdgeLines';
 
 /** Differentiated style — amber, dashed. Matches ADR-099 D4 convention. */
@@ -63,6 +63,7 @@ export const InferredEdges: React.FC<InferredEdgesProps> = ({ nodeIdToIndexMap }
     return r.count > 0 ? { count: r.count, src: r.src, tgt: r.tgt } : null;
   }, [inferredEdges, nodeIdToIndexMap]);
 
+  const greyOpacity = useBackendGreyoutOpacity(gv.explore.greyoutOpacity);
   const style = useMemo<OverviewEdgeStyle>(() => ({
     widthPx: Math.max(1.5, gv.overviewEdges.widthPx),
     maxWidthPx: Math.max(1.5, gv.overviewEdges.widthPx),
@@ -71,12 +72,12 @@ export const InferredEdges: React.FC<InferredEdgesProps> = ({ nodeIdToIndexMap }
     fadeFarPx: 1e9,
     minOpacity: 1,
     opacity: LINE_OPACITY,
-    greyoutOpacity: gv.explore.greyoutOpacity,
+    greyoutOpacity: greyOpacity,
     dashed: true,
     dashPx: INFERRED_DASH_PX,
     gapPx: INFERRED_GAP_PX,
     tint: INFERRED_COLOR,
-  }), [gv.overviewEdges.widthPx, gv.explore.greyoutOpacity]);
+  }), [gv.overviewEdges.widthPx, greyOpacity]);
 
   if (!positions || !data) return null;
   return (

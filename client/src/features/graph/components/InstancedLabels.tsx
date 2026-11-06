@@ -5,7 +5,8 @@ import * as THREE from 'three';
 import { isWebGPURenderer } from '../../../rendering/rendererFactory';
 import { createGlyphAtlas, type GlyphAtlasResult } from '../../../rendering/text/GlyphAtlas';
 import { layoutText, layoutTextInline, type GlyphInstance } from '../../../rendering/text/textLayout';
-import { createTextMaterial, type TextMaterialResult } from '../../../rendering/text/createTextMaterial';
+import { createTextMaterial, createTextUniforms, createTslTextMaterial, type TextMaterialResult } from '../../../rendering/text/createTextMaterial';
+import { debounceFault, onPipelineError, onRenderFault } from '../../../rendering/renderFaults';
 import { computeOcclusionMask, type OcclusionCandidate } from '../../../rendering/text/labelOcclusion';
 import type { Node as GraphNode } from '../managers/graphDataManager';
 import type { GraphVisualMode } from '../hooks/useGraphVisualState';
@@ -17,18 +18,43 @@ import { useSettingsStore } from '../../../store/settingsStore';
 import type { GraphViewSettings } from '../../settings/config/settings';
 import { DEFAULT_GRAPH_VIEW } from '../../../api/settings/defaults';
 import { LabelBudgetRunner, worldPerPx } from '../overview/labelRunner';
+import { clusterLabelText } from '../overview/clusterLabels';
 import { glyphCapacityFor, type LabelBudgets } from '../overview/labelBudget';
 
 /** ADR-2186 label settings, defaults under the stored values. */
-function useLabelBudgets(): LabelBudgets & { fontPx: number } {
+function useLabelBudgets(): LabelBudgets & { fontPx: number; clusterMinDistance: number } {
   const l = useSettingsStore(s => s.get<GraphViewSettings['labels']>('visualisation.graphView.labels'));
+  // ADR-2186 D2: cluster labels at overview zoom = beyond the gem LOD distance.
+  const lod = useSettingsStore(s => s.get<number>('visualisation.graphView.nodes.gemLodDistance'));
   const d = DEFAULT_GRAPH_VIEW.labels;
+  const clusterMinDistance = lod ?? DEFAULT_GRAPH_VIEW.nodes.gemLodDistance;
   return React.useMemo(() => ({
     budget: l?.budget ?? d.budget,
     dynamicBudget: l?.dynamicBudget ?? d.dynamicBudget,
     selectedBudget: l?.selectedBudget ?? d.selectedBudget,
     fontPx: l?.fontPx ?? d.fontPx,
-  }), [l?.budget, l?.dynamicBudget, l?.selectedBudget, l?.fontPx, d.budget, d.dynamicBudget, d.selectedBudget, d.fontPx]);
+    clusterMinDistance,
+  }), [l?.budget, l?.dynamicBudget, l?.selectedBudget, l?.fontPx, d.budget, d.dynamicBudget, d.selectedBudget, d.fontPx, clusterMinDistance]);
+}
+
+/** Cluster labels: a touch larger than node titles, a cool tint (ADR-2186 D2). */
+const CLUSTER_FONT_SCALE = 1.25;
+const CLUSTER_LABEL_COLOR = '#9fd3ff';
+
+/** The cluster labels of the runner's last selection, as label lines + world centroid. */
+function forEachClusterLabel(
+  runner: LabelBudgetRunner, nodes: readonly GraphNode[], fontSize: number,
+  fn: (line: LabelLine, x: number, y: number, z: number, sx: number, sy: number) => void,
+): void {
+  const sel = runner.selection;
+  const c = runner.clusters;
+  for (let k = 0; k < sel.clusterCount; k++) {
+    const j = sel.clusters[k];
+    const top = nodes[c.top[j]];
+    const name = top ? String(top.label || top.id) : `Cluster ${c.id[j]}`;
+    fn({ text: clusterLabelText(name, c.members[j]), color: CLUSTER_LABEL_COLOR, fontSize: fontSize * CLUSTER_FONT_SCALE },
+      c.x[j], c.y[j], c.z[j], c.sx[j], c.sy[j]);
+  }
 }
 
 /** Font size factor of the title line relative to the metadata lines' base. */
@@ -224,12 +250,13 @@ function buildLabelLines(
   return lines;
 }
 
-// ===== WebGPU budgeted DOM layer =====
-// The glyph material is a GLSL ShaderMaterial, which WebGPURenderer cannot
-// compile. Until a TSL glyph material lands (ADR-2186 D4), WebGPU draws the
-// SAME budgeted selection as WebGL (LabelBudgetRunner) as projected CSS labels
-// in one <Html> container, so the DOM count is capped at the budget
-// (budget + dynamicBudget + selectedBudget), not the node count.
+// ===== WebGPU budgeted DOM fallback =====
+// ADR-2186 D4: both renderers draw labels as instanced glyph quads
+// (InstancedLabelsGlyph; GLSL material on WebGL, TSL on WebGPU), so the
+// WebGPU path draws 0 DOM labels. This DOM layer remains only as the fallback
+// while the TSL glyph material is building, or if it failed to build or its
+// draw faulted: the SAME budgeted selection (LabelBudgetRunner) as projected
+// CSS labels in one <Html> container, capped at the budget.
 
 interface WebGPULabel {
   screenX: number;
@@ -265,13 +292,28 @@ export const InstancedLabels: React.FC<InstancedLabelsProps> = (props) => {
     ssspResult: props.ssspResult,
   };
 
-  // WebGPU path: use HTML fallback
-  if (isWebGPURenderer) {
-    return <InstancedLabelsWebGPU {...forwardedProps} />;
-  }
+  return <InstancedLabelsSwitch {...forwardedProps} />;
+};
 
-  // WebGL instanced path
-  return <InstancedLabelsWebGL {...forwardedProps} />;
+/** Glyph material state on the live renderer (WebGL is always 'ready'). */
+export type GlyphStatus = 'building' | 'ready' | 'failed';
+
+/**
+ * Whether the budgeted DOM fallback draws: only on WebGPU, and only while the
+ * TSL glyph material is not ready (building, failed, or its draw faulted).
+ */
+export function labelsUseDomFallback(webgpu: boolean, status: GlyphStatus): boolean {
+  return webgpu && status !== 'ready';
+}
+
+const InstancedLabelsSwitch: React.FC<InstancedLabelsProps> = (props) => {
+  const [status, setStatus] = React.useState<GlyphStatus>(isWebGPURenderer ? 'building' : 'ready');
+  return (
+    <>
+      {status !== 'failed' && <InstancedLabelsGlyph {...props} onStatus={setStatus} />}
+      {labelsUseDomFallback(isWebGPURenderer, status) && <InstancedLabelsWebGPU {...props} />}
+    </>
+  );
 };
 
 // ---------- WebGPU fallback implementation ----------
@@ -358,7 +400,7 @@ const InstancedLabelsWebGPU: React.FC<WebGPUProps> = ({
 
     // ADR-2186: the budgeted, priority-ranked selection (shared with WebGL).
     const runner = runnerRef.current;
-    const sel = runner.run(now, nodes, nodeIdToIndexMap, connectionCountMap, rawPositions, camera, size, budgets, budgets.fontPx);
+    const sel = runner.run(now, nodes, nodeIdToIndexMap, connectionCountMap, rawPositions, camera, size, budgets, budgets.fontPx, budgets.clusterMinDistance);
 
     // Pass 1: the selected labels plus their node-centre occlusion discs.
     const candidates: WebGPULabel[] = [];
@@ -414,6 +456,11 @@ const InstancedLabelsWebGPU: React.FC<WebGPUProps> = ({
       if (!occMask[i]) labels.push(candidates[i]);
     }
 
+    // ADR-2186 D2: cluster labels at their centroids (no node to occlude them)
+    forEachClusterLabel(runner, nodes, fontSize, (line, _x, _y, _z, sx, sy) => {
+      labels.push({ screenX: sx, screenY: sy, lines: [line], opacity: 1 });
+    });
+
     webGPULabelsRef.current = labels;
     setWebGPULabels(labels);
   });
@@ -457,12 +504,12 @@ const InstancedLabelsWebGPU: React.FC<WebGPUProps> = ({
 // `InstancedLabels` builds a typed forwarding object so missing props are
 // compile errors. The runtime guard below (for `nodePositionsRef` absent)
 // remains as a developer sanity check that emits a single warn.
-type WebGLProps = InstancedLabelsProps;
+type GlyphProps = InstancedLabelsProps & { onStatus: (s: GlyphStatus) => void };
 
-const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
+const InstancedLabelsGlyph: React.FC<GlyphProps> = ({
   nodes, nodeIdToIndexMap, nodePositionsRef, labelPositionsRef,
   settings, graphMode, perNodeVisualModeMap, connectionCountMap,
-  hierarchyMap, graphTypeVisuals, ssspResult,
+  hierarchyMap, graphTypeVisuals, ssspResult, onStatus,
 }) => {
   const { camera, size } = useThree();
   const meshRef = useRef<THREE.Mesh>(null);
@@ -489,9 +536,12 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
   }>>([]);
 
   // Create atlas, material, and geometry once
-  const { geometry, matResult, atlas } = useMemo(() => {
+  const { geometry, uniforms, glslMaterial, atlas } = useMemo(() => {
     const a = createGlyphAtlas();
-    const m = createTextMaterial(a.texture);
+    // WebGL: the cached GLSL material and its uniforms. WebGPU: fresh uniforms;
+    // the TSL material binds to this geometry and is built below.
+    const glsl: TextMaterialResult | null = isWebGPURenderer ? null : createTextMaterial(a.texture);
+    const uniforms = glsl ? glsl.uniforms : createTextUniforms(a.texture);
 
     // Unit quad: two triangles, 4 vertices with positions in 0..1
     const geo = new THREE.InstancedBufferGeometry();
@@ -526,7 +576,7 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
 
     geo.instanceCount = 0;
 
-    return { geometry: geo, matResult: m, atlas: a };
+    return { geometry: geo, uniforms, glslMaterial: glsl ? glsl.material : null, atlas: a };
   }, [glyphCap]);
 
   // Dispose on unmount
@@ -536,6 +586,48 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
     };
   }, [geometry]);
 
+  // ADR-2186 D4: the glyph material for the live renderer. WebGL uses the
+  // GLSL one at once; WebGPU builds the TSL twin, and reports 'failed' (the
+  // DOM fallback takes over) if it cannot.
+  // A TSL material is paired with the geometry it binds: after a glyphCap
+  // change the new geometry never draws with the previous material.
+  const [tslBuilt, setTslBuilt] = React.useState<{ material: THREE.Material; geometry: THREE.InstancedBufferGeometry } | null>(null);
+  const material = glslMaterial ?? (tslBuilt && tslBuilt.geometry === geometry ? tslBuilt.material : null);
+  const onStatusRef = useRef(onStatus);
+  onStatusRef.current = onStatus;
+  React.useEffect(() => {
+    if (glslMaterial) { onStatusRef.current('ready'); return; }
+    let cancelled = false;
+    let built: THREE.Material | null = null;
+    onStatusRef.current('building');
+    createTslTextMaterial(uniforms, geometry).then((m) => {
+      if (cancelled) { m.dispose(); return; }
+      built = m;
+      setTslBuilt({ material: m, geometry });
+      onStatusRef.current('ready');
+    }).catch((err) => {
+      if (cancelled) return;
+      console.warn('[InstancedLabels] TSL glyph material failed; using the budgeted DOM fallback:', err);
+      onStatusRef.current('failed');
+    });
+    return () => { cancelled = true; built?.dispose(); setTslBuilt(null); };
+  }, [glslMaterial, uniforms, geometry]);
+
+  // A draw that throws on WebGPU (the renderObject guard) also falls back.
+  React.useEffect(() => {
+    const mesh = meshRef.current;
+    if (!mesh || glslMaterial) return;
+    const fault = (err: unknown) => {
+      mesh.visible = false;
+      console.warn('[InstancedLabels] glyph draw faulted; using the budgeted DOM fallback:', err);
+      onStatusRef.current('failed');
+    };
+    onRenderFault(mesh, debounceFault(fault));
+    const mat = mesh.material as THREE.Material;
+    onPipelineError(mat, fault);
+    return () => { onRenderFault(mesh, null); onPipelineError(mat, null); };
+  }, [material, glslMaterial]);
+
   // Priority 0 (default): runs after GraphManager (-2) and GemNodes (-1),
   // ensuring nodePositionsRef.current is populated for this frame.
   useFrame(() => {
@@ -544,8 +636,8 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
 
     // --- Camera uniforms (always needed for billboard orientation) ---
     camera.updateMatrixWorld();
-    matResult.uniforms.uCamRight.value.setFromMatrixColumn(camera.matrixWorld, 0);
-    matResult.uniforms.uCamUp.value.setFromMatrixColumn(camera.matrixWorld, 1);
+    uniforms.uCamRight.value.setFromMatrixColumn(camera.matrixWorld, 0);
+    uniforms.uCamUp.value.setFromMatrixColumn(camera.matrixWorld, 1);
 
     // --- Camera motion detection: hide labels during fast movement ---
     frameCountRef.current++;
@@ -668,7 +760,7 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
     // dynamic tiers, greyed nodes excluded, screen collisions removed) —
     // the same selection the WebGPU path draws.
     const runner = runnerRef.current;
-    const sel = runner.run(now, nodes, nodeIdToIndexMap, connectionCountMap, rawPositionsForLayout, camera, size, budgets, budgets.fontPx);
+    const sel = runner.run(now, nodes, nodeIdToIndexMap, connectionCountMap, rawPositionsForLayout, camera, size, budgets, budgets.fontPx, budgets.clusterMinDistance);
 
     for (let k = 0; k < sel.count; k++) {
       const nodeIdx = sel.nodes[k];
@@ -732,6 +824,25 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
       });
     }
 
+    // ADR-2186 D2: cluster labels at their centroids, sized in px at their depth.
+    // Not position-patched per frame (no single node): they refresh with the
+    // selection at the label cadence.
+    forEachClusterLabel(runner, nodes, 1, (line, cx, cy, cz) => {
+      if (glyphIdx >= glyphCap - 200) return;
+      _tempVec3.set(cx, cy, cz);
+      const fs = budgets.fontPx * worldPerPx(camera, _tempVec3.distanceTo(camera.position), size.height);
+      const glyphStart = glyphIdx;
+      const glyphCount = layoutTextInline(
+        [{ ...line, fontSize: line.fontSize * fs }], atlas, maxWidth,
+        localOffArr, scaleArr, uvRectArr, colorArr, opacityArr, labelPosArr,
+        cx, cy, cz, 1, glyphIdx, glyphCap,
+        _tempColor as unknown as { r: number; g: number; b: number; set(c: string): void },
+      );
+      if (glyphCount === 0) return;
+      glyphIdx += glyphCount;
+      newNodeMap.push({ nodeId: `cluster:${line.text}`, physicsIndex: -1, glyphStart, glyphCount, labelOffsetY: 0 });
+    });
+
     nodeGlyphMapRef.current = newNodeMap;
 
     // Diagnostic log (rate-limited to 1 Hz to track declutter effectiveness)
@@ -761,6 +872,6 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
   });
 
   return (
-    <mesh ref={meshRef} geometry={geometry} material={matResult.material} frustumCulled={false} renderOrder={10} />
+    material ? <mesh ref={meshRef} geometry={geometry} material={material} frustumCulled={false} renderOrder={10} /> : null
   );
 };
