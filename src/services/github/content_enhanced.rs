@@ -307,13 +307,15 @@ impl EnhancedContentAPI {
 
     /// Commit history for `paths` (full repository paths, the listing's form) on the configured
     /// branch, through batched GraphQL `history` queries, four in flight. A failed or timed-out
-    /// batch is skipped and its pages get no history; nothing here fails the sync.
+    /// batch, a non-200 reply and a 200 reply carrying only GraphQL `errors` (a rate limit, for
+    /// example) are all skipped with a warning; the batch's pages get no history this sync, and
+    /// nothing here fails the sync.
     pub async fn commit_history(
         &self,
         paths: &[String],
     ) -> crate::services::corpus_source::HistoryMap {
         use crate::services::corpus_source::history::{
-            github_history_query, parse_github_history, GRAPHQL_BATCH,
+            github_history_query, graphql_errors, parse_github_history, GRAPHQL_BATCH,
         };
         use futures::stream::{self, StreamExt};
 
@@ -341,8 +343,16 @@ impl EnhancedContentAPI {
                         .json(&serde_json::json!({ "query": query }))
                         .send()
                         .await;
+                    // Every failure below takes the same rule: warn, and the batch's pages get
+                    // no history this sync (they are read again when next rebuilt).
                     let body: Option<Value> = match sent {
-                        Ok(r) if r.status().is_success() => r.json().await.ok(),
+                        Ok(r) if r.status().is_success() => match r.json().await {
+                            Ok(b) => Some(b),
+                            Err(e) => {
+                                warn!("commit history batch: unreadable GraphQL reply: {}", e);
+                                None
+                            }
+                        },
                         Ok(r) => {
                             warn!("commit history batch: GitHub GraphQL status {}", r.status());
                             None
@@ -352,8 +362,26 @@ impl EnhancedContentAPI {
                             None
                         }
                     };
-                    body.map(|b| parse_github_history(&b, &batch))
-                        .unwrap_or_default()
+                    let Some(body) = body else {
+                        return Default::default();
+                    };
+                    match parse_github_history(&body, &batch) {
+                        Ok(history) => {
+                            if let Some(errors) = graphql_errors(&body) {
+                                warn!(
+                                    "commit history batch: partial reply, {} of {} paths: {}",
+                                    history.len(),
+                                    batch.len(),
+                                    errors
+                                );
+                            }
+                            history
+                        }
+                        Err(e) => {
+                            warn!("commit history batch: {}", e);
+                            Default::default()
+                        }
+                    }
                 }
             })
             .buffer_unordered(4)

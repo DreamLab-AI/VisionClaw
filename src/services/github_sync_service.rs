@@ -1787,7 +1787,7 @@ impl GitHubSyncService {
             build_node_from_entity(entity, &identity, source_id, self.kg_parser.as_ref());
         enrich_node_from_frontmatter(&mut page_node, &parsed, &identity, content);
         if let Some(h) = scope.history.get(&file.path) {
-            h.write_keys(&mut page_node.metadata);
+            h.temporal_keys().write(&mut page_node.metadata);
         }
         // WS-0: guarantee a non-NULL source_domain for this node.
         ensure_source_domain(&mut page_node, &file.path);
@@ -1996,7 +1996,7 @@ impl GitHubSyncService {
             node.metadata
                 .insert("wikilink_count".to_string(), wikilink_count.to_string());
             if let Some(h) = scope.history.get(&file.path) {
-                h.write_keys(&mut node.metadata);
+                h.temporal_keys().write(&mut node.metadata);
             }
             // A working twin of a knowledge page yields: it is kept only where
             // nothing else stands, and is written insert-if-absent like a stub.

@@ -10,9 +10,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use visionclaw_domain::models::metadata::{
-    wire_timestamp, CHANGE_COUNT_KEY, LAST_COMMIT_KEY, LAST_MODIFIED_KEY,
-};
+#[cfg(test)]
+use visionclaw_domain::models::metadata::wire_timestamp;
+use visionclaw_domain::models::metadata::TemporalKeys;
 
 /// One page's commit history.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,13 +24,14 @@ pub struct PageHistory {
 }
 
 impl PageHistory {
-    /// Write the temporal keys onto a node's metadata map. `last_modified` is the last commit,
-    /// the precedent `FileService` set for GitHub-sourced metadata.
-    pub fn write_keys(&self, node_metadata: &mut HashMap<String, String>) {
-        let at = wire_timestamp(&self.last_commit);
-        node_metadata.insert(LAST_MODIFIED_KEY.to_string(), at.clone());
-        node_metadata.insert(LAST_COMMIT_KEY.to_string(), at);
-        node_metadata.insert(CHANGE_COUNT_KEY.to_string(), self.change_count.to_string());
+    /// This page's [`TemporalKeys`], written by the one temporal-key writer. `last_modified` is
+    /// the last commit, the precedent `FileService` set for GitHub-sourced metadata.
+    pub fn temporal_keys(&self) -> TemporalKeys {
+        TemporalKeys {
+            last_modified: Some(self.last_commit),
+            last_commit: Some(self.last_commit),
+            change_count: Some(self.change_count),
+        }
     }
 }
 
@@ -137,12 +138,40 @@ pub(crate) fn github_history_query(
     )
 }
 
+/// The GraphQL `errors` of a reply as one line (`TYPE: message; …`), or `None` when it has none.
+/// GitHub answers a rate-limited or otherwise refused query with status 200 and this array.
+pub(crate) fn graphql_errors(body: &serde_json::Value) -> Option<String> {
+    let errors = body.get("errors")?.as_array()?;
+    if errors.is_empty() {
+        return None;
+    }
+    Some(
+        errors
+            .iter()
+            .map(|e| {
+                let kind = e.get("type").and_then(|t| t.as_str()).unwrap_or("ERROR");
+                let message = e.get("message").and_then(|m| m.as_str()).unwrap_or("");
+                format!("{kind}: {message}")
+            })
+            .collect::<Vec<_>>()
+            .join("; "),
+    )
+}
+
 /// Read a [`github_history_query`] response. A path with no commits, or an alias missing from
-/// a partial response, gives no entry.
-pub(crate) fn parse_github_history(body: &serde_json::Value, paths: &[String]) -> HistoryMap {
+/// a partial response, gives no entry. A reply whose `errors` came with no repository object is
+/// an error naming them, so the caller treats it as a failed batch, not as "no history"; a
+/// partial reply keeps what it carries (the caller reports its errors).
+pub(crate) fn parse_github_history(
+    body: &serde_json::Value,
+    paths: &[String],
+) -> Result<HistoryMap, String> {
     let mut out = HistoryMap::new();
     let Some(object) = body.pointer("/data/repository/object") else {
-        return out;
+        return match graphql_errors(body) {
+            Some(errors) => Err(format!("GitHub GraphQL errors: {errors}")),
+            None => Ok(out),
+        };
     };
     for (i, path) in paths.iter().enumerate() {
         let Some(h) = object.get(format!("p{i}")) else {
@@ -163,7 +192,7 @@ pub(crate) fn parse_github_history(body: &serde_json::Value, paths: &[String]) -
             );
         }
     }
-    out
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -188,6 +217,31 @@ mod tests {
     }
 
     #[test]
+    fn a_200_reply_carrying_only_errors_is_a_failed_batch() {
+        let body = serde_json::json!({
+            "errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}]
+        });
+        let err = parse_github_history(&body, &["knowledge/A.md".to_string()])
+            .expect_err("an errors-only reply must not read as 'no history'");
+        assert!(err.contains("RATE_LIMITED"), "{err}");
+        assert!(err.contains("API rate limit exceeded"), "{err}");
+    }
+
+    #[test]
+    fn a_partial_reply_keeps_its_data_and_reports_its_errors() {
+        let body = serde_json::json!({
+            "data": {"repository": {"object": {
+                "p0": {"totalCount": 2, "nodes": [{"committedDate": "2026-11-04T13:51:04Z"}]}
+            }}},
+            "errors": [{"type": "NOT_FOUND", "message": "p1 path"}]
+        });
+        let paths = ["knowledge/A.md".to_string(), "knowledge/B.md".to_string()];
+        let h = parse_github_history(&body, &paths).expect("partial data is kept");
+        assert_eq!(h["knowledge/A.md"].change_count, 2);
+        assert_eq!(h.len(), 1);
+    }
+
+    #[test]
     fn empty_output_is_no_history() {
         assert!(parse_git_log(b"").is_empty());
     }
@@ -199,7 +253,8 @@ mod tests {
             last_commit: Utc.with_ymd_and_hms(2026, 11, 4, 13, 51, 4).unwrap(),
             change_count: 7,
         }
-        .write_keys(&mut m);
+        .temporal_keys()
+        .write(&mut m);
         assert_eq!(m["last_modified"], "2026-11-04T13:51:04Z");
         assert_eq!(m["last_commit"], "2026-11-04T13:51:04Z");
         assert_eq!(m["change_count"], "7");
@@ -242,14 +297,18 @@ mod tests {
             "knowledge/New.md".to_string(),
             "x.md".to_string(),
         ];
-        let h = parse_github_history(&body, &paths);
+        let h = parse_github_history(&body, &paths).unwrap();
         assert_eq!(h.len(), 1, "no commits and a missing alias give no entry");
         assert_eq!(h["knowledge/A.md"].change_count, 3);
         assert_eq!(
             wire_timestamp(&h["knowledge/A.md"].last_commit),
             "2026-10-28T11:02:16Z"
         );
-        assert!(parse_github_history(&serde_json::json!({"errors": []}), &paths).is_empty());
+        assert!(
+            parse_github_history(&serde_json::json!({"errors": []}), &paths)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     /// Live check of the query builder and parser against GitHub. Needs network and a token:
@@ -274,7 +333,7 @@ mod tests {
             .json()
             .await
             .unwrap();
-        let h = parse_github_history(&body, &paths);
+        let h = parse_github_history(&body, &paths).unwrap();
         assert_eq!(h.len(), 2, "{body}");
         assert!(h["knowledge/.gitignore"].change_count >= 3);
     }

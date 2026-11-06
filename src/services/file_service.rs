@@ -866,7 +866,7 @@ impl FileService {
             node_id,
             hyperlink_count: Self::count_hyperlinks(content),
             sha1: Self::calculate_sha1(content),
-            last_modified,
+            last_modified: Some(last_modified),
             last_content_change: Some(last_modified),
             last_commit: Some(last_modified),
             change_count: None,
@@ -1144,7 +1144,7 @@ impl FileService {
             node.size = Some(meta.node_size as f32);
             // ADR-2184/2185: last_modified, last_commit, change_count (RFC 3339 UTC). Node metadata
             // round-trips through Oxigraph, so these reach the graph the actor reloads.
-            meta.write_temporal_keys(&mut node.metadata);
+            meta.temporal_keys().write(&mut node.metadata);
 
             // Detect ontology classification from file content.
             // Files declaring a frontmatter `owl-class: <iri>` are surfaced
