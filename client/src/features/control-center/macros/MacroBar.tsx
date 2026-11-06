@@ -260,7 +260,8 @@ const ExploreButton: React.FC = () => {
   const count = useActiveFilterCount();
   const open = useControlCenterUI((s) => s.explorePanelOpen);
   const setOpen = useControlCenterUI((s) => s.setExplorePanelOpen);
-  const label = count > 0 ? `Explore (${count} active filter${count === 1 ? '' : 's'})` : 'Explore';
+  // "Explore panel", not "Explore": section 2 is also called Explore (its settings).
+  const label = count > 0 ? `Explore panel: search and filter (${count} active filter${count === 1 ? '' : 's'})` : 'Explore panel: search and filter';
   return (
     <button
       type="button"

@@ -196,7 +196,9 @@ const ExploreDrawer: React.FC = () => {
   return (
     <div
       data-testid="explore-drawer"
-      className="fixed flex flex-col items-end gap-1"
+      // close button on the left edge: the top-right corner belongs to the
+      // connection badge while the backend is unreachable
+      className="fixed flex flex-col items-start gap-1"
       style={{
         right: 'var(--cc-edge, 1rem)',
         top: 'var(--cc-edge, 1rem)',
