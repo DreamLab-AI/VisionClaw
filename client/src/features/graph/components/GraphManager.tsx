@@ -38,20 +38,10 @@ import { OverviewLayer, resolveGraphView } from '../overview/OverviewLayer'
 import { useNodeEncodingSync } from '../overview/useNodeEncodingSync'
 import { useOverviewLive } from '../overview/overviewLive'
 import { TUBE_BUDGET, type GlassTubeLod } from './GlassEdges'
-import { highlightMask, HIGHLIGHT_SELECTED, HIGHLIGHT_HOVERED } from '../state/highlightMask'
+import { setHoveredNodeEmphasis } from '../explore/filterRegistry'
 import type { GraphViewSettings } from '../../settings/config/settings'
 
 const logger = createLogger('GraphManager')
-
-/**
- * Hover emphasis. INTEGRATION NOTE: the explore lane exports
- * `setHoveredNodeEmphasis` from features/graph/explore; on merge, delete this
- * local definition and import theirs. It writes the same source name
- * ('emph:hover'), so the two are interchangeable.
- */
-function setHoveredNodeEmphasis(id: string | null): void {
-  highlightMask.setEmphasis('emph:hover', HIGHLIGHT_HOVERED, id ? [id] : null)
-}
 
 // Re-export GraphVisualMode from the hook for downstream consumers
 export type { GraphVisualMode } from '../hooks/useGraphVisualState';
@@ -345,13 +335,9 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
     camera,
   })
 
-  // ADR-2183 D2: the selection is one emphasis source of the highlight mask, so
-  // sprites, edges, labels and bloom see it like any other writer's emphasis.
-  useEffect(() => {
-    highlightMask.setEmphasis('emph:selection', HIGHLIGHT_SELECTED, selectedNodeId ? [selectedNodeId] : null)
-  }, [selectedNodeId])
+  // ADR-2183 D2: useGraphSelection is the sole writer of the selection and
+  // neighbour emphasis sources; GraphManager only owns hover.
   useEffect(() => () => {
-    highlightMask.clearSource('emph:selection')
     setHoveredNodeEmphasis(null)
   }, [])
 
