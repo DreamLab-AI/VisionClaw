@@ -393,7 +393,7 @@ This registry tabulates binary tags, not Nostr kinds. Kinds used by the estate a
 
 ### Desktop node table: no new read path (ADR-2184, proposed)
 
-- **Sources.** The desktop explore layer (ADR-2184, ADR-2185) builds its Apache Arrow node table in the client, from two things clients already receive:
+- **Sources.** The desktop explore layer (ADR-2184, ADR-2185) builds its node table (typed arrays, ADR-2184 D1 as amended 2026-11-06) in the client, from two things clients already receive:
   - the `/api/graph/data` / `initialGraphLoad` node objects;
   - the analytics fields of the live `0x03`/`0x05` stream, joined by wire id.
 - **No new endpoint.** **No new endpoint, tag or frame is added.** The table therefore exposes nothing beyond what the client already receives.

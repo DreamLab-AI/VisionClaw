@@ -114,10 +114,31 @@ describe('LabelBudgetRunner (shared by both label paths)', () => {
   });
 });
 
+describe('overview liveness needs uploaded positions (no hidden graph before the stream)', () => {
+  it('a layer with a built material is not live until real positions reach the texture', async () => {
+    const live = await import('../overviewLive');
+    live.clearOverviewFaults();
+    live.setOverviewPositions?.(false);
+    live.setOverviewLive('nodes', true);
+    live.setOverviewLive('edges', true);
+    // material built, but the position texture is still all zeros: the sprites
+    // would sit at the origin while the gems they replace are hidden
+    expect(live.isOverviewLive('nodes')).toBe(false);
+    expect(live.isOverviewLive('edges')).toBe(false);
+    live.setOverviewPositions(true);
+    expect(live.isOverviewLive('nodes')).toBe(true);
+    expect(live.isOverviewLive('edges')).toBe(true);
+    live.setOverviewLive('nodes', false);
+    live.setOverviewLive('edges', false);
+    live.setOverviewPositions(false);
+  });
+});
+
 describe('overview render faults (ADR-2181 D4: no silent skip)', () => {
   it('a fault drops the layer out of live, is reported, and clears on unmount', async () => {
     const live = await import('../overviewLive');
     live.clearOverviewFaults();
+    live.setOverviewPositions?.(true);
     live.setOverviewLive('edges', true);
     live.setOverviewLive('nodes', true);
     expect(live.isOverviewLive('edges')).toBe(true);

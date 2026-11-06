@@ -29,7 +29,7 @@ import { nodeEncoding } from '../state/nodeEncoding';
 import { highlightMask, highlightLevel, HIGHLIGHT_LEVEL_EMPHASISED } from '../state/highlightMask';
 import { EMPHASIS_SCALE, backgroundFromSetting } from './highlightVisual';
 import { useOverviewMaterial } from './useOverviewMaterial';
-import { buildFault, setOverviewLive } from './overviewLive';
+import { buildFault, isOverviewFaulted, overviewPositionsReady, setOverviewLive } from './overviewLive';
 import { useRenderFaultWatch } from './useRenderFaultWatch';
 import type { NodePositionTexture } from './nodePositionTexture';
 import type { GemNodesHandle } from '../components/GemNodes';
@@ -107,6 +107,11 @@ export const OverviewNodes: React.FC<Props> = ({ positions, sourceRef, style }) 
   const last = useRef({ colorVersion: -1, encVersion: -1, count: -1, spritePx: -1, nodeSize: -1, geo: null as unknown, maskVersion: -1, haloGeo: null as unknown });
 
   useFrame(() => {
+    // Nothing to draw at the origin before the texture has real positions; a
+    // faulted layer stays hidden (useRenderFaultWatch).
+    const ready = overviewPositionsReady() && !isOverviewFaulted('nodes');
+    if (sprites.mesh) sprites.mesh.visible = ready;
+    if (halo.mesh) halo.mesh.visible = ready;
     const src = sourceRef.current?.getOverviewSource() ?? null;
     const count = src ? src.count : 0;
     if (count > capacity) { setCapacity(nextPow2(count)); return; }

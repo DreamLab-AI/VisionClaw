@@ -14,6 +14,11 @@
  * `labels` has no gem fallback: a failed glyph material hides the labels and
  * the notice says so (ADR-2186 D4, one label path).
  *
+ * A layer is also not live until the node position texture has received real
+ * positions (`setOverviewPositions`, from OverviewLayer's first upload). Before
+ * the position stream delivers, or without one, the texture is all zeros and the
+ * sprites and edges would collapse onto the origin while the gems are hidden.
+ *
  * A fault is sticky until the overview layer unmounts (clearOverviewFaults):
  * retrying a broken pipeline every frame would only throw again.
  */
@@ -29,14 +34,16 @@ interface LiveState {
 }
 
 const mounted = { nodes: false, edges: false };
+/** The position texture has had at least one upload of drawn positions. */
+let positionsReady = false;
 const faults: Partial<Record<OverviewLayerName, string>> = {};
 let snapshot: LiveState = { nodes: false, edges: false, faults: {} };
 const listeners = new Set<() => void>();
 
 function publish(): void {
   snapshot = {
-    nodes: mounted.nodes && !faults.nodes,
-    edges: mounted.edges && !faults.edges,
+    nodes: positionsReady && mounted.nodes && !faults.nodes,
+    edges: positionsReady && mounted.edges && !faults.edges,
     faults: { ...faults },
   };
   for (const l of listeners) l();
@@ -46,6 +53,18 @@ export function setOverviewLive(layer: 'nodes' | 'edges', live: boolean): void {
   if (mounted[layer] === live) return;
   mounted[layer] = live;
   publish();
+}
+
+/** OverviewLayer: true once drawn positions reached the texture; false on unmount. */
+export function setOverviewPositions(ready: boolean): void {
+  if (positionsReady === ready) return;
+  positionsReady = ready;
+  publish();
+}
+
+/** Frame-loop read: whether the position texture holds real positions yet. */
+export function overviewPositionsReady(): boolean {
+  return positionsReady;
 }
 
 /** Record a fault for a layer (first one wins). */
@@ -72,7 +91,7 @@ export function clearOverviewFaults(): void {
 
 /** Frame-loop read (no React): mounted with a material and not faulted. */
 export function isOverviewLive(layer: 'nodes' | 'edges'): boolean {
-  return mounted[layer] && !faults[layer];
+  return positionsReady && mounted[layer] && !faults[layer];
 }
 
 export function useOverviewLive(): LiveState {

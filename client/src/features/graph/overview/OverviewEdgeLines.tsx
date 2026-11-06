@@ -18,7 +18,7 @@ import {
 } from '../../../rendering/materials/OverviewEdgeMaterial';
 import { edgeWidthPx } from './edgeStyle';
 import { useOverviewMaterial } from './useOverviewMaterial';
-import { buildFault, isOverviewFaulted, setOverviewLive } from './overviewLive';
+import { buildFault, isOverviewFaulted, overviewPositionsReady, setOverviewLive } from './overviewLive';
 import { useRenderFaultWatch } from './useRenderFaultWatch';
 import type { NodePositionTexture } from './nodePositionTexture';
 
@@ -142,7 +142,7 @@ export const OverviewEdgeLines: React.FC<Props> = ({ positions, data, style, vis
 
   useFrame(({ camera }) => {
     if (!mesh) return;
-    mesh.visible = visible && geometry.instanceCount > 0 && !isOverviewFaulted(faultLayer);
+    mesh.visible = visible && geometry.instanceCount > 0 && overviewPositionsReady() && !isOverviewFaulted(faultLayer);
     if (!mesh.visible) return;
     uniforms.uResolution.value.set(size.width || 1, size.height || 1);
     uniforms.uDpr.value = gl.getPixelRatio();

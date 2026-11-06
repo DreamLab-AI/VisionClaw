@@ -16,7 +16,7 @@
  * edges draw on the same path.
  */
 import React, { createContext, useContext, useEffect, useMemo } from 'react';
-import { clearOverviewFaults } from './overviewLive';
+import { clearOverviewFaults, setOverviewPositions } from './overviewLive';
 import { useFrame } from '@react-three/fiber';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { DEFAULT_EDGES_SETTINGS, DEFAULT_GRAPH_VIEW } from '../../../api/settings/defaults';
@@ -67,7 +67,11 @@ export const OverviewLayer: React.FC<Props> = ({ plan, nodePositionsRef, nodeCou
     const p = nodePositionsRef.current;
     if (!p || nodeCount === 0) return;
     positions.update(p, nodeCount, highlightMask.getMask(), highlightMask.version);
+    // GraphManager publishes nodePositionsRef only once the stream has delivered
+    // non-zero positions, so from here the texture holds the real layout.
+    setOverviewPositions(true);
   }, -0.4);
+  useEffect(() => () => setOverviewPositions(false), []);
 
   // ADR-2181 D4: capacity from the data, heaviest first when the budget is short.
   const oe = gv.overviewEdges;

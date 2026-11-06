@@ -21,7 +21,7 @@ sources:
   - crates/visionclaw-protocol/src/protocols/binary_settings_protocol.rs
   - src/utils/binary_protocol.rs
 changelog:
-  - "0.4.5 (2026-11-06): one desktop renderer: WebGPURenderer only, with its WebGL2 backend as the fallback (TSL materials only, BloomNode only, linear blend everywhere, Lightformer studio into CubeRenderTarget); splats one backend (three GaussianSplat addon; Spark removed, ADR-2170 amended); graph-view suite marked built (ADR-2179..2186) and ADR-2187 rejected; ADR-2184 node table is typed arrays (apache-arrow removed). No invariant changed."
+  - "0.4.5 (2026-11-06): one desktop renderer: WebGPURenderer only, with its WebGL2 backend as the fallback (TSL materials only, BloomNode only, linear blend everywhere, Lightformer studio into CubeRenderTarget); splats one backend (three GaussianSplat addon; Spark removed, ADR-2170 amended); graph-view suite status per ADR (2179/2181/2182 partial) with its remaining gaps, and ADR-2187 rejected; ADR-2184 node table is typed arrays (apache-arrow removed). No invariant changed."
   - "0.4.4 (2026-11-06): ADR-2189 menus: explore, Memory explorer and node detail are tabs of one right-hand drawer; the timeline Diff checkbox and provenance.diffMode are one control; one edge colour per graph mode; Show Clusters/Communities merged into colour scheme. Corrects 0.4.3: non-physics server buckets are stored under one key each and reach every viewer, they do not follow the account."
   - "0.4.3 (2026-11-06): ADR-2189 accepted (partial: desktop built, XR HUD not): one seven-section menu information architecture for desktop and XR, generated from the settings registry as ia.json; 40 settings nothing read were deleted with tolerant loading on both sides; one client write path. Note under XR + React clients. No invariant changed."
   - "0.4.2 (2026-11-05): ADR-2179 to ADR-2187 (proposed, not built): desktop graph-view upgrade suite note under XR + React clients (overview-first contract, knowledge-body fit, screen-space edges, sprite nodes, highlight mask, client-side node table, crossfilter widgets, label budget, cosmos.gl reference spike). No invariant changed."
@@ -311,7 +311,9 @@ owning ADR (the Protocol Registry becomes its owner).
   amendment, 2026-11-06). Variants are offline-converted SPZ from a
   content-addressed cache. A splat scene is a scene-level volume or
   environment, never per-node geometry.
-- **Desktop graph view (ADR-2179 to ADR-2186, built; ADR-2187 rejected).**
+- **Desktop graph view (ADR-2179 to ADR-2186; ADR-2187 rejected).** ADR-2180 and
+  ADR-2183 to ADR-2186 are complete; ADR-2179, ADR-2181 and ADR-2182 are partial
+  (no performance receipts; the real WebGPU backend unverified).
   ADR-2179 holds the desktop knowledge view to four properties:
   - a legible overview at the default fit;
   - edges carry the structure;
@@ -331,6 +333,13 @@ owning ADR (the Protocol Registry becomes its owner).
   - ADR-2185: linked timeline, histogram, category and search widgets over it;
   - ADR-2186: a priority-ranked label budget on one drawing path (TSL glyph
     quads; no DOM label layer).
+
+  Remaining gaps (2026-11-06):
+  - With overview edges off (`graphView.overviewEdges.enabled`, off in the dev
+    backend's stored settings), the glass tubes carry every edge and clip at
+    65,536 (`GlassEdges.tsx`), against a live 140,352. The clip is reported
+    only as a console warning, not on the canvas notice.
+  - No ADR-2171 GPU-timestamp receipt exists for the suite.
 
   ADR-2187, the cosmos.gl 2D reference spike, was rejected on 2026-11-06: the
   overview-first upgrade covers the need, and a second renderer would work

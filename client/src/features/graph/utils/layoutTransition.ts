@@ -11,26 +11,37 @@ export function transitionMassFactor(connectionCount: number): number {
 }
 
 /**
- * One frame of the transition: writes `drawn` for every render slot below
- * `slots` at eased `progress` (0..1). Each slot's degree is looked up by the
- * id of the node in that slot (`nodeIdToIndexMap`); an empty slot has none.
+ * Each render slot's degree, looked up by the id of the node in that slot
+ * (`nodeIdToIndexMap`; `connectionCountMap` is keyed by node id). An empty slot
+ * has 0. Built once when a transition starts.
  */
-export function lerpLayoutTransition(
-  drawn: Float32Array,
-  start: ArrayLike<number>,
-  target: ArrayLike<number>,
-  progress: number,
-  slots: number,
-  connectionCountMap: Map<string, number>,
+export function slotDegrees(
   nodes: ReadonlyArray<{ id: string | number }>,
-  nodeIdToIndexMap: Map<string, number>,
-): void {
+  nodeIdToIndexMap: ReadonlyMap<string, number>,
+  connectionCountMap: ReadonlyMap<string, number>,
+  slots: number,
+): Float32Array {
   const degree = new Float32Array(slots);
   for (const n of nodes) {
     const id = String(n.id);
     const slot = nodeIdToIndexMap.get(id);
     if (slot !== undefined && slot >= 0 && slot < slots) degree[slot] = connectionCountMap.get(id) || 0;
   }
+  return degree;
+}
+
+/**
+ * One frame of the transition: writes `drawn` for every render slot that
+ * `degree` covers, at eased `progress` (0..1).
+ */
+export function lerpLayoutTransition(
+  drawn: Float32Array,
+  start: ArrayLike<number>,
+  target: ArrayLike<number>,
+  progress: number,
+  degree: Float32Array,
+): void {
+  const slots = degree.length;
   for (let i = 0; i < slots; i++) {
     const idx = i * 3;
     if (idx + 2 >= drawn.length) break;

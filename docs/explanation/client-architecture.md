@@ -7,7 +7,7 @@ description: Why the VisionClaw browser client is built the way it is — React 
 
 > [VisionClaw Docs](../README.md) · [Explanation](README.md)
 
-The VisionClaw client is a React 19 single-page application that renders an interactive 3D knowledge graph in the browser. It is the only first-class viewport onto the graph: the backend computes layout on the GPU and streams positions, while the client owns presentation, interaction, and local state. This page explains the shape of that client and the reasoning behind its three load-bearing decisions — a **dual renderer** (WebGPU preferred, WebGL fallback), **InstancedMesh** geometry, and a **zero-copy SharedArrayBuffer** position pipeline driven by the binary WebSocket protocol.
+The VisionClaw client is a React 19 single-page application that renders an interactive 3D knowledge graph in the browser. It is the only first-class viewport onto the graph: the backend computes layout on the GPU and streams positions, while the client owns presentation, interaction, and local state. This page explains the shape of that client and the reasoning behind its three load-bearing decisions — **one renderer** (three's WebGPURenderer, which falls back to its own WebGL2 backend), **InstancedMesh** geometry, and a **zero-copy SharedArrayBuffer** position pipeline driven by the binary WebSocket protocol.
 
 The codebase is **465 TypeScript/TSX files** (**422 non-test**) totalling roughly **103K lines**, organised into **16 feature modules** under `client/src/features/`. Three.js is consumed through React Three Fiber (R3F), so the scene graph is declared as React components and reconciled like any other React tree.
 
@@ -60,23 +60,23 @@ flowchart TD
 
 The split keeps the hot path (binary frames → SAB → render) free of React re-renders: position updates never flow through the Zustand store, so the React tree does not reconcile 60 times a second. Only structural changes (a new node, a settings edit, an analytics result) touch the stores.
 
-## The dual renderer
+## One renderer, two backends
 
-R3F is initialised with a custom renderer chosen at runtime by `rendererFactory.ts`. The factory prefers a true WebGPU backend and falls back to a clean WebGL renderer rather than accepting WebGPU's internal WebGL2 emulation, which on some browsers produced oversized render targets.
+R3F is initialised with three's `WebGPURenderer` from `rendererFactory.ts`, and only that renderer (operator decision, 2026-11-06). Where WebGPU is missing, the renderer runs on its own WebGL2 backend (`getFallback` → `WebGLBackend`). Every material is TSL, which the backend compiles to WGSL or GLSL, so the scene, the materials and the bloom pipeline (`RenderPipeline` + `BloomNode`) are the same code on both backends.
 
 ```mermaid
 flowchart TD
-    START["rendererFactory.createRenderer()"] --> FORCE{"WebGL forced<br/>by user toggle?"}
-    FORCE -->|"yes"| GL["WebGLRenderer"]
-    FORCE -->|"no"| GPU{"navigator.gpu<br/>present?"}
-    GPU -->|"no"| GL
-    GPU -->|"yes"| INIT["Create WebGPURenderer<br/>(forceWebGL: false)"]
-    INIT --> TIMEOUT{"init within 5s<br/>and backend is WebGPU?"}
-    TIMEOUT -->|"no"| GL
-    TIMEOUT -->|"yes"| WGPU["WebGPURenderer (true backend)"]
+    START["rendererFactory.createGemRenderer()"] --> FORCE{"WebGL2 forced<br/>by user toggle?"}
+    FORCE -->|"yes"| GLB["WebGPURenderer<br/>(forceWebGL: true)"]
+    FORCE -->|"no"| INIT["WebGPURenderer"]
+    INIT --> ADAPTER{"WebGPU adapter?"}
+    ADAPTER -->|"no"| FALLBACK["three's getFallback:<br/>WebGL2 backend"]
+    ADAPTER -->|"yes"| TIMEOUT{"init within 5 s?"}
+    TIMEOUT -->|"no"| GLB
+    TIMEOUT -->|"yes"| WGPU["WebGPU backend"]
 ```
 
-The factory exposes an `isWebGPURenderer` flag so materials can branch on backend capability, and a user-facing override (the [Control Center](control-center.md)'s System & Developer group, "WebGPU Renderer" action, persisted in `localStorage` as `visionclaw-force-webgl`). The 5-second timeout guard exists because the Quest 3 Oculus Browser can hang during WebGPU adapter negotiation; on timeout the client discards the half-initialised renderer and proceeds on WebGL. Immersive XR is a **separate** native binary, not this renderer — see [XR Architecture](xr-architecture.md).
+`rendererCapabilities.backend` (`activeBackendIsWebGPU()`) reports which backend is live. The user-facing override is the [Control Center](control-center.md)'s System & Developer "WebGPU Renderer" action, persisted in `localStorage` as `visionclaw-force-webgl`, and it maps to `forceWebGL: true`. The 5-second timeout exists because the Quest 3 Oculus Browser can hang during WebGPU adapter negotiation; on timeout the client retries on the WebGL2 backend. A layer whose material fails to build, or whose shader fails on either backend, is reported on the canvas notice (`rendering/renderFaults.ts`), never skipped silently. Immersive XR is a **separate** native binary, not this renderer — see [XR Architecture](xr-architecture.md).
 
 ## Component composition
 

@@ -18,7 +18,7 @@ import { VirtualAgentMarkers } from '../../visualisation/components/VirtualAgent
 import { agentMarkers, agentMarkerPosition, liveMarkerDeps } from '../../bots/agentMarkerPass'
 import { resolveNodeWorldPosition } from '../../visualisation/cameraFocus'
 import { drawnPositions, fillLabelPositions } from '../utils/drawnPositions'
-import { lerpLayoutTransition } from '../utils/layoutTransition'
+import { lerpLayoutTransition, slotDegrees } from '../utils/layoutTransition'
 import { separatedFrame } from '../triLayout'
 import { sceneFitBounds } from '../utils/sceneFitBounds'
 import { cloudFitInput } from '../hooks/useCameraAutoFit'
@@ -192,6 +192,8 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
     active: boolean
     startPositions: Float32Array
     targetPositions: Float32Array
+    /** Per-slot degree for the mass-aware lerp (by node id, utils/layoutTransition). */
+    degree: Float32Array
     progress: number
     duration: number
     startTime: number
@@ -278,9 +280,12 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
         targetSnap[ni * 3 + 2] = startSnap[ni * 3 + 2]
       }
     }
-    transitionRef.current = { active: true, startPositions: startSnap, targetPositions: targetSnap, progress: 0, duration: durationMs, startTime: Date.now() }
+    transitionRef.current = {
+      active: true, startPositions: startSnap, targetPositions: targetSnap, progress: 0, duration: durationMs, startTime: Date.now(),
+      degree: slotDegrees(graphData.nodes, nodeIdToIndexMap, connectionCountMap, nodeCount),
+    }
     setLayoutTransitioning(true)
-  }, [graphData.nodes])
+  }, [graphData.nodes, nodeIdToIndexMap, connectionCountMap])
 
   // Physics fingerprint (ADR-03 D7: no-op worker forward; kept as dependency marker)
   const knowledgePhysics   = knowledgeSettings?.physics
@@ -446,8 +451,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
         const progress = rawProgress < 0.5
           ? 2 * rawProgress * rawProgress
           : 1 - Math.pow(-2 * rawProgress + 2, 2) / 2
-        lerpLayoutTransition(drawn, t.startPositions, t.targetPositions, progress, graphData.nodes.length,
-          connectionCountMap, graphData.nodes, nodeIdToIndexMap)
+        lerpLayoutTransition(drawn, t.startPositions, t.targetPositions, progress, t.degree)
         if (rawProgress >= 1.0) { transitionRef.current.active = false; setLayoutTransitioning(false) }
       }
 
