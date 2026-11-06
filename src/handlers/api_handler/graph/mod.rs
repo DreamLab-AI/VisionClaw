@@ -2385,12 +2385,48 @@ mod visibility_parity_tests {
     }
 
     fn wss_view(graph: &GraphData, caller: Option<&str>) -> View {
-        let (nodes, edges) = initial_graph_load_projection(graph, caller, true, usize::MAX);
+        let (nodes, edges) = initial_graph_load_projection(
+            &std::sync::Arc::new(graph.clone()),
+            caller,
+            true,
+            usize::MAX,
+        );
         (
             nodes.iter().map(|n| n.id).collect(),
             edges.iter().map(|e| (e.source_id, e.target_id)).collect(),
             nodes.iter().map(|n| n.metadata_id.clone()).collect(),
         )
+    }
+
+    /// Re-review N1: `/wss` must apply the same page-name scrub as REST. Visible node 1 names
+    /// the hidden unowned page in `is_subclass_of` and `tags`; its plain `domain` text that
+    /// shares the name must survive (N3).
+    #[test]
+    fn wss_node_metadata_is_scrubbed_like_rest() {
+        let mut graph = fixture();
+        let m = &mut graph.nodes[0].metadata;
+        m.insert("is_subclass_of".into(), "Thing,unowned".into());
+        m.insert("tags".into(), "unowned, public".into());
+        m.insert("domain".into(), "unowned".into());
+
+        let (wss_nodes, _) = initial_graph_load_projection(
+            &std::sync::Arc::new(graph.clone()),
+            None,
+            true,
+            usize::MAX,
+        );
+        let wss = &wss_nodes.iter().find(|n| n.id == 1).unwrap().metadata;
+        assert_eq!(wss.get("is_subclass_of").map(String::as_str), Some("Thing"));
+        assert_eq!(wss.get("tags").map(String::as_str), Some("public"));
+        assert_eq!(wss.get("domain").map(String::as_str), Some("unowned"));
+
+        let (rest_nodes, _, _) =
+            graph_data_projection(&std::sync::Arc::new(graph), &no_filters(), None, true);
+        let rest = &rest_nodes.iter().find(|n| n.id == 1).unwrap().metadata;
+        assert_eq!(
+            wss, rest,
+            "/wss and REST must send the same scrubbed node metadata"
+        );
     }
 
     fn assert_parity(caller: Option<&str>, expected_nodes: &[u32]) {
@@ -2444,7 +2480,12 @@ mod visibility_parity_tests {
 
         let arc = std::sync::Arc::new(graph.clone());
         let (rest_nodes, _, _) = graph_data_projection(&arc, &no_filters(), None, true);
-        let (wss_nodes, _) = initial_graph_load_projection(&graph, None, true, usize::MAX);
+        let (wss_nodes, _) = initial_graph_load_projection(
+            &std::sync::Arc::new(graph.clone()),
+            None,
+            true,
+            usize::MAX,
+        );
         let rest = rest_nodes
             .iter()
             .find(|n| n.id == 1)

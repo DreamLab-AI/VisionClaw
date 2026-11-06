@@ -486,7 +486,7 @@ pub(crate) fn resolve_initial_node_limit(configured: u32) -> usize {
 /// Project the `initialGraphLoad` node and edge lists for one caller: the visibility gate, then the
 /// top-`limit` nodes by quality score, then the edges with both endpoints in that set.
 pub(crate) fn initial_graph_load_projection(
-    graph_data: &visionclaw_domain::models::graph::GraphData,
+    graph_data: &std::sync::Arc<visionclaw_domain::models::graph::GraphData>,
     caller_pubkey: Option<&str>,
     visibility_filter_on: bool,
     initial_node_limit: usize,
@@ -498,15 +498,19 @@ pub(crate) fn initial_graph_load_projection(
     use crate::utils::socket_flow_messages::{InitialEdgeData, InitialNodeData};
 
     // ADR-060 §Phase-4: drop private nodes not owned by this session before they reach the
-    // wire. One policy for every path (`visibility_filter::node_is_visible`, shared with the REST
-    // graph reads); with the filter on, an anonymous caller sees public-only (fail closed).
-    let is_visible = |node: &visionclaw_domain::models::node::Node| -> bool {
-        !visibility_filter_on
-            || visionclaw_domain::utils::visibility_filter::node_is_visible(node, caller_pubkey)
-    };
+    // wire, through the same `visible_subgraph` the REST graph reads use. That one call also
+    // drops the hidden metadata rows and scrubs hidden page names out of the visible nodes'
+    // page-reference fields (re-review N1); with the filter on, an anonymous caller sees
+    // public-only (fail closed).
+    let view = visionclaw_domain::utils::visibility_filter::visible_subgraph(
+        graph_data,
+        caller_pubkey,
+        visibility_filter_on,
+    );
+    let graph_data: &visionclaw_domain::models::graph::GraphData = &view;
 
     let mut sorted_nodes: Vec<&visionclaw_domain::models::node::Node> =
-        graph_data.nodes.iter().filter(|n| is_visible(n)).collect();
+        graph_data.nodes.iter().collect();
 
     // Sort by quality_score descending
     sorted_nodes.sort_by(|a, b| {
