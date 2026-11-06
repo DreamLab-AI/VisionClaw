@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.33
+version: 0.1.34
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.34 (2026-11-06): live HP launch: graph and presence stay on the backend :4000 directly; Codescape is reached through `XR_CODESCAPE_WS=ws://10.10.10.2:3001` (nginx routes `/codescape/` only on :3001; the client appends `/codescape`, graph_scene.gd `_cs_base`). `~/restart-xr.sh` now defaults to that, to the per-commit snapshot `~/mce-xr/vc-<sha>/xr-client` and to Godot 4.8-beta2. nginx :3001 now upgrades `/ws/presence` too (verified 101), so the earlier 'does not proxy presence' note is retired. Legacy HP trees (`~/mce-xr/live`, `godot48`, older `vc-*`) were removed; the cited test reports are in `~/mce-xr/evidence-archive-2026-11-06.tar.gz`."
   - "0.1.33 (2026-11-06): ADR-2189 XR side built (headless GUT evidence only, no headset). The HUD tab bar is the seven sections of `data/ia.json` (the desktop's generated file, merged from feat/gv-menus dadcc5aa2) plus Fit, Legend and Explore; a rail picks a section's pages (two levels). The Graph tab is split across Layers, Encode and Look; the splat controls move to Layers; a System › Headset page adds dwell, haptics and Low-cost visuals; Encode › Labels adds the label budget and label text size; Fit restores the arrangement after a two-hand turn or scale; Edges ± now sets the share of each volume's edges; view preferences (including Reduce motion, Low-cost visuals and colour mode) persist in `xr_prefs.cfg`. The HUD type filter stays population scoping (removes), per ADR-2189 §5. Supersedes the 'XR side not built' note of feat/gv-menus' 0.1.32. HUD structure section amended; Invariants and verified_commit untouched."
   - "0.1.32 (2026-11-06): ADR-2188 D1-D5 (partial; headless GUT and Rust unit evidence only, no GL render, no headset). Overview tier: pixel-floored impostors, screen-width length-faded ribbons, the dropped-edge readout in the HUD header, a per-slot highlight mask in Rust under which the received nodeFilter greys out instead of removing (the type filter stays population scoping and removes, ADR-2189 §5), emphasis by colour, size and outline (no bloom), and a priority-ranked label budget of 8 + 4 pinned. New section 'Overview-first rendering (ADR-2188)'; the Desktop-parity filter sentence is amended. Invariants and verified_commit untouched."
   - "0.1.31 (2026-11-05): ADR-2178 (proposed, partial, staged): the merged splat space. A staged splat asset (manifest `stage {metresPerUnit, focus}`) can be entered at viewer scale with the ontology volume hanging between the start and the focus; the other volumes hide. Layout page Merge button and scale steps (`xr.merged_splat_scale`). New section only; Current State, Invariants and verified_commit untouched."
@@ -299,8 +300,7 @@ Backend resolution is env-overridable (`graph_scene.gd:65-71`,
 `_connect_from_env` at 1123): `XR_BACKEND_WS` (default `ws://localhost:4000`) is
 the base; two well-known paths are appended — graph stream `/wss`, presence
 `/ws/presence`. On the working desktop path the client runs on HP-Desktop and
-points at the LAN backend `ws://192.168.2.132:4000` **directly** — nginx `:3001`
-does not proxy `/ws/presence` (README run notes). "localhost:4000" is reached
+points at the LAN backend `ws://192.168.2.132:4000` **directly** (on the HP, `ws://10.10.10.2:4000`). nginx `:3001` now also upgrades `/ws/presence` (verified 2026-11-06), but it is the only route to Codescape, so the live launch sets `XR_CODESCAPE_WS=ws://10.10.10.2:3001` for Codescape alone. "localhost:4000" is reached
 over a reverse SSH tunnel from HP-Desktop to the backend host. The Rust
 `BinaryProtocolClient` owns the wire; GDScript only supplies URLs/credentials and
 pumps the inbox each frame (`graph_scene.gd:65-66`). The graph socket connects to
@@ -1312,7 +1312,7 @@ the current focus. Code nodes carry no flag bits; actors (agents and humans) car
 as agents. `0x34` acknowledgements pace the stream exactly as for the VisionClaw server.
 
 Launch from a shell on the HP host (SteamVR restart included; add `XR_SKIP_STEAMVR=1` to relaunch only the
-client): `XR_NEW_IDENTITY=1 XR_BACKEND_WS=ws://<host>:3001 XR_BACKEND_MODE=codescape ~/restart-xr.sh`.
+client): `XR_NEW_IDENTITY=1 XR_BACKEND_WS=ws://<host>:3001 XR_BACKEND_MODE=codescape ~/restart-xr.sh`. To keep the VisionClaw graph on `:4000` and run Codescape as a second volume, set only `XR_CODESCAPE_WS=ws://<host>:3001` (the HP's `~/restart-xr.sh` defaults to this since 2026-11-06).
 
 **Capability table (`scripts/backend_caps.gd`).** The two servers share a wire but not a route table.
 Codescape serves the graph stream, presence, voice, a read-only `GET /api/settings/physics` and
