@@ -43,6 +43,7 @@ running code reads back as truth, regardless of what legacy ADR prose claims.
 | Graph projection | Oxigraph named graphs | `oxigraph_ontology_repository.rs` (`GRAPH_KNOWLEDGE`) | Oxigraph transaction commit |
 | Ontology (asserted + inferred) | Oxigraph | `GRAPH_ONTOLOGY` / `GRAPH_ONTOLOGY_INFERRED` | Oxigraph transaction commit; inferred is derived, never primary |
 | Operational state | SQLite (WAL) | `data/{kpi,enrichment,settings,liveness}.sqlite3` | SQLite commit |
+| Graph shares (a snapshot of the creator's view, ADR-060) | SQLite share store + the share file | `data/shares.sqlite3` (`src/adapters/sqlite_share_repository.rs`), file under `data/shared/` | SQLite commit; the file is written first and removed if the row is not |
 | Vector / agent memory | RuVector (external Postgres) | `mcp__claude-flow__memory_*` → `ruvector-postgres:5432` | Embedding-pipeline insert |
 | Event journal / provenance | Oxigraph append-only | `GRAPH_PROVENANCE` (PROV-O reification), `oxigraph_ontology_repository.rs:55,641,2568` | Append; never mutated in place. Since VisionFlow ADR-2022 it also holds corpus history: each full sync appends assertion-versions for public class typing and class relations (`src/services/corpus_history.rs`) |
 | Audit evidence (RBAC/auth) | SQLite role store | `src/services/role_store.rs` | Role-store write |
@@ -54,8 +55,8 @@ The triple store is embedded Oxigraph (RocksDB backend, SPARQL 1.1); Neo4j is
 100% removed (legacy ADR-132, no `neo4rs` in tree). Named-graph layout is fixed
 in code: `GRAPH_ONTOLOGY`, `GRAPH_ONTOLOGY_INFERRED`, `GRAPH_KNOWLEDGE`,
 `GRAPH_AGENT`, `GRAPH_SHAPES`, `GRAPH_PROVENANCE`
-(`oxigraph_ontology_repository.rs:46-55`). Non-triple state lives in four
-SQLite databases in WAL mode inside the `visionclaw-data` Docker volume at
+(`oxigraph_ontology_repository.rs:46-55`). Non-triple state lives in five
+SQLite databases (the four below plus `shares.sqlite3`, which the backup does not cover) in WAL mode inside the `visionclaw-data` Docker volume at
 `/app/data` (`scripts/backup-sqlite.sh:10-16`).
 
 ### Conflict resolution per class
@@ -110,6 +111,21 @@ distributed transaction and no compensating-action framework in code.
   `:76`) is logged and the run continues (`:229`) — ADR-2069. **Oxigraph has NO
   point-in-time backup.** There is no cross-store consistent restore and no
   declared RPO/RTO.
+- **Graph shares persist, and hold the creator's private nodes.** A share is a file
+  of the creator's view at share time (`get_current_graph`, ADR-060), so it can carry
+  the creator's own private nodes. Until 2026-11-06 the share record lived in a map per
+  actix worker and vanished on restart, leaving the file orphaned under `data/shared/`;
+  share creation also always failed (the export file was looked up under the wrong
+  name). The record now lives in `data/shares.sqlite3`, one store for every worker,
+  built once (`src/app_state.rs:509-515`, `src/main.rs:979-1000`). Retention: a share
+  with `expires_in_hours` is answered 410 after expiry and its row and file are removed
+  at the next start-up (`remove_expired`); `ShareRequest::default` sets 7 days, but a
+  request may omit the expiry, and such a share is kept until its creator deletes it.
+  Only the recorded creator may delete (`delete_owned`). **Open:** no per-user erasure
+  path reaches shares, so erasing a user leaves the shares they created (rows carry
+  `creator_id`) and their files; and `scripts/backup-sqlite.sh` does not back up
+  `shares.sqlite3` or `data/shared/`, so a restore loses every share link (content
+  is not lost: a share is a copy).
 - **Credentials.** SOPS (legacy ADR-109, VisionClaw) was accepted 2026-05-09 but
   NEVER EXECUTED — `.env` is plaintext, no SOPS artifacts in tree. Open.
 - **Open-by-default posture is a compose choice, not a code default.** The code

@@ -308,6 +308,10 @@ pub struct AppState {
     // (data/kpi.sqlite3) and the compute engine over it. The store is fed by the
     // agent-event volume tap spawned in main.rs; the service backs /api/kpi/*.
     pub sqlite_kpi_repository: Arc<SqliteKpiRepository>,
+    /// Graph shares (`data/shares.sqlite3`), one store for every actix worker.
+    pub share_repository: Arc<crate::adapters::SqliteShareRepository>,
+    /// The data directory (`DATA_DIR`, default `./data`) every store above lives in.
+    pub data_dir: std::path::PathBuf,
     pub kpi_compute_service: Arc<crate::services::kpi_compute::KpiComputeService>,
 
     // Oxigraph graph repository — canonical knowledge graph store (ADR-11)
@@ -501,6 +505,14 @@ impl AppState {
             SqliteKpiRepository::open(&kpi_db_path)
                 .await
                 .map_err(|e| format!("Failed to open SQLite KPI store: {}", e))?,
+        );
+        // Graph shares: one durable store instead of a map per actix worker.
+        let share_repository = Arc::new(
+            crate::adapters::SqliteShareRepository::open(
+                &std::path::Path::new(&data_dir).join("shares.sqlite3"),
+            )
+            .await
+            .map_err(|e| format!("Failed to open SQLite share store: {}", e))?,
         );
         let kpi_compute_service = Arc::new(crate::services::kpi_compute::KpiComputeService::new(
             sqlite_kpi_repository.clone(),
@@ -1372,6 +1384,8 @@ impl AppState {
             acsp_client,
             liveness_harness,
             sqlite_kpi_repository,
+            share_repository,
+            data_dir: std::path::PathBuf::from(&data_dir),
             kpi_compute_service,
 
             graph_adapter,
@@ -1576,7 +1590,10 @@ impl AppState {
     }
 
     pub async fn get_api_keys(&self, pubkey: &str) -> ApiKeys {
-        self.get_nostr_user(pubkey).await.map(|user| user.api_keys).unwrap_or_default()
+        self.get_nostr_user(pubkey)
+            .await
+            .map(|user| user.api_keys)
+            .unwrap_or_default()
     }
 
     pub async fn get_nostr_user(&self, pubkey: &str) -> Option<NostrUser> {

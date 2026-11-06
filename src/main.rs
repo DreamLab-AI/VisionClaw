@@ -905,9 +905,11 @@ async fn main() -> std::io::Result<()> {
 
     // ADR-2170: the splat cache is re-hashed once at boot, off the reactor.
     let splat_store = web::Data::new(
-        tokio::task::spawn_blocking(visionclaw_server::handlers::splat_handler::open_store_from_env)
-            .await
-            .expect("splat store open task"),
+        tokio::task::spawn_blocking(
+            visionclaw_server::handlers::splat_handler::open_store_from_env,
+        )
+        .await
+        .expect("splat store open task"),
     );
 
     // Pre-initialise Solid pod state in the main async context (FsBackend::new
@@ -975,6 +977,29 @@ async fn main() -> std::io::Result<()> {
     // REC-4: likewise capture the KPI store handle for the agent-event volume
     // tap spawned below, before `app_state_data` moves into the closure.
     let tap_kpi_repo = app_state_data.sqlite_kpi_repository.clone();
+    // Graph shares: one handler for every worker, over the durable share store. Shares that
+    // expired while the server was down are removed with their files before the first request.
+    match app_state_data
+        .share_repository
+        .remove_expired(chrono::Utc::now())
+        .await
+    {
+        Ok(paths) => {
+            for path in &paths {
+                if let Err(e) = std::fs::remove_file(path) {
+                    warn!("main: failed to remove expired share file {}: {}", path, e);
+                }
+            }
+            if !paths.is_empty() {
+                info!("main: removed {} expired graph shares", paths.len());
+            }
+        }
+        Err(e) => warn!("main: expired-share sweep failed: {}", e),
+    }
+    let graph_export_data = web::Data::new(graph_export_handler::GraphExportHandler::new(
+        app_state_data.data_dir.clone(),
+        app_state_data.share_repository.clone(),
+    ));
     let server =
         HttpServer::new(move || {
             // CORS configuration with security-aware origin handling
@@ -1201,7 +1226,9 @@ async fn main() -> std::io::Result<()> {
                     .service(web::scope("/pages").configure(pages_handler::config))
                     .service(web::scope("/bots").configure(api_handler::bots::config))
                     .configure(bots_visualization_handler::configure_routes)
-                    .configure(graph_export_handler::configure_routes)
+                    .configure(|cfg| {
+                        graph_export_handler::configure_routes(cfg, graph_export_data.clone())
+                    })
 
                     // Ontology agent tools (MCP surface)
                     .configure(visionclaw_server::handlers::configure_ontology_agent_routes)

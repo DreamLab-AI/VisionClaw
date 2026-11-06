@@ -1,3 +1,4 @@
+use crate::adapters::sqlite_share_repository::{AccessClaim, SqliteShareRepository};
 use crate::middleware::RequireAuth;
 use crate::models::graph_export::*;
 use crate::services::graph_serialization::GraphSerializationService;
@@ -22,23 +23,24 @@ pub struct RateLimitState {
     pub hourly_count: u32,
 }
 
-type SharedGraphStorage = Arc<RwLock<HashMap<Uuid, SharedGraph>>>;
-
 type RateLimitStorage = Arc<RwLock<HashMap<String, RateLimitState>>>;
 
+/// The `/api/graph-export` state. Built once in `main` and shared by every actix worker, so a
+/// share and a rate-limit count are the same on every worker.
 pub struct GraphExportHandler {
     serialization_service: GraphSerializationService,
-    shared_graphs: SharedGraphStorage,
+    shares: Arc<SqliteShareRepository>,
     rate_limits: RateLimitStorage,
     daily_export_limit: u32,
     hourly_export_limit: u32,
 }
 
 impl GraphExportHandler {
-    pub fn new(storage_path: std::path::PathBuf) -> Self {
+    /// A handler over `storage_path` (export and share files) and the share store.
+    pub fn new(storage_path: std::path::PathBuf, shares: Arc<SqliteShareRepository>) -> Self {
         Self {
             serialization_service: GraphSerializationService::new(storage_path),
-            shared_graphs: Arc::new(RwLock::new(HashMap::new())),
+            shares,
             rate_limits: Arc::new(RwLock::new(HashMap::new())),
             daily_export_limit: 100,
             hourly_export_limit: 20,
@@ -193,14 +195,15 @@ pub async fn share_graph(
         )
         .await
     {
-        Ok((shared_graph, share_response)) => {
-            {
-                let mut shared_graphs = handler.shared_graphs.write().await;
-                shared_graphs.insert(shared_graph.id, shared_graph);
+        Ok((shared_graph, share_response)) => match handler.shares.insert(&shared_graph).await {
+            Ok(()) => ok_json!(share_response),
+            Err(e) => {
+                if let Err(rm) = std::fs::remove_file(&shared_graph.file_path) {
+                    log::warn!("Failed to remove unrecorded share file: {}", rm);
+                }
+                error_json!("Failed to record shared graph: {}", e)
             }
-
-            ok_json!(share_response)
-        }
+        },
         Err(e) => error_json!("Failed to create shared graph: {}", e),
     }
 }
@@ -217,14 +220,10 @@ pub async fn get_shared_graph(
         }
     };
 
-    let shared_graph = {
-        let shared_graphs = handler.shared_graphs.read().await;
-        match shared_graphs.get(&share_id) {
-            Some(graph) => graph.clone(),
-            None => {
-                return not_found!("Shared graph not found");
-            }
-        }
+    let shared_graph = match handler.shares.get(share_id).await {
+        Ok(Some(graph)) => graph,
+        Ok(None) => return not_found!("Shared graph not found"),
+        Err(e) => return error_json!("Failed to read share store: {}", e),
     };
 
     if shared_graph.is_expired() {
@@ -245,11 +244,13 @@ pub async fn get_shared_graph(
         return unauthorized!("Password required");
     }
 
-    {
-        let mut shared_graphs = handler.shared_graphs.write().await;
-        if let Some(graph) = shared_graphs.get_mut(&share_id) {
-            graph.increment_access();
+    match handler.shares.claim_access(share_id).await {
+        Ok(AccessClaim::Granted) => {}
+        Ok(AccessClaim::LimitReached) => {
+            return forbidden!("Access limit reached for this shared graph")
         }
+        Ok(AccessClaim::NotFound) => return not_found!("Shared graph not found"),
+        Err(e) => return error_json!("Failed to read share store: {}", e),
     }
 
     match std::fs::read(&shared_graph.file_path) {
@@ -288,16 +289,6 @@ pub async fn publish_graph(
     })))
 }
 
-/// Whether `caller` may delete `share`: only its recorded creator. An anonymous caller, any
-/// other caller, and a share with no recorded creator are refused (fail closed), and the
-/// refusal reads as "not found" so it does not confirm the share exists (review L1).
-pub(crate) fn may_delete_share(
-    share: &visionclaw_domain::models::graph_export::SharedGraph,
-    caller: Option<&str>,
-) -> bool {
-    matches!((share.creator_id.as_deref(), caller), (Some(owner), Some(c)) if owner == c)
-}
-
 pub async fn delete_shared_graph(
     handler: web::Data<GraphExportHandler>,
     path: web::Path<String>,
@@ -310,13 +301,13 @@ pub async fn delete_shared_graph(
         }
     };
 
-    let removed_graph = {
-        let mut shared_graphs = handler.shared_graphs.write().await;
-        let caller = caller.0.as_ref().map(|u| u.pubkey.as_str());
-        match shared_graphs.get(&share_id) {
-            Some(share) if may_delete_share(share, caller) => shared_graphs.remove(&share_id),
-            _ => None,
-        }
+    // Only the recorded creator may delete; anyone else, an anonymous caller and a share with
+    // no recorded creator get "not found", so the refusal does not confirm the share exists
+    // (review L1). The rule is the store's `delete_owned`.
+    let caller = caller.0.as_ref().map(|u| u.pubkey.as_str());
+    let removed_graph = match handler.shares.delete_owned(share_id, caller).await {
+        Ok(removed) => removed,
+        Err(e) => return error_json!("Failed to update share store: {}", e),
     };
 
     match removed_graph {
@@ -340,13 +331,14 @@ pub async fn get_export_stats() -> ActixResult<HttpResponse> {
     })))
 }
 
-pub fn configure_routes(cfg: &mut web::ServiceConfig) {
-    let handler = GraphExportHandler::new(std::path::PathBuf::from("data"));
+/// Mount `/graph-export`. `handler` is built once, before `HttpServer::new`, and cloned into
+/// every worker: a handler built here would be per worker (the share-loss bug).
+pub fn configure_routes(cfg: &mut web::ServiceConfig, handler: web::Data<GraphExportHandler>) {
     // Note: Using /graph-export to avoid conflict with /graph scope from api_handler/graph/mod.rs
     // Routes become /api/graph-export/*
     cfg.service(
         web::scope("/graph-export")
-            .app_data(web::Data::new(handler))
+            .app_data(handler)
             .wrap(RequireAuth::authenticated())
             .route("", web::post().to(export_graph))
             .route("/share", web::post().to(share_graph))
@@ -360,13 +352,23 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapters::SqliteShareRepository;
+    use actix_web::body::MessageBody;
+    use visionclaw_domain::models::graph_export::{NewSharedGraph, SharedGraph};
 
-    use tempfile::tempdir;
+    async fn store(dir: &std::path::Path) -> Arc<SqliteShareRepository> {
+        Arc::new(
+            SqliteShareRepository::open(&dir.join("shares.sqlite3"))
+                .await
+                .unwrap(),
+        )
+    }
 
     #[actix_rt::test]
     async fn test_rate_limiting() -> Result<()> {
-        let temp_dir = tempdir()?;
-        let handler = GraphExportHandler::new(temp_dir.path().to_path_buf());
+        let temp_dir = tempfile::tempdir()?;
+        let handler =
+            GraphExportHandler::new(temp_dir.path().to_path_buf(), store(temp_dir.path()).await);
 
         let client_ip = "127.0.0.1";
 
@@ -379,58 +381,87 @@ mod tests {
         Ok(())
     }
 
-    // Test disabled - AppState initialization requires full context
-    // #[actix_rt::test]
-    // async fn test_export_api_endpoint() {
-    //     let temp_dir = tempdir().unwrap();
-    //     let app_state = web::Data::new(AppState::default());
-    //
-    //     let app =
-    //         test::init_service(App::new().app_data(app_state).configure(configure_routes)).await;
-    //
-    //     let export_request = ExportRequest {
-    //         format: ExportFormat::Json,
-    //         ..Default::default()
-    //     };
-    //
-    //     let req = test::TestRequest::post()
-    //         .uri("/api/graph/export")
-    //         .set_json(&export_request)
-    //         .to_request();
-    //
-    //     let resp = test::call_service(&app, req).await;
-    //     assert!(resp.status().is_success() || resp.status().is_server_error());
-    // }
-}
-
-#[cfg(test)]
-mod share_owner_tests {
-    use super::may_delete_share;
-    use visionclaw_domain::models::graph_export::ExportFormat;
-    use visionclaw_domain::models::graph_export::{NewSharedGraph, SharedGraph};
-
-    fn share(creator: Option<&str>) -> SharedGraph {
+    fn share_of(file: &std::path::Path) -> SharedGraph {
         SharedGraph::new(NewSharedGraph {
             title: "t".into(),
             description: None,
-            creator_id: creator.map(str::to_string),
-            file_path: "/tmp/x".into(),
-            file_size: 0,
-            compressed: true,
+            creator_id: Some("a".into()),
+            file_path: file.to_string_lossy().into_owned(),
+            file_size: 2,
+            compressed: false,
             original_format: ExportFormat::Json,
             node_count: 0,
             edge_count: 0,
         })
     }
 
-    #[test]
-    fn only_the_creator_may_delete_a_share() {
-        assert!(may_delete_share(&share(Some("a")), Some("a")));
-        assert!(!may_delete_share(&share(Some("a")), Some("b")));
-        assert!(!may_delete_share(&share(Some("a")), None));
-        assert!(
-            !may_delete_share(&share(None), Some("a")),
-            "an unattributed share is nobody's to delete"
+    async fn fetch(handler: &web::Data<GraphExportHandler>, id: Uuid) -> HttpResponse {
+        get_shared_graph(
+            handler.clone(),
+            web::Path::from(id.to_string()),
+            web::Query(HashMap::new()),
+        )
+        .await
+        .unwrap()
+    }
+
+    #[actix_rt::test]
+    async fn a_share_made_on_one_worker_is_found_on_another_and_after_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("s.json");
+        std::fs::write(&file, b"{}").unwrap();
+        let share = share_of(&file);
+        let id = share.id;
+
+        // `main` builds one handler and every worker clones the same `web::Data`.
+        let built_once = web::Data::new(GraphExportHandler::new(
+            dir.path().to_path_buf(),
+            store(dir.path()).await,
+        ));
+        let worker_a = built_once.clone();
+        let worker_b = built_once.clone();
+        worker_a.shares.insert(&share).await.unwrap();
+        let resp = fetch(&worker_b, id).await;
+        assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
+        assert_eq!(resp.into_body().try_into_bytes().unwrap().as_ref(), b"{}");
+        drop((built_once, worker_a, worker_b));
+
+        // A restart opens the same store file.
+        let restarted = web::Data::new(GraphExportHandler::new(
+            dir.path().to_path_buf(),
+            store(dir.path()).await,
+        ));
+        assert_eq!(
+            fetch(&restarted, id).await.status(),
+            actix_web::http::StatusCode::OK
         );
+        assert_eq!(
+            restarted
+                .shares
+                .get(id)
+                .await
+                .unwrap()
+                .unwrap()
+                .access_count,
+            2,
+            "both reads were counted in the one store"
+        );
+    }
+
+    #[actix_rt::test]
+    async fn a_share_past_its_access_limit_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("s.json");
+        std::fs::write(&file, b"{}").unwrap();
+        let mut share = share_of(&file);
+        share.max_access_count = Some(1);
+        let handler = web::Data::new(GraphExportHandler::new(
+            dir.path().to_path_buf(),
+            store(dir.path()).await,
+        ));
+        handler.shares.insert(&share).await.unwrap();
+        assert_eq!(fetch(&handler, share.id).await.status(), 200);
+        assert_eq!(fetch(&handler, share.id).await.status(), 403);
+        assert_eq!(fetch(&handler, Uuid::new_v4()).await.status(), 404);
     }
 }

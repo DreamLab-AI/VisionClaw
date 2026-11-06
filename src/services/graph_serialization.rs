@@ -31,6 +31,18 @@ impl GraphSerializationService {
         graph: &GraphData,
         request: &ExportRequest,
     ) -> Result<ExportResponse> {
+        self.write_export(graph, request)
+            .map(|(response, _)| response)
+    }
+
+    /// Write one export file and return its response with the path it was written to.
+    /// `create_shared_graph` moves that file, so it must not rebuild the name: it did, from
+    /// `expires_at` instead of the write time, and every share failed with "not found".
+    fn write_export(
+        &self,
+        graph: &GraphData,
+        request: &ExportRequest,
+    ) -> Result<(ExportResponse, PathBuf)> {
         let export_id = Uuid::new_v4().to_string();
         let filename = format!(
             "{}_{}.{}",
@@ -73,14 +85,17 @@ impl GraphSerializationService {
         let download_url = format!("/api/graph/download/{}", export_id);
         let expires_at = time::now() + chrono::Duration::hours(24);
 
-        Ok(ExportResponse {
-            export_id,
-            format: request.format.clone(),
-            file_size,
-            compressed,
-            download_url,
-            expires_at,
-        })
+        Ok((
+            ExportResponse {
+                export_id,
+                format: request.format.clone(),
+                file_size,
+                compressed,
+                download_url,
+                expires_at,
+            },
+            file_path,
+        ))
     }
 
     pub async fn create_shared_graph(
@@ -97,7 +112,7 @@ impl GraphSerializationService {
             custom_attributes: None,
         };
 
-        let export_response = self.export_graph(graph, &export_request).await?;
+        let (export_response, export_path) = self.write_export(graph, &export_request)?;
 
         let share_id = Uuid::new_v4();
         let shared_filename = format!("{}.{}", share_id, request.export_format);
@@ -107,12 +122,6 @@ impl GraphSerializationService {
             fs::create_dir_all(parent)?;
         }
 
-        let export_path = self.storage_path.join("exports").join(format!(
-            "{}_{}.{}",
-            export_response.export_id,
-            export_response.expires_at.timestamp(),
-            export_response.format
-        ));
         fs::rename(export_path, &shared_path)?;
 
         let mut shared_graph = SharedGraph::new(NewSharedGraph {
@@ -140,7 +149,7 @@ impl GraphSerializationService {
             shared_graph.password_hash = Some(bcrypt::hash(password, bcrypt::DEFAULT_COST)?);
         }
 
-        let share_url = format!("/api/graph/shared/{}", share_id);
+        let share_url = format!("/api/graph-export/shared/{}", share_id);
         let share_response = ShareResponse {
             share_id,
             share_url,
@@ -358,6 +367,21 @@ mod tests {
     use super::*;
 
     use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn the_share_url_is_the_route_that_serves_it() {
+        let dir = tempdir().unwrap();
+        let service = GraphSerializationService::new(dir.path().to_path_buf());
+        let (share, response) = service
+            .create_shared_graph(&GraphData::new(), &ShareRequest::default(), None)
+            .await
+            .unwrap();
+        // `graph_export_handler::configure_routes` mounts `/graph-export/shared/{id}` under `/api`.
+        assert_eq!(
+            response.share_url,
+            format!("/api/graph-export/shared/{}", share.id)
+        );
+    }
 
     #[tokio::test]
     async fn test_json_serialization() {
