@@ -79,9 +79,9 @@ export const REPLACED_PATHS: readonly string[] = [
  *    and ontology modes, which each have their own colour; it becomes the agent
  *    mode's colour, so every graph mode has exactly one (RENAMED_PATHS moves a
  *    stored value across);
- *  - Show Clusters / Show Communities coloured nothing (GemNodes colours by
- *    cluster or community only through the colour scheme); colour scheme =
- *    Cluster / Community is the one control.
+ *  - Show Clusters / Show Communities coloured nothing; Colour by = Cluster /
+ *    Community (graphView.explore.colorBy, ADR-2184) is the control. The colour
+ *    scheme's cluster/community options still exist but skip knowledge nodes.
  */
 export const MERGED_PATHS: readonly string[] = [
   `${K}edges.color`,

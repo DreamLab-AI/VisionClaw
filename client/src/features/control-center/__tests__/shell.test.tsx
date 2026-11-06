@@ -209,4 +209,33 @@ describe('ControlCenter shell', () => {
     expect(screen.getByTestId('dock-legend')).toBeInTheDocument();
   });
 
+
+  it('Esc inside the drawer closes only the drawer tab, once, and leaves the settings panel open', () => {
+    render(<ControlCenter showStats={false} enableBloom={false} />);
+    act(() => {
+      useControlCenterUI.getState().openGroup('encode');
+      useControlCenterUI.getState().openDrawer('explore');
+    });
+    act(() => {
+      window.dispatchEvent(new CustomEvent('visionclaw:node-selected', {
+        detail: { nodeId: '1', label: 'Loom', connectionCount: 0, neighbors: [] },
+      }));
+    });
+    expect(useControlCenterUI.getState().drawerTab).toBe('node');
+    const nodeTab = screen.getByRole('tab', { name: 'Node' });
+    nodeTab.focus();
+    act(() => {
+      fireEvent.keyDown(nodeTab, { key: 'Escape' });
+    });
+    // node tab closed back to explore — not closed twice, panel untouched
+    expect(useControlCenterUI.getState().drawerTab).toBe('explore');
+    expect(useControlCenterUI.getState().openPanel).toBe(true);
+    // Esc with focus outside the drawer still closes the settings panel first
+    act(() => {
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+    });
+    expect(useControlCenterUI.getState().openPanel).toBe(false);
+    expect(useControlCenterUI.getState().drawerTab).toBe('explore');
+  });
 });
+

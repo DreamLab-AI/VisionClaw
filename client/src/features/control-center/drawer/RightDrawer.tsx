@@ -214,6 +214,8 @@ export const RightDrawer: React.FC = () => {
       ref={rootRef}
       data-testid="right-drawer"
       data-drawer-tab={tab ?? ''}
+      // Fit (ADR-2180) frames the graph in the viewport the open drawer leaves free.
+      data-scene-occluder={open ? '' : undefined}
       hidden={!open}
       // inert on the closed drawer: hidden already removes it from the a11y
       // tree; inert also guards the mounted-but-hidden panels' focusables.
