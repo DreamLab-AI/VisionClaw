@@ -18,8 +18,9 @@ import { system } from './groups/system';
 import { agents } from './groups/agents';
 import { decisions } from './groups/decisions';
 import { provenance } from './groups/provenance';
+import { graphView } from './groups/graphView';
 
-/** The eleven semantic groups, in rail order (hotkeys 1..11). */
+/** The twelve semantic groups, in rail order (hotkeys 1..12). */
 export const GROUP_DATA: GroupData[] = [
   motion,
   look,
@@ -32,6 +33,7 @@ export const GROUP_DATA: GroupData[] = [
   agents,
   decisions,
   provenance,
+  graphView,
 ];
 
 /** The two bespoke panels below the eight groups in the left rail. */

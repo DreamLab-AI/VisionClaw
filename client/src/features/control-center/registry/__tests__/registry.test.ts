@@ -21,6 +21,7 @@ const EXPECTED_GROUP_COUNTS: Record<string, number> = {
   agents: 45,
   decisions: 2,
   provenance: 4,
+  graphView: 19,
 };
 
 /**
@@ -94,6 +95,19 @@ const SEMANTIC_PATHS: string[] = (semanticDoc as { fields: { path: string }[] })
   (f) => `visualisation.graphs.knowledge.physics.semantic.${f.path}`,
 );
 
+/**
+ * The graph-view overview contract (ADR-2179..2186). Post-dates the WP5 baseline;
+ * every path routes to the opaque `visual` bucket. Asserted in (c7).
+ */
+const GRAPH_VIEW_PATHS: string[] = [
+  'fitTarget',
+  'overviewEdges.enabled', 'overviewEdges.widthPx', 'overviewEdges.maxWidthPx', 'overviewEdges.fadeNearPx',
+  'overviewEdges.fadeFarPx', 'overviewEdges.minOpacity', 'overviewEdges.glassAtCloseZoom',
+  'nodes.spriteSizePx', 'nodes.gemLodDistance', 'nodes.bloomScope',
+  'explore.colorBy', 'explore.sizeBy', 'explore.showLegend', 'explore.greyoutOpacity', 'explore.greyoutMix',
+  'labels.budget', 'labels.selectedBudget', 'labels.fontPx',
+].map((p) => `visualisation.graphView.${p}`);
+
 const RETIRED_PATHS: string[] = [
   'visualisation.graphs.knowledge.physics.graphSeparationX',
   'visualisation.graphs.knowledge.tweening.lerpBase',   // replaced by tweening.responseMs (a time constant, lower = faster)
@@ -110,7 +124,7 @@ const RETIRED_PATHS: string[] = [
 const TOTAL_FIELDS =
   168 - RETIRED_PATHS.length + EXPECTED_GROUP_COUNTS.agents + EXPECTED_GROUP_COUNTS.decisions + EXPECTED_GROUP_COUNTS.provenance
   + WAVE1_LAYOUT_PATHS.length + MEMORY_EXPLORER_PATHS.length + NETWORK_PATHS.length + SEMANTIC_PATHS.length + TWEENING_PATHS.length
-  + LAYOUT_MODE_PATHS.length;
+  + LAYOUT_MODE_PATHS.length + GRAPH_VIEW_PATHS.length;
 
 /**
  * Frozen client-only paths introduced by the W-G phase-1 Decisions/Provenance
@@ -216,9 +230,9 @@ describe('control-center settings registry', () => {
     expect(actual).toEqual(EXPECTED_GROUP_COUNTS);
     // group order realises hotkeys 1..11 (decisions/provenance are the new W-G groups)
     expect(REGISTRY.map((g) => g.id)).toEqual([
-      'motion', 'look', 'labels', 'quality', 'atmosphere', 'xr', 'ai', 'system', 'agents', 'decisions', 'provenance',
+      'motion', 'look', 'labels', 'quality', 'atmosphere', 'xr', 'ai', 'system', 'agents', 'decisions', 'provenance', 'graphView',
     ]);
-    expect(REGISTRY.map((g) => g.hotkey)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11']);
+    expect(REGISTRY.map((g) => g.hotkey)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']);
   });
 
   it('(c) has ZERO path drift vs legacy unifiedSettingsConfig for the migrated groups', () => {
@@ -231,12 +245,13 @@ describe('control-center settings registry', () => {
     const semanticSet = new Set(SEMANTIC_PATHS);
     const tweeningSet = new Set(TWEENING_PATHS);
     const layoutModeSet = new Set(LAYOUT_MODE_PATHS);
+    const graphViewSet = new Set(GRAPH_VIEW_PATHS);
     // Compare only the pre-existing (migrated) groups against the frozen baseline;
     // the Agents group (c2), the W-G groups (c3) and the Wave-1 layout paths (c4)
     // post-date WP5 and are asserted independently.
     const migratedPaths = ALL_PATHS.filter(
       (p) =>
-        !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p) && !networkSet.has(p) && !semanticSet.has(p) && !tweeningSet.has(p) && !layoutModeSet.has(p),
+        !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p) && !networkSet.has(p) && !semanticSet.has(p) && !tweeningSet.has(p) && !layoutModeSet.has(p) && !graphViewSet.has(p),
     );
     const migratedSet = new Set(migratedPaths);
 
@@ -336,6 +351,30 @@ describe('control-center settings registry', () => {
     for (const p of MEMORY_EXPLORER_PATHS) expect(atmospherePaths.has(p)).toBe(true);
     expect(MEMORY_EXPLORER_PATHS.filter((p) => legacySet.has(p))).toEqual([]);
     for (const p of MEMORY_EXPLORER_PATHS) expect(serverBucketFor(p)).toBe('visual');
+  });
+
+  it('(c7) the graph-view paths are exactly the Graph View group, disjoint from legacy, on the visual bucket', async () => {
+    const legacySet = new Set(legacyPaths());
+    const group = REGISTRY.find((g) => g.id === 'graphView')!;
+    const paths = group.fields.map((f) => f.path).filter((p): p is string => Boolean(p));
+    expect(new Set(paths)).toEqual(new Set(GRAPH_VIEW_PATHS));
+    expect(paths.length).toBe(group.fields.length);
+    expect(GRAPH_VIEW_PATHS.filter((p) => legacySet.has(p))).toEqual([]);
+    for (const p of GRAPH_VIEW_PATHS) expect(serverBucketFor(p)).toBe('visual');
+    // every slider default sits on its step grid, so first touch never snaps it
+    const { DEFAULT_GRAPH_VIEW } = await import('../../../../api/settings/defaults');
+    for (const f of group.fields) {
+      const key = f.path!.replace('visualisation.graphView.', '');
+      const value = key.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown>)[k], DEFAULT_GRAPH_VIEW);
+      expect(value, key).toBeDefined();
+      if (f.type === 'slider') {
+        const steps = ((value as number) - f.min!) / f.step!;
+        expect(Math.abs(Math.round(steps) - steps), key).toBeLessThan(1e-6);
+        expect(value as number).toBeGreaterThanOrEqual(f.min!);
+        expect(value as number).toBeLessThanOrEqual(f.max!);
+      }
+      if (f.type === 'select') expect(f.options, key).toContain(value);
+    }
   });
 
   it('(c6b) the stream settings sit in System > Network on the physics bucket with the validated ranges', () => {

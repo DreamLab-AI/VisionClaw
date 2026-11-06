@@ -233,6 +233,51 @@ export const DEFAULT_EMBEDDING_CLOUD = {
   cinematic: false,
 };
 
+// ADR-2179..2186 graph-view overview. Client-only, persisted in the opaque
+// `visual` blob under `graphView`; the render/explore/menu lanes consume it.
+export const DEFAULT_GRAPH_VIEW = {
+  // ADR-2180 D1: the default fit frames the knowledge body only.
+  fitTarget: 'knowledge' as 'knowledge' | 'graphs' | 'scene',
+  overviewEdges: {
+    enabled: true,
+    widthPx: 1,
+    maxWidthPx: 3,
+    // ADR-2181 D2: cosmos.gl's linkVisibilityDistanceRange [50, 150] and
+    // linkVisibilityMinTransparency 0.25.
+    fadeNearPx: 50,
+    fadeFarPx: 150,
+    minOpacity: 0.25,
+    capacity: 'auto' as 'auto' | number,
+    glassAtCloseZoom: true,
+  },
+  nodes: {
+    spriteSizePx: 4,
+    // ADR-2182 D2. The focus-body fit (ADR-2180) of one graph of robust radius
+    // LIVE_GRAPH_RADIUS = 152 (triLayout.ts) at fov 75° sits at about
+    // 152 / tan(37.5°) ≈ 200 world units. A sphere of radius r at distance d
+    // covers ≈ 704·r/d px on a 1080 px viewport. The smallest knowledge gem is
+    // computeNodeScale ≈ 2.5 × nodeSize 0.4 = 1.0 world unit, so it reaches 8 px
+    // (twice the 4 px sprite, where gem facets start to read) at d ≈ 88. At 90
+    // the fit frame is all sprites and every gem drawn is at least ~8 px.
+    gemLodDistance: 90,
+    // ADR-2182 D4: glow only on selected / hovered / search hits.
+    bloomScope: 'emphasis' as 'emphasis' | 'scene' | 'off',
+  },
+  explore: {
+    colorBy: 'domain',
+    sizeBy: 'none',
+    showLegend: true,
+    // ADR-2183 D3: cosmos.gl linkGreyoutOpacity 0.1.
+    greyoutOpacity: 0.1,
+    greyoutMix: 0.65,
+  },
+  labels: {
+    budget: 30,
+    selectedBudget: 100,
+    fontPx: 13,
+  },
+};
+
 export const DEFAULT_ANIMATION_SETTINGS = {
   enableMotionBlur: false,
   enableNodeAnimations: true,

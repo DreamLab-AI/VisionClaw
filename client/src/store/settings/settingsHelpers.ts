@@ -215,6 +215,9 @@ export function getSectionPaths(section: string): string[] {
     'clusterHulls': [
       'visualisation.clusterHulls'
     ],
+    'graphView': [
+      'visualisation.graphView'
+    ],
     'hologram': [
       'visualisation.hologram'
     ],
@@ -313,6 +316,9 @@ export function getAllAvailableSettingsPaths(): string[] {
 
     // Cluster hulls
     'visualisation.clusterHulls',
+
+    // Graph-view overview (ADR-2179..2186)
+    'visualisation.graphView',
 
     // Animations
     'visualisation.animations',

@@ -12,6 +12,7 @@ import {
   DEFAULT_SCENE_EFFECTS,
   DEFAULT_CLUSTER_HULLS,
   DEFAULT_EMBEDDING_CLOUD,
+  DEFAULT_GRAPH_VIEW,
   DEFAULT_ANIMATION_SETTINGS,
   DEFAULT_INTERACTION_SETTINGS,
   DEFAULT_NODES_SETTINGS,
@@ -64,6 +65,7 @@ export function transformApiToClientSettings(
       sceneEffects: deepMergeVisual(DEFAULT_SCENE_EFFECTS, v.sceneEffects || {}),
       clusterHulls: deepMergeVisual(DEFAULT_CLUSTER_HULLS, v.clusterHulls || {}),
       embeddingCloud: deepMergeVisual(DEFAULT_EMBEDDING_CLOUD, v.embeddingCloud || {}),
+      graphView: deepMergeVisual(DEFAULT_GRAPH_VIEW, v.graphView || {}),
       animations: deepMergeVisual(DEFAULT_ANIMATION_SETTINGS, v.animations || {}),
       interaction: deepMergeVisual(DEFAULT_INTERACTION_SETTINGS, v.interaction || {}),
       graphs: {

@@ -587,6 +587,55 @@ export interface EmbeddingCloudSettings {
   cinematic?: boolean;           // show the cinematic director / beat sync / video export, default false
 }
 
+/**
+ * Graph-view overview contract (ADR-2179..2186), under `visualisation.graphView`.
+ * Client-only: persisted in the server's opaque `visual` blob, no Rust type.
+ */
+export interface GraphViewSettings {
+  /** ADR-2180 fit scope: focus body, both graphs, or the whole scene (today's ADR-2135 fit). */
+  fitTarget: 'knowledge' | 'graphs' | 'scene';
+  /** ADR-2181 screen-space overview edges. */
+  overviewEdges: {
+    enabled: boolean;
+    widthPx: number;
+    maxWidthPx: number;
+    /** On-screen length (px) below which an edge is fully opaque. */
+    fadeNearPx: number;
+    /** On-screen length (px) at which an edge reaches minOpacity. */
+    fadeFarPx: number;
+    minOpacity: number;
+    /** 'auto' = edge count rounded up to a power of two; a number is a GPU budget. See resolveOverviewEdgeCapacity. */
+    capacity: 'auto' | number;
+    /** Keep glass tubes as the close-zoom / selection LOD. */
+    glassAtCloseZoom: boolean;
+  };
+  /** ADR-2182 sprite overview and gem LOD. */
+  nodes: {
+    spriteSizePx: number;
+    /** Camera distance (world units) inside which a node draws as a gem. */
+    gemLodDistance: number;
+    bloomScope: 'emphasis' | 'scene' | 'off';
+  };
+  /** ADR-2183/2184 encoding and grey-out. */
+  explore: {
+    /** Node-table column name driving colour (tableSchema.ts). */
+    colorBy: string;
+    /** Numeric column driving size, or 'none' for today's sizing. */
+    sizeBy: string;
+    showLegend: boolean;
+    /** Alpha of a greyed-out edge. */
+    greyoutOpacity: number;
+    /** How far a greyed-out node's colour mixes toward the background (0..1). */
+    greyoutMix: number;
+  };
+  /** ADR-2186 label budget. */
+  labels: {
+    budget: number;
+    selectedBudget: number;
+    fontPx: number;
+  };
+}
+
 export interface VisualisationSettings {
 
   rendering: RenderingSettings;
@@ -608,6 +657,9 @@ export interface VisualisationSettings {
 
   // Embedding cloud layer (PCA-projected RuVector vector embeddings)
   embeddingCloud?: EmbeddingCloudSettings;
+
+  // Graph-view overview contract (ADR-2179..2186)
+  graphView?: GraphViewSettings;
 
   // Graph-type-specific visual settings
   graphTypeVisuals?: GraphTypeVisualsSettings;
