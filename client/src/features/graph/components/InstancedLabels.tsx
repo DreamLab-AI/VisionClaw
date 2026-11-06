@@ -18,18 +18,43 @@ import { useSettingsStore } from '../../../store/settingsStore';
 import type { GraphViewSettings } from '../../settings/config/settings';
 import { DEFAULT_GRAPH_VIEW } from '../../../api/settings/defaults';
 import { LabelBudgetRunner, worldPerPx } from '../overview/labelRunner';
+import { clusterLabelText } from '../overview/clusterLabels';
 import { glyphCapacityFor, type LabelBudgets } from '../overview/labelBudget';
 
 /** ADR-2186 label settings, defaults under the stored values. */
-function useLabelBudgets(): LabelBudgets & { fontPx: number } {
+function useLabelBudgets(): LabelBudgets & { fontPx: number; clusterMinDistance: number } {
   const l = useSettingsStore(s => s.get<GraphViewSettings['labels']>('visualisation.graphView.labels'));
+  // ADR-2186 D2: cluster labels at overview zoom = beyond the gem LOD distance.
+  const lod = useSettingsStore(s => s.get<number>('visualisation.graphView.nodes.gemLodDistance'));
   const d = DEFAULT_GRAPH_VIEW.labels;
+  const clusterMinDistance = lod ?? DEFAULT_GRAPH_VIEW.nodes.gemLodDistance;
   return React.useMemo(() => ({
     budget: l?.budget ?? d.budget,
     dynamicBudget: l?.dynamicBudget ?? d.dynamicBudget,
     selectedBudget: l?.selectedBudget ?? d.selectedBudget,
     fontPx: l?.fontPx ?? d.fontPx,
-  }), [l?.budget, l?.dynamicBudget, l?.selectedBudget, l?.fontPx, d.budget, d.dynamicBudget, d.selectedBudget, d.fontPx]);
+    clusterMinDistance,
+  }), [l?.budget, l?.dynamicBudget, l?.selectedBudget, l?.fontPx, d.budget, d.dynamicBudget, d.selectedBudget, d.fontPx, clusterMinDistance]);
+}
+
+/** Cluster labels: a touch larger than node titles, a cool tint (ADR-2186 D2). */
+const CLUSTER_FONT_SCALE = 1.25;
+const CLUSTER_LABEL_COLOR = '#9fd3ff';
+
+/** The cluster labels of the runner's last selection, as label lines + world centroid. */
+function forEachClusterLabel(
+  runner: LabelBudgetRunner, nodes: readonly GraphNode[], fontSize: number,
+  fn: (line: LabelLine, x: number, y: number, z: number, sx: number, sy: number) => void,
+): void {
+  const sel = runner.selection;
+  const c = runner.clusters;
+  for (let k = 0; k < sel.clusterCount; k++) {
+    const j = sel.clusters[k];
+    const top = nodes[c.top[j]];
+    const name = top ? String(top.label || top.id) : `Cluster ${c.id[j]}`;
+    fn({ text: clusterLabelText(name, c.members[j]), color: CLUSTER_LABEL_COLOR, fontSize: fontSize * CLUSTER_FONT_SCALE },
+      c.x[j], c.y[j], c.z[j], c.sx[j], c.sy[j]);
+  }
 }
 
 /** Font size factor of the title line relative to the metadata lines' base. */
@@ -375,7 +400,7 @@ const InstancedLabelsWebGPU: React.FC<WebGPUProps> = ({
 
     // ADR-2186: the budgeted, priority-ranked selection (shared with WebGL).
     const runner = runnerRef.current;
-    const sel = runner.run(now, nodes, nodeIdToIndexMap, connectionCountMap, rawPositions, camera, size, budgets, budgets.fontPx);
+    const sel = runner.run(now, nodes, nodeIdToIndexMap, connectionCountMap, rawPositions, camera, size, budgets, budgets.fontPx, budgets.clusterMinDistance);
 
     // Pass 1: the selected labels plus their node-centre occlusion discs.
     const candidates: WebGPULabel[] = [];
@@ -430,6 +455,11 @@ const InstancedLabelsWebGPU: React.FC<WebGPUProps> = ({
     for (let i = 0; i < candidates.length; i++) {
       if (!occMask[i]) labels.push(candidates[i]);
     }
+
+    // ADR-2186 D2: cluster labels at their centroids (no node to occlude them)
+    forEachClusterLabel(runner, nodes, fontSize, (line, _x, _y, _z, sx, sy) => {
+      labels.push({ screenX: sx, screenY: sy, lines: [line], opacity: 1 });
+    });
 
     webGPULabelsRef.current = labels;
     setWebGPULabels(labels);
@@ -724,7 +754,7 @@ const InstancedLabelsGlyph: React.FC<GlyphProps> = ({
     // dynamic tiers, greyed nodes excluded, screen collisions removed) —
     // the same selection the WebGPU path draws.
     const runner = runnerRef.current;
-    const sel = runner.run(now, nodes, nodeIdToIndexMap, connectionCountMap, rawPositionsForLayout, camera, size, budgets, budgets.fontPx);
+    const sel = runner.run(now, nodes, nodeIdToIndexMap, connectionCountMap, rawPositionsForLayout, camera, size, budgets, budgets.fontPx, budgets.clusterMinDistance);
 
     for (let k = 0; k < sel.count; k++) {
       const nodeIdx = sel.nodes[k];
@@ -787,6 +817,25 @@ const InstancedLabelsGlyph: React.FC<GlyphProps> = ({
         labelOffsetY,
       });
     }
+
+    // ADR-2186 D2: cluster labels at their centroids, sized in px at their depth.
+    // Not position-patched per frame (no single node): they refresh with the
+    // selection at the label cadence.
+    forEachClusterLabel(runner, nodes, 1, (line, cx, cy, cz) => {
+      if (glyphIdx >= glyphCap - 200) return;
+      _tempVec3.set(cx, cy, cz);
+      const fs = budgets.fontPx * worldPerPx(camera, _tempVec3.distanceTo(camera.position), size.height);
+      const glyphStart = glyphIdx;
+      const glyphCount = layoutTextInline(
+        [{ ...line, fontSize: line.fontSize * fs }], atlas, maxWidth,
+        localOffArr, scaleArr, uvRectArr, colorArr, opacityArr, labelPosArr,
+        cx, cy, cz, 1, glyphIdx, glyphCap,
+        _tempColor as unknown as { r: number; g: number; b: number; set(c: string): void },
+      );
+      if (glyphCount === 0) return;
+      glyphIdx += glyphCount;
+      newNodeMap.push({ nodeId: `cluster:${line.text}`, physicsIndex: -1, glyphStart, glyphCount, labelOffsetY: 0 });
+    });
 
     nodeGlyphMapRef.current = newNodeMap;
 

@@ -4,8 +4,11 @@
  * Labels are chosen by importance, not proximity, in three tiers:
  *   1. selection tier (`selectedBudget`): SELECTED and HOVERED nodes always,
  *      then SEARCH_HIT, then FOCUS_NEIGHBOUR nodes by priority;
+ *   1b. cluster labels (ADR-2186 D2, clusterLabels.ts): the largest server
+ *      clusters named at their centroids at overview zoom, outranking node
+ *      labels; at most CLUSTER_LABEL_MAX, taken out of `budget`;
  *   2. overview tier (`budget`): the top-`budget` nodes of the global priority
- *      ranking, wherever they are, drawn when on screen;
+ *      ranking (less the cluster labels), wherever they are, drawn when on screen;
  *   3. dynamic tier (`dynamicBudget`): the most important on-screen nodes not
  *      already labelled (the viewport's own top nodes once zoomed in).
  * Greyed-out nodes (ADR-2183) never get a label. Except for selected and
@@ -27,6 +30,7 @@ import {
   highlightLevel,
 } from '../state/highlightMask';
 import { ANALYTICS_STRIDE, ANALYTICS_CENTRALITY_OFFSET } from '../../analytics/store/nodeAnalyticsStore';
+import { CLUSTER_LABEL_MAX } from './clusterLabels';
 
 /** Label selection cadence (ADR-2186 D5). */
 export const LABEL_REFRESH_MS = 250;
@@ -99,6 +103,12 @@ export interface LabelFrame {
   /** Collision cell size, CSS px. */
   cellW: number;
   cellH: number;
+  /**
+   * ADR-2186 D2: ranked cluster label candidates (clusterLabels.ts), screen
+   * px. Placed after the selection tier and before the node tiers, out of
+   * `budget`, at most CLUSTER_LABEL_MAX.
+   */
+  clusters?: { count: number; sx: ArrayLike<number>; sy: ArrayLike<number> } | null;
 }
 
 export interface LabelSelection {
@@ -106,10 +116,16 @@ export interface LabelSelection {
   nodes: Uint32Array;
   tiers: Uint8Array;
   count: number;
+  /** Indices into LabelFrame.clusters of the cluster labels to draw. */
+  clusters: Uint32Array;
+  clusterCount: number;
 }
 
 export function createLabelSelection(capacity: number): LabelSelection {
-  return { nodes: new Uint32Array(capacity), tiers: new Uint8Array(capacity), count: 0 };
+  return {
+    nodes: new Uint32Array(capacity), tiers: new Uint8Array(capacity), count: 0,
+    clusters: new Uint32Array(CLUSTER_LABEL_MAX), clusterCount: 0,
+  };
 }
 
 /** Grow-only collision grid. */
@@ -176,12 +192,27 @@ export function selectLabels(f: LabelFrame, b: LabelBudgets, grid: CollisionGrid
     push(i, TIER_SELECTION); sel++;
   }
 
-  // 2. overview tier: the global top-`budget`, drawn where on screen
+  // 1b. cluster labels (ADR-2186 D2): outrank node labels, out of `budget`
+  let nc = 0;
+  const c = f.clusters;
+  if (c) {
+    const cCap = Math.min(CLUSTER_LABEL_MAX, Math.max(0, b.budget), out.clusters.length);
+    for (let j = 0; j < c.count && nc < cCap; j++) {
+      if (grid.taken(c.sx[j], c.sy[j])) continue;
+      grid.take(c.sx[j], c.sy[j]);
+      out.clusters[nc++] = j;
+    }
+  }
+  out.clusterCount = nc;
+
+  // 2. overview tier: the global top-`budget` (less the cluster labels), drawn where on screen
+  const overviewSlots = Math.max(0, b.budget) - nc;
+  let ov = 0;
   const top = Math.min(n, Math.max(0, b.budget));
-  for (let r = 0; r < top; r++) {
+  for (let r = 0; r < top && ov < overviewSlots; r++) {
     const i = f.order[r];
     if (mark[i] || !eligible(i) || grid.taken(f.sx[i], f.sy[i])) continue;
-    push(i, TIER_OVERVIEW);
+    push(i, TIER_OVERVIEW); ov++;
   }
 
   // 3. dynamic tier: the viewport's most important remaining nodes

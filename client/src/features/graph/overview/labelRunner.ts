@@ -13,6 +13,10 @@ import {
   selectLabels, rankByPriority, labelPriorities, createLabelSelection, CollisionGrid,
   LABEL_REFRESH_MS, type LabelBudgets, type LabelSelection,
 } from './labelBudget';
+import {
+  assignGroups, computeClusterCandidates, createClusterCandidates, createClusterGroups, createClusterScratch,
+  type ClusterCandidates,
+} from './clusterLabels';
 
 const _v = new THREE.Vector3();
 
@@ -25,6 +29,20 @@ export class LabelBudgetRunner {
   private sy = new Float32Array(0);
   private onScreen = new Uint8Array(0);
   private mark = new Uint8Array(0);
+  private world = new Float32Array(0);
+  private groups = createClusterGroups();
+  private clusterScratch = createClusterScratch();
+  private _clusters: ClusterCandidates = createClusterCandidates();
+  private projCam: THREE.Camera | null = null;
+  private projW = 1;
+  private projH = 1;
+  /** Projector for cluster centroids, created once (no per-run closure). */
+  private readonly project = (x: number, y: number, z: number, out: { sx: number; sy: number }): boolean => {
+    _v.set(x, y, z).project(this.projCam!);
+    out.sx = (_v.x * 0.5 + 0.5) * this.projW;
+    out.sy = (0.5 - _v.y * 0.5) * this.projH;
+    return _v.z < 1 && _v.z > -1 && _v.x >= -1 && _v.x <= 1 && _v.y >= -1 && _v.y <= 1;
+  };
   private grid = new CollisionGrid();
   private _selection: LabelSelection = createLabelSelection(0);
   private rankKey: { nodes: unknown; map: unknown; cc: unknown; analytics: unknown } = { nodes: null, map: null, cc: null, analytics: null };
@@ -35,6 +53,8 @@ export class LabelBudgetRunner {
   prioritySource: 'centrality' | 'degree' = 'degree';
 
   get selection(): LabelSelection { return this._selection; }
+  /** Cluster label candidates of the last run; selection.clusters indexes them. */
+  get clusters(): ClusterCandidates { return this._clusters; }
   /** Render index of a selected local node. */
   renderIndexOf(local: number): number { return this.renderIndex[local]; }
   screenX(local: number): number { return this.sx[local]; }
@@ -60,6 +80,7 @@ export class LabelBudgetRunner {
       this.sy = new Float32Array(n);
       this.onScreen = new Uint8Array(n);
       this.mark = new Uint8Array(n);
+      this.world = new Float32Array(n * 3);
       this.rankKey.nodes = null;
     }
     if (this._selection.nodes.length < cap) this._selection = createLabelSelection(cap);
@@ -75,6 +96,8 @@ export class LabelBudgetRunner {
     view: { width: number; height: number },
     budgets: LabelBudgets,
     fontPx: number,
+    /** ADR-2186 D2: clusters closer than this to the camera get no cluster label (0 = always). */
+    clusterMinDistance = 0,
   ): LabelSelection {
     this.lastRunMs = nowMs;
     this.lastMaskVersion = highlightMask.version;
@@ -91,6 +114,7 @@ export class LabelBudgetRunner {
         this.renderIndex, n, (i) => connectionCountMap.get(String(nodes[i].id)) ?? 0, analytics, this.priority,
       );
       this.order = rankByPriority(this.priority, n);
+      assignGroups(this.renderIndex, n, analytics, this.groups);
     }
 
     // Projection + bits.
@@ -108,6 +132,7 @@ export class LabelBudgetRunner {
         const p = nodes[i].position;
         x = p?.x ?? 0; y = p?.y ?? 0; z = p?.z ?? 0;
       }
+      this.world[i * 3] = x; this.world[i * 3 + 1] = y; this.world[i * 3 + 2] = z;
       _v.set(x, y, z).project(camera);
       const on = _v.z < 1 && _v.z > -1 && _v.x >= -1 && _v.x <= 1 && _v.y >= -1 && _v.y <= 1;
       this.onScreen[i] = on ? 1 : 0;
@@ -115,9 +140,17 @@ export class LabelBudgetRunner {
       this.sy[i] = (0.5 - _v.y * 0.5) * H;
     }
 
+    this.projCam = camera; this.projW = W; this.projH = H;
+    const cp = camera.position;
+    computeClusterCandidates({
+      count: n, groups: this.groups, order: this.order, bits: this.bits, world: this.world,
+      camX: cp.x, camY: cp.y, camZ: cp.z, minDistance: clusterMinDistance, project: this.project,
+    }, this.clusterScratch, this._clusters);
+
     return selectLabels({
       count: n, order: this.order, priority: this.priority, bits: this.bits,
       sx: this.sx, sy: this.sy, onScreen: this.onScreen, viewWidth: W, viewHeight: H,
+      clusters: this._clusters,
       // one cell ≈ one short label: ~8 em wide, ~1.6 lines tall
       cellW: Math.max(24, fontPx * 8), cellH: Math.max(8, fontPx * 1.6),
     }, budgets, this.grid, this.mark, this._selection);
