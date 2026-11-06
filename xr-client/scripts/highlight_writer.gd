@@ -64,7 +64,20 @@ func written(conn_id: StringName, bit: int) -> PackedInt32Array:
 	return per.get(bit, PackedInt32Array())
 
 
-## Direct neighbours of `id` in a flat pair list, without duplicates, at most `max`.
+## Direct neighbours of `id` on `client`: Rust's one-pass lookup when the client
+## has it (BinaryProtocolClient.neighbours_of), else `neighbours_of` over `pairs`.
+static func neighbours_for(client: RefCounted, id: int, max_n: int = NEIGHBOUR_MAX) -> PackedInt32Array:
+	if client == null or id < 0:
+		return PackedInt32Array()
+	if client.has_method("neighbours_of"):
+		return client.neighbours_of(id, max_n)
+	if client.has_method("get_edges"):
+		return neighbours_of(client.get_edges(), id, max_n)
+	return PackedInt32Array()
+
+
+## Direct neighbours of `id` in a flat pair list, without duplicates, at most
+## `max_n`: the GDScript mirror of Rust `neighbours_in`, for clients without it.
 static func neighbours_of(pairs: PackedInt32Array, id: int, max_n: int = NEIGHBOUR_MAX) -> PackedInt32Array:
 	var out := PackedInt32Array()
 	var seen := {}

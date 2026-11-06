@@ -805,30 +805,37 @@ new MultiMesh was added and the draw-call count is unchanged.
   metric size wins, so an impostor at the 1 m gem boundary matches the gem it
   replaces and there is no LOD pop. The gem tier is unchanged: the nearest
   `NEAR_CAP` 80 within `NEAR_RADIUS_M` 1 m (`scripts/node_lod.gd`), mirrored by
-  `OverviewLod.node_tier` (`scripts/overview_lod.gd:95`). The shader maths is mirrored in
-  `OverviewLod.impostor_world_size` (`scripts/overview_lod.gd:59`) so GUT can pin it.
+  `OverviewLod.node_tier` (`scripts/overview_lod.gd:96`). The shader maths is mirrored in
+  `OverviewLod.impostor_world_size` (`scripts/overview_lod.gd:60`) so GUT can pin it.
 - **Edges (D2).** Far ribbons are screen-width: `width_px` = 1.5 px at each end,
   never thinner than the cylinder they stand in for
   (`materials/edge_ribbon.gdshader:33`, `:56`). Their alpha falls with projected
   length, from 1 below 50 px to 0.25 above 150 px (ADR-2181's cosmos.gl defaults),
   measured as the angle the edge subtends at the main camera. Both eyes therefore agree.
   Pixel sizes come from `px_per_rad`, which `GraphScene._update_px_per_rad`
-  (`scripts/graph_scene.gd:1804`) sets once a second from the XR render-target
-  height and the camera FOV. The default is 750, about a VIVE Pro eye. The near
+  (`scripts/graph_scene.gd:1805`) sets once a second: in the headset from the
+  eye's own projection (`XRInterface.get_projection_for_view(0, …).get_fov()`, the
+  horizontal FOV, against the per-eye render width), on the desktop from the camera's
+  vertical FOV and the viewport height. The default is 750, about a VIVE Pro eye.
+  It is the centre-of-view value, so on an asymmetric eye frustum it is approximate
+  (unverified on a headset). The near
   cylinders keep their world width.
 - **No silent edge cap (D2, P4).** Each volume asks for its own edge count
-  (`edge_count_for_mask`, `rust/src/binary_protocol.rs:2403`), bounded by
+  (`edge_count_for_mask`, `rust/src/binary_protocol.rs:2437`), bounded by
   `OverviewLod.EDGE_DRAW_CEILING` = 20 000 (`scripts/overview_lod.gd:38`). The
   ceiling is the PRD-008 triangle budget, not a buffer size: ribbons are 2
   triangles each, and `lod::scene_triangle_estimate` pins the scene at ≤ 97k with
   this many. The drawn MultiMesh buffers are sized from what was packed each frame.
   `ConnectionVolumeSource.dropped_edges` (`scripts/connection_volume_source.gd:179`)
   counts both causes, the ceiling and edges whose end is not drawn.
-  `GraphScene._update_edge_readout` (`scripts/graph_scene.gd:1781`) shows
+  `GraphScene._update_edge_readout` (`scripts/graph_scene.gd:1782`) shows
   "Edges N of M drawn" in the HUD header (`EdgeBadge`, `scripts/hud.gd:439`,
   `set_edge_readout` `:2266`) whenever any are dropped, and touches the HUD only
-  when a count changes. At the ADR's 145 692 edges it reads "Edges 20 000 of
-  145 692 drawn" (heaviest first). Drawing all of them would need about 291k
+  when a count changes. M counts the edges with both ends inside a shown volume's
+  class mask (knowledge↔knowledge, ontology↔ontology, codescape); an edge between
+  two classes belongs to no volume, so it is neither drawn nor counted here. On a
+  graph whose intra-volume edges reach the ADR's 145 692 it would read "Edges
+  20 000 of 145 692 drawn" (heaviest first): drawing them all would need about 291k
   ribbon triangles, about three times the budget.
 - **No bloom (D3).** `glow_enabled = false` stands (`scenes/GraphScene.tscn:93`,
   Invariant 2). Emphasis is colour (lifted toward white), size (×1.35) and an
@@ -852,10 +859,10 @@ new MultiMesh was added and the draw-call count is unchanged.
     write FILTERED_OUT in `refresh_filter` (`rust/src/render_store.rs:2553`)
     instead of removing nodes. `HighlightWriter` (`scripts/highlight_writer.gd:37`)
     writes the other bits from the scene, deduplicated:
-    - selection and its direct neighbours (≤ 64) on select and clear
-      (`graph_scene.gd:1997`);
-    - hover, held 250 ms after the ray leaves (`graph_scene.gd:1976`);
-    - query variables as search hits at the label cadence (`graph_scene.gd:1964`).
+    - selection and its direct neighbours (≤ 64, found in one Rust pass,
+      `neighbours_of`) on select and clear (`graph_scene.gd:2009`);
+    - hover, held 250 ms after the ray leaves (`graph_scene.gd:1985`);
+    - query variables as search hits at the label cadence (`graph_scene.gd:1973`).
   - **Greyed nodes** get no label (`rank_label_candidates`, `render_store.rs:1549`)
     and no hull (`render_store.rs:2631`), and are not search hits.
   - **What still removes** (ADR-2183 D4): the fold plan (`fold_hidden`), the server
@@ -863,12 +870,12 @@ new MultiMesh was added and the draw-call count is unchanged.
   - **Cross-volume links** follow the edge drawn test, so a link to a greyed end is
     drawn.
 - **Label budget (D5).** Labels are chosen by priority, not proximity
-  (`GraphScene._update_proximity_labels`, `scripts/graph_scene.gd:1862`;
+  (`GraphScene._update_proximity_labels`, `scripts/graph_scene.gd:1868`;
   `scripts/label_budget.gd`).
   - **Candidates.** Up to 64 within 1.5 m and inside a 55° half-angle of the view.
   - **Order.** Pinned nodes first (held, selected and hovered; at most 4, with their
     detail line), then query variables, then Rust's ranking (`rank_labels`,
-    `rust/src/binary_protocol.rs:2456`: centrality, then degree, then id; greyed
+    `rust/src/binary_protocol.rs:2490`: centrality, then degree, then id; greyed
     and unlabelled dropped), thinned on a 2.5° angular collision grid.
   - **Budget.** `DEFAULT_BUDGET` is 8 (`label_budget.gd:23`), against the desktop's
     40 + 40 + 100 (ADR-2186 D1). Draw calls set it: each visible Label3D is one call
@@ -876,13 +883,17 @@ new MultiMesh was added and the draw-call count is unchanged.
     worst case is 8 + 4 × 2 = 16 calls, down from 12 × 2 = 24. The pool stays at 12
     anchors. Legibility points the same way: 1.9 cm titles crowd beyond about eight
     in the central field. The fade runs from full at 1 m to zero at 1.5 m.
+  - **See-through.** Only pinned labels and those within 0.5 m
+    (`LabelBudget.SPHERE_FADE_M`, the old proximity reach) switch their node to the
+    30 % see-through pass, so the text reads through a near sphere and the ranked
+    hubs further out stay opaque.
 - **Caps audit (P4).** Two caps are now sized from the data or visible: the edge
   draw ceiling (with the readout), and the label pool (with its budget explained
   above). The others are unchanged:
   - `NODE_SAFETY_CEILING` and `EDGE_SAFETY_CEILING` = 20 000
     (`scripts/graph_scene.gd:51-52`) now only bound the legacy `_rerank_edges`
     list behind the Controls status text and `Edges ±`. That path warns only to the
-    log (`graph_scene.gd:4687`) and no longer feeds a draw.
+    log (`graph_scene.gd:4698`) and no longer feeds a draw.
   - The near tiers (`NEAR_CAP` 80, `NEAR_EDGE_CAP` 96) are LOD: every node and edge
     is still drawn.
   - The memory cloud's 8 000 sprites and 32 hulls are already reported ("Memory:

@@ -290,8 +290,10 @@ records instead of clamping (no more edge-fan-on-clamp).
   signed, needs `XR_NOSTR_SECRET`).
 - **Double-click a node** → narrativegoldmine page card in the HUD document panel
   (`hud.gd`, `NG_PAGE_BASE`; two grabs of the same node within `DOUBLE_CLICK_SEC`).
-- **Proximity node labels** — pooled `Label3D`, 4 Hz, distance-faded, shown only for
-  the nodes nearest the camera (`LABEL_*` constants; `nodes_near` query).
+- **Node labels** — a priority-ranked budget (ADR-2188 D5): pooled `Label3D`, 4 Hz,
+  held / selected / hovered pinned, then up to 8 more ranked by centrality and degree
+  among the candidates in view within 1.5 m (`scripts/label_budget.gd`,
+  `rank_labels`). Greyed-out nodes get none.
 
 **XR-safe eye candy** (no post-process — Compat/multiview constraint): fresnel-halo
 `next_pass` (`materials/node_halo.gdshader`), TIME-driven additive edge-flow shader

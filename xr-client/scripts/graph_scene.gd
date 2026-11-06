@@ -905,6 +905,7 @@ var _last_targeted_id: int = -1
 var _last_targeted_ms: int = -1
 var _hover_hl_id: int = -1
 var _hover_hl_conn: StringName = &""
+var _hover_hl_vol: StringName = &""
 var _last_targeted_vol: StringName = &""   # volume the ray last targeted a node in
 
 # Double-click (node-open) detection: two grabs of the same node within the window.
@@ -1809,13 +1810,18 @@ func _update_px_per_rad(delta: float) -> void:
 	var cam: Camera3D = get_viewport().get_camera_3d()
 	if cam == null:
 		return
-	var h: float = 0.0
+	# In the headset the eye's own projection gives the FOV (XRCamera3D.fov is not
+	# the runtime's); its horizontal FOV against the per-eye render width. On the
+	# desktop, Camera3D.fov is vertical (keep_aspect = KEEP_HEIGHT) against the height.
+	var ppr: float = 0.0
 	var xr: XRInterface = XRServer.primary_interface
-	if xr != null and xr.is_initialized() and get_viewport().use_xr:
-		h = float(xr.get_render_target_size().y)
-	if h <= 0.0:
-		h = float(get_viewport().get_visible_rect().size.y)
-	var ppr: float = OverviewLod.px_per_rad(h, cam.fov)
+	if xr != null and xr.is_initialized() and get_viewport().use_xr and xr.has_method("get_projection_for_view"):
+		var rt: Vector2 = xr.get_render_target_size()
+		if rt.x > 0.0 and rt.y > 0.0:
+			var proj: Projection = xr.get_projection_for_view(0, rt.x / rt.y, cam.near, cam.far)
+			ppr = OverviewLod.px_per_rad(rt.x, proj.get_fov())
+	if ppr <= 0.0:
+		ppr = OverviewLod.px_per_rad(float(get_viewport().get_visible_rect().size.y), cam.fov)
 	if is_equal_approx(ppr, _px_per_rad):
 		return
 	_px_per_rad = ppr
@@ -1954,7 +1960,10 @@ func _update_proximity_labels() -> void:
 			a = LabelBudget.fade(cam_world.distance_to(world_pos))
 		title.modulate = Color(1.0, 1.0, 1.0, a)
 		detail.modulate = Color(0.8, 0.85, 0.95, a)
-		if a > LABEL_VISIBLE_MIN_A:
+		# The node's own see-through fade (Rust LABEL_FADE_ALPHA) is for text sitting
+		# inside a near sphere: only pinned labels and those within SPHERE_FADE_M get
+		# it, so the ranked overview hubs further out stay opaque.
+		if a > LABEL_VISIBLE_MIN_A and (is_pinned or cam_world.distance_to(world_pos) <= LabelBudget.SPHERE_FADE_M):
 			labelled.append(node_id)
 	_set_labelled_nodes(labelled)
 
@@ -1976,9 +1985,12 @@ func _sync_query_highlight() -> void:
 func _update_hover_highlight() -> void:
 	var live: bool = HighlightWriter.hover_live(_last_targeted_ms, Time.get_ticks_msec())
 	var want_id: int = _last_targeted_id if live else -1
-	var want_conn: StringName = StringName(VOLUME_BINDINGS.get(_last_targeted_vol, {}).get("conn", &"")) if live else &""
-	if want_id == _hover_hl_id and want_conn == _hover_hl_conn:
+	if want_id == _hover_hl_id and (want_id < 0 or _last_targeted_vol == _hover_hl_vol):
 		return
+	var want_conn: StringName = &""
+	if live and VOLUME_BINDINGS.has(_last_targeted_vol):
+		want_conn = VOLUME_BINDINGS[_last_targeted_vol]["conn"]
+	_hover_hl_vol = _last_targeted_vol if live else &""
 	if _hover_hl_conn != &"" and _hover_hl_conn != want_conn:
 		var old: Node = _conns.get(_hover_hl_conn, null)
 		if old != null:
@@ -2001,8 +2013,7 @@ func _write_selection_highlight() -> void:
 			continue
 		if cid == _sel_conn and _sel_node >= 0:
 			_hl_writer.write(cid, conn.client, HighlightWriter.SELECTED, PackedInt32Array([_sel_node]))
-			var pairs: PackedInt32Array = conn.client.get_edges() if conn.client.has_method("get_edges") else PackedInt32Array()
-			_hl_writer.write(cid, conn.client, HighlightWriter.FOCUS_NEIGHBOUR, HighlightWriter.neighbours_of(pairs, _sel_node))
+			_hl_writer.write(cid, conn.client, HighlightWriter.FOCUS_NEIGHBOUR, HighlightWriter.neighbours_for(conn.client, _sel_node))
 		else:
 			_hl_writer.write(cid, conn.client, HighlightWriter.SELECTED, PackedInt32Array())
 			_hl_writer.write(cid, conn.client, HighlightWriter.FOCUS_NEIGHBOUR, PackedInt32Array())

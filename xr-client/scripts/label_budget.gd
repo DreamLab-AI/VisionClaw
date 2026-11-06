@@ -28,6 +28,9 @@ const CANDIDATES: int = 64
 ## Reach of the label candidates in world metres, and where their fade starts.
 const LABEL_REACH_M: float = 1.5
 const LABEL_FULL_M: float = 1.0
+## Labelled nodes within this distance turn see-through so their text reads through
+## the sphere (the pre-ADR-2188 proximity reach); further out they stay opaque.
+const SPHERE_FADE_M: float = 0.5
 ## Candidates outside this half-angle of the view direction are not labelled.
 const VIEW_HALF_ANGLE_DEG: float = 55.0
 ## Collision grid cell, as an angle (about 2.5°: a short title at 1 m).

@@ -41,11 +41,12 @@ const TIER_GEM := 0
 const TIER_OVERVIEW := 1
 
 
-## Pixels per radian for an eye buffer `height_px` tall with vertical FOV `fov_y_deg`.
-static func px_per_rad(height_px: float, fov_y_deg: float) -> float:
-	if height_px <= 0.0 or fov_y_deg <= 0.0 or fov_y_deg >= 180.0:
+## Pixels per radian at the centre of an eye buffer `size_px` across an FOV of
+## `fov_deg` along the same axis (width with horizontal FOV, or height with vertical).
+static func px_per_rad(size_px: float, fov_deg: float) -> float:
+	if size_px <= 0.0 or fov_deg <= 0.0 or fov_deg >= 180.0:
 		return DEFAULT_PX_PER_RAD
-	return height_px / (2.0 * tan(deg_to_rad(fov_y_deg) * 0.5))
+	return size_px / (2.0 * tan(deg_to_rad(fov_deg) * 0.5))
 
 
 ## Metres one pixel covers at `depth_m` from the eye.

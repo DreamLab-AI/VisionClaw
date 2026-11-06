@@ -168,3 +168,10 @@ func test_bits_match_the_rust_mask() -> void:
 	assert_eq(HighlightWriter.SEARCH_HIT, 4)
 	assert_eq(HighlightWriter.FILTERED_OUT, 8)
 	assert_eq(HighlightWriter.FOCUS_NEIGHBOUR, 16)
+
+
+func test_the_client_finds_selection_neighbours_in_rust() -> void:
+	var client := _seeded()
+	assert_eq(client.neighbours_of(1, 64), PackedInt32Array([2, 5]))
+	assert_eq(client.neighbours_of(1, 1), PackedInt32Array([2]), "capped")
+	assert_eq(HighlightWriter.neighbours_for(client, 5), PackedInt32Array([1, 3]), "the writer uses the Rust path")

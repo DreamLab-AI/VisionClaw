@@ -177,3 +177,47 @@ func test_the_hud_header_shows_the_readout_only_while_edges_are_dropped() -> voi
 	hud.set_edge_readout(OverviewLod.edge_readout(1500, 1500))
 	assert_false(badge.visible, "hidden when nothing is dropped")
 	assert_eq(hud.edge_readout(), "")
+
+
+# --- the tier split through the real Rust client (ties node_tier to split_tiers) --
+
+func _v3_at(nodes: Array) -> PackedByteArray:
+	var b := StreamPeerBuffer.new()
+	b.big_endian = false
+	b.put_u8(3)
+	for n: Array in nodes:
+		b.put_u32(int(n[0]))
+		var p: Vector3 = n[1]
+		b.put_float(p.x); b.put_float(p.y); b.put_float(p.z)
+		for _i in range(4):
+			b.put_float(0.0)
+		b.put_32(-1)
+		b.put_u32(0)
+		b.put_float(0.0)
+		b.put_u32(0)
+		b.put_float(0.5)
+	return b.data_array
+
+
+func test_the_rust_split_puts_nodes_where_node_tier_says() -> void:
+	assert_true(ClassDB.class_exists("BinaryProtocolClient"), "gdext library loaded")
+	var client: RefCounted = BinaryProtocolClient.create()
+	var placed := [[1, Vector3(0, 0, -0.9)], [2, Vector3(0, 0, -1.1)], [3, Vector3(0.3, 0, -0.5)]]
+	client.ingest(_v3_at(placed))
+	var ids := PackedInt32Array([1, 2, 3])
+	var cam := Vector3.ZERO
+	for cap: int in [NodeLod.NEAR_CAP, 1, 0]:
+		var near: PackedFloat32Array = client.build_node_buffer_lod(ids, 1.0, 0.7, 1.9, cam, cap, NodeLod.NEAR_RADIUS_M)
+		var far: PackedFloat32Array = client.impostor_node_buffer()
+		# Distance rank among the drawn nodes: 3 (0.58 m), 1 (0.9 m), 2 (1.1 m).
+		var by_dist := [3, 1, 2]
+		var want_gems := 0
+		for rank: int in range(by_dist.size()):
+			var id: int = by_dist[rank]
+			var d: float = (placed[id - 1][1] as Vector3).length()
+			if OverviewLod.node_tier(d, rank, cap, NodeLod.NEAR_RADIUS_M) == OverviewLod.TIER_GEM:
+				want_gems += 1
+		assert_eq(near.size() / NodeLod.STRIDE, want_gems, "gem tier at cap %d" % cap)
+		assert_eq(far.size() / NodeLod.STRIDE, 3 - want_gems, "overview tier at cap %d" % cap)
+	# Node 2 (1.1 m) is beyond the radius at any cap.
+	assert_eq(OverviewLod.node_tier(1.1, 0), OverviewLod.TIER_OVERVIEW)
