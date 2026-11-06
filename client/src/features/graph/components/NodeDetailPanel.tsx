@@ -79,7 +79,13 @@ export const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ embedded = fal
     const customEvent = event as CustomEvent<NodeSelectionDetail | null>;
     const payload = customEvent.detail;
     if (payload) {
-      setDetail(payload);
+      // Not every producer sends the full shape: an agent-marker selection
+      // (bots/agentSelection.ts) has no neighbors or connectionCount.
+      setDetail({
+        ...payload,
+        neighbors: Array.isArray(payload.neighbors) ? payload.neighbors : [],
+        connectionCount: typeof payload.connectionCount === 'number' ? payload.connectionCount : 0,
+      });
       setVisible(true);
     } else {
       setVisible(false);

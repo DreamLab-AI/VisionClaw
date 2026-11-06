@@ -51,6 +51,38 @@ function isIncidentalFocus(el: Element | null): boolean {
 
 interface NodeSelected { label?: string; nodeId?: string | number }
 
+/**
+ * One panel failing must not take the dock and settings down with it: the
+ * drawer lives inside the control centre, so each tab panel gets its own
+ * boundary. It resets when its key changes (another node, the tab reopened).
+ */
+class PanelBoundary extends React.Component<
+  { name: string; resetKey: string; children: React.ReactNode },
+  { failed: boolean; key: string }
+> {
+  state = { failed: false, key: this.props.resetKey };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  static getDerivedStateFromProps(props: { resetKey: string }, state: { failed: boolean; key: string }) {
+    return props.resetKey !== state.key ? { failed: false, key: props.resetKey } : null;
+  }
+  componentDidCatch(error: Error) {
+    // eslint-disable-next-line no-console
+    console.error(`[RightDrawer] ${this.props.name} panel failed:`, error);
+  }
+  render() {
+    if (this.state.failed) {
+      return (
+        <p role="alert" className="cc-glass rounded-xl p-3 text-xs text-muted-foreground" data-testid="drawer-panel-error">
+          The {this.props.name} panel could not be shown. Close it and try again.
+        </p>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export const RightDrawer: React.FC = () => {
   const tab = useControlCenterUI((s) => s.drawerTab);
   const openDrawer = useControlCenterUI((s) => s.openDrawer);
@@ -249,7 +281,9 @@ export const RightDrawer: React.FC = () => {
         data-testid="drawer-panel-explore"
         className="flex-1 min-h-0 overflow-y-auto"
       >
-        {exploreMounted && <ExplorePanel style={{ width: '100%' }} />}
+        <PanelBoundary name="explore" resetKey={String(tab === 'explore')}>
+          {exploreMounted && <ExplorePanel style={{ width: '100%' }} />}
+        </PanelBoundary>
       </section>
 
       {cloudOn && (
@@ -261,7 +295,9 @@ export const RightDrawer: React.FC = () => {
           data-testid="drawer-panel-memory"
           className="flex-1 min-h-0 overflow-y-auto"
         >
-          <MemoryExplorerPanel embedded />
+          <PanelBoundary name="memory explorer" resetKey={String(tab === 'memory')}>
+            <MemoryExplorerPanel embedded />
+          </PanelBoundary>
         </section>
       )}
 
@@ -275,7 +311,9 @@ export const RightDrawer: React.FC = () => {
         className="cc-glass flex-1 min-h-0 overflow-hidden rounded-xl"
       >
         {/* Always mounted: it listens for the selection that opens this tab. */}
-        <NodeDetailPanel embedded />
+        <PanelBoundary name="node detail" resetKey={nodeLabel ?? ''}>
+          <NodeDetailPanel embedded />
+        </PanelBoundary>
       </section>
     </div>
   );

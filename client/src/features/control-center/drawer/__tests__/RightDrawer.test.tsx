@@ -20,8 +20,12 @@ vi.mock('../../integrationSlots', () => ({
 vi.mock('../../../visualisation/memoryCloud/MemoryExplorerPanel', () => ({
   default: ({ embedded }: { embedded?: boolean }) => <div data-testid="memory-explorer-panel" data-embedded={String(!!embedded)} />,
 }));
+const h = vi.hoisted(() => ({ throwNode: false }));
 vi.mock('../../../graph/components/NodeDetailPanel', () => ({
-  NodeDetailPanel: ({ embedded }: { embedded?: boolean }) => <div data-testid="node-detail-panel" data-embedded={String(!!embedded)} />,
+  NodeDetailPanel: ({ embedded }: { embedded?: boolean }) => {
+    if (h.throwNode) throw new TypeError("Cannot read properties of undefined (reading 'length')");
+    return <div data-testid="node-detail-panel" data-embedded={String(!!embedded)} />;
+  },
 }));
 
 import { RightDrawer } from '../RightDrawer';
@@ -143,5 +147,16 @@ describe('RightDrawer', () => {
     expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Memory' }));
     fireEvent.keyDown(document.activeElement!, { key: 'Home' });
     expect(useControlCenterUI.getState().drawerTab).toBe('explore');
+  });
+
+  it('a panel that throws shows a message in its tab; the drawer and its controls stay', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.throwNode = true;
+    render(<RightDrawer />);
+    selectNode('Broken');
+    expect(screen.getByTestId('drawer-panel-error')).toHaveTextContent('node detail panel could not be shown');
+    expect(screen.getByRole('button', { name: 'Close node details' })).toBeInTheDocument();
+    h.throwNode = false;
+    err.mockRestore();
   });
 });
