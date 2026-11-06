@@ -13,6 +13,26 @@ import { computeNodeScale } from '../utils/nodeScaling';
 import type { GraphTypeVisualsSettings } from '../../settings/config/settings';
 
 import { getDomainColor } from '../utils/domainColors';
+import { useSettingsStore } from '../../../store/settingsStore';
+import type { GraphViewSettings } from '../../settings/config/settings';
+import { DEFAULT_GRAPH_VIEW } from '../../../api/settings/defaults';
+import { LabelBudgetRunner, worldPerPx } from '../overview/labelRunner';
+import { glyphCapacityFor, type LabelBudgets } from '../overview/labelBudget';
+
+/** ADR-2186 label settings, defaults under the stored values. */
+function useLabelBudgets(): LabelBudgets & { fontPx: number } {
+  const l = useSettingsStore(s => s.get<GraphViewSettings['labels']>('visualisation.graphView.labels'));
+  const d = DEFAULT_GRAPH_VIEW.labels;
+  return React.useMemo(() => ({
+    budget: l?.budget ?? d.budget,
+    dynamicBudget: l?.dynamicBudget ?? d.dynamicBudget,
+    selectedBudget: l?.selectedBudget ?? d.selectedBudget,
+    fontPx: l?.fontPx ?? d.fontPx,
+  }), [l?.budget, l?.dynamicBudget, l?.selectedBudget, l?.fontPx, d.budget, d.dynamicBudget, d.selectedBudget, d.fontPx]);
+}
+
+/** Font size factor of the title line relative to the metadata lines' base. */
+const META_SCALE = 0.8;
 
 const getQualityStars = (quality?: number | string): string => {
   if (quality === undefined || quality === null) return '';
@@ -110,33 +130,12 @@ export interface InstancedLabelsProps {
   ssspResult: SSSPResult | null;
 }
 
+/** Hard ceiling of the glyph buffer; the live size is glyphCapacityFor(budgets) (ADR-2186 D1). */
 const MAX_GLYPHS = 32768;
 const _tempVec3 = new THREE.Vector3();
 const _tempVec3b = new THREE.Vector3();
 const _tempColor = new THREE.Color();
-const _frustum = new THREE.Frustum();
-const _projScreenMatrix = new THREE.Matrix4();
 
-/**
- * Screen-space label-decluttering grid.
- *
- * The layout pass first projects every visible-and-eligible node to
- * normalised-device coords, then iterates closest-first (distance-priority),
- * accepting a label only if no higher-priority label already occupies the
- * same screen cell. The grid is sized so a typical-width label spans 1-2
- * cells horizontally; one cell ≈ one label footprint.
- *
- * Result: no two labels overlap on screen — the closest/largest wins. This
- * is the standard "label thinning" technique used in mapping libraries.
- *
- * Reused across frames (cleared per-rebuild) to avoid GC pressure.
- */
-const _labelGridCells = new Set<number>();
-// Grid resolution: 32 columns × 18 rows ≈ 16:9 viewport. Picked so a typical
-// label (~80–120 px wide on a 1920-wide canvas) occupies one cell. Cheap
-// integer keys via `gx * GRID_ROWS + gy`.
-const LABEL_GRID_COLS = 32;
-const LABEL_GRID_ROWS = 18;
 
 // Build label lines for a node (pure function, extracted from GraphManager NodeLabels useMemo)
 function buildLabelLines(
@@ -225,9 +224,12 @@ function buildLabelLines(
   return lines;
 }
 
-// ===== WebGPU HTML Fallback =====
-// When renderer is WebGPU, ShaderMaterial won't compile GLSL.
-// Fall back to a single <Html> container with projected CSS labels.
+// ===== WebGPU budgeted DOM layer =====
+// The glyph material is a GLSL ShaderMaterial, which WebGPURenderer cannot
+// compile. Until a TSL glyph material lands (ADR-2186 D4), WebGPU draws the
+// SAME budgeted selection as WebGL (LabelBudgetRunner) as projected CSS labels
+// in one <Html> container, so the DOM count is capped at the budget
+// (budget + dynamicBudget + selectedBudget), not the node count.
 
 interface WebGPULabel {
   screenX: number;
@@ -235,42 +237,6 @@ interface WebGPULabel {
   lines: LabelLine[];
   opacity: number;
 }
-
-const WebGPUFallbackLabels: React.FC<{
-  labelsRef: React.MutableRefObject<WebGPULabel[]>;
-}> = ({ labelsRef }) => {
-  // Rendered at scene origin, Html handles projection
-  return (
-    <Html center={false} style={{ pointerEvents: 'none' }} calculatePosition={() => [0, 0, 0]}>
-      <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', pointerEvents: 'none' }}>
-        {labelsRef.current.map((label, i) => (
-          <div key={i} style={{
-            position: 'absolute',
-            left: `${label.screenX}px`,
-            top: `${label.screenY}px`,
-            transform: 'translate(-50%, -100%)',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            whiteSpace: 'nowrap',
-            userSelect: 'none',
-            opacity: label.opacity,
-          }}>
-            {label.lines.map((line, j) => (
-              <span key={j} style={{
-                color: line.color,
-                fontSize: `${Math.round(line.fontSize * 28)}px`,
-                textShadow: '0 0 3px #000, 0 0 6px #000',
-                fontFamily: 'system-ui, sans-serif',
-                lineHeight: 1.3,
-              }}>{line.text}</span>
-            ))}
-          </div>
-        ))}
-      </div>
-    </Html>
-  );
-};
 
 // ===== WebGL Instanced Labels =====
 
@@ -322,12 +288,15 @@ const InstancedLabelsWebGPU: React.FC<WebGPUProps> = ({
 }) => {
   const { camera, size } = useThree();
   const [webGPULabels, setWebGPULabels] = React.useState<WebGPULabel[]>([]);
+  const budgets = useLabelBudgets();
+  const runnerRef = useRef(new LabelBudgetRunner());
   const frameCountRef = useRef(0);
   const prevCameraRef = useRef({
     x: 0, y: 0, z: 0,
     qx: 0, qy: 0, qz: 0, qw: 1,
   });
   const motionStateRef = useRef({ lastFastTime: 0 });
+  const webGPULabelsRef = useRef<WebGPULabel[]>([]);
 
   useFrame(() => {
     frameCountRef.current++;
@@ -349,26 +318,20 @@ const InstancedLabelsWebGPU: React.FC<WebGPUProps> = ({
     const cameraMovingFast = posDelta > 0.5 || rotDelta > 0.001;
 
     const now = performance.now();
+    if (cameraMovingFast) motionStateRef.current.lastFastTime = now;
+    const moving = cameraMovingFast || now - motionStateRef.current.lastFastTime < 150;
+    // ADR-2186 D5: selection at ~4 Hz and on camera stop, never per frame.
+    const due = runnerRef.current.due(now, moving);
     if (cameraMovingFast) {
-      motionStateRef.current.lastFastTime = now;
       // Hide labels during fast camera motion — nodes keep rendering
-      setWebGPULabels([]);
+      if (webGPULabelsRef.current.length > 0) { webGPULabelsRef.current = []; setWebGPULabels([]); }
       return;
     }
-    // Debounce: wait 150ms of stillness before rebuilding labels
-    if (now - motionStateRef.current.lastFastTime < 150) return;
-
-    // Phase 6 (ADR-04 D6 / T4): cadence is configurable via
-    // settings.rendering.labelLayoutEvery. Default 3 — historical behaviour.
-    const labelLayoutEvery = Math.max(
-      1,
-      ((settings as any)?.visualisation?.rendering?.labelLayoutEvery as number | undefined) ?? 3
-    );
-    if (frameCountRef.current % labelLayoutEvery !== 0) return;
+    if (moving || !due) return;
 
     const labelSettings = (settings as any)?.visualisation?.graphs?.knowledge?.labels ?? (settings as any)?.visualisation?.labels;
     if (!labelSettings?.enableLabels || nodes.length === 0) {
-      setWebGPULabels([]);
+      if (webGPULabelsRef.current.length > 0) { webGPULabelsRef.current = []; setWebGPULabels([]); }
       return;
     }
 
@@ -376,15 +339,12 @@ const InstancedLabelsWebGPU: React.FC<WebGPUProps> = ({
     const nodeSize = nodeSettings?.nodeSize ?? 0.5;
     const LABEL_DISTANCE_THRESHOLD = labelSettings?.labelDistanceThreshold ?? 1200;
     const METADATA_DISTANCE_THRESHOLD = LABEL_DISTANCE_THRESHOLD * 0.6;
-    const FADE_START = LABEL_DISTANCE_THRESHOLD * 0.85;
     const metadataEnabled = labelSettings?.showMetadata !== false;
-    const fontSize = labelSettings.desktopFontSize ?? 0.4;
-    const metaFontSize = fontSize * 0.8;
+    // Labels are sized in CSS px (graphView.labels.fontPx); line sizes keep their ratios.
+    const fontSize = 1;
+    const metaFontSize = META_SCALE;
     const textColor = labelSettings.textColor || '#ffffff';
     const textPadding = labelSettings.textPadding ?? 0.3;
-
-    _projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-    _frustum.setFromProjectionMatrix(_projScreenMatrix);
 
     // Read the drawn-positions array (the same one GemNodes and the edges read) for zero-lag positions.
     // Falls back to labelPositionsRef if it is not available.
@@ -396,12 +356,17 @@ const InstancedLabelsWebGPU: React.FC<WebGPUProps> = ({
     // the screen-space occlusion test below.
     const projF = camera.projectionMatrix.elements[5];
 
-    // Pass 1: build candidate labels plus their node-centre occlusion discs.
+    // ADR-2186: the budgeted, priority-ranked selection (shared with WebGL).
+    const runner = runnerRef.current;
+    const sel = runner.run(now, nodes, nodeIdToIndexMap, connectionCountMap, rawPositions, camera, size, budgets, budgets.fontPx);
+
+    // Pass 1: the selected labels plus their node-centre occlusion discs.
     const candidates: WebGPULabel[] = [];
     const occluders: OcclusionCandidate[] = [];
 
-    for (const node of nodes) {
-      const originalIndex = nodeIdToIndexMap.get(String(node.id)) ?? -1;
+    for (let k = 0; k < sel.count; k++) {
+      const node = nodes[sel.nodes[k]];
+      const originalIndex = runner.renderIndexOf(sel.nodes[k]);
       let position: { x: number; y: number; z: number };
       if (originalIndex !== -1 && rawPositions && originalIndex * 3 + 2 < rawPositions.length) {
         const i3 = originalIndex * 3;
@@ -412,21 +377,12 @@ const InstancedLabelsWebGPU: React.FC<WebGPUProps> = ({
       }
 
       _tempVec3.set(position.x, position.y, position.z);
-      if (!_frustum.containsPoint(_tempVec3)) continue;
-
       const distanceToCamera = _tempVec3.distanceTo(camera.position);
-      if (distanceToCamera > LABEL_DISTANCE_THRESHOLD || distanceToCamera < 2) continue;
-
-      const opacity = distanceToCamera > FADE_START
-        ? 1 - (distanceToCamera - FADE_START) / (LABEL_DISTANCE_THRESHOLD - FADE_START) : 1;
-
       const showMetadata = metadataEnabled && distanceToCamera <= METADATA_DISTANCE_THRESHOLD;
       const nodeLabelVisualMode = perNodeVisualModeMap.get(String(node.id)) || graphMode;
       const scale = computeNodeScale(node, connectionCountMap, nodeLabelVisualMode, hierarchyMap, graphTypeVisuals);
       const labelOffsetY = scale * nodeSize + textPadding;
 
-      // Node centre projected to screen — the point that gets occluded, and the
-      // centre of this node's own occlusion disc.
       _tempVec3b.set(position.x, position.y, position.z).project(camera);
       if (_tempVec3b.z > 1) continue; // behind camera
       const centerScreenX = (_tempVec3b.x * halfW) + halfW;
@@ -442,12 +398,11 @@ const InstancedLabelsWebGPU: React.FC<WebGPUProps> = ({
         showMetadata, connectionCountMap, hierarchyMap, ssspResult,
       );
 
-      // Label anchor (floats above the node) projected to screen for placement.
       _tempVec3.set(position.x, position.y + labelOffsetY, position.z).project(camera);
       const screenX = (_tempVec3.x * halfW) + halfW;
       const screenY = (-_tempVec3.y * halfH) + halfH;
 
-      candidates.push({ screenX, screenY, lines, opacity });
+      candidates.push({ screenX, screenY, lines, opacity: 1 });
       occluders.push({ screenX: centerScreenX, screenY: centerScreenY, screenRadius, distance: distanceToCamera });
     }
 
@@ -459,6 +414,7 @@ const InstancedLabelsWebGPU: React.FC<WebGPUProps> = ({
       if (!occMask[i]) labels.push(candidates[i]);
     }
 
+    webGPULabelsRef.current = labels;
     setWebGPULabels(labels);
   });
 
@@ -482,7 +438,7 @@ const InstancedLabelsWebGPU: React.FC<WebGPUProps> = ({
             {label.lines.map((line, j) => (
               <span key={j} style={{
                 color: line.color,
-                fontSize: `${Math.round(line.fontSize * 28)}px`,
+                fontSize: `${Math.round(line.fontSize * budgets.fontPx)}px`,
                 textShadow: '0 0 3px #000, 0 0 6px #000',
                 fontFamily: 'system-ui, sans-serif',
                 lineHeight: 1.3,
@@ -508,8 +464,12 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
   settings, graphMode, perNodeVisualModeMap, connectionCountMap,
   hierarchyMap, graphTypeVisuals, ssspResult,
 }) => {
-  const { camera } = useThree();
+  const { camera, size } = useThree();
   const meshRef = useRef<THREE.Mesh>(null);
+  const budgets = useLabelBudgets();
+  const runnerRef = useRef(new LabelBudgetRunner());
+  // ADR-2186 D1: the glyph buffer is sized from the budget, not MAX_GLYPHS.
+  const glyphCap = Math.min(MAX_GLYPHS, glyphCapacityFor(budgets));
   const frameCountRef = useRef(0);
   const diagLoggedRef = useRef(false);
   const prevCameraRef = useRef({
@@ -543,12 +503,12 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
     geo.setAttribute('position', new THREE.BufferAttribute(quadPositions, 3));
 
     // Pre-allocate instanced attributes for MAX_GLYPHS
-    const aLabelPos = new THREE.InstancedBufferAttribute(new Float32Array(MAX_GLYPHS * 3), 3);
-    const aLocalOffset = new THREE.InstancedBufferAttribute(new Float32Array(MAX_GLYPHS * 2), 2);
-    const aScale = new THREE.InstancedBufferAttribute(new Float32Array(MAX_GLYPHS * 2), 2);
-    const aUVRect = new THREE.InstancedBufferAttribute(new Float32Array(MAX_GLYPHS * 4), 4);
-    const aColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_GLYPHS * 3), 3);
-    const aOpacity = new THREE.InstancedBufferAttribute(new Float32Array(MAX_GLYPHS), 1);
+    const aLabelPos = new THREE.InstancedBufferAttribute(new Float32Array(glyphCap * 3), 3);
+    const aLocalOffset = new THREE.InstancedBufferAttribute(new Float32Array(glyphCap * 2), 2);
+    const aScale = new THREE.InstancedBufferAttribute(new Float32Array(glyphCap * 2), 2);
+    const aUVRect = new THREE.InstancedBufferAttribute(new Float32Array(glyphCap * 4), 4);
+    const aColor = new THREE.InstancedBufferAttribute(new Float32Array(glyphCap * 3), 3);
+    const aOpacity = new THREE.InstancedBufferAttribute(new Float32Array(glyphCap), 1);
 
     aLabelPos.setUsage(THREE.DynamicDrawUsage);
     aLocalOffset.setUsage(THREE.DynamicDrawUsage);
@@ -567,7 +527,7 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
     geo.instanceCount = 0;
 
     return { geometry: geo, matResult: m, atlas: a };
-  }, []);
+  }, [glyphCap]);
 
   // Dispose on unmount
   React.useEffect(() => {
@@ -605,10 +565,13 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
     const cameraMovingFast = posDelta > 0.5 || rotDelta > 0.001;
 
     const now = performance.now();
+    if (cameraMovingFast) motionStateRef.current.lastFastTime = now;
+    // ADR-2186 D5: label selection at ~4 Hz and on camera stop, never per frame.
+    const labelDue = runnerRef.current.due(now, cameraMovingFast || now - motionStateRef.current.lastFastTime < 150);
     if (cameraMovingFast) {
-      motionStateRef.current.lastFastTime = now;
       // Hide all labels immediately — node spheres keep rendering at full framerate
       geometry.instanceCount = 0;
+      nodeGlyphMapRef.current = [];
       return;
     }
     // Debounce: wait 150ms of stillness before rebuilding labels
@@ -666,13 +629,9 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
       }
     }
 
-    // Phase 6 (ADR-04 D6 / T4): cadence is configurable via
-    // settings.rendering.labelLayoutEvery. Default 3 — historical behaviour.
-    const labelLayoutEvery = Math.max(
-      1,
-      ((settings as any)?.visualisation?.rendering?.labelLayoutEvery as number | undefined) ?? 3
-    );
-    if (frameCountRef.current % labelLayoutEvery !== 0 && nodeGlyphMapRef.current.length > 0) return;
+    // ADR-2186 D5: the layout runs with the label selection (LABEL_REFRESH_MS,
+    // ≈4 Hz, and on camera stop); between refreshes only positions are patched.
+    if (!labelDue && nodeGlyphMapRef.current.length > 0) return;
 
     // Reuse rawPositions captured above (same drawn-array snapshot for consistency)
     const rawPositionsForLayout = rawPositions;
@@ -689,25 +648,10 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
     const nodeSize = nodeSettingsObj?.nodeSize ?? 0.5;
     const LABEL_DISTANCE_THRESHOLD = labelSettings?.labelDistanceThreshold ?? 1200;
     const METADATA_DISTANCE_THRESHOLD = LABEL_DISTANCE_THRESHOLD * 0.6;
-    const FADE_START = LABEL_DISTANCE_THRESHOLD * 0.85;
     const metadataEnabled = labelSettings?.showMetadata !== false;
-    const fontSize = labelSettings.desktopFontSize ?? 0.4;
-    const metaFontSize = fontSize * 0.8;
     const textColor = labelSettings.textColor || '#ffffff';
     const textPadding = labelSettings.textPadding ?? 0.3;
     const maxWidth = labelSettings.maxLabelWidth ?? 5.0;
-
-    // Update frustum with ~10% margin to pre-populate labels for nodes about to
-    // enter the view during rapid camera rotation (layout rebuilds every 3 frames).
-    _projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-    // Scale the x/y projection factors to widen the frustum (elements [0] and [5]
-    // control horizontal and vertical FOV in a perspective matrix).
-    const e = _projScreenMatrix.elements;
-    e[0] *= 0.9; e[5] *= 0.9;
-    _frustum.setFromProjectionMatrix(_projScreenMatrix);
-
-    // Reset the screen-space declutter grid for this layout pass.
-    _labelGridCells.clear();
 
     // Get attribute arrays for direct writing
     const localOffArr = (geometry.getAttribute('aLocalOffset') as THREE.InstancedBufferAttribute).array as Float32Array;
@@ -718,57 +662,27 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
 
     let glyphIdx = 0;
     let visibleNodeCount = 0;
-    let cellsRejected = 0;
     const newNodeMap: typeof nodeGlyphMapRef.current = [];
 
-    // Distance-priority iteration: sort nodes closest-first so the closer
-    // (visually more important) labels win their screen cells before
-    // farther labels would. Avoids "random first wins" artefacts when the
-    // node order from the store is independent of camera position.
-    //
-    // Allocates a small array of indices and a parallel distance buffer.
-    // For the 31k-node corpus this is one Float32Array per layout pass
-    // (every 3 frames), well under 1ms.
-    const nodeIdxByDist: number[] = [];
-    const _nodeDist: number[] = [];
-    for (let i = 0; i < nodes.length; i++) {
-      const n = nodes[i];
-      const orig = nodeIdToIndexMap.get(String(n.id)) ?? -1;
-      let nx: number, ny: number, nz: number;
-      if (rawPositionsForLayout && orig !== -1 && orig * 3 + 2 < rawPositionsForLayout.length) {
-        nx = rawPositionsForLayout[orig * 3];
-        ny = rawPositionsForLayout[orig * 3 + 1];
-        nz = rawPositionsForLayout[orig * 3 + 2];
-      } else {
-        const p = (orig !== -1 ? currentLabelPositions[orig] : undefined) || n.position || { x: 0, y: 0, z: 0 };
-        nx = p.x; ny = p.y; nz = p.z;
-      }
-      const dx = nx - camera.position.x;
-      const dy = ny - camera.position.y;
-      const dz = nz - camera.position.z;
-      _nodeDist.push(dx * dx + dy * dy + dz * dz);
-      nodeIdxByDist.push(i);
-    }
-    nodeIdxByDist.sort((a, b) => _nodeDist[a] - _nodeDist[b]);
+    // ADR-2186: priority-ranked, budgeted selection (selection / overview /
+    // dynamic tiers, greyed nodes excluded, screen collisions removed) —
+    // the same selection the WebGPU path draws.
+    const runner = runnerRef.current;
+    const sel = runner.run(now, nodes, nodeIdToIndexMap, connectionCountMap, rawPositionsForLayout, camera, size, budgets, budgets.fontPx);
 
-    for (const nodeIdx of nodeIdxByDist) {
+    for (let k = 0; k < sel.count; k++) {
+      const nodeIdx = sel.nodes[k];
       const node = nodes[nodeIdx];
-      if (glyphIdx >= MAX_GLYPHS - 200) break; // Reserve headroom
+      if (glyphIdx >= glyphCap - 200) break; // Reserve headroom
 
-      const originalIndex = nodeIdToIndexMap.get(String(node.id)) ?? -1;
+      const originalIndex = runner.renderIndexOf(nodeIdx);
       // Prefer the drawn-positions array (same frame as GemNodes), fall back to labelPositionsRef
       let px: number, py: number, pz: number;
-      if (rawPositionsForLayout && originalIndex !== -1) {
+      if (rawPositionsForLayout && originalIndex !== -1 && originalIndex * 3 + 2 < rawPositionsForLayout.length) {
         const pi3 = originalIndex * 3;
-        if (pi3 + 2 < rawPositionsForLayout.length) {
-          px = rawPositionsForLayout[pi3];
-          py = rawPositionsForLayout[pi3 + 1];
-          pz = rawPositionsForLayout[pi3 + 2];
-        } else {
-          const physicsPos = originalIndex !== -1 ? currentLabelPositions[originalIndex] : undefined;
-          const fallback = physicsPos || node.position || { x: 0, y: 0, z: 0 };
-          px = fallback.x; py = fallback.y; pz = fallback.z;
-        }
+        px = rawPositionsForLayout[pi3];
+        py = rawPositionsForLayout[pi3 + 1];
+        pz = rawPositionsForLayout[pi3 + 2];
       } else {
         const physicsPos = originalIndex !== -1 ? currentLabelPositions[originalIndex] : undefined;
         const fallback = physicsPos || node.position || { x: 0, y: 0, z: 0 };
@@ -776,42 +690,15 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
       }
 
       _tempVec3.set(px, py, pz);
-      if (!_frustum.containsPoint(_tempVec3)) continue;
-
       const distanceToCamera = _tempVec3.distanceTo(camera.position);
-      if (distanceToCamera > LABEL_DISTANCE_THRESHOLD || distanceToCamera < 2) continue;
-
-      // Screen-space declutter: project to NDC, map to a grid cell. If the
-      // cell is already occupied by a closer label, skip this one.
-      //
-      // We intentionally reuse `_tempVec3` (still holds world pos), apply the
-      // projection matrix in-place, and read NDC.x/.y. `_projScreenMatrix`
-      // is the precomputed proj * view matrix from the frustum update above,
-      // so this is one Matrix4 multiply per node — no Vector3 allocation.
-      _tempVec3.applyMatrix4(_projScreenMatrix);
-      // Skip if behind camera (NDC w-divide done by Three.js, but applyMatrix4
-      // returns NDC.xyz only if the point is in front; behind-camera w<0
-      // results in inverted coords that we filter via the frustum check above,
-      // so by this line _tempVec3.xy is roughly in [-1, 1].
-      const ndcX = _tempVec3.x;
-      const ndcY = _tempVec3.y;
-      // Map NDC [-1,1] → grid [0, COLS-1] × [0, ROWS-1].
-      const gx = Math.min(LABEL_GRID_COLS - 1, Math.max(0, Math.floor((ndcX * 0.5 + 0.5) * LABEL_GRID_COLS)));
-      const gy = Math.min(LABEL_GRID_ROWS - 1, Math.max(0, Math.floor((ndcY * 0.5 + 0.5) * LABEL_GRID_ROWS)));
-      const cellKey = gx * LABEL_GRID_ROWS + gy;
-      if (_labelGridCells.has(cellKey)) {
-        cellsRejected++;
-        continue;
-      }
-      _labelGridCells.add(cellKey);
-
-      const opacity = distanceToCamera > FADE_START
-        ? 1 - (distanceToCamera - FADE_START) / (LABEL_DISTANCE_THRESHOLD - FADE_START) : 1;
-
+      // Labels are sized in CSS px (graphView.labels.fontPx) at this node's depth.
+      const fontSize = budgets.fontPx * worldPerPx(camera, distanceToCamera, size.height);
+      const metaFontSize = fontSize * META_SCALE;
+      const opacity = 1;
       const showMetadata = metadataEnabled && distanceToCamera <= METADATA_DISTANCE_THRESHOLD;
       const nodeLabelVisualMode = perNodeVisualModeMap.get(String(node.id)) || graphMode;
       const scale = computeNodeScale(node, connectionCountMap, nodeLabelVisualMode, hierarchyMap, graphTypeVisuals);
-      const labelOffsetY = scale * nodeSize + textPadding;
+      const labelOffsetY = scale * nodeSize + textPadding * fontSize;
 
       const labelText = node.label && node.label.length > 40
         ? node.label.substring(0, 37) + '...' : (node.label || node.id);
@@ -827,7 +714,7 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
         lines, atlas, maxWidth,
         localOffArr, scaleArr, uvRectArr, colorArr, opacityArr, labelPosArr,
         px, py + labelOffsetY, pz,
-        opacity, glyphIdx, MAX_GLYPHS,
+        opacity, glyphIdx, glyphCap,
         _tempColor as unknown as { r: number; g: number; b: number; set(c: string): void },
       );
 
@@ -852,13 +739,13 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
     const _last = (diagLoggedRef as any).lastLogMs as number | undefined;
     if (glyphIdx > 0 && (_last === undefined || _now - _last > 1000)) {
       (diagLoggedRef as any).lastLogMs = _now;
-      console.log('[InstancedLabels] layout:', {
+      console.debug('[InstancedLabels] layout:', {
         totalNodes: nodes.length,
-        visibleNodes: visibleNodeCount,
-        screenCellsRejected: cellsRejected,
-        screenCellsOccupied: _labelGridCells.size,
+        labelled: visibleNodeCount,
+        budget: budgets,
+        priority: runner.prioritySource,
         glyphCount: glyphIdx,
-        labelDistanceThreshold: LABEL_DISTANCE_THRESHOLD,
+        glyphCapacity: glyphCap,
       });
     }
 
