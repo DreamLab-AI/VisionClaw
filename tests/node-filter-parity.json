@@ -1,48 +1,296 @@
 {
-  "_comment": "Shared node-filter fixture (ADR-2183 implementation notes). One predicate, three copies: client/src/features/graph/explore/nodeFilter.ts, src/actors/client_filter.rs, xr-client/rust/src/settings_sync.rs. Each copy's tests load this file and must agree on `greyed` for every case. Metadata keys are the wire keys the server publishes. Every node carries an explicit authority so the copies' different authority fallbacks never enter a case; quality may be absent (unscored), and an unscored node is neutral to the quality predicate everywhere.",
+  "_comment": "Shared node-filter fixture (ADR-2183 implementation notes). One predicate, three copies: client/src/features/graph/explore/nodeFilter.ts, src/actors/client_filter.rs, xr-client/rust/src/settings_sync.rs. Each copy's tests load this file and must agree on `greyed` for every case. Metadata keys are the wire keys the server publishes. A node without an authored score is neutral to that predicate on every copy: an absent quality_score passes the quality check and an absent authority_score passes the authority check (nodes 5, 6, 9, 10).",
   "nodes": [
-    { "id": 1, "metadata": { "quality_score": "0.35", "authority_score": "0.9" } },
-    { "id": 2, "metadata": { "quality_score": "0.5", "authority_score": "0.3" } },
-    { "id": 3, "metadata": { "quality_score": "0.72", "authority_score": "0.6" } },
-    { "id": 4, "metadata": { "quality_score": "0.9", "authority_score": "0.2" } },
-    { "id": 5, "metadata": { "authority_score": "0.8" } },
-    { "id": 6, "metadata": { "authority_score": "0.1" } },
-    { "id": 7, "metadata": { "quality_score": "0.4", "authority_score": "0.5" } },
-    { "id": 8, "metadata": { "quality_score": "0.62", "authority_score": "0.7" } }
+    {
+      "id": 1,
+      "metadata": {
+        "quality_score": "0.35",
+        "authority_score": "0.9"
+      }
+    },
+    {
+      "id": 2,
+      "metadata": {
+        "quality_score": "0.5",
+        "authority_score": "0.3"
+      }
+    },
+    {
+      "id": 3,
+      "metadata": {
+        "quality_score": "0.72",
+        "authority_score": "0.6"
+      }
+    },
+    {
+      "id": 4,
+      "metadata": {
+        "quality_score": "0.9",
+        "authority_score": "0.2"
+      }
+    },
+    {
+      "id": 5,
+      "metadata": {
+        "authority_score": "0.8"
+      }
+    },
+    {
+      "id": 6,
+      "metadata": {
+        "authority_score": "0.1"
+      }
+    },
+    {
+      "id": 7,
+      "metadata": {
+        "quality_score": "0.4",
+        "authority_score": "0.5"
+      }
+    },
+    {
+      "id": 8,
+      "metadata": {
+        "quality_score": "0.62",
+        "authority_score": "0.7"
+      }
+    },
+    {
+      "id": 9,
+      "metadata": {
+        "quality_score": "0.8"
+      }
+    },
+    {
+      "id": 10,
+      "metadata": {}
+    }
   ],
   "cases": [
-    { "name": "shipped default (off)", "default": true,
-      "filter": { "enabled": false, "qualityThreshold": 0.4, "authorityThreshold": 0.5, "filterByQuality": true, "filterByAuthority": false, "filterMode": "or" },
-      "greyed": [] },
-    { "name": "default switched on: quality alone at 0.4 greys the bottom band",
-      "filter": { "enabled": true, "qualityThreshold": 0.4, "authorityThreshold": 0.5, "filterByQuality": true, "filterByAuthority": false, "filterMode": "or" },
-      "greyed": [1] },
-    { "name": "quality alone, AND, same result as OR",
-      "filter": { "enabled": true, "qualityThreshold": 0.4, "authorityThreshold": 0.5, "filterByQuality": true, "filterByAuthority": false, "filterMode": "and" },
-      "greyed": [1] },
-    { "name": "quality alone at 0.7",
-      "filter": { "enabled": true, "qualityThreshold": 0.7, "authorityThreshold": 0.5, "filterByQuality": true, "filterByAuthority": false, "filterMode": "or" },
-      "greyed": [1, 2, 7, 8] },
-    { "name": "unscored nodes are neutral even when every scored node fails",
-      "filter": { "enabled": true, "qualityThreshold": 0.95, "authorityThreshold": 0.5, "filterByQuality": true, "filterByAuthority": false, "filterMode": "or" },
-      "greyed": [1, 2, 3, 4, 7, 8] },
-    { "name": "no predicate enabled, OR: greys nothing",
-      "filter": { "enabled": true, "qualityThreshold": 0.99, "authorityThreshold": 0.99, "filterByQuality": false, "filterByAuthority": false, "filterMode": "or" },
-      "greyed": [] },
-    { "name": "no predicate enabled, AND: greys nothing",
-      "filter": { "enabled": true, "qualityThreshold": 0.99, "authorityThreshold": 0.99, "filterByQuality": false, "filterByAuthority": false, "filterMode": "and" },
-      "greyed": [] },
-    { "name": "authority alone, OR",
-      "filter": { "enabled": true, "qualityThreshold": 0.99, "authorityThreshold": 0.5, "filterByQuality": false, "filterByAuthority": true, "filterMode": "or" },
-      "greyed": [2, 4, 6] },
-    { "name": "both, AND: greyed when either fails",
-      "filter": { "enabled": true, "qualityThreshold": 0.7, "authorityThreshold": 0.5, "filterByQuality": true, "filterByAuthority": true, "filterMode": "and" },
-      "greyed": [1, 2, 4, 6, 7, 8] },
-    { "name": "both, OR: greyed only when both fail",
-      "filter": { "enabled": true, "qualityThreshold": 0.7, "authorityThreshold": 0.5, "filterByQuality": true, "filterByAuthority": true, "filterMode": "or" },
-      "greyed": [2] },
-    { "name": "disabled with both predicates on greys nothing",
-      "filter": { "enabled": false, "qualityThreshold": 0.99, "authorityThreshold": 0.99, "filterByQuality": true, "filterByAuthority": true, "filterMode": "and" },
-      "greyed": [] }
+    {
+      "name": "shipped default (off)",
+      "default": true,
+      "filter": {
+        "enabled": false,
+        "qualityThreshold": 0.4,
+        "authorityThreshold": 0.5,
+        "filterByQuality": true,
+        "filterByAuthority": false,
+        "filterMode": "or"
+      },
+      "greyed": []
+    },
+    {
+      "name": "default switched on: quality alone at 0.4 greys the bottom band",
+      "filter": {
+        "enabled": true,
+        "qualityThreshold": 0.4,
+        "authorityThreshold": 0.5,
+        "filterByQuality": true,
+        "filterByAuthority": false,
+        "filterMode": "or"
+      },
+      "greyed": [
+        1
+      ]
+    },
+    {
+      "name": "quality alone, AND, same result as OR",
+      "filter": {
+        "enabled": true,
+        "qualityThreshold": 0.4,
+        "authorityThreshold": 0.5,
+        "filterByQuality": true,
+        "filterByAuthority": false,
+        "filterMode": "and"
+      },
+      "greyed": [
+        1
+      ]
+    },
+    {
+      "name": "quality alone at 0.7",
+      "filter": {
+        "enabled": true,
+        "qualityThreshold": 0.7,
+        "authorityThreshold": 0.5,
+        "filterByQuality": true,
+        "filterByAuthority": false,
+        "filterMode": "or"
+      },
+      "greyed": [
+        1,
+        2,
+        7,
+        8
+      ]
+    },
+    {
+      "name": "unscored nodes are neutral even when every scored node fails",
+      "filter": {
+        "enabled": true,
+        "qualityThreshold": 0.95,
+        "authorityThreshold": 0.5,
+        "filterByQuality": true,
+        "filterByAuthority": false,
+        "filterMode": "or"
+      },
+      "greyed": [
+        1,
+        2,
+        3,
+        4,
+        7,
+        8,
+        9
+      ]
+    },
+    {
+      "name": "no predicate enabled, OR: greys nothing",
+      "filter": {
+        "enabled": true,
+        "qualityThreshold": 0.99,
+        "authorityThreshold": 0.99,
+        "filterByQuality": false,
+        "filterByAuthority": false,
+        "filterMode": "or"
+      },
+      "greyed": []
+    },
+    {
+      "name": "no predicate enabled, AND: greys nothing",
+      "filter": {
+        "enabled": true,
+        "qualityThreshold": 0.99,
+        "authorityThreshold": 0.99,
+        "filterByQuality": false,
+        "filterByAuthority": false,
+        "filterMode": "and"
+      },
+      "greyed": []
+    },
+    {
+      "name": "authority alone, OR",
+      "filter": {
+        "enabled": true,
+        "qualityThreshold": 0.99,
+        "authorityThreshold": 0.5,
+        "filterByQuality": false,
+        "filterByAuthority": true,
+        "filterMode": "or"
+      },
+      "greyed": [
+        2,
+        4,
+        6
+      ]
+    },
+    {
+      "name": "both, AND: greyed when either fails",
+      "filter": {
+        "enabled": true,
+        "qualityThreshold": 0.7,
+        "authorityThreshold": 0.5,
+        "filterByQuality": true,
+        "filterByAuthority": true,
+        "filterMode": "and"
+      },
+      "greyed": [
+        1,
+        2,
+        4,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "name": "both, OR: greyed only when both fail",
+      "filter": {
+        "enabled": true,
+        "qualityThreshold": 0.7,
+        "authorityThreshold": 0.5,
+        "filterByQuality": true,
+        "filterByAuthority": true,
+        "filterMode": "or"
+      },
+      "greyed": [
+        2
+      ]
+    },
+    {
+      "name": "disabled with both predicates on greys nothing",
+      "filter": {
+        "enabled": false,
+        "qualityThreshold": 0.99,
+        "authorityThreshold": 0.99,
+        "filterByQuality": true,
+        "filterByAuthority": true,
+        "filterMode": "and"
+      },
+      "greyed": []
+    },
+    {
+      "name": "unscored authority is neutral even when every scored node fails",
+      "filter": {
+        "enabled": true,
+        "qualityThreshold": 0.99,
+        "authorityThreshold": 0.95,
+        "filterByQuality": false,
+        "filterByAuthority": true,
+        "filterMode": "or"
+      },
+      "greyed": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "name": "both strict, OR: a node unscored on either predicate passes",
+      "filter": {
+        "enabled": true,
+        "qualityThreshold": 0.95,
+        "authorityThreshold": 0.95,
+        "filterByQuality": true,
+        "filterByAuthority": true,
+        "filterMode": "or"
+      },
+      "greyed": [
+        1,
+        2,
+        3,
+        4,
+        7,
+        8
+      ]
+    },
+    {
+      "name": "both strict, AND: greyed by whichever scored predicate fails",
+      "filter": {
+        "enabled": true,
+        "qualityThreshold": 0.95,
+        "authorityThreshold": 0.95,
+        "filterByQuality": true,
+        "filterByAuthority": true,
+        "filterMode": "and"
+      },
+      "greyed": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ]
+    }
   ]
 }

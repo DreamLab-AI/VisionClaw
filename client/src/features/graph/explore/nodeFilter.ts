@@ -14,8 +14,8 @@
  * combine. AND greys a node that fails any enabled predicate, OR greys one that
  * fails every enabled predicate, and with no predicate enabled nothing is greyed.
  * (Before, a disabled predicate passed vacuously, so OR with quality alone greyed
- * nothing.) A node with no authored quality score is neutral to the quality
- * predicate. The server (`src/actors/client_filter.rs`) and XR
+ * nothing.) A node with no authored score is neutral to that predicate (quality
+ * and authority alike). The server (`src/actors/client_filter.rs`) and XR
  * (`xr-client/rust/src/settings_sync.rs`) copies apply the same rule, pinned by
  * the shared fixture `tests/node-filter-parity.json`.
  */
@@ -109,7 +109,7 @@ export function isGreyedByNodeFilter(
   node: GraphNode,
   f: ResolvedNodeFilter,
   connectionCountMap: ReadonlyMap<string, number>,
-  hierarchyMap: ReadonlyMap<string, HierarchyNode>,
+  _hierarchyMap: ReadonlyMap<string, HierarchyNode>, // kept for callers; authority no longer falls back to depth
 ): boolean {
   const id = String(node.id);
   if (f.minConnections > 0 && (connectionCountMap.get(id) || 0) < f.minConnections) return true;
@@ -130,10 +130,9 @@ export function isGreyedByNodeFilter(
     verdicts.push(q === undefined || q >= f.qualityThreshold);
   }
   if (f.filterByAuthority) {
-    // The server's key is authority_score; unscored falls back to hierarchy depth.
-    const a = toScore(node.metadata?.authority_score ?? node.metadata?.authority ?? node.metadata?.authorityScore)
-      ?? Math.max(0, 1.0 - (hierarchyMap.get(id)?.depth ?? 0) * 0.2);
-    verdicts.push(a >= f.authorityThreshold);
+    // The server's key is authority_score. Unscored is neutral, as for quality.
+    const a = toScore(node.metadata?.authority_score ?? node.metadata?.authority ?? node.metadata?.authorityScore);
+    verdicts.push(a === undefined || a >= f.authorityThreshold);
   }
   if (verdicts.length === 0) return false;
   return f.filterMode === 'and' ? verdicts.some((p) => !p) : verdicts.every((p) => !p);

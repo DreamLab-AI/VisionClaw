@@ -42,6 +42,12 @@ describe('node filter semantics', () => {
       .toEqual([1, 2, 7]);
   });
 
+  it('an unscored node is neutral to the authority predicate, whatever its hierarchy depth', () => {
+    const deep = new Map(nodes.map((n) => [String(n.id), { depth: 5 } as never]));
+    const f = resolveNodeFilter({ enabled: true, filterByQuality: false, filterByAuthority: true, authorityThreshold: 0.5 });
+    expect(isGreyedByNodeFilter(nodes[9], f, degree, deep)).toBe(false); // id 10, unscored
+  });
+
   it('an unscored node is neutral to the quality predicate, whatever its degree', () => {
     const lowDegree = new Map(nodes.map((n) => [String(n.id), 1]));
     const f = resolveNodeFilter({ enabled: true, filterByQuality: true, qualityThreshold: 0.9 });

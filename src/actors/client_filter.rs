@@ -12,15 +12,11 @@
 //! nodeFilter.ts`) and XR (`xr-client/rust/src/settings_sync.rs`), pinned by the
 //! shared fixture `tests/node-filter-parity.json`: only enabled predicates
 //! combine (AND: all must pass; OR: one must pass; none enabled: pass), and a
-//! node without an authored quality score is neutral to the quality predicate.
+//! node without an authored score is neutral to that predicate.
 
 use crate::actors::client_coordinator_actor::{ClientFilter, FilterMode};
 use log::debug;
 use visionclaw_domain::models::graph::GraphData;
-
-/// Authority for a node with no authority score (no copy has a better signal
-/// on the server; the client uses hierarchy depth, XR 1.0).
-const UNSCORED_AUTHORITY: f64 = 0.5;
 
 /// Recomputes which node IDs this client receives.
 ///
@@ -74,8 +70,7 @@ pub fn recompute_filtered_nodes(filter: &mut ClientFilter, graph_data: &GraphDat
 /// Whether a node passes the enabled quality / authority predicates.
 ///
 /// Ignores `enabled` and `server_remove`; the caller decides whether the
-/// predicates apply. `None` quality is neutral; `None` authority scores
-/// [`UNSCORED_AUTHORITY`].
+/// predicates apply. A `None` score is neutral to its predicate.
 pub fn passes_predicates(
     filter: &ClientFilter,
     quality: Option<f64>,
@@ -86,7 +81,7 @@ pub fn passes_predicates(
         verdicts.push(quality.is_none_or(|q| q >= filter.quality_threshold));
     }
     if filter.filter_by_authority {
-        verdicts.push(authority.unwrap_or(UNSCORED_AUTHORITY) >= filter.authority_threshold);
+        verdicts.push(authority.is_none_or(|a| a >= filter.authority_threshold));
     }
     if verdicts.is_empty() {
         return true;

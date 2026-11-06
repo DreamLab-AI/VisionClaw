@@ -90,8 +90,7 @@ impl NodeFilter {
     /// hierarchy-expansion and degree/maturity gates XR does not carry. Only
     /// enabled checks combine (AND: all pass; OR: one passes; none enabled:
     /// pass), as on the desktop and server (`tests/node-filter-parity.json`).
-    /// An unscored quality is neutral; an unscored authority falls back to
-    /// `1 - depth * 0.2` with depth 0 (XR has no hierarchy map), i.e. 1.0.
+    /// An unscored quality or authority is neutral to its check.
     pub fn passes(&self, inp: &FilterInputs) -> bool {
         if !self.include_linked_pages && inp.linked_page {
             return false;
@@ -104,7 +103,7 @@ impl NodeFilter {
             checks[0] = Some(inp.quality.is_none_or(|q| q >= self.quality_threshold));
         }
         if self.filter_by_authority {
-            checks[1] = Some(inp.authority.unwrap_or(1.0) >= self.authority_threshold);
+            checks[1] = Some(inp.authority.is_none_or(|a| a >= self.authority_threshold));
         }
         let mut enabled = checks.iter().flatten().peekable();
         if enabled.peek().is_none() {
@@ -596,7 +595,7 @@ mod tests {
             ..none
         }
         .passes(&q(0.0)));
-        // Unscored authority is 1.0.
+        // Unscored authority is neutral.
         let auth = NodeFilter {
             filter_by_authority: true,
             authority_threshold: 0.6,
