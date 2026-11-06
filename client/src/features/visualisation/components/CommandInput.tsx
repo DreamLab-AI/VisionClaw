@@ -339,7 +339,8 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
       description: 'Enabling cluster visualization',
       // (The retired qualityGates.semanticForces write is gone: ADR-2140 moved it into physics.semantic.)
       writes: [
-        { path: 'qualityGates.showClusters', value: true },
+        // ADR-2189: "show clusters" is colour scheme = Cluster (the old toggle coloured nothing).
+        { path: 'visualisation.graphs.knowledge.nodes.colorScheme', value: 'cluster' },
         { path: 'visualisation.clusterHulls.enabled', value: true },
       ],
     });

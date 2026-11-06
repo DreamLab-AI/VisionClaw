@@ -114,7 +114,7 @@ const OLD_BLOB = {
         },
         embeddingCloud: { enabled: false },
       },
-      qualityGates: { showClusters: true, gnnPhysics: false, maxNodeCount: 9007199254740991 },
+      qualityGates: { showClusters: true, showCommunities: true, showAnomalies: true, gnnPhysics: false, maxNodeCount: 9007199254740991 },
       perplexity: { model: 'sonar', maxTokens: 4000, temperature: 0.5 },
       pocketTts: { apiUrl: 'http://tts', defaultVoice: 'alba', defaultSpeed: 1 },
       xr: { enabled: false, quality: 'high', renderScale: 1, enableHandTracking: true, enableHaptics: true },
@@ -149,7 +149,9 @@ describe('ADR-2189: an old persisted settings blob still loads', () => {
     expect(get(settings, 'visualisation.graphTypeVisuals.ontology.glowStrength')).toBe(1.8);
     expect(get(settings, 'visualisation.graphTypeVisuals.agent.beamRadius')).toBe(0.35);
     expect(get(settings, 'visualisation.embeddingCloud.enabled')).toBe(false);
-    expect(get(settings, 'qualityGates.showClusters')).toBe(true);
+    expect(get(settings, 'qualityGates.showAnomalies')).toBe(true);
+    // merged: the generic knowledge edge colour moved to agent mode's own colour
+    expect(get(settings, 'visualisation.graphTypeVisuals.agent.edgeColor')).toBe('#a30000');
     expect(get(settings, 'pocketTts.defaultVoice')).toBe('alba');
     expect(get(settings, 'provenance.showAttribution')).toBe(true);
     // branches the removal emptied are pruned, not left as {}
@@ -185,5 +187,21 @@ describe('stripRemovedPaths is tolerant of any shape', () => {
     const out = stripRemovedPaths(input);
     expect(input.qualityGates.gnnPhysics).toBe(true);
     expect(out).toEqual({ qualityGates: { autoAdjust: true } });
+  });
+
+  it('a rename never overwrites a value already stored at the new path', async () => {
+    const { stripRemovedPaths } = await import('../settings/retiredPaths');
+    const blob = {
+      visualisation: {
+        graphs: { knowledge: { edges: { color: '#a30000', opacity: 0.3 } } },
+        graphTypeVisuals: { agent: { edgeColor: '#00ff00' } },
+      },
+    };
+    const out = stripRemovedPaths(blob);
+    expect(get(out, 'visualisation.graphTypeVisuals.agent.edgeColor')).toBe('#00ff00');
+    expect(get(out, 'visualisation.graphs.knowledge.edges.color')).toBeUndefined();
+    expect(get(out, 'visualisation.graphs.knowledge.edges.opacity')).toBe(0.3);
+    // the input is not mutated
+    expect(blob.visualisation.graphs.knowledge.edges.color).toBe('#a30000');
   });
 });

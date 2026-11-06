@@ -182,9 +182,7 @@ export const DEFAULT_QUALITY_GATES: QualityGateSettings = {
   gpuAcceleration: true,
   ontologyPhysics: false,
   layoutMode: 'force-directed',
-  showClusters: true,
   showAnomalies: true,
-  showCommunities: true,
   showCentrality: true,
   showSSSP: false,
   ruvectorEnabled: false,
@@ -314,7 +312,6 @@ export const DEFAULT_NODES_SETTINGS = {
 export const DEFAULT_EDGES_SETTINGS = {
   arrowSize: 0.02,
   baseWidth: 0.1,
-  color: '#ff0000',
   enableArrows: false,
   opacity: 0.15,
   widthRange: [0.3, 1.5] as [number, number],
