@@ -288,7 +288,7 @@
       "sourceGroup": "quality",
       "subgroup": "Filters",
       "scope": "server",
-      "label": "Filter on server (hides nodes)",
+      "label": "Filter on server (hides nodes for every viewer)",
       "clientOnly": false,
       "server": "nodeFilter"
     },

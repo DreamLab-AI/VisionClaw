@@ -42,6 +42,7 @@ import { OPEN_AGENT_OPS_EVENT } from '../agents/AgentOpsSurface';
 import { useLayoutMotion, type WebSocketStatus } from './useConnectionTelemetry';
 import { usePhysicsState } from './usePhysicsState';
 import { describePhysicsState, type PhysicsTone } from './physicsState';
+import { voiceSupportIssues } from './voiceSupport';
 import type { SpacePilotState } from './useSpacePilot';
 
 type BotsSummary = {
@@ -270,6 +271,9 @@ export const StatusFlyout: React.FC<StatusFlyoutProps> = ({ websocketStatus, spa
         <span className="ml-auto font-semibold" style={{ color: motionColor }}>{motionLabel}</span>
       </div>
 
+      {/* Voice availability (ADR-2189 §4: was a fixed warning over the dock dials). */}
+      <VoiceRow />
+
       {/* Settings-sync telltale (ported from the legacy indicator) */}
       <SettingsSyncToggle />
 
@@ -280,6 +284,16 @@ export const StatusFlyout: React.FC<StatusFlyoutProps> = ({ websocketStatus, spa
           support/secure-context guidance folded in from SpaceMouseStatus. */}
       <SpacePilotSection spacePilot={spacePilot} />
     </GlassPanel>
+  );
+};
+
+const VoiceRow: React.FC = () => {
+  const [issues] = useState(voiceSupportIssues);
+  if (issues.length === 0) return null;
+  return (
+    <div data-testid="status-voice" role="note" className="mb-2 rounded bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200">
+      <span className="font-semibold">Voice unavailable.</span> {issues.join(' · ')}
+    </div>
   );
 };
 

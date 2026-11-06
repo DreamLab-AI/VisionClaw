@@ -31,6 +31,10 @@ export interface MacroDialProps {
   valueText?: string;
   /** The dial writes the shared layout document: show the "affects everyone" marker. */
   shared?: boolean;
+  /** Storage scope of the dial's writes (data-scope; ADR-2189 §2). */
+  scope?: 'shared' | 'server' | 'browser';
+  /** Plain text for a non-shared scope, appended to the accessible value. */
+  scopeText?: string;
 }
 
 /** Text appended to a shared dial's tooltip and accessible value (ADR-2189 §2). */
@@ -56,10 +60,13 @@ export const MacroDial: React.FC<MacroDialProps> = ({
   accentColor,
   valueText,
   shared = false,
+  scope,
+  scopeText,
 }) => {
   const pct = Math.round(CLAMP(value) * 100);
-  const ariaValueText = `${pct}%${valueText ? ` — ${valueText}` : ''}${shared ? `. ${SHARED_DIAL_TEXT}` : ''}`;
-  const title = `${label}: ${valueText ?? `${pct}%`}${shared ? `\n${SHARED_DIAL_TEXT}` : ''}`;
+  const where = shared ? SHARED_DIAL_TEXT : scopeText;
+  const ariaValueText = `${pct}%${valueText ? ` — ${valueText}` : ''}${where ? `. ${where}` : ''}`;
+  const title = `${label}: ${valueText ?? `${pct}%`}${where ? `\n${where}` : ''}`;
   const [dragging, setDragging] = useState(false);
   const dragStartRef = useRef<{ y: number; startValue: number } | null>(null);
 
@@ -144,7 +151,7 @@ export const MacroDial: React.FC<MacroDialProps> = ({
         aria-valuenow={Number(value.toFixed(3))}
         aria-valuetext={ariaValueText}
         title={title}
-        data-scope={shared ? 'shared' : 'browser'}
+        data-scope={scope ?? (shared ? 'shared' : 'browser')}
         aria-disabled={disabled}
         aria-orientation="vertical"
         className={cn('cc-macro-dial relative', disabled && 'opacity-50 pointer-events-none')}

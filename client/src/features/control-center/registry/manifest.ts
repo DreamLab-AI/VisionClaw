@@ -195,11 +195,25 @@ export interface IaDocument {
   sections: Array<{ id: SectionId; label: string; description: string; hotkey: string; subsections: IaSubsection[] }>;
 }
 
+/**
+ * Every server bucket is one document under a constant key (settings_routes.rs:
+ * "physics", "visual", "quality_gates", "node_filter"; rendering lives in the
+ * settings actor), so a saved value reaches every viewer, not one account.
+ */
 export const SCOPE_TEXT: Record<SettingScope, string> = {
   shared: 'Changes the layout for everyone',
-  server: 'Saved to your account',
+  server: 'Saved on the server for every viewer',
   browser: 'This browser only',
 };
+
+const SCOPE_RANK: Record<SettingScope, number> = { browser: 0, server: 1, shared: 2 };
+
+/** The strongest of several scopes (shared > server > browser). */
+export function strongestScope(scopes: Iterable<SettingScope>): SettingScope {
+  let best: SettingScope = 'browser';
+  for (const s of scopes) if (SCOPE_RANK[s] > SCOPE_RANK[best]) best = s;
+  return best;
+}
 
 export function buildIa(): IaDocument {
   return {

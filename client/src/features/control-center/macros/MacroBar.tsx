@@ -20,7 +20,7 @@ import { Maximize2, ChevronDown, Map as MapIcon, Filter, RotateCcw, Gauge, Users
 import type { MacroDef, RegistryField } from '../registry/types';
 import { MACROS } from '../registry/macros';
 import { REGISTRY } from '../registry/settingsRegistry';
-import { SCOPE_TEXT } from '../registry/manifest';
+import { SCOPE_TEXT, strongestScope } from '../registry/manifest';
 import { MacroDial } from '../primitives/MacroDial';
 import { SettingToggle } from '../primitives/SettingToggle';
 import { useSettingField } from '../hooks/useSettingField';
@@ -73,6 +73,8 @@ const MacroDialItem: React.FC<{ macro: MacroDef }> = ({ macro }) => {
       value={value}
       valueText={valueText}
       shared={macro.scope === 'shared'}
+      scope={macro.scope}
+      scopeText={SCOPE_TEXT[macro.scope]}
       onChange={onChange}
       onCommit={onCommit}
     />
@@ -90,7 +92,7 @@ const Dials: React.FC = () => (
       ))}
     </div>
     <Divider />
-    <div role="group" aria-label="View dials. This browser only" className="flex items-center gap-1" data-testid="dock-view-dials">
+    <div role="group" aria-label={`View dials. ${SCOPE_TEXT[strongestScope(VIEW_DIALS.map((m) => m.scope))]}`} className="flex items-center gap-1" data-testid="dock-view-dials">
       {VIEW_DIALS.map((m) => (
         <MacroDialItem key={m.id} macro={m} />
       ))}
@@ -260,23 +262,23 @@ const LegendToggle: React.FC = () => {
 };
 
 /**
- * Explore (ADR-2185). Opens the explore panel once gv-explore supplies it; until
- * then it opens Settings › Explore (camera, filters, grouping, memory).
+ * Explore (ADR-2185): opens the explore panel. Hidden until gv-explore supplies
+ * it, because until then it would only repeat the Explore section launcher (2).
  */
 const ExploreButton: React.FC = () => {
   const count = useActiveFilterCount();
   const open = useControlCenterUI((s) => s.explorePanelOpen);
   const setOpen = useControlCenterUI((s) => s.setExplorePanelOpen);
-  const openGroup = useControlCenterUI((s) => s.openGroup);
+  if (!ExplorePanel) return null;
   const label = count > 0 ? `Explore (${count} active filter${count === 1 ? '' : 's'})` : 'Explore';
   return (
     <button
       type="button"
       data-testid="dock-explore"
       aria-label={label}
-      aria-pressed={ExplorePanel ? open : undefined}
+      aria-pressed={open}
       title={label}
-      onClick={() => (ExplorePanel ? setOpen(!open) : openGroup('explore'))}
+      onClick={() => setOpen(!open)}
       className={`${dockButton} relative`}
     >
       <Filter size={15} aria-hidden="true" />

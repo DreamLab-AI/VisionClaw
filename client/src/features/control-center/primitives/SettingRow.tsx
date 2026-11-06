@@ -39,12 +39,13 @@ export function testIdFor(field: RegistryField, groupId: string): string {
 }
 
 const SCOPE_ICON: Record<SettingScope, typeof Users> = { shared: Users, server: Cloud, browser: Monitor };
-const SCOPE_SHORT: Record<SettingScope, string> = { shared: 'Everyone', server: 'Account', browser: 'Browser' };
+const SCOPE_SHORT: Record<SettingScope, string> = { shared: 'Layout · everyone', server: 'Everyone', browser: 'Browser' };
 
 /**
- * Where this setting is stored (ADR-2189 §2). Shared controls always show the
- * badge; account and browser scope show a quiet icon with the full text on hover
- * and in the accessible name, so it is clear which settings follow the user.
+ * Where this setting is stored (ADR-2189 §2). Anything saved on the server reaches
+ * every viewer, so shared-layout and server rows show text ("Layout · everyone",
+ * "Everyone"); browser-only rows show a quiet icon. The full text is on hover and
+ * in the accessible name.
  */
 export const ScopeBadge: React.FC<{ scope: SettingScope; testId: string }> = ({ scope, testId }) => {
   const Icon = SCOPE_ICON[scope];
@@ -58,7 +59,7 @@ export const ScopeBadge: React.FC<{ scope: SettingScope; testId: string }> = ({ 
       title={SCOPE_TEXT[scope]}
     >
       <Icon size={9} aria-hidden="true" />
-      {scope === 'shared' && <span>{SCOPE_SHORT[scope]}</span>}
+      {scope !== 'browser' && <span>{SCOPE_SHORT[scope]}</span>}
     </span>
   );
 };

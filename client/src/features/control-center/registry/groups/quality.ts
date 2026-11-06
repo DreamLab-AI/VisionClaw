@@ -13,7 +13,7 @@ const fields: RegistryField[] = [
   { key: 'showOntology', subgroup: 'Node Types', label: 'Ontology Nodes', type: 'toggle', path: 'visualisation.graphs.knowledge.nodes.nodeTypeVisibility.ontology', description: 'Show ontology nodes' },
   { key: 'showAgents', subgroup: 'Node Types', label: 'Agent Nodes', type: 'toggle', path: 'visualisation.graphs.knowledge.nodes.nodeTypeVisibility.agent', description: 'Show agent nodes' },
   // Node Filtering
-  { key: 'filterEnabled', subgroup: 'Node Filtering', label: 'Filter on server (hides nodes)', type: 'toggle', path: 'nodeFilter.enabled', description: 'Apply these filters on the server, removing non-matching nodes from the graph. Highlight-only filtering arrives with the Explore panel (ADR-2183).' },
+  { key: 'filterEnabled', subgroup: 'Node Filtering', label: 'Filter on server (hides nodes for every viewer)', type: 'toggle', path: 'nodeFilter.enabled', description: 'Apply these filters on the server: non-matching nodes are removed from the graph every viewer loads. Highlight-only filtering arrives with the Explore panel (ADR-2183).' },
   { key: 'includeLinkedPages', subgroup: 'Node Filtering', label: 'Include Linked Pages', type: 'toggle', path: 'nodeFilter.includeLinkedPages', description: 'Show wikilink stub nodes (32K linked_page nodes). Disable for highest-quality view showing only fully-authored pages.' },
   { key: 'filterByQuality', subgroup: 'Node Filtering', label: 'Filter by Quality', type: 'toggle', path: 'nodeFilter.filterByQuality', description: 'Use quality score for filtering' },
   { key: 'qualityThreshold', subgroup: 'Node Filtering', label: 'Quality Threshold', type: 'slider', min: 0, max: 1, step: 0.05, path: 'nodeFilter.qualityThreshold', description: 'Minimum quality score (0-1)' },

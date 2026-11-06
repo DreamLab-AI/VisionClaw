@@ -174,6 +174,7 @@ describe('ControlCenter shell', () => {
     const spread = screen.getByTestId('macro-density');
     expect(spread.getAttribute('aria-label')).toBe('Spread');
     expect(spread.getAttribute('aria-valuetext')).toMatch(/repulsion .*Changes the layout for everyone/);
+    expect(screen.getByTestId('macro-luminosity').getAttribute('aria-valuetext')).toMatch(/Saved on the server for every viewer/);
     expect(screen.getByTestId('macro-luminosity').getAttribute('aria-label')).toBe('Glow');
     expect(screen.getByTestId('macro-focus').getAttribute('aria-label')).toBe('Labels');
     expect(screen.getByTestId('macro-focus').getAttribute('aria-valuetext')).toMatch(/labels/);
@@ -181,7 +182,7 @@ describe('ControlCenter shell', () => {
     expect(screen.getByTestId('macro-density-shared')).toBeInTheDocument();
   });
 
-  it('hides the Legend button and keeps Fit and Explore working until the lanes land', () => {
+  it('hides Legend and Explore and keeps Fit working until the lanes land', () => {
     render(<ControlCenter showStats={false} enableBloom={false} />);
     expect(screen.queryByTestId('dock-legend')).toBeNull();
     const onFit = vi.fn();
@@ -189,7 +190,7 @@ describe('ControlCenter shell', () => {
     fireEvent.click(screen.getByTestId('dock-fit'));
     window.removeEventListener('visionclaw:camera-fit', onFit);
     expect(onFit).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByTestId('dock-explore'));
-    expect(useControlCenterUI.getState().activeGroup).toBe('explore');
+    // until gv-explore supplies the panel, Explore would only repeat section key 2
+    expect(screen.queryByTestId('dock-explore')).toBeNull();
   });
 });

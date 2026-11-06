@@ -56,8 +56,9 @@ export interface RegistryField {
 
 /**
  * Where a setting is stored, derived from its server bucket (ADR-2189 §2):
- * `shared` — the one global physics document, applied to every viewer and the headset;
- * `server` — saved on the server for this account;
+ * `shared` — the one global physics document: it moves the layout for every viewer and the headset;
+ * `server` — a server document stored under one constant key (`visual`, `rendering`,
+ *            `quality_gates`, `node_filter`): every viewer loads it, so it is not per account;
  * `browser` — this browser only (localStorage).
  */
 export type SettingScope = 'shared' | 'server' | 'browser';
@@ -92,7 +93,7 @@ export interface MacroDef {
   apply: (t: number) => Array<{ path: string; value: number | boolean }>;
   /** read-back: derive dial position [0..1] from current settings */
   derive: (get: (path: string) => unknown) => number;
-  /** where the dial's writes are stored; `shared` dials move the layout for every viewer */
+  /** strongest scope over the paths `apply` writes (derived in macros.ts, never hand-set) */
   scope: SettingScope;
   /** plain-language readout of what the dial currently sets (the dial's aria-valuetext) */
   describe: (get: (path: string) => unknown) => string;

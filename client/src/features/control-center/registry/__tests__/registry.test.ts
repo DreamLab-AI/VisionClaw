@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { REGISTRY, ALL_FIELDS, ALL_PATHS, SOURCE_GROUPS, testIdFor } from '../settingsRegistry';
-import { buildManifest, buildIa, serverBucketFor, scopeForField, PANELS } from '../manifest';
+import { buildManifest, buildIa, serverBucketFor, scopeFor, scopeForField, PANELS } from '../manifest';
 import { SECTION_DEFS, placeField } from '../placement';
 import { ADR_2189_REMOVED_PATHS, DEAD_PATHS, REPLACED_PATHS } from '../../../../store/settings/retiredPaths';
-import { MACRO_PATHS } from '../macros';
+import { MACRO_PATHS, MACROS } from '../macros';
 import manifestJson from '../settings-manifest.json';
 // The SOURCE OF TRUTH for the frozen backend contract. Captured from the legacy
 // ControlPanel/unifiedSettingsConfig.ts (now deleted — WP5 cutover) before deletion.
@@ -288,6 +288,18 @@ describe('control-center settings registry', () => {
     // the whole Layout section is the shared physics document, including Reset layout
     const layout = REGISTRY.find((g) => g.id === 'layout')!;
     expect(layout.fields.filter((f) => scopeForField(f) !== 'shared').map((f) => f.key)).toEqual([]);
+  });
+
+  it('(b4b) each dial reports the strongest scope of the paths it writes (dock and rows agree)', () => {
+    const rank = { browser: 0, server: 1, shared: 2 } as const;
+    for (const m of MACROS) {
+      const scopes = [0, 0.5, 1].flatMap((t) => m.apply(t).map((w) => scopeFor(w.path)));
+      const strongest = scopes.reduce((a, b) => (rank[b] > rank[a] ? b : a), 'browser' as keyof typeof rank);
+      expect(m.scope, m.id).toBe(strongest);
+    }
+    // Spread and Motion move the shared layout; the view dials save server documents every viewer loads
+    expect(MACROS.filter((m) => m.scope === 'shared').map((m) => m.id)).toEqual(['density', 'motion']);
+    expect(MACROS.filter((m) => m.scope === 'server').map((m) => m.id)).toEqual(['luminosity', 'focus', 'atmosphere']);
   });
 
   it('(b5) ia.json: both committed copies equal a fresh buildIa() (desktop/XR parity, ADR-2189 §2)', () => {

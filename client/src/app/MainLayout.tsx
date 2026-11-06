@@ -3,8 +3,6 @@ import GraphCanvasWrapper from '../features/graph/components/GraphCanvasWrapper'
 import { ControlCenter, StatusSurface } from '../features/control-center';
 import { useSettingsStore } from '../store/settingsStore';
 import { useBotsData } from '../features/bots/contexts/BotsDataContext';
-import { BrowserSupportWarning } from '../components/BrowserSupportWarning';
-import { AudioInputService } from '../services/AudioInputService';
 import { graphDataManager, type GraphData } from '../features/graph/managers/graphDataManager';
 import { NodeDetailPanel } from '../features/graph/components/NodeDetailPanel';
 import { NodeContextMenu } from '../features/graph/components/NodeContextMenu';
@@ -21,17 +19,11 @@ const MainLayoutContent: React.FC = () => {
   const { botsData } = useBotsData();
   const showStats = settings?.system?.debug?.enablePerformanceDebug ?? false;
   const enableBloom = settings?.visualisation?.glow?.enabled ?? false;
-  const [hasVoiceSupport, setHasVoiceSupport] = useState(true);
   
   
   const [graphData, setGraphData] = useState<GraphData>({ nodes: [], edges: [] });
   const [otherGraphData, setOtherGraphData] = useState<GraphData | undefined>();
 
-  useEffect(() => {
-    const support = AudioInputService.getBrowserSupport();
-    const isSupported = support.getUserMedia && support.isHttps && support.audioContext && support.mediaRecorder;
-    setHasVoiceSupport(isSupported);
-  }, []);
   
   
   useEffect(() => {
@@ -121,18 +113,8 @@ const MainLayoutContent: React.FC = () => {
 
       {/* OntologyPanel is accessed via the control panel's ontology tab, not rendered as overlay */}
 
-      {!hasVoiceSupport && (
-        // ADR-2189 §4: warnings sit at the top centre, never over a control.
-        <aside
-          className="fixed left-1/2 -translate-x-1/2 max-w-sm pointer-events-auto"
-          style={{ top: 'var(--cc-edge, 1rem)', zIndex: 'var(--cc-z-toast, 100)' as unknown as number }}
-          data-testid="browser-support-warning"
-          role="alert"
-          aria-live="polite"
-        >
-          <BrowserSupportWarning className="shadow-lg" />
-        </aside>
-      )}
+      {/* ADR-2189 §4: voice availability is reported in the Status flyout (a dot on
+          the Status chip), not as a fixed warning over the dock. */}
     </main>
   );
 };

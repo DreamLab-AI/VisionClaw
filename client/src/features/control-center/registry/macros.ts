@@ -9,6 +9,7 @@ import type { LucideIcon } from 'lucide-react';
 import { Atom } from 'lucide-react';
 import { Sun, Wind, Tags, CloudFog } from 'lucide-react';
 import type { MacroDef } from './types';
+import { scopeFor, strongestScope } from './manifest';
 import { LABEL_BUDGET_SUPPORTED } from '../integrationFlags';
 
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
@@ -30,15 +31,14 @@ const LABEL_BUDGET_STEP = 5;
 /**
  * The five dock dials (ADR-2189 §3). Ids are stable (`macro-<id>` test ids and the
  * `macro:` field annotations key on them); labels carry the ADR-2189 names.
- * `scope` marks the dials that write the shared physics document.
+ * Each dial's `scope` is derived from the paths it writes (see MACROS below).
  */
-export const MACROS: MacroDef[] = [
+const MACRO_DEFS: Array<Omit<MacroDef, 'scope'>> = [
   {
     id: 'density',
     // Was "Density": turning it up spreads nodes APART, so the old name read backwards.
     label: 'Spread',
     icon: Atom,
-    scope: 'shared',
     apply: (t) => [
       { path: `${P}repelK`, value: 40 + t * 360 },        // 40 → 400
       { path: `${P}restLength`, value: 20 + t * 100 },     // 20 → 120
@@ -54,7 +54,6 @@ export const MACROS: MacroDef[] = [
     // glow scope (Look › Emphasis glow) decides what glows.
     label: 'Glow',
     icon: Sun,
-    scope: 'browser',
     apply: (t) => [
       { path: 'visualisation.glow.intensity', value: Math.round(1.5 * t * 20) / 20 },                 // 0 → 1.5, step 0.05
       { path: 'visualisation.rendering.ambientLightIntensity', value: Math.round((0.2 + t * 1.2) * 10) / 10 }, // 0.2 → 1.4, step 0.1
@@ -67,7 +66,6 @@ export const MACROS: MacroDef[] = [
     id: 'motion',
     label: 'Motion',
     icon: Wind,
-    scope: 'shared',
     apply: (t) => [
       { path: `${P}globalSpeed`, value: 0.05 + t * 1.95 }, // 0.05 → 2.0
       { path: `${P}damping`, value: 0.98 - t * 0.33 },     // 0.98 → 0.65 (inverse)
@@ -87,7 +85,6 @@ export const MACROS: MacroDef[] = [
     // the whole corpus and popped labels in and out).
     label: 'Labels',
     icon: Tags,
-    scope: 'browser',
     apply: (t) =>
       LABEL_BUDGET_SUPPORTED
         ? [{ path: `${G}labels.budget`, value: Math.round((t * LABEL_BUDGET_MAX) / LABEL_BUDGET_STEP) * LABEL_BUDGET_STEP }]
@@ -108,7 +105,6 @@ export const MACROS: MacroDef[] = [
     id: 'atmosphere',
     label: 'Atmosphere',
     icon: CloudFog,
-    scope: 'browser',
     apply: (t) => [
       { path: `${S}enabled`, value: t > 0 },
       { path: `${S}particleOpacity`, value: 0.8 * t }, // 0 → 0.8
@@ -119,6 +115,15 @@ export const MACROS: MacroDef[] = [
     describe: (get) => `particles ${Math.round(num(get, `${S}particleOpacity`, 0) * 100)}%, fog ${Math.round((num(get, `${S}fogOpacity`, 0) / 0.12) * 100)}%`,
   },
 ];
+
+/**
+ * Each dial's scope is the strongest scope of the paths it writes, so the dock and
+ * the settings rows can never disagree about where a value is stored.
+ */
+export const MACROS: MacroDef[] = MACRO_DEFS.map((m) => ({
+  ...m,
+  scope: strongestScope([0, 0.5, 1].flatMap((t) => m.apply(t).map((w) => scopeFor(w.path)))),
+}));
 
 export const MACROS_BY_ID: Record<string, MacroDef> = Object.fromEntries(
   MACROS.map((m) => [m.id, m]),
