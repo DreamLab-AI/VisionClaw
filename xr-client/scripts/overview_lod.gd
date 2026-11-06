@@ -103,8 +103,10 @@ static func node_tier(distance_m: float, rank_by_distance: int,
 ## Edges a volume asks for: sized from the data (its own edge count), bounded by
 ## the triangle-budget ceiling. The MultiMesh instance buffers are sized each frame
 ## from what was packed, so there is no fixed buffer capacity to clip against.
-static func edge_draw_limit(total: int) -> int:
-	return mini(maxi(total, 0), EDGE_DRAW_CEILING)
+## `share` (0..1, Look › Edges) asks for that fraction of them, heaviest first.
+static func edge_draw_limit(total: int, share: float = 1.0) -> int:
+	var want: int = ceili(float(maxi(total, 0)) * clampf(share, 0.0, 1.0))
+	return mini(want, EDGE_DRAW_CEILING)
 
 
 ## Edges not drawn out of `total`, whatever the cause (the ceiling, or an end not drawn).

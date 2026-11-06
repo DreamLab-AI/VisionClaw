@@ -19,11 +19,15 @@ const BackendCaps := preload("res://scripts/backend_caps.gd")
 ## STABLE NODE PATHS (for the flagship rebases — task #18 query builder, #19 fold
 ## ladder — target these; do not assume the old VBox layout):
 ##   HudViewport/HudControl/Root/Header            — persistent header row
-##   HudViewport/HudControl/Root/TabBar            — wand-clickable tab buttons
+##   HudViewport/HudControl/Root/TabBar            — the seven ADR-2189 section tabs
+##                                                   (from data/ia.json) + Fit, Legend, Explore
 ##   HudViewport/HudControl/Root/Tabs              — page host (one visible page)
-##   HudViewport/HudControl/Root/Tabs/GraphPage    — physics/layout controls
+##   HudViewport/HudControl/Root/Tabs/Rail         — the open section's subsections (level 2)
+##   HudViewport/HudControl/Root/Tabs/LayersPage   — populations, memory cloud, hulls, splat
 ##   HudViewport/HudControl/Root/Tabs/QueryPage    — visual query builder
-##   (LayoutPage: hierarchy/view/fold + layout mode; ShapesPage: planes, radial shells, cycles)
+##   (LayoutPage: mode + forces; ShapesPage: hierarchy/view/fold, planes, radial shells, cycles;
+##    EncodePage: colour, label budget, text size; LookPage: node/edge size, reduce motion;
+##    HeadsetPage: dwell, haptics, low-cost visuals)
 ##   HudViewport/HudControl/Root/Tabs/PinsPage     — pinned nodes + Unpin All
 ##   HudViewport/HudControl/Root/Tabs/KeyPage      — colour swatch key (legend)
 ##   HudViewport/HudControl/Root/Tabs/SessionPage  — room/mute/connection/debug
@@ -134,8 +138,17 @@ var _fps_header: Label = null
 var _fps_shown: int = -1
 var _fps_next_ms: int = 0
 var _pages: Dictionary = {}          # tab id → page Control
-var _tab_buttons: Dictionary = {}    # tab id → Button
-var _active_tab: String = "graph"
+var _tab_buttons: Dictionary = {}    # section id → Button (ADR-2189 section tabs)
+var _active_tab: String = "layers"   # the visible page id
+var _active_section: String = "layers"
+var _section_page: Dictionary = {}   # section id → last page shown in it
+var _rail: VBoxContainer = null
+var _rail_buttons: Array = []        # pooled level-2 buttons (RAIL_MAX)
+var _ia: Dictionary = {}             # HudIa.load_doc() result
+var _label_ctl: Label = null         # Encode › Labels readouts
+var _text_ctl: Label = null
+var _dwell_ctl: Label = null         # System › Headset readouts
+var _haptics_button: Button = null
 var _motion_toggle: CheckButton
 var _quality_toggle: CheckButton
 var _overflow_warned: Dictionary = {}
@@ -251,10 +264,24 @@ var _edge_badge: Label = null
 var _beat_mic_on: bool = false
 var _bursts_on: bool = true
 
-const TAB_ORDER: Array[String] = ["graph", "layout", "forces", "shapes", "query", "pins", "swarm", "key", "session", "help"]
+# ADR-2189: the tab bar is the seven sections of data/ia.json (HudIa); each section
+# holds one or more pages, chosen on the rail. TAB_ORDER is the page build order and
+# TAB_LABELS names each page node ("%sPage"), so `_show_tab(<page id>)` and the
+# Tabs/<Name>Page paths stay stable.
+const HudIa := preload("res://scripts/hud_ia.gd")
+const TAB_ORDER: Array[String] = ["layers", "query", "pins", "encode", "key", "layout", "shapes", "forces", "look", "swarm", "session", "headset", "help"]
 const TAB_LABELS: Dictionary = {
-	"graph": "Graph", "layout": "Layout", "forces": "Forces", "shapes": "Shapes", "query": "Query", "pins": "Pins", "swarm": "Swarm", "key": "Key", "session": "Session", "help": "Help",
+	"layers": "Layers", "query": "Query", "pins": "Pins", "encode": "Encode", "key": "Key", "layout": "Layout",
+	"shapes": "Shapes", "forces": "Forces", "look": "Look", "swarm": "Swarm", "session": "Session",
+	"headset": "Headset", "help": "Help",
 }
+const DEFAULT_PAGE := "layers"
+## Level-2 rail: width taken from the page host, and the most entries a section has.
+const RAIL_W: int = 210
+const RAIL_GAP: int = 12
+const RAIL_MAX: int = 3
+## Wrap width of the Look page's status text (the page is about 1010 px wide).
+const STATUS_WRAP_W: int = 900
 
 # Agent status → roster dot colour (ADR-140, Pillar 3). Mirrors
 # render_store::agent_status_color: idle slate / working green / blocked amber-red /
@@ -375,7 +402,7 @@ func _ready() -> void:
 	if doc_http != null:
 		doc_http.request_completed.connect(_on_doc_completed)
 		doc_http.timeout = DOC_TIMEOUT_SEC
-	_show_tab("graph")
+	_show_tab(DEFAULT_PAGE)
 	set_process(true)
 
 
@@ -477,20 +504,67 @@ func _press_fire(b: BaseButton) -> BaseButton:
 
 
 func _build_tab_bar() -> void:
+	# ADR-2189 §1: the seven sections, labels and order from data/ia.json (the
+	# desktop's own generated vocabulary), then Fit, Legend and Explore (§3). Ten
+	# buttons, as many as the ten tabs this bar had before.
+	_ia = HudIa.load_doc()
+	if not bool(_ia["ok"]):
+		push_warning("HUD: %s — using the built-in seven sections" % _ia["error"])
 	var bar := HBoxContainer.new()
 	bar.name = "TabBar"
 	bar.custom_minimum_size = Vector2(0, TABBAR_H)
 	bar.add_theme_constant_override("separation", 8)
-	for id: String in TAB_ORDER:
+	for sec: Dictionary in _ia["sections"]:
+		var sid: String = sec["id"]
 		var b := _press_fire(Button.new()) as Button
-		b.text = TAB_LABELS[id]
+		b.name = "Section_%s" % sid
+		b.text = "Agents" if sid == "agents" else str(sec["label"])
 		b.custom_minimum_size = Vector2(0, TABBAR_H)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.set_meta(HINT_META, "Show the %s tab" % TAB_LABELS[id])
-		b.pressed.connect(_show_tab.bind(id))
+		b.set_meta(HINT_META, "%s (section %s, as on the desktop)" % [sec["label"], sec["hotkey"]])
+		b.pressed.connect(_show_section.bind(sid))
 		bar.add_child(b)
-		_tab_buttons[id] = b
+		_tab_buttons[sid] = b
+	for spec: Array in [["Fit", "fit_view", "Fit the focused volume back into its box"],
+			["Legend", "", "Show the colour key (Encode › Legend)"],
+			["Explore", "", "Open Explore: the query builder and memory search"]]:
+		var b := _press_fire(Button.new()) as Button
+		b.name = "%sButton" % spec[0]
+		b.text = spec[0]
+		b.custom_minimum_size = Vector2(0, TABBAR_H)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.set_meta(HINT_META, spec[2])
+		b.add_theme_color_override("font_color", ACCENT)
+		match spec[0]:
+			"Fit":
+				b.pressed.connect(func() -> void: emit_signal("control_pressed", "fit_view"))
+			"Legend":
+				b.pressed.connect(_show_tab.bind("key"))
+			_:
+				b.pressed.connect(_show_tab.bind("query"))
+		bar.add_child(b)
 	_root.add_child(bar)
+
+
+## The scope text for a subsection of physics controls (ADR-2189 §2), from ia.json.
+func shared_scope_text() -> String:
+	return str((_ia.get("scopes", HudIa.FALLBACK_SCOPES) as Dictionary).get("shared", HudIa.FALLBACK_SCOPES["shared"]))
+
+
+## Section ids on the tab bar, in order (tests, parity with ia.json).
+func section_ids() -> Array[String]:
+	var out: Array[String] = []
+	for sid: String in _tab_buttons:
+		out.append(sid)
+	return out
+
+
+func _scope_label() -> Label:
+	var l := _mk_label("Shared: " + shared_scope_text(), "These controls write the server's one physics document, so every viewer's layout changes")
+	l.name = "SharedScope"
+	l.add_theme_color_override("font_color", NOTICE_COLOR)
+	l.add_theme_font_size_override("font_size", 20)
+	return l
 
 
 func _build_pages_host() -> void:
@@ -504,7 +578,25 @@ func _build_pages_host() -> void:
 	_tabs_host.clip_contents = false
 	_root.add_child(_tabs_host)
 
-	_pages["graph"] = _build_graph_page()
+	# Level 2 (ADR-2189 §1): the open section's subsections on a rail at the left of
+	# the page host. A rail costs width, not height, so every page keeps the 532 px.
+	_rail = VBoxContainer.new()
+	_rail.name = "Rail"
+	_rail.anchor_bottom = 1.0
+	_rail.offset_right = RAIL_W
+	_rail.add_theme_constant_override("separation", 8)
+	for i: int in range(RAIL_MAX):
+		var rb := _press_fire(Button.new()) as Button
+		rb.name = "RailButton%d" % i
+		rb.custom_minimum_size = Vector2(RAIL_W, BTN_H)
+		rb.set_meta(HINT_META, "Show this part of the section")
+		rb.visible = false
+		rb.pressed.connect(_on_rail_pressed.bind(i))
+		_rail.add_child(rb)
+		_rail_buttons.append(rb)
+	_tabs_host.add_child(_rail)
+
+	_pages["layers"] = _build_layers_page()
 	_pages["layout"] = _build_layout_page()
 	_pages["forces"] = _build_forces_page()
 	_pages["shapes"] = _build_shapes_page()
@@ -512,14 +604,18 @@ func _build_pages_host() -> void:
 	_pages["pins"] = _build_pins_page()
 	_pages["swarm"] = _build_swarm_page()
 	_pages["key"] = _build_key_page()
+	_pages["encode"] = _build_encode_page()
+	_pages["look"] = _build_look_page()
 	_pages["session"] = _build_session_page()
+	_pages["headset"] = _build_headset_page()
 	_pages["help"] = _build_help_page()
-	for id: String in _pages:
+	for id: String in TAB_ORDER:
 		var page: Control = _pages[id]
 		page.name = "%sPage" % TAB_LABELS[id]
-		# Pages fill the (non-container) Tabs host via anchors.
+		# Pages fill the (non-container) Tabs host via anchors, right of the rail.
 		page.anchor_right = 1.0
 		page.anchor_bottom = 1.0
+		page.offset_left = RAIL_W + RAIL_GAP
 		page.visible = false
 		_tabs_host.add_child(page)
 
@@ -537,30 +633,16 @@ func _build_hint_bar() -> void:
 
 # --- Pages -------------------------------------------------------------------
 
-func _build_graph_page() -> VBoxContainer:
+# ADR-2189 Layers: what is in the scene. The type toggles are population scoping
+# (they remove, ADR-2189 §5); the memory cloud, hulls and the splat scene follow.
+func _build_layers_page() -> VBoxContainer:
 	var page := VBoxContainer.new()
-	page.add_theme_constant_override("separation", 8)
-	page.add_child(_group_header("Layout"))
-	var g1 := _grid(3)
-	g1.add_child(_action_btn("Reset Layout", "reset_layout", "Volumes back to the ring and default size; re-randomise positions & reset physics"))
-	g1.add_child(_action_btn("Spread +", "spread_plus", "Push nodes apart (increase repulsion)"))
-	g1.add_child(_action_btn("Spread -", "spread_minus", "Pull nodes together (decrease repulsion)"))
-	g1.add_child(_action_btn("Edges +", "edges_plus", "Show more edges"))
-	g1.add_child(_action_btn("Edges -", "edges_minus", "Show fewer edges"))
-	g1.add_child(_action_btn("Node +", "node_size_plus", "Enlarge node markers"))
-	g1.add_child(_action_btn("Node -", "node_size_minus", "Shrink node markers"))
-	# WP1/WP4: the two free cells of the 3x3 grid, so the page grows by 0px.
-	_color_mode_button = _action_btn("Colour: Domain", "color_mode_toggle", "Colour nodes by corpus domain (desktop default), by community, or with Codescape's community palette")
-	_hulls_button = _action_btn("Hulls: Off", "hulls_cycle", "Translucent hulls around server clusters: off, clusters, or communities")
-	g1.add_child(_color_mode_button)
-	g1.add_child(_hulls_button)
-	page.add_child(g1)
-
+	page.add_theme_constant_override("separation", 6)
 	# Wave 2, Feature 3 — type show/hide filter. One wand-clickable toggle per node
 	# class; pressing flips visibility and emits control_pressed
 	# "type_toggle:<class>:<0|1>" (1 = now visible). graph_scene forwards to the
 	# render store's set_type_visible.
-	page.add_child(_group_header("Layers"))
+	page.add_child(_group_header("Populations"))
 	var g3 := _grid(3)
 	_type_knowledge_button = _type_toggle_btn("Knowledge", "knowledge")
 	_type_ontology_button = _type_toggle_btn("Ontology", "ontology")
@@ -568,18 +650,24 @@ func _build_graph_page() -> VBoxContainer:
 	g3.add_child(_type_knowledge_button)
 	g3.add_child(_type_ontology_button)
 	g3.add_child(_type_agent_button)
+	page.add_child(g3)
+	page.add_child(_group_header("Memory cloud"))
+	var gm := _grid(3)
 	_memory_cloud_button = _action_btn("Memory: Off", "memory_cloud_toggle", "Show / hide the live memory cloud (RuVector sample); point at a dot for its key")
 	_memory_cloud_button.add_theme_color_override("font_color", IDLE)
 	_memory_colour_button = _action_btn("Cloud: Namespace", "memory_cloud_colour", "Colour the memory cloud by namespace, source type or age")
-	g3.add_child(_memory_cloud_button)
-	g3.add_child(_memory_colour_button)
-	# The grid and the route line share one tight box: the page is 500 px
-	# without the line and must stay inside 532 px with it (Invariant 5), so
-	# the line costs 2 px spacing plus one 20 px-font row, not the page's 8.
+	gm.add_child(_memory_cloud_button)
+	gm.add_child(_memory_colour_button)
+	# Cluster hulls (Layers › Cluster hulls) take the memory row's free cell, so the
+	# page holds its groups inside 532 px (Invariant 5).
+	_hulls_button = _action_btn("Hulls: Off", "hulls_cycle", "Cluster hulls: translucent hulls around server clusters, off / clusters / communities")
+	gm.add_child(_hulls_button)
+	# The grid and the route line share one tight box so the line costs one
+	# 20 px-font row.
 	var memory_row := VBoxContainer.new()
 	memory_row.name = "MemoryRow"
 	memory_row.add_theme_constant_override("separation", 2)
-	memory_row.add_child(g3)
+	memory_row.add_child(gm)
 	_memory_route_label = _mk_label("", "Sidecar hits outside the sample have no point in the cloud, so only sampled hits are compared with the desktop's local route")
 	_memory_route_label.name = "MemoryRouteStats"
 	_memory_route_label.add_theme_font_size_override("font_size", MEMORY_ROUTE_FONT)
@@ -589,12 +677,142 @@ func _build_graph_page() -> VBoxContainer:
 	_memory_route_label.visible = false
 	memory_row.add_child(_memory_route_label)
 	page.add_child(memory_row)
+	# ADR-2170: the splat scene is not a graph volume (no focus, no server). Its on/off
+	# switch sits in Layers › Splat scene with Enter (ADR-2189; it was in the Session row).
+	var splat_toggle_row := HBoxContainer.new()
+	splat_toggle_row.name = "SplatToggleRow"
+	_splat_toggle = _press_fire(Button.new()) as Button
+	_splat_toggle.name = "SplatToggle"
+	_splat_toggle.custom_minimum_size = Vector2(0, BTN_H)
+	_splat_toggle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_splat_toggle.set_meta(HINT_META, "Turn the Gaussian splat scene on or off (remembered). Enter it below once it has loaded")
+	_splat_toggle.pressed.connect(func() -> void: emit_signal("control_pressed", "splat_toggle"))
+	splat_toggle_row.add_child(_splat_toggle)
+	page.add_child(splat_toggle_row)
+	_build_splat_group(page)
+	return page
 
+
+# ADR-2189 Encode: what colour and labels mean. Colour mode; the ADR-2188 D5 label
+# budget and the node-label text size (audit finding 13), both headset-local.
+func _build_encode_page() -> VBoxContainer:
+	var page := VBoxContainer.new()
+	page.add_theme_constant_override("separation", 8)
+	page.add_child(_group_header("Colour & size"))
+	var g := _grid(3)
+	_color_mode_button = _action_btn("Colour: Domain", "color_mode_toggle", "Colour nodes by corpus domain (desktop default), by community, or with Codescape's community palette")
+	g.add_child(_color_mode_button)
+	page.add_child(g)
+	page.add_child(_group_header("Labels"))
+	var budget := _stepper_row("LabelBudgetRow", "label_budget", "Labels", "How many node labels the headset shows at once (pinned ones come on top)")
+	_label_ctl = budget.get_node("Value")
+	page.add_child(budget)
+	var text := _stepper_row("TextSizeRow", "label_text", "Text size", "Size of the node labels in the scene")
+	_text_ctl = text.get_node("Value")
+	page.add_child(text)
+	set_label_controls(8, 1.0)
+	return page
+
+
+# ADR-2189 Look: how it renders. Node and edge size gain, and Reduce motion.
+func _build_look_page() -> VBoxContainer:
+	var page := VBoxContainer.new()
+	page.add_theme_constant_override("separation", 8)
+	page.add_child(_group_header("Nodes"))
+	var gn := _grid(3)
+	gn.add_child(_action_btn("Node +", "node_size_plus", "Enlarge node markers"))
+	gn.add_child(_action_btn("Node -", "node_size_minus", "Shrink node markers"))
+	page.add_child(gn)
+	page.add_child(_group_header("Edges"))
+	var ge := _grid(3)
+	ge.add_child(_action_btn("Edges +", "edges_plus", "Draw more of each volume's edges (heaviest first, up to the triangle budget)"))
+	ge.add_child(_action_btn("Edges -", "edges_minus", "Draw fewer of each volume's edges; the header counts what is left out"))
+	page.add_child(ge)
+	page.add_child(_group_header("Animation"))
+	page.add_child(_comfort_toggle("Reduce motion", "visual_motion", true, "Keep the scene calm"))
 	page.add_child(_group_header("Status"))
 	_controls_status = _mk_label("repelK --  restLen --  edges --  node x--", "Live physics & layout state")
 	_controls_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	# Wrap at the page's real width, not at its narrowest child's (a wrapping Label
+	# reports its height at its minimum width).
+	_controls_status.custom_minimum_size = Vector2(STATUS_WRAP_W, 0)
 	page.add_child(_controls_status)
 	return page
+
+
+# ADR-2189 System › Headset: headset-local interaction and cost settings (audit
+# finding 13: dwell time; the desktop's xr.* settings are deleted and nothing here
+# reads them).
+func _build_headset_page() -> VBoxContainer:
+	var page := VBoxContainer.new()
+	page.add_theme_constant_override("separation", 8)
+	page.add_child(_group_header("Headset"))
+	var dwell := _stepper_row("DwellRow", "dwell", "Dwell", "How long a gaze must rest on a node to select it hands-free (400–800 ms)")
+	_dwell_ctl = dwell.get_node("Value")
+	page.add_child(dwell)
+	var gh := _grid(3)
+	_haptics_button = _action_btn("Haptics: On", "haptics_toggle", "Controller vibration on hover, grab and press")
+	gh.add_child(_haptics_button)
+	page.add_child(gh)
+	page.add_child(_group_header("Performance"))
+	page.add_child(_comfort_toggle("Low-cost visuals", "visual_quality", false, "Reduce visual cost for slower hardware"))
+	set_headset_controls(600, true)
+	return page
+
+
+# A "Name −  value  +" row: emits control_pressed "<action>_minus" / "<action>_plus".
+func _stepper_row(row_name: String, action: String, label: String, hint: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.name = row_name
+	row.custom_minimum_size = Vector2(0, BTN_H)
+	row.add_theme_constant_override("separation", 8)
+	var name_l := _mk_label(label, hint)
+	name_l.custom_minimum_size = Vector2(180, 0)
+	row.add_child(name_l)
+	var minus := _action_btn("−", action + "_minus", "Less: " + hint)
+	minus.custom_minimum_size = Vector2(BTN_H * 2, BTN_H)
+	minus.size_flags_horizontal = Control.SIZE_FILL
+	row.add_child(minus)
+	var value := _mk_label("--", hint)
+	value.name = "Value"
+	value.custom_minimum_size = Vector2(150, 0)
+	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	row.add_child(value)
+	var plus := _action_btn("+", action + "_plus", "More: " + hint)
+	plus.custom_minimum_size = Vector2(BTN_H * 2, BTN_H)
+	plus.size_flags_horizontal = Control.SIZE_FILL
+	row.add_child(plus)
+	return row
+
+
+func _comfort_toggle(text: String, action: String, on: bool, hint: String) -> CheckButton:
+	var toggle := _press_fire(CheckButton.new()) as CheckButton
+	toggle.text = text
+	toggle.custom_minimum_size.y = BTN_H
+	toggle.button_pressed = on
+	toggle.set_meta(HINT_META, hint)
+	toggle.toggled.connect(func(v: bool) -> void: control_pressed.emit(action + (":1" if v else ":0")))
+	if action == "visual_motion":
+		_motion_toggle = toggle
+	else:
+		_quality_toggle = toggle
+	return toggle
+
+
+## Encode › Labels readouts (GraphScene owns the values and their persistence).
+func set_label_controls(budget: int, text_scale: float) -> void:
+	if _label_ctl != null:
+		_label_ctl.text = "%d" % budget
+	if _text_ctl != null:
+		_text_ctl.text = "%.2f×" % text_scale
+
+
+## System › Headset readouts.
+func set_headset_controls(dwell_ms: int, haptics_on: bool) -> void:
+	if _dwell_ctl != null:
+		_dwell_ctl.text = "%d ms" % dwell_ms
+	if _haptics_button != null:
+		_haptics_button.text = "Haptics: %s" % ("On" if haptics_on else "Off")
 
 
 # ADR-141 constrained-layout controls. Split out of the Graph tab 2026-08-31:
@@ -603,28 +821,14 @@ func _build_graph_page() -> VBoxContainer:
 # now fit; keep the height arithmetic in mind before adding groups here.
 func _build_layout_page() -> VBoxContainer:
 	var page := VBoxContainer.new()
-	# Two groups now (Planes, Radial Shells and Cycles moved to the Shapes tab), so
-	# the default separation fits the 532px host with room to spare.
-
-	page.add_child(_group_header("Hierarchy & View"))
-	var g2 := _grid(3)
-	_hierarchy_button = _action_btn("Hierarchy: Off", "hierarchy_toggle", "Toggle the DAG radial rank-bias force (concentric shells)")
-	_flat_toggle_button = _action_btn("View: 3D", "flat_toggle", "Toggle between full 3D and flat facing discs")
-	_fold_plus_button = _action_btn("Fold + (L0)", "fold_plus", "Collapse detail up one fold level (denser)")
-	_fold_minus_button = _action_btn("Fold -", "fold_minus", "Expand detail down one fold level")
-	g2.add_child(_hierarchy_button)
-	g2.add_child(_action_btn("Shells +", "shells_plus", "Increase spacing between hierarchy shells"))
-	g2.add_child(_action_btn("Shells -", "shells_minus", "Decrease spacing between hierarchy shells"))
-	g2.add_child(_flat_toggle_button)
-	g2.add_child(_fold_plus_button)
-	g2.add_child(_fold_minus_button)
-	page.add_child(g2)
-
+	page.add_theme_constant_override("separation", 8)
+	# ADR-2189 §2: physics is one global document, so these say so.
+	page.add_child(_scope_label())
 	# ADR-141 Phase 1 — constrained-layout engine picker. Single cycling button
 	# steps through the backend LayoutMode enum; graph_scene POSTs /api/layout/mode.
 	# The knowledge graph, ontology and memory cloud are always apart (ADR-2135,
 	# 2026-10-08), so there is no separation control on this page.
-	page.add_child(_group_header("Layout Mode"))
+	page.add_child(_group_header("Mode"))
 	var row := HBoxContainer.new()
 	row.name = "LayoutModeRow"
 	row.custom_minimum_size = Vector2(0, BTN_H)
@@ -632,9 +836,21 @@ func _build_layout_page() -> VBoxContainer:
 	_layout_mode_button = _action_btn("Layout: Force", "layout_mode_cycle", "Cycle graph layout mode (force, hierarchical, radial, spectral, temporal, clustered)")
 	row.add_child(_layout_mode_button)
 	page.add_child(row)
+	page.add_child(_group_header("Forces"))
+	var g1 := _grid(3)
+	g1.add_child(_action_btn("Reset Layout", "reset_layout", "Volumes back to the ring and default size; re-randomise positions & reset physics"))
+	g1.add_child(_action_btn("Spread +", "spread_plus", "Push nodes apart (increase repulsion)"))
+	g1.add_child(_action_btn("Spread -", "spread_minus", "Pull nodes together (decrease repulsion)"))
+	page.add_child(g1)
+	return page
+
+
+# ADR-2170 / ADR-2178: the Gaussian splat scene group (Layers › Splat scene). Hidden
+# until a scene is loaded, so the page costs nothing without one.
+func _build_splat_group(page: VBoxContainer) -> void:
 	# ADR-2170: enter the Gaussian splat scene. Hidden until a scene is loaded, so the page
 	# costs nothing without one.
-	_splat_header = _group_header("Splat Scene")
+	_splat_header = _group_header("Splat scene")
 	_splat_header.visible = false
 	page.add_child(_splat_header)
 	_splat_row = HBoxContainer.new()
@@ -678,7 +894,6 @@ func _build_layout_page() -> VBoxContainer:
 		else:
 			_scale_up = b
 	page.add_child(_merge_row)
-	return page
 
 
 # --- Forces tab (the physics `semantic` group) ---------------------------------
@@ -767,6 +982,21 @@ func render_forces(group: String, index: int, total: int, enabled: Variant, rows
 
 func _build_shapes_page() -> VBoxContainer:
 	var page := VBoxContainer.new()
+	page.add_theme_constant_override("separation", 6)
+	page.add_child(_scope_label())
+	page.add_child(_group_header("Shape: hierarchy & view"))
+	var g2 := _grid(3)
+	_hierarchy_button = _action_btn("Hierarchy: Off", "hierarchy_toggle", "Toggle the DAG radial rank-bias force (concentric shells)")
+	_flat_toggle_button = _action_btn("View: 3D", "flat_toggle", "Toggle between full 3D and flat facing discs")
+	_fold_plus_button = _action_btn("Fold + (L0)", "fold_plus", "Collapse detail up one fold level (denser)")
+	_fold_minus_button = _action_btn("Fold -", "fold_minus", "Expand detail down one fold level")
+	g2.add_child(_hierarchy_button)
+	g2.add_child(_action_btn("Shells +", "shells_plus", "Increase spacing between hierarchy shells"))
+	g2.add_child(_action_btn("Shells -", "shells_minus", "Decrease spacing between hierarchy shells"))
+	g2.add_child(_flat_toggle_button)
+	g2.add_child(_fold_plus_button)
+	g2.add_child(_fold_minus_button)
+	page.add_child(g2)
 
 	page.add_child(_group_header("Planes"))
 	var g_planes := _grid(3)
@@ -779,7 +1009,9 @@ func _build_shapes_page() -> VBoxContainer:
 	# ADR-141 Phase 3 — radial-shell layout modes. Each button POSTs
 	# /api/layout/radial via graph_scene; "Radial Off" disables the shell term.
 	page.add_child(_group_header("Radial Shells"))
-	var g_radial := _grid(2)
+	# One row of four (beside the ADR-2189 rail the page is wide enough), so the
+	# page keeps Hierarchy & View inside 532 px.
+	var g_radial := _grid(4)
 	g_radial.add_child(_action_btn("Radial: DAG", "radial_dag", "Concentric shells by DAG depth, centred on the origin"))
 	g_radial.add_child(_action_btn("Radial: Type", "radial_type", "Concentric shells grouped by node type, centred on the origin"))
 	g_radial.add_child(_action_btn("Ego Focus", "radial_ego", "Shells by hop-distance from the selected node — open a node's radial first"))
@@ -1342,17 +1574,23 @@ func _build_session_page() -> VBoxContainer:
 	_mute_toggle.set_meta(HINT_META, "Mute / unmute your microphone")
 	_mute_toggle.toggled.connect(_on_mute_toggled)
 	page.add_child(_mute_toggle)
+	# Reconnect sits beside the connection line it acts on, so the volume row below
+	# fits the page beside the ADR-2189 rail.
+	var status_row := HBoxContainer.new()
+	status_row.name = "ConnectionStatusRow"
 	_conn_status_label = _mk_label("Connection: off", "Graph socket state")
-	page.add_child(_conn_status_label)
-	# Reconnect and the backend toggle share one row so the page keeps its height.
-	var conn_row := HBoxContainer.new()
+	_conn_status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	status_row.add_child(_conn_status_label)
 	var reconnect := _press_fire(Button.new()) as Button
 	reconnect.text = "Reconnect"
 	reconnect.custom_minimum_size = Vector2(0, BTN_H)
-	reconnect.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	reconnect.set_meta(HINT_META, "Force-reconnect the graph & presence sockets")
 	reconnect.pressed.connect(func() -> void: emit_signal("reconnect_pressed"))
-	conn_row.add_child(reconnect)
+	status_row.add_child(reconnect)
+	page.add_child(status_row)
+	# The focus, front and enter buttons and the volume toggles share one row so the
+	# page keeps its height.
+	var conn_row := HBoxContainer.new()
 	_focus_button = _press_fire(Button.new()) as Button
 	_focus_button.custom_minimum_size = Vector2(0, BTN_H)
 	_focus_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1395,15 +1633,6 @@ func _build_session_page() -> VBoxContainer:
 		b.pressed.connect(func() -> void: emit_signal("control_pressed", "volume_toggle:%s" % vid))
 		vol_row.add_child(b)
 		_volume_buttons[vid] = b
-	# ADR-2170: the splat scene is not a graph volume (no focus, no server), but it is
-	# switched beside them. Entering it is on the Layout page.
-	_splat_toggle = _press_fire(Button.new()) as Button
-	_splat_toggle.name = "SplatToggle"
-	_splat_toggle.custom_minimum_size = Vector2(0, BTN_H)
-	_splat_toggle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_splat_toggle.set_meta(HINT_META, "Turn the Gaussian splat scene on or off (remembered). Enter it from the Layout tab")
-	_splat_toggle.pressed.connect(func() -> void: emit_signal("control_pressed", "splat_toggle"))
-	vol_row.add_child(_splat_toggle)
 	set_volume_state(_focused_volume, {})
 	set_splat_state({})
 	page.add_child(_build_beat_row())
@@ -1460,22 +1689,6 @@ func _build_help_page() -> VBoxContainer:
 	var page := VBoxContainer.new()
 	page.add_theme_constant_override("separation", 8)
 	page.add_child(_group_header("Vive Wand — Controls"))
-	var comfort := HBoxContainer.new()
-	for entry in [["Reduce motion", "visual_motion", true], ["Low-cost visuals", "visual_quality", false]]:
-		var toggle := _press_fire(CheckButton.new()) as CheckButton
-		toggle.text = entry[0]
-		toggle.custom_minimum_size.y = BTN_H
-		toggle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		toggle.button_pressed = entry[2]
-		toggle.set_meta(HINT_META, "Keep the scene calm" if entry[1] == "visual_motion" else "Reduce visual cost for slower hardware")
-		var action: String = entry[1]
-		toggle.toggled.connect(func(on: bool) -> void: control_pressed.emit(action + (":1" if on else ":0")))
-		comfort.add_child(toggle)
-		if action == "visual_motion":
-			_motion_toggle = toggle
-		else:
-			_quality_toggle = toggle
-	page.add_child(comfort)
 	var region := _scroll_region(420)
 	var rt := RichTextLabel.new()
 	rt.bbcode_enabled = true
@@ -1602,10 +1815,13 @@ func set_backend_capabilities(caps: Dictionary) -> void:
 		_query_exec_button.disabled = not query_ok
 		_query_exec_button.set_meta(HINT_META, "Run the query and jump to the results" if query_ok else BackendCaps.UNSUPPORTED_HINT)
 	var hidden: Array[String] = BackendCaps.hidden_tabs(_caps)
-	for tid: String in _tab_buttons:
-		(_tab_buttons[tid] as Button).visible = not hidden.has(tid)
-	if hidden.has(_active_tab) and _pages.has("graph"):
-		_show_tab("graph")
+	# A section shows while any of its pages is supported (ADR-2189 sections hold pages).
+	for sid: String in _tab_buttons:
+		(_tab_buttons[sid] as Button).visible = not _section_pages_live(sid).is_empty()
+	if hidden.has(_active_tab):
+		_show_tab(DEFAULT_PAGE)
+	else:
+		_refresh_rail()
 	call_deferred("_update_scroll_arrows")
 
 
@@ -1621,7 +1837,7 @@ func _type_toggle_btn(label: String, key: String) -> Button:
 	var b := _press_fire(Button.new()) as Button
 	b.custom_minimum_size = Vector2(0, BTN_H)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.set_meta(HINT_META, "Show / grey out all %s nodes (ADR-2188: filters grey out, never remove)" % label.to_lower())
+	b.set_meta(HINT_META, "Show / hide all %s nodes" % label.to_lower())
 	_style_type_toggle(b, label, true)
 	b.pressed.connect(func() -> void:
 		var now_visible: bool = not bool(_type_visible.get(key, true))
@@ -1697,17 +1913,73 @@ func _execute_enabled() -> bool:
 
 ## Show a tab by id (graph|query|pins|session|help). Hides the others, highlights
 ## the active tab button, and runs the dev-only overflow guard for the shown page.
+## Show HUD page `id` (a page id, e.g. "query"): selects the section that holds it
+## and its rail entry. Kept for every caller that names a page.
 func _show_tab(id: String) -> void:
 	if not _pages.has(id):
 		return
 	_active_tab = id
+	var sid: String = HudIa.section_of_page(id)
+	if sid != "":
+		_active_section = sid
+		_section_page[sid] = id
 	for pid: String in _pages:
 		(_pages[pid] as Control).visible = pid == id
 	for tid: String in _tab_buttons:
 		var b: Button = _tab_buttons[tid]
-		XRTheme.apply_tab(b, tid == id)
+		XRTheme.apply_tab(b, tid == _active_section)
+	_refresh_rail()
 	call_deferred("_check_overflow", id)
 	call_deferred("_update_scroll_arrows")
+
+
+## Open section `sid` at the page last shown in it, else its first page the
+## backend supports.
+func _show_section(sid: String) -> void:
+	var pages: Array[String] = _section_pages_live(sid)
+	if pages.is_empty():
+		return
+	var want: String = str(_section_page.get(sid, pages[0]))
+	_show_tab(want if pages.has(want) else pages[0])
+
+
+## The section's pages the backend does not hide (BackendCaps.hidden_tabs).
+func _section_pages_live(sid: String) -> Array[String]:
+	var hidden: Array[String] = BackendCaps.hidden_tabs(_caps)
+	var out: Array[String] = []
+	for pid: String in HudIa.pages_of(sid):
+		if _pages.has(pid) and not hidden.has(pid):
+			out.append(pid)
+	return out
+
+
+func _refresh_rail() -> void:
+	var pages: Array[String] = _section_pages_live(_active_section)
+	for i: int in range(_rail_buttons.size()):
+		var rb: Button = _rail_buttons[i]
+		if i < pages.size() and pages.size() > 1:
+			rb.text = HudIa.rail_label(pages[i])
+			rb.set_meta(&"page", pages[i])
+			rb.set_meta(HINT_META, "Show %s" % rb.text)
+			rb.visible = true
+			XRTheme.apply_tab(rb, pages[i] == _active_tab)
+		else:
+			rb.visible = false
+
+
+func _on_rail_pressed(i: int) -> void:
+	var rb: Button = _rail_buttons[i]
+	if rb.has_meta(&"page"):
+		_show_tab(str(rb.get_meta(&"page")))
+
+
+## The section and page on screen (tests, status).
+func active_section() -> String:
+	return _active_section
+
+
+func active_page() -> String:
+	return _active_tab
 
 
 # Overlay shield: while a full-panel overlay (Document card or Intervention panel)

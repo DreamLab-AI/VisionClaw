@@ -896,8 +896,6 @@ impl RenderStore {
         // Called for every node of every frame: only a real change invalidates.
         if self.node_kind.insert(node_id, class_code) != Some(class_code) {
             self.touch();
-            // A kind change can move the node in or out of a hidden class.
-            self.filter_dirty |= self.type_hidden.contains(&true);
         }
     }
 
@@ -1227,16 +1225,15 @@ impl RenderStore {
         removed
     }
 
-    /// Show or grey out a whole node class (Wave 2, Feature 3; ADR-2188 D4). Out-of-range
-    /// codes are ignored. A hidden class is an interactive filter, so its nodes stay
-    /// drawn and are marked FILTERED_OUT in the highlight mask (greyed, edges at low
-    /// alpha) at the next node pack; they are not removed.
+    /// Show or hide a whole node class (Wave 2, Feature 3). Out-of-range codes are
+    /// ignored. Hidden-class nodes drop from `build_node_buffer`; their edges then
+    /// fail the both-endpoints-drawn test in `build_edge_buffer` and disappear too.
+    /// This is population scoping (Layers › Populations), the ADR-2179 P3 exception
+    /// that ADR-2189 §5 keeps as removal; only the received nodeFilter greys out.
     pub fn set_type_visible(&mut self, class_code: u8, visible: bool) {
+        self.touch();
         if let Some(slot) = self.type_hidden.get_mut(class_code as usize) {
-            if *slot != !visible {
-                *slot = !visible;
-                self.filter_dirty = true;
-            }
+            *slot = !visible;
         }
     }
 
@@ -1248,8 +1245,8 @@ impl RenderStore {
         }
     }
 
-    /// Whether the type show/hide filter excludes this node. A node with no
-    /// recorded kind is never excluded (fail-open).
+    /// Whether the type show/hide filter (population scoping) removes this node. A
+    /// node with no recorded kind is never removed (fail-open).
     fn type_excluded(&self, id: u32) -> bool {
         match self.node_kind.get(&id) {
             Some(&c) => !self.is_type_visible(c),
@@ -1702,7 +1699,7 @@ impl RenderStore {
                 continue;
             }
             let canon = self.fold_target(id);
-            if self.fold_hidden.contains(&canon) || self.is_filtered_out(canon) {
+            if self.fold_hidden.contains(&canon) || self.type_excluded(canon) || self.is_filtered_out(canon) {
                 continue;
             }
             // Rank/centrality reflect the matching node; the returned id is `canon`
@@ -1808,7 +1805,7 @@ impl RenderStore {
                 self.anomaly.push(anomaly);
                 self.cluster.push(0);
                 self.community.push(community_id);
-                self.filter_dirty |= self.node_filter.is_some() || self.type_hidden.contains(&true);
+                self.filter_dirty |= self.node_filter.is_some();
                 self.touch();
             }
         }
@@ -1998,8 +1995,9 @@ impl RenderStore {
     }
 
     /// Append one node instance for `id` to `buf`, updating the drawn set + render
-    /// arrays. No-op if the id is L1-hidden, already drawn this build, or absent from
-    /// the store. A filtered-out node IS packed; the highlight mask greys it. Shared by the fold-aware draw path so a
+    /// arrays. No-op if the id is L1-hidden, type-scoped out, already drawn this build,
+    /// or absent from the store. A node the received filter excludes IS packed; the
+    /// highlight mask greys it (ADR-2188 D4). Shared by the fold-aware draw path so a
     /// representative and its in-transit members are packed uniformly. A node with
     /// a live label fade is packed into `faded` (transparent pass, COLOR.a = its
     /// alpha) instead of `buf`; it still enters the drawn set and render arrays so
@@ -2013,7 +2011,7 @@ impl RenderStore {
         size_lo: f32,
         size_hi: f32,
     ) {
-        if self.fold_hidden.contains(&id) || self.drawn.contains(&id) {
+        if self.fold_hidden.contains(&id) || self.type_excluded(id) || self.drawn.contains(&id) {
             return;
         }
         let Some(&slot) = self.id_index.get(&id) else {
@@ -2548,8 +2546,9 @@ impl RenderStore {
         self.filter_hidden.len()
     }
 
-    /// Recompute FILTERED_OUT for every node from the received filter and the type
-    /// filter (ADR-2188 D4). Event-driven: runs only when an input changed.
+    /// Recompute FILTERED_OUT for every node from the received filter (ADR-2188 D4).
+    /// The type filter is scoping and removes instead (ADR-2189 §5). Event-driven:
+    /// runs only when an input changed.
     fn refresh_filter(&mut self) {
         if !self.filter_dirty {
             return;
@@ -2562,8 +2561,7 @@ impl RenderStore {
             let Some(&slot) = self.id_index.get(&id) else {
                 continue;
             };
-            // Agents are never filtered by the received filter (desktop and server
-            // filter graph nodes only); the type filter can still grey class 2.
+            // Agents are never filtered (desktop and server filter graph nodes only).
             let by_filter = match f {
                 Some(f) if self.node_kind.get(&id) != Some(&KIND_AGENT) => {
                     let inp = self.filter_inputs.get(&id).copied().unwrap_or_default();
@@ -2574,9 +2572,8 @@ impl RenderStore {
             if by_filter {
                 self.filter_hidden.insert(id);
             }
-            let out = by_filter || self.type_excluded(id);
             self.highlight
-                .set_bit(slot, crate::highlight::FILTERED_OUT, out);
+                .set_bit(slot, crate::highlight::FILTERED_OUT, by_filter);
         }
     }
 
@@ -4125,10 +4122,7 @@ mod tests {
     // --- Wave 2 Feature 3: type show/hide filter ----------------------------
 
     #[test]
-    fn type_filter_greys_the_class_and_its_edges_without_removing_them() {
-        // ADR-2188 D4 (ADR-2183 P3): before 2026-11-06 a hidden class dropped from the
-        // buffer and its edges vanished (commit 8b48931ac pins that in GUT). Now the
-        // class stays drawn, greyed, and its edges carry the grey flag in custom.r.
+    fn type_filter_hides_class_and_its_edges() {
         let mut s = RenderStore::new();
         s.upsert(1, [0.0, 0.0, 0.0], 0, 0.0, 0.0);
         s.upsert(2, [0.0, 2.0, 0.0], 0, 0.0, 0.0);
@@ -4136,32 +4130,71 @@ mod tests {
         s.set_node_kind(1, KIND_KNOWLEDGE);
         s.set_node_kind(2, KIND_ONTOLOGY);
         s.set_node_kind(3, KIND_KNOWLEDGE);
-        let before = s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9);
-        assert_eq!(before.len(), 3 * NODE_STRIDE);
+        // All visible initially.
+        assert_eq!(
+            s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9).len(),
+            3 * NODE_STRIDE
+        );
+        // Hide ontology → node 2 drops; nodes 1,3 remain.
         s.set_type_visible(KIND_ONTOLOGY, false);
         assert!(!s.is_type_visible(KIND_ONTOLOGY));
         let buf = s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9);
-        assert_eq!(buf.len(), 3 * NODE_STRIDE, "a filtered class is still drawn");
-        assert_eq!(s.render_ids(), &[1, 2, 3]);
+        assert_eq!(buf.len(), 2 * NODE_STRIDE, "hidden-class node dropped");
+        assert_eq!(s.render_ids(), &[1, 3]);
+        // Edge 1→2 loses an endpoint (2 hidden) → dropped; edge 1→3 survives.
+        let ebuf = s.build_edge_buffer(&[1, 2, 1, 3], 0.1);
+        assert_eq!(ebuf.len(), EDGE_STRIDE_TYPED, "edge to hidden node removed");
+        // Re-show restores it.
+        s.set_type_visible(KIND_ONTOLOGY, true);
+        assert_eq!(
+            s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9).len(),
+            3 * NODE_STRIDE
+        );
+    }
+
+    /// Grey `out` with the received filter (ADR-2188 D4): every id in `all` gets
+    /// filter inputs, `out` below the quality threshold, the rest above it.
+    fn filter_out(s: &mut RenderStore, all: &[u32], out: &[u32]) {
+        use crate::settings_sync::{FilterInputs, NodeFilter};
+        for &id in all {
+            let q = if out.contains(&id) { 0.1 } else { 0.9 };
+            s.set_filter_inputs(id, FilterInputs { quality: Some(q), ..Default::default() });
+        }
+        s.set_node_filter(Some(NodeFilter { enabled: true, mode_and: true, ..NodeFilter::default() }));
+    }
+
+    #[test]
+    fn node_filter_greys_without_removing_and_type_scoping_still_removes() {
+        // ADR-2188 D4 + ADR-2189 §5: the received filter greys out; the type filter
+        // (Layers › Populations) is scoping and still removes.
+        let mut s = RenderStore::new();
+        s.upsert(1, [0.0, 0.0, 0.0], 0, 0.0, 0.0);
+        s.upsert(2, [0.0, 2.0, 0.0], 0, 0.0, 0.0);
+        s.upsert(3, [0.0, 4.0, 0.0], 0, 0.0, 0.0);
+        let before = s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9);
+        filter_out(&mut s, &[1, 2, 3], &[2]);
+        let buf = s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9);
+        assert_eq!(buf.len(), 3 * NODE_STRIDE, "a filtered node is still drawn");
         assert_eq!(s.highlight_level_of(2), crate::highlight::LEVEL_GREY);
         assert_eq!(s.filtered_out_count(), 1);
-        // Node 2 (index 1): custom.a level 0, desaturated colour, no halo tell.
         let n2 = &buf[NODE_STRIDE..2 * NODE_STRIDE];
         assert_eq!(n2[19], 0.0, "custom.a carries the grey level");
         assert_eq!(n2[16], 0.0, "no centrality halo on a greyed node");
         assert!((n2[12] - n2[13]).abs() < 0.05 && (n2[13] - n2[14]).abs() < 0.05, "desaturated");
         assert_eq!(buf[19], 1.0, "node 1 normal");
-        // Both edges drawn; the one touching node 2 is flagged grey.
         let ebuf = s.build_edge_buffer(&[1, 2, 1, 3], 0.1);
         assert_eq!(ebuf.len(), 2 * EDGE_STRIDE_TYPED, "the edge to a greyed node stays");
         assert_eq!(ebuf[12], 1.0, "1-2 greyed (custom.r)");
         assert_eq!(ebuf[EDGE_STRIDE_TYPED + 12], 0.0, "1-3 normal");
-        // Re-show clears the grey.
-        s.set_type_visible(KIND_ONTOLOGY, true);
+        s.set_node_filter(None);
         let after = s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9);
-        assert_eq!(after.len(), 3 * NODE_STRIDE);
         assert_eq!(s.filtered_out_count(), 0);
         assert_eq!(&after[12..16], &before[12..16], "colour restored");
+        // Type scoping removes.
+        s.set_node_kind(2, KIND_ONTOLOGY);
+        s.set_type_visible(KIND_ONTOLOGY, false);
+        assert_eq!(s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9).len(), 2 * NODE_STRIDE);
+        assert_eq!(s.filtered_out_count(), 0, "scoping is not a grey");
     }
 
     #[test]
@@ -4171,7 +4204,6 @@ mod tests {
         let mut s = RenderStore::new();
         for i in 0..4u32 {
             s.upsert(i + 1, [i as f32 * 3.0, 0.0, 0.0], 0, 0.5, 0.0);
-            s.set_node_kind(i + 1, KIND_OTHER);
         }
         let ids = [1, 2, 3, 4];
         let cam = [100.0, 0.0, 0.0];
@@ -4195,7 +4227,7 @@ mod tests {
         assert!((c[0] / p[0] - crate::highlight::EMPHASIS_SIZE).abs() < 1e-4, "larger");
         assert!(c[12] > p[12] - 1e-6 && c[13] >= p[13] && c[14] >= p[14], "lifted colour");
         // A filtered-out node that is hovered is emphasised, not greyed.
-        s.set_type_visible(KIND_OTHER, false);
+        filter_out(&mut s, &[1, 2, 3, 4], &[1, 2, 3, 4]);
         s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, 1.0);
         assert_eq!(s.highlight_level_of(3), crate::highlight::LEVEL_EMPHASIS);
         assert_eq!(s.highlight_level_of(1), crate::highlight::LEVEL_GREY);
@@ -4217,8 +4249,7 @@ mod tests {
             s.build_edge_buffer_lod(&pairs, 0.1, cam, 0, 1.0);
         }
         assert!(s.ribbon_edge_buffer().chunks(EDGE_STRIDE_TYPED).all(|e| e[12] == 0.0));
-        s.set_node_kind(2, KIND_ONTOLOGY);
-        s.set_type_visible(KIND_ONTOLOGY, false);
+        filter_out(&mut s, &[1, 2, 3], &[2]);
         s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, 1.0);
         s.build_edge_buffer_lod(&pairs, 0.1, cam, 0, 1.0);
         let greyed = s.ribbon_edge_buffer().chunks(EDGE_STRIDE_TYPED).filter(|e| e[12] == 1.0).count();
@@ -4236,8 +4267,7 @@ mod tests {
             s.meta.insert(id, NodeMeta { label: format!("n{id}"), ..Default::default() });
         }
         assert_eq!(s.rank_label_candidates(&[3, 1, 2, 1, 99]), vec![1, 2, 3], "centrality first, dedup, unknown dropped");
-        s.set_node_kind(1, KIND_ONTOLOGY);
-        s.set_type_visible(KIND_ONTOLOGY, false);
+        filter_out(&mut s, &[1, 2, 3], &[1]);
         let _ = s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9);
         assert_eq!(s.rank_label_candidates(&[1, 2, 3]), vec![2, 3], "a greyed node gets no label");
         assert_eq!(s.hull_points().len(), 2, "a greyed node is not hulled");
@@ -5025,8 +5055,9 @@ mod tests {
     }
 
     #[test]
-    fn a_link_with_a_filtered_end_follows_the_edge_drawn_test() {
-        // Owner rule 5: a link follows the same drawn test as the edge pack.
+    fn a_link_with_a_filtered_end_is_not_drawn_and_is_not_unresolved() {
+        // Owner rule 5: a link follows the same drawn test as the edge pack. A hidden class
+        // removes the node, its edges and every link ending on it.
         let (mut a, _, pairs) = chain_store();
         a.set_node_kind(3, KIND_ONTOLOGY);
         let ids = (1..=6).collect::<Vec<i32>>();
@@ -5036,24 +5067,21 @@ mod tests {
         pack_links(&[Some(&a)], &[vol(IDENT)], &specs, &IDENT, &mut out);
         assert_eq!(out.links, 1, "both ends drawn: the link is drawn");
 
-        // ADR-2188 D4: a hidden class is an interactive filter and greys out, so the
-        // node, its edge and the link ending on it all stay drawn (the same drawn test).
         a.set_type_visible(KIND_ONTOLOGY, false);
         let _ = a.build_node_buffer(&ids, 1.0, 0.7, 1.9);
-        assert_eq!(a.highlight_level_of(3), crate::highlight::LEVEL_GREY);
         let edges = a.build_edge_buffer(&pairs, 0.1);
         assert!(
-            edges.as_chunks::<16>().0.iter().any(|e| joins(e, a.position_of(3), a.position_of(4))),
-            "the edge to the greyed node stays"
+            !edges.as_chunks::<16>().0.iter().any(|e| joins(e, a.position_of(3), a.position_of(4))),
+            "the edge to the hidden node is gone"
         );
         pack_links(&[Some(&a)], &[vol(IDENT)], &specs, &IDENT, &mut out);
-        assert_eq!(out.links, 1, "a link to a greyed end is still drawn");
-        assert_eq!(out.unresolved, 0);
+        assert_eq!(out.links, 0, "a link to a hidden end is not drawn");
+        assert_eq!(out.unresolved, 0, "hidden is skipped, not unresolved");
 
         // The source end filtered gives the same answer.
         let rev = [spec((0, 5, 0), (0, 3, 0))];
         pack_links(&[Some(&a)], &[vol(IDENT)], &rev, &IDENT, &mut out);
-        assert_eq!((out.links, out.unresolved), (1, 0));
+        assert_eq!((out.links, out.unresolved), (0, 0));
 
         a.set_type_visible(KIND_ONTOLOGY, true);
         let _ = a.build_node_buffer(&ids, 1.0, 0.7, 1.9);

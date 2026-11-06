@@ -33,7 +33,8 @@ const LABEL_FULL_M: float = 1.0
 const SPHERE_FADE_M: float = 0.5
 ## Candidates outside this half-angle of the view direction are not labelled.
 const VIEW_HALF_ANGLE_DEG: float = 55.0
-## Collision grid cell, as an angle (about 2.5°: a short title at 1 m).
+## Collision grid cell, as an angle (about 2.5°: a short title at 1 m), at text
+## scale 1; the scene multiplies it by the Encode › Labels text scale.
 const CELL_RAD: float = 0.045
 
 
@@ -74,14 +75,42 @@ static func select(pinned: PackedInt32Array, ranked: PackedInt32Array, budget: i
 
 ## Grid cell of a world point seen from a camera transform, or null when it is
 ## behind the eye or outside VIEW_HALF_ANGLE_DEG.
-static func cell_of(cam: Transform3D, world_pos: Vector3) -> Variant:
+static func cell_of(cam: Transform3D, world_pos: Vector3, cell_rad: float = CELL_RAD) -> Variant:
 	var local: Vector3 = cam.affine_inverse() * world_pos
 	var forward: float = -local.z
 	if forward <= 1e-4:
 		return null
 	if local.length() > 0.0 and acos(clampf(forward / local.length(), -1.0, 1.0)) > deg_to_rad(VIEW_HALF_ANGLE_DEG):
 		return null
-	return Vector2i(floori(atan2(local.x, forward) / CELL_RAD), floori(atan2(local.y, forward) / CELL_RAD))
+	return Vector2i(floori(atan2(local.x, forward) / cell_rad), floori(atan2(local.y, forward) / cell_rad))
+
+
+## Encode › Labels steps (ADR-2189, audit finding 13). The budget never exceeds
+## DEFAULT_BUDGET: the pool and the draw-call worst case are sized for it.
+const BUDGET_STEP: int = 2
+const TEXT_SCALES: Array[float] = [0.75, 1.0, 1.25, 1.5, 2.0]
+
+
+static func step_budget(budget: int, up: bool) -> int:
+	return clampi(budget + (BUDGET_STEP if up else -BUDGET_STEP), 0, DEFAULT_BUDGET)
+
+
+static func step_text_scale(scale: float, up: bool) -> float:
+	var i: int = _nearest_scale(scale)
+	return TEXT_SCALES[clampi(i + (1 if up else -1), 0, TEXT_SCALES.size() - 1)]
+
+
+## The TEXT_SCALES step nearest `scale` (a stored value from an older build snaps).
+static func snap_text_scale(scale: float) -> float:
+	return TEXT_SCALES[_nearest_scale(scale)]
+
+
+static func _nearest_scale(scale: float) -> int:
+	var i: int = 0
+	for k: int in range(TEXT_SCALES.size()):
+		if absf(TEXT_SCALES[k] - scale) < absf(TEXT_SCALES[i] - scale):
+			i = k
+	return i
 
 
 ## Label opacity by distance: full within LABEL_FULL_M, 0 at LABEL_REACH_M.

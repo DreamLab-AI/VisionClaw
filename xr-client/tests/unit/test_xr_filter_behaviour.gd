@@ -7,9 +7,10 @@ extends "res://addons/gut/test.gd"
 #
 # Before ADR-2188 (characterised in commit 8b48931ac, which this file pinned
 # first): the received nodeFilter and the HUD type show/hide filter REMOVED nodes
-# from the node buffer, and their edges vanished. Now an interactive filter greys
+# from the node buffer, and their edges vanished. Now the received filter greys
 # out: the node stays drawn (highlight level 0, custom.a = 0, desaturated colour)
-# and its edges stay drawn with the grey flag in custom.r.
+# and its edges stay drawn with the grey flag in custom.r. The type filter is
+# population scoping (ADR-2189 §5) and still removes.
 
 
 func _client() -> RefCounted:
@@ -97,18 +98,19 @@ func test_received_node_filter_greys_the_node_and_keeps_its_edges() -> void:
 	assert_eq(ebuf[16 + 12], 0.0, "1-3 does not")
 
 
-func test_type_filter_greys_the_class_and_reshowing_restores_it() -> void:
+func test_type_filter_is_population_scoping_and_still_removes() -> void:
+	# ADR-2189 §5: Layers › Populations is the ADR-2179 P3 scoping exception, so the
+	# type filter keeps removing (unchanged from 8b48931ac); only the received filter greys.
 	var client := _client()
 	_seed(client)
 	assert_eq(_nodes(client), 3)
 	# Unflagged wire ids decode as class 3 (plain, binary_protocol.rs node_class_code).
 	client.set_type_visible(3, false)
-	assert_eq(_nodes(client), 3, "a hidden class is greyed, not removed")
-	assert_eq(_edges(client), 2)
-	assert_eq(int(client.filtered_out_count()), 3)
+	assert_eq(_nodes(client), 0, "a hidden class is removed")
+	assert_eq(_edges(client), 0)
+	assert_eq(int(client.filtered_out_count()), 0, "scoping is not a grey")
 	client.set_type_visible(3, true)
 	assert_eq(_nodes(client), 3)
-	assert_eq(int(client.filtered_out_count()), 0)
 
 
 func test_selection_outranks_the_filter_and_search_does_not() -> void:

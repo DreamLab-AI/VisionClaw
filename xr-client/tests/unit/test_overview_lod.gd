@@ -110,6 +110,8 @@ func test_edge_limit_is_sized_from_the_data_up_to_the_budget_ceiling() -> void:
 	assert_eq(OverviewLod.edge_draw_limit(OverviewLod.EDGE_DRAW_CEILING), OverviewLod.EDGE_DRAW_CEILING)
 	assert_eq(OverviewLod.edge_draw_limit(145692), OverviewLod.EDGE_DRAW_CEILING, "the ADR-2188 graph hits the triangle ceiling")
 	assert_eq(OverviewLod.edge_draw_limit(-3), 0)
+	assert_eq(OverviewLod.edge_draw_limit(1500, 0.5), 750, "Look › Edges share")
+	assert_eq(OverviewLod.edge_draw_limit(145692, 0.5), OverviewLod.EDGE_DRAW_CEILING, "still bounded")
 
 
 func test_dropped_counter_and_readout() -> void:

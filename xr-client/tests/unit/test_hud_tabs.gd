@@ -7,6 +7,9 @@ const BackendCaps := preload("res://scripts/backend_caps.gd")
 
 const TABS := "HudViewport/HudControl/Root/Tabs"
 const TABBAR := "HudViewport/HudControl/Root/TabBar"
+# Every HUD page (ADR-2189: pages sit under the seven section tabs, picked on the rail).
+const PAGES: Array[String] = ["LayersPage", "QueryPage", "PinsPage", "EncodePage", "KeyPage", "LayoutPage",
+	"ShapesPage", "ForcesPage", "LookPage", "SwarmPage", "SessionPage", "HeadsetPage", "HelpPage"]
 
 
 func _make_hud() -> Node3D:
@@ -21,10 +24,10 @@ func _make_hud() -> Node3D:
 
 func test_all_pages_built_and_default_graph_visible() -> void:
 	var hud: Node3D = await _make_hud()
-	for page_name in ["GraphPage", "LayoutPage", "QueryPage", "PinsPage", "SwarmPage", "KeyPage", "SessionPage", "HelpPage"]:
+	for page_name in PAGES:
 		assert_not_null(hud.get_node_or_null("%s/%s" % [TABS, page_name]), "%s exists" % page_name)
-	var graph: Control = hud.get_node("%s/GraphPage" % TABS)
-	assert_true(graph.visible, "Graph is the default visible tab")
+	var graph: Control = hud.get_node("%s/LayersPage" % TABS)
+	assert_true(graph.visible, "Layers (section 1) is the default visible page")
 	var session: Control = hud.get_node("%s/SessionPage" % TABS)
 	assert_false(session.visible, "other tabs start hidden")
 	hud.queue_free()
@@ -35,9 +38,9 @@ func test_show_tab_switches_exactly_one_page() -> void:
 	var hud: Node3D = await _make_hud()
 	hud._show_tab("session")
 	assert_true((hud.get_node("%s/SessionPage" % TABS) as Control).visible, "session shown")
-	assert_false((hud.get_node("%s/GraphPage" % TABS) as Control).visible, "graph hidden")
+	assert_false((hud.get_node("%s/LayersPage" % TABS) as Control).visible, "layers hidden")
 	var visible_count := 0
-	for page_name in ["GraphPage", "LayoutPage", "QueryPage", "PinsPage", "SwarmPage", "KeyPage", "SessionPage", "HelpPage"]:
+	for page_name in PAGES:
 		if (hud.get_node("%s/%s" % [TABS, page_name]) as Control).visible:
 			visible_count += 1
 	assert_eq(visible_count, 1, "exactly one page visible after a tab switch")
@@ -83,7 +86,7 @@ func test_no_page_overflows_its_host() -> void:
 	var hud: Node3D = await _make_hud()
 	var host: Control = hud.get_node(TABS)
 	assert_gt(host.size.y, 1.0, "tab host has a real height")
-	for page_name in ["GraphPage", "LayoutPage", "QueryPage", "PinsPage", "SwarmPage", "KeyPage", "SessionPage", "HelpPage"]:
+	for page_name in PAGES:
 		var page: Control = hud.get_node("%s/%s" % [TABS, page_name])
 		var need: float = page.get_combined_minimum_size().y
 		assert_lte(need, host.size.y + 1.0,
@@ -95,10 +98,11 @@ func test_no_page_overflows_its_host() -> void:
 
 # ADR-2170/2178: the Layout page grows by the Splat Scene group (header, Enter row and,
 # for a staged scene, the Merge row) once a scene is loaded; it must still fit.
-func test_the_layout_page_fits_with_the_whole_splat_group_shown() -> void:
+func test_the_layers_page_fits_with_the_whole_splat_group_shown() -> void:
+	# ADR-2189: the splat scene is Layers › Splat scene (it was on the Layout page).
 	var hud: Node3D = await _make_hud()
 	var host: Control = hud.get_node(TABS)
-	var page: Control = hud.get_node("%s/LayoutPage" % TABS)
+	var page: Control = hud.get_node("%s/LayersPage" % TABS)
 	for st: Dictionary in [{"enabled": true, "available": true, "stageable": true},
 			{"enabled": true, "available": true, "stageable": true, "merged": true, "scale_mult": 1.41, "metres_per_unit": 3.17}]:
 		hud.set_splat_state(st)
@@ -106,7 +110,7 @@ func test_the_layout_page_fits_with_the_whole_splat_group_shown() -> void:
 		var row: Control = page.find_child("MergeRow", true, false)
 		assert_true(row != null and row.visible, "the Merge row is shown for a staged scene")
 		var need: float = page.get_combined_minimum_size().y
-		assert_lte(need, host.size.y + 1.0, "Layout page min-height %.0f must fit host %.0f with %s" % [need, host.size.y, st])
+		assert_lte(need, host.size.y + 1.0, "Layers page min-height %.0f must fit host %.0f with %s" % [need, host.size.y, st])
 	hud.queue_free()
 	await get_tree().process_frame
 
@@ -127,9 +131,9 @@ func test_public_api_and_signals_preserved() -> void:
 func test_control_button_emits_named_action() -> void:
 	var hud: Node3D = await _make_hud()
 	watch_signals(hud)
-	# The Reset Layout button lives on the Graph page; press it programmatically.
-	var reset := _find_button(hud.get_node("%s/GraphPage" % TABS), "Reset Layout")
-	assert_not_null(reset, "Reset Layout button exists on the Graph page")
+	# The Reset Layout button lives on Layout › Mode (ADR-2189); press it programmatically.
+	var reset := _find_button(hud.get_node("%s/LayoutPage" % TABS), "Reset Layout")
+	assert_not_null(reset, "Reset Layout button exists on the Layout page")
 	if reset != null:
 		reset.pressed.emit()
 		assert_signal_emitted_with_parameters(hud, "control_pressed", ["reset_layout"])
@@ -147,12 +151,12 @@ func _find_button(root: Node, text: String) -> Button:
 	return null
 
 
-# Wave 2, Feature 3 — type show/hide toggles live on the Graph page and, when
+# Wave 2, Feature 3 — type show/hide toggles live on Layers › Populations and, when
 # pressed, flip their visible state and emit control_pressed
 # "type_toggle:<class>:<1|0>".
 func test_type_toggles_present_and_emit_on_press() -> void:
 	var hud: Node3D = await _make_hud()
-	var graph: Control = hud.get_node("%s/GraphPage" % TABS)
+	var graph: Control = hud.get_node("%s/LayersPage" % TABS)
 	# Starts visible → label shows "☑".
 	var knowledge: Button = _find_button(graph, "Knowledge ☑")
 	assert_not_null(knowledge, "Knowledge type toggle present, visible by default")
@@ -245,12 +249,12 @@ func test_flash_notice_overrides_hint_then_expires() -> void:
 	await get_tree().process_frame
 
 
-func test_memory_cloud_buttons_fire_on_press_and_fit_the_graph_page() -> void:
+func test_memory_cloud_buttons_fire_on_press_and_fit_the_layers_page() -> void:
 	var hud: Node3D = await _make_hud()
-	var graph: Control = hud.get_node("%s/GraphPage" % TABS)
+	var graph: Control = hud.get_node("%s/LayersPage" % TABS)
 	var b: Button = hud._memory_cloud_button
 	assert_not_null(b, "Memory button built")
-	assert_true(graph.is_ancestor_of(b), "on the Graph page")
+	assert_true(graph.is_ancestor_of(b), "on the Layers page")
 	assert_eq(b.action_mode, BaseButton.ACTION_MODE_BUTTON_PRESS, "press-fire (Invariant 4)")
 	assert_eq(hud._memory_colour_button.action_mode, BaseButton.ACTION_MODE_BUTTON_PRESS)
 	watch_signals(hud)
@@ -260,16 +264,16 @@ func test_memory_cloud_buttons_fire_on_press_and_fit_the_graph_page() -> void:
 	assert_eq(b.text, "Memory: 6000")
 	assert_eq(hud._memory_colour_button.text, "Cloud: Age")
 	var host: Control = hud.get_node(TABS)
-	assert_lte(graph.get_combined_minimum_size().y, host.size.y + 1.0, "Graph page fits its host")
+	assert_lte(graph.get_combined_minimum_size().y, host.size.y + 1.0, "Layers page fits its host")
 	# the route's sidecar agreement: one line in the Memory row, still inside 532 px
 	var line: Label = hud._memory_route_label
 	assert_not_null(line)
 	assert_false(line.visible, "hidden without a route")
 	hud.set_memory_route_line("Route: 50 of 50 sidecar hits are in the sample · 50 of 50 sampled agree with the local top-k")
 	assert_true(line.visible)
-	assert_true(graph.is_ancestor_of(line), "on the Graph page, under the Memory buttons")
+	assert_true(graph.is_ancestor_of(line), "on the Layers page, under the Memory buttons")
 	assert_eq(line.get_line_count(), 1, "a single line")
-	assert_lte(graph.get_combined_minimum_size().y, host.size.y + 1.0, "Graph page with the line fits its host")
+	assert_lte(graph.get_combined_minimum_size().y, host.size.y + 1.0, "Layers page with the line fits its host")
 	assert_lte(graph.get_combined_minimum_size().y, 532.0, "and stays within 532 px")
 	hud.set_memory_route_line("")
 	assert_false(line.visible)
@@ -287,11 +291,13 @@ func test_codescape_capabilities_grey_server_controls_and_hide_dead_tabs() -> vo
 	var tabbar: Control = hud.get_node(TABBAR)
 	var hidden: Array[String] = hud.hidden_tabs()
 	assert_eq(hidden, ["forces", "swarm", "pins"] as Array[String], "dead tabs listed")
-	var visible_tabs := 0
+	var visible_sections := 0
 	for b: Button in tabbar.get_children():
-		if b.visible:
-			visible_tabs += 1
-	assert_eq(visible_tabs, 7, "ten tabs minus forces, swarm and pins")
+		if b.visible and b.name.begins_with("Section_"):
+			visible_sections += 1
+	# Forces and Pins are one page each of Layout and Explore; Swarm is all of Agents.
+	assert_eq(visible_sections, 6, "the seven sections minus Agents & Governance")
+	assert_false((hud.get_node("%s/Section_agents" % TABBAR) as Button).visible)
 	var greyed := 0
 	var live := 0
 	for b: Button in _all_buttons(hud.get_node(TABS)):
@@ -313,7 +319,7 @@ func test_capabilities_restore_on_switch_back_and_fall_back_to_graph() -> void:
 	hud._show_tab("swarm")
 	hud.set_backend_capabilities(BackendCaps.for_mode("codescape"))
 	await get_tree().process_frame
-	assert_true((hud.get_node("%s/GraphPage" % TABS) as Control).visible, "hidden active tab falls back to Graph")
+	assert_true((hud.get_node("%s/LayersPage" % TABS) as Control).visible, "hidden active page falls back to Layers")
 	hud.set_backend_capabilities(BackendCaps.for_mode("visionclaw"))
 	await get_tree().process_frame
 	assert_eq(hud.hidden_tabs(), [] as Array[String], "nothing hidden on VisionClaw")

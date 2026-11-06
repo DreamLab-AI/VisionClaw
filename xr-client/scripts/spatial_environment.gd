@@ -1,4 +1,5 @@
 extends Node3D
+const XrPrefs := preload("res://scripts/xr_prefs.gd")
 ## World-fixed spatial reference and a single pooled graph focus marker.
 ## Never reparents/moves the camera, never traverses the complete graph per frame.
 
@@ -72,9 +73,18 @@ func _ready() -> void:
     _eye_candy = EyeCandy.new()
     add_child(_eye_candy)
     _eye_candy.setup(_scene)
+    # An explicit environment value wins (a launch configuration); otherwise the
+    # operator's stored HUD choice (xr_prefs.cfg, ADR-2189 audit finding 13); else
+    # the comfort defaults (reduced motion on, full visuals).
     var motion_value := OS.get_environment("XR_REDUCED_MOTION").to_lower().strip_edges()
-    var reduced: bool = motion_value not in ["0", "false", "off"]
-    set_visual_comfort(reduced, OS.get_environment("XR_VISUAL_QUALITY").to_lower() == "low")
+    var reduced: bool = XrPrefs.get_flag(XrPrefs.KEY_REDUCED_MOTION, true)
+    if not motion_value.is_empty():
+        reduced = motion_value not in ["0", "false", "off"]
+    var quality_value := OS.get_environment("XR_VISUAL_QUALITY").to_lower().strip_edges()
+    var low_cost: bool = XrPrefs.get_flag(XrPrefs.KEY_LOW_COST, false)
+    if not quality_value.is_empty():
+        low_cost = quality_value == "low"
+    set_visual_comfort(reduced, low_cost)
     if _scene != null and _scene.has_signal("node_targeted_in_scene"):
         _scene.connect("node_targeted_in_scene", _on_node_targeted)
     _bind_hud.call_deferred()
@@ -182,5 +192,7 @@ func _bind_hud() -> void:
 func _on_visual_control(action: String) -> void:
     if action.begins_with("visual_motion:"):
         set_visual_comfort(action == "visual_motion:1", _low_cost)
+        XrPrefs.set_flag(XrPrefs.KEY_REDUCED_MOTION, _reduced_motion)
     elif action.begins_with("visual_quality:"):
         set_visual_comfort(_reduced_motion, action == "visual_quality:1")
+        XrPrefs.set_flag(XrPrefs.KEY_LOW_COST, _low_cost)

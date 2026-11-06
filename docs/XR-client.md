@@ -5,8 +5,8 @@ version: 0.1.33
 status: draft-for-ratification
 verified_commit: 
 changelog:
-  - "0.1.33 (2026-11-06): ADR-2189 accepted (partial): the HUD is to share the desktop's seven-section menu map, `data/ia.json`, generated from the desktop settings registry and pinned by a registry test. The XR side is not built: `hud.gd` still has its ten tabs. The desktop `xr.*` settings deleted by ADR-2189 were never read by this client. New section only; Current State, Invariants and verified_commit untouched."
-  - "0.1.32 (2026-11-06): ADR-2188 D1-D5 (partial; headless GUT and Rust unit evidence only, no GL render, no headset). Overview tier: pixel-floored impostors, screen-width length-faded ribbons, the dropped-edge readout in the HUD header, a per-slot highlight mask in Rust under which the received nodeFilter and the type filter grey out instead of removing, emphasis by colour, size and outline (no bloom), and a priority-ranked label budget of 8 + 4 pinned. New section 'Overview-first rendering (ADR-2188)'; the Desktop-parity filter sentence is amended. Invariants and verified_commit untouched."
+  - "0.1.33 (2026-11-06): ADR-2189 XR side built (headless GUT evidence only, no headset). The HUD tab bar is the seven sections of `data/ia.json` (a byte-identical copy of the desktop's generated file from feat/gv-menus 600b2846b) plus Fit, Legend and Explore; a rail picks a section's pages (two levels). The Graph tab is split across Layers, Encode and Look; the splat controls move to Layers; a System › Headset page adds dwell, haptics and Low-cost visuals; Encode › Labels adds the label budget and label text size; Fit restores the arrangement after a two-hand turn or scale; Edges ± now sets the share of each volume's edges; view preferences (including Reduce motion, Low-cost visuals and colour mode) persist in `xr_prefs.cfg`. The HUD type filter stays population scoping (removes), per ADR-2189 §5. Supersedes the 'XR side not built' note of feat/gv-menus' 0.1.32. HUD structure section amended; Invariants and verified_commit untouched."
+  - "0.1.32 (2026-11-06): ADR-2188 D1-D5 (partial; headless GUT and Rust unit evidence only, no GL render, no headset). Overview tier: pixel-floored impostors, screen-width length-faded ribbons, the dropped-edge readout in the HUD header, a per-slot highlight mask in Rust under which the received nodeFilter greys out instead of removing (the type filter stays population scoping and removes, ADR-2189 §5), emphasis by colour, size and outline (no bloom), and a priority-ranked label budget of 8 + 4 pinned. New section 'Overview-first rendering (ADR-2188)'; the Desktop-parity filter sentence is amended. Invariants and verified_commit untouched."
   - "0.1.31 (2026-11-05): ADR-2178 (proposed, partial, staged): the merged splat space. A staged splat asset (manifest `stage {metresPerUnit, focus}`) can be entered at viewer scale with the ontology volume hanging between the start and the focus; the other volumes hide. Layout page Merge button and scale steps (`xr.merged_splat_scale`). New section only; Current State, Invariants and verified_commit untouched."
   - "0.1.30 (2026-11-04): ADR-2170 HUD amendment: a Splat on/off toggle in the Session volume row (stored in `xr.splat_scene`, which outranks `XR_SPLATS`; the first press builds the volume live); the Layout page's Splat Scene group shows whenever the scene is on, with a loading or failure line until a variant lands. Headless GUT only."
   - "0.1.29 (2026-11-04): ADR-2170 accepted (partial, staged; unit and headless-GUT evidence, no GPU render): splat volume, CPU-sorted quad layer and the separate splat account built; the owner accepted Decision 7, amending ADR-2167 and the PRD-008 triangle budget for splat scenes. Off unless `XR_SPLATS=1`. Served format SPZ v3. Splat section only; Current State, Invariants and verified_commit untouched."
@@ -253,10 +253,13 @@ also parse the TS source tables and the beam shader uniforms.
 ### HUD structure (hud.gd)
 The HUD is a tabbed panel built **programmatically** under `HudControl` into a
 SubViewport shown on a world-space, wand-grabbable quad — one source of truth so
-every control fits its page (`hud.gd:1-28`). Tab order:
-`graph, layout, forces, shapes, query, pins, swarm, key, session, help` (`hud.gd` `TAB_ORDER`;
-`key` is the colour swatch legend, 2026-09-08). Stable node
-paths are documented in-file (`hud.gd:20-28`) for rebases.
+every control fits its page (`hud.gd:1-32`). Since ADR-2189 (2026-11-06) the tab
+bar is the seven shared sections, read from `data/ia.json`, then Fit, Legend and
+Explore (`hud.gd:506`); each section's pages are picked on a rail at the left of
+the page host (`hud.gd:1947`). See *Menu information architecture (ADR-2189)*. Page
+build order: `layers, query, pins, encode, key, layout, shapes, forces, look, swarm,
+session, headset, help` (`hud.gd:272` `TAB_ORDER`; `key` is the colour swatch legend,
+2026-09-08). Stable node paths are documented in-file (`hud.gd:20-32`) for rebases.
 
 Two overflow lessons are baked in as INVARIANTS:
 - **532px page host.** The constrained-layout controls were split out of the
@@ -856,9 +859,8 @@ new MultiMesh was added and the draw-call count is unchanged.
   1, carries the level, and edge `custom.r` flags a greyed end; the edge shaders
   draw that edge at `grey_alpha` 0.3 of its alpha (`materials/edge_flow.gdshader:23`).
   The stride is still 16 (Invariant 3).
-  - **Writers.** The received `nodeFilter` and the HUD type show/hide filter now
-    write FILTERED_OUT in `refresh_filter` (`rust/src/render_store.rs:2553`)
-    instead of removing nodes. `HighlightWriter` (`scripts/highlight_writer.gd:37`)
+  - **Writers.** The received `nodeFilter` now writes FILTERED_OUT in
+    `refresh_filter` (`rust/src/render_store.rs:2552`) instead of removing nodes. `HighlightWriter` (`scripts/highlight_writer.gd:37`)
     writes the other bits from the scene, deduplicated:
     - selection and its direct neighbours (≤ 64, found in one Rust pass,
       `neighbours_of`) on select and clear (`graph_scene.gd:2009`);
@@ -867,7 +869,10 @@ new MultiMesh was added and the draw-call count is unchanged.
   - **Greyed nodes** get no label (`rank_label_candidates`, `render_store.rs:1549`)
     and no hull (`render_store.rs:2631`), and are not search hits.
   - **What still removes** (ADR-2183 D4): the fold plan (`fold_hidden`), the server
-    visibility filter and the population scope.
+    visibility filter, the server-side `nodeFilter.enabled` ("Filter on server
+    (hides nodes)" in ADR-2189's Explore › Filters), and population scoping: the HUD
+    type show/hide filter (Layers › Populations, `set_type_visible`), which ADR-2189
+    §5 keeps as removal.
   - **Cross-volume links** follow the edge drawn test, so a link to a greyed end is
     drawn.
 - **Label budget (D5).** Labels are chosen by priority, not proximity
@@ -1053,27 +1058,84 @@ owner and GraphScene forwards it two hooks (`handle_control`, `route_text`).
   validation target), ADR-140 (swarm pillars), ADR-141 (constrained layout) are
   cited as evidence; treat this document as authority where they conflict.
 
-## Menu information architecture (ADR-2189; accepted 2026-11-06, XR side not built)
+## Menu information architecture (ADR-2189; XR side built 2026-11-06, headless evidence only)
 
-The desktop and the headset share one menu map: seven sections (Layers, Explore,
-Encode, Layout, Look, Agents & Governance, System), each with named subsections,
-at most two levels deep (ADR-2188 §6). The map is `data/ia.json`, generated from
-the desktop settings registry by `client/scripts/emit-settings-manifest.ts`; a
-registry test asserts that this copy equals a fresh build, so the two clients
-cannot drift apart unnoticed. Each field carries its storage scope (`shared` for
-the physics document every viewer and headset sees, `server`, `browser`).
+The desktop and the headset share one menu map: seven sections, each with named
+subsections, at most two levels deep (ADR-2188 §6). The map is `data/ia.json`,
+generated from the desktop settings registry by
+`client/scripts/emit-settings-manifest.ts`; a desktop Vitest test asserts this copy
+equals a fresh build. The copy committed here is byte-identical to feat/gv-menus
+`600b2846b` (sha256 `e46be5f8…`).
 
-Not built here yet. `hud.gd` keeps its ten tabs; ADR-2189 §1 maps them onto the
-seven sections (Graph splits across Layout, Encode and Layers; Layout, Shapes and
-Forces go to Layout; Query and Pins to Explore; Key to Encode › Legend; Swarm to
-Agents & Governance; Session and Help to System). The follow-up reads `data/ia.json`
-for the tab bar, adds a GUT test that the tab list equals its sections, shows the
-shared-scope marker on the Forces and Layout controls, and persists the view
-preferences ADR-2189 lists to `xr_prefs.cfg`.
-
-The five desktop `xr.*` settings (`enabled`, `quality`, `renderScale`,
-`enableHandTracking`, `enableHaptics`) were deleted by ADR-2189: nothing in this
-client or the desktop read them.
+- **What the headset takes from it.** Section ids, labels, order and hotkeys, the
+  subsection names and the scope texts (`scripts/hud_ia.gd:88` `load_doc`). Its
+  fields are desktop registry paths, which the headset does not render one by one.
+  A missing or malformed file, or one without exactly the seven ids, falls back to a
+  built-in copy of the seven, which `tests/unit/test_hud_ia.gd` checks against the file.
+- **Two levels.** The tab bar holds the seven sections (Agents & Governance shows as
+  "Agents") plus Fit, Legend and Explore: ten buttons, as many as the old ten tabs
+  (`hud.gd:506`). A rail of up to three buttons beside the page picks the section's
+  page (`hud.gd:1956`). The rail costs width, not height, so the 532 px rule holds.
+  Headless GUT checks every page's minimum height and width beside the rail
+  (`test_hud_ia.gd`), including Query with the keyboard open. The GL-metrics HUD fit
+  gate in CI is the real check of rendered text and was not run here. `_show_tab(<page id>)` still
+  opens any page by id, together with its section and rail entry (`hud.gd:1918`). A
+  section remembers the page last shown in it (`_show_section`, `hud.gd:1938`).
+- **XR placement** (`hud_ia.gd:44` `XR_PAGES`). Every page sits in exactly one
+  section. Each rail label and group name is either one of that section's
+  `ia.json` subsections or listed as headset-only (`XR_ONLY`). A GUT test pins both.
+  | Section | Pages (rail) | Notes |
+  |---|---|---|
+  | Layers | Populations | Type toggles (population scoping: they **remove**, ADR-2189 §5), memory cloud and cloud colour, cluster hulls, the splat on/off switch (moved from the Session row) and Enter / Merge (moved from Layout) |
+  | Explore | Query builder · Pins | Query builder and memory search; pins |
+  | Encode | Colour & size · Legend | Colour mode; label budget and label text size; the colour key |
+  | Layout | Mode · Shape · Semantic forces | Mode and Forces (Reset Layout, Spread ±); hierarchy and view, planes, radial shells, cycles and links; the semantic forces |
+  | Look | Nodes | Node ±, Edges ± (the share of each volume's edges asked for, applied to the ADR-2188 edge limit), Reduce motion, the physics status line |
+  | Agents & Governance | Agent operations | The swarm roster |
+  | System | Connection · Headset · Help & keys | Session (Reconnect now sits beside the connection line); dwell, haptics, Low-cost visuals; the cheat sheet |
+- **Scope.** The Layout and Shapes pages show `ia.json`'s `scopes.shared` text
+  ("Changes the layout for everyone"; `hud.gd:562`), because their controls write
+  the one global physics document. Headset-local controls carry no badge: the
+  desktop's "This browser only" is the wrong wording in a headset.
+- **Header buttons (ADR-2189 §3).** Fit undoes the two-hand turn and scale. That
+  gesture moves the whole volume arrangement, and Reset Layout leaves it alone. Fit
+  then refits the focused volume's content to its box, without touching the physics
+  layout (`graph_scene.gd:2033`, `spatial_volume.gd:156` `refit`). ADR-2180's fit
+  scopes are not built in XR. Legend opens Encode › Legend and Explore opens Explore › Query
+  builder.
+- **New headset controls (audit finding 13).** All are handled in
+  `graph_scene.gd:1991` and persisted in `xr_prefs.cfg` (`xr_prefs.gd:156`).
+  - Label budget: 0–8 in steps of 2, never past the pool's ranked budget (ADR-2188 D5).
+  - Label text size: 0.75–2×. It scales `Label3D.pixel_size` and the detail offset,
+    and widens the label collision grid with the text.
+  - Gaze dwell: 400–800 ms in 100 ms steps, set in the Rust selection arbiter
+    (`rust/src/selection.rs:267` `set_dwell_ms`, clamped to its band).
+  - Haptics on or off. It gates every controller pulse, including the beat-tap pulse.
+  - The stored values are re-applied on boot (`graph_scene.gd:2062`).
+  - Reduce motion, Low-cost visuals and the VisionClaw colour mode now persist too.
+    An explicit `XR_REDUCED_MOTION` / `XR_VISUAL_QUALITY` launch value still wins.
+  - Under GUT these view preferences are inert unless a test sets
+    `XrPrefs.path_override`, so one test's toggle cannot change the next scene's
+    defaults.
+- **Capabilities.** On a backend that lacks a page's capability (Codescape: Forces,
+  Swarm, Pins), that page leaves the rail. A section with no page left leaves the
+  tab bar, so Agents & Governance hides on Codescape (`hud.gd:1797`).
+- **Not built, or decided otherwise.**
+  - **Dials.** XR has Spread (±) and Labels (the budget). There is no Motion, Glow or
+    Atmosphere stepper. Glow has no XR target because bloom is off (Invariant 2),
+    and the other two were not mapped to an XR effect.
+  - **Persistence.** The HUD position does not persist; there is no clean grab-release
+    hook to save it from. Layout mode is deliberately not persisted: it POSTs
+    `/api/layout/mode`, which is shared, so re-applying it on boot would change every
+    viewer's layout.
+  - **The desktop's five `xr.*` settings** (`enabled`, `quality`, `renderScale`,
+    `enableHandTracking`, `enableHaptics`) were never read here. Haptics is now a
+    headset-local preference. Render scale is a genuine headset concern, but it
+    acts directly on the 90 fps budget, so it is left unwired until it can be
+    measured on a headset.
+  - **ADR-2189 §5 "Hide filtered nodes".** XR honours the server-side
+    `nodeFilter.enabled` ("Filter on server (hides nodes)") by receiving fewer
+    nodes. A received filter greys out what does arrive.
 
 ## Being implemented (ADR-2158, ADR-2159, ADR-2164; accepted 2026-10-30, not built): volumes, concurrent backends and code links
 

@@ -260,6 +260,21 @@ impl SelectionArbiter {
         }
     }
 
+    /// Set the gaze-dwell time (ADR-2189 audit finding 13: the headset's dwell
+    /// setting), clamped into the configured band (400–800 ms by default). Returns
+    /// the value in force, in milliseconds. A charge in progress keeps its elapsed
+    /// time and completes against the new duration.
+    pub fn set_dwell_ms(&mut self, ms: u32) -> u32 {
+        self.cfg.dwell_us = (ms as u64) * 1000;
+        self.cfg.dwell_us = self.cfg.dwell_clamped_us();
+        (self.cfg.dwell_us / 1000) as u32
+    }
+
+    /// The gaze-dwell time in force, in milliseconds.
+    pub fn dwell_ms(&self) -> u32 {
+        (self.cfg.dwell_clamped_us() / 1000) as u32
+    }
+
     /// Register the `did:nostr` for a graph node so a resolved selection carries
     /// a verifiable identity. Populated from presence `avatar_joined` events and
     /// from [`crate::binary_protocol::parse_agent_identities`].
@@ -545,6 +560,18 @@ impl SelectionArbiterNode {
     fn charge_ratio(&self) -> f32 {
         self.arbiter.charge_ratio()
     }
+
+    /// Set the gaze-dwell time in ms (clamped to 400–800); returns the value in force.
+    #[func]
+    fn set_dwell_ms(&mut self, ms: i64) -> i64 {
+        self.arbiter.set_dwell_ms(ms.clamp(0, u32::MAX as i64) as u32) as i64
+    }
+
+    /// The gaze-dwell time in force, in ms.
+    #[func]
+    fn dwell_ms(&self) -> i64 {
+        self.arbiter.dwell_ms() as i64
+    }
 }
 
 #[cfg(test)]
@@ -681,6 +708,32 @@ mod tests {
         let ev = fired.expect("dwell should fire with no controller");
         assert_eq!(ev.target_entity, 9);
         assert_eq!(ev.resolver, Resolver::GazeDwell);
+    }
+
+    /// Ticks (20 ms) until the dwell fires on a resting gaze.
+    fn ticks_to_fire(arb: &mut SelectionArbiter) -> u64 {
+        let cands = [candidate(9, [0.0, 0.0, -5.0])];
+        for i in 0..200u64 {
+            if arb.tick(&[], &gaze_forward(), &cands, false, i * 20_000, 20_000).is_some() {
+                return i + 1;
+            }
+        }
+        u64::MAX
+    }
+
+    #[test]
+    fn the_dwell_setting_changes_when_it_fires_and_is_clamped_to_the_band() {
+        let mut a = SelectionArbiter::new();
+        assert_eq!(a.dwell_ms(), 600);
+        let default_ticks = ticks_to_fire(&mut a);
+        let mut slow = SelectionArbiter::new();
+        assert_eq!(slow.set_dwell_ms(800), 800);
+        let mut fast = SelectionArbiter::new();
+        assert_eq!(fast.set_dwell_ms(400), 400);
+        let (s, f) = (ticks_to_fire(&mut slow), ticks_to_fire(&mut fast));
+        assert!(f < default_ticks && default_ticks < s, "400 < 600 < 800 ms: {f} {default_ticks} {s}");
+        assert_eq!(SelectionArbiter::new().set_dwell_ms(50), 400, "clamped to the band floor");
+        assert_eq!(SelectionArbiter::new().set_dwell_ms(5000), 800, "and its ceiling");
     }
 
     #[test]

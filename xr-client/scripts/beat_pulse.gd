@@ -324,7 +324,8 @@ func _poll_tap_input() -> void:
 			break
 	if down and not _tap_was_down:
 		tap()
-		if hit != null:
+		# System › Headset haptics switch (ADR-2189): the scene's _pulse honours it.
+		if hit != null and (_scene == null or bool(_scene.get("_haptics_on") if "_haptics_on" in _scene else true)):
 			hit.trigger_haptic_pulse("haptic", 0.0, 0.3, 0.04, 0.0)
 	_tap_was_down = down
 
