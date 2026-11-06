@@ -39,7 +39,7 @@ class NodeAnalyticsStore {
 
   // Render-index-aligned buffer cache (rebuilt on version/map change only).
   private cachedBuffer: Float32Array | null = null;
-  private cachedMapRef: Map<string, number> | null = null;
+  private cachedMapRef: ReadonlyMap<string, number> | null = null;
   private cachedVersion = -1;
   private cachedSize = -1;
 
@@ -93,7 +93,7 @@ class NodeAnalyticsStore {
    * back to their domain heuristics. Cached by (map identity, version) to keep
    * the per-tick call cheap.
    */
-  getIndexedBuffer(nodeIdToIndexMap: Map<string, number>): Float32Array | null {
+  getIndexedBuffer(nodeIdToIndexMap: ReadonlyMap<string, number>): Float32Array | null {
     if (!this.hasAnalytics || nodeIdToIndexMap.size === 0) return null;
 
     if (

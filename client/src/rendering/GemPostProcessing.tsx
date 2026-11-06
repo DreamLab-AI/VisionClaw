@@ -15,6 +15,16 @@ import {
 const logger = createLogger('GemPostProcessing');
 
 /**
+ * EffectComposer.dispose() frees only its own two render targets and copy pass,
+ * not the passes added to it, so each rebuild leaked the UnrealBloomPass mip
+ * chain and any ShaderPass material. Dispose every pass first.
+ */
+function disposeComposer(composer: { passes?: Array<{ dispose?: () => void }>; dispose?: () => void }): void {
+  for (const pass of composer.passes ?? []) pass.dispose?.();
+  composer.dispose?.();
+}
+
+/**
  * Consecutive failed render frames tolerated before post-processing is
  * permanently disabled for the session and rendering is handed back to the
  * default R3F renderer. Small enough that a genuinely broken backend gives up
@@ -319,7 +329,7 @@ export const GemPostProcessing: React.FC<GemPostProcessingProps> = ({ enabled = 
               composer.render();
             },
             setSize: (w: number, h: number) => { bloomComposer.setSize(w, h); composer.setSize(w, h); },
-            dispose: () => { bloomComposer.dispose(); bloomRt.dispose(); composer.dispose(); },
+            dispose: () => { disposeComposer(bloomComposer); bloomRt.dispose(); disposeComposer(composer); },
           };
         }
         rtRef.current = rt;
@@ -334,7 +344,7 @@ export const GemPostProcessing: React.FC<GemPostProcessingProps> = ({ enabled = 
     return () => {
       disposed = true;
       if (composerRef.current) {
-        composerRef.current.dispose?.();
+        disposeComposer(composerRef.current as Parameters<typeof disposeComposer>[0]);
         composerRef.current = null;
       }
       // Dispose custom render target separately — EffectComposer.dispose()

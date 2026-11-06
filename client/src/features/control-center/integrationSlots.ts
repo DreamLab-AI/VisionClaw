@@ -12,7 +12,9 @@
  * | GraphLegend          | gv-explore | graph/explore (ADR-2184; installs the encoder, so  |
  * |                      |            | it is mounted even while the legend is hidden)     |
  * | clearAllFilters      | gv-explore | graph/explore: clears filter:explore:* only        |
- * | useActiveFilterCount | gv-explore | graph/explore: counts every filter:* source        |
+ * | useActiveFilterCount | gv-explore | graph/explore: explore-widget filters only, the   |
+ * |                      |            | set clearAllFilters clears (settings filters are   |
+ * |                      |            | shown by their own toggle, not this badge)         |
  * | HIDE_FILTERED_PATH   | gv-explore | graph/hooks/useGraphFiltering (ADR-2189 §5)        |
  *
  * Rule: never clear filters with highlightMask.clearAll(); that also wipes

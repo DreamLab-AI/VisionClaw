@@ -13,6 +13,7 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { graphDataManager, type GraphData } from '../managers/graphDataManager';
 import { nodeAnalyticsStore } from '../../analytics/store/nodeAnalyticsStore';
+import { sharedNodeIndexResolver } from '../state/nodeIndex';
 import { nodeEncoding as sharedEncoding, type NodeEncoding } from '../state/nodeEncoding';
 import { exploreStore, type ExploreStore } from './exploreStore';
 import { createColumnEncoding, createSchemeLegend, type LegendModel } from './columnEncoder';
@@ -53,7 +54,7 @@ let buildSeq = 0;
  */
 function rebuild(store: ExploreStore): void {
   if (!source.nodes) return;
-  const a = nodeAnalyticsStore.getIndexedBuffer(source.indexMap);
+  const a = readAnalytics();
   // keep a private copy: the store may reuse its buffer
   source.analytics = a ? a.slice() : null;
   builder ??= createTableBuilder();
@@ -66,6 +67,19 @@ function rebuild(store: ExploreStore): void {
   }).then((built) => {
     if (seq === buildSeq) store.setColumns(built.table, built.eligible);
   });
+}
+
+/**
+ * Read analytics through the shared render index map so the store's one-slot
+ * cache (keyed by map identity) stays warm for GemNodes and useNodeEncodingSync.
+ * Reading with a private map evicts it and forces a whole-graph re-encode. The
+ * shared map is built from the same `data.nodes` order; just after a new load it
+ * can lag one render, so fall back to the private map while the sizes differ.
+ */
+function readAnalytics(): Float32Array | null {
+  const shared = sharedNodeIndexResolver();
+  const map = shared.size === source.indexMap.size ? shared : source.indexMap;
+  return nodeAnalyticsStore.getIndexedBuffer(map);
 }
 
 /**
@@ -84,9 +98,8 @@ function acquireSource(store: ExploreStore): () => void {
   if (source.refs++ === 0) {
     source.unsubscribe = graphDataManager.onGraphDataChange((d) => onGraphData(d, store));
     source.timer = setInterval(() => {
-      // The store's one-slot cache is keyed by map identity and GemNodes reads it
-      // every tick with the shared map, so compare contents, not identity.
-      const a = source.nodes ? nodeAnalyticsStore.getIndexedBuffer(source.indexMap) : null;
+      // Compare contents, not identity: the shared buffer is reused across ticks.
+      const a = source.nodes ? readAnalytics() : null;
       if (!sameFloats(a, source.analytics)) rebuild(store);
     }, ANALYTICS_REFRESH_MS);
   }

@@ -167,7 +167,9 @@ export const OverviewNodes: React.FC<Props> = ({ positions, sourceRef, style }) 
       hgeo.getAttribute('aSize').needsUpdate = true;
       hgeo.instanceCount = k;
     }
-    if (!style.halo) hgeo.instanceCount = 0;
+    // Emptied while off: forget the cached mask version so the halo is rebuilt
+    // as soon as it is switched back on, not at the next mask change.
+    if (!style.halo) { hgeo.instanceCount = 0; l.maskVersion = -1; }
 
     backgroundFromSetting(style.background, _bg);
     writeUniforms(sprites.uniforms, size.width, size.height, style);
