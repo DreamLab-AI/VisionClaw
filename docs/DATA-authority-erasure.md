@@ -56,7 +56,7 @@ The triple store is embedded Oxigraph (RocksDB backend, SPARQL 1.1); Neo4j is
 in code: `GRAPH_ONTOLOGY`, `GRAPH_ONTOLOGY_INFERRED`, `GRAPH_KNOWLEDGE`,
 `GRAPH_AGENT`, `GRAPH_SHAPES`, `GRAPH_PROVENANCE`
 (`oxigraph_ontology_repository.rs:46-55`). Non-triple state lives in five
-SQLite databases (the four below plus `shares.sqlite3`, which the backup does not cover) in WAL mode inside the `visionclaw-data` Docker volume at
+SQLite databases (the five below, `shares.sqlite3` included since 2026-11-06) in WAL mode inside the `visionclaw-data` Docker volume at
 `/app/data` (`scripts/backup-sqlite.sh:10-16`).
 
 ### Conflict resolution per class
@@ -123,9 +123,9 @@ distributed transaction and no compensating-action framework in code.
   request may omit the expiry, and such a share is kept until its creator deletes it.
   Only the recorded creator may delete (`delete_owned`). **Open:** no per-user erasure
   path reaches shares, so erasing a user leaves the shares they created (rows carry
-  `creator_id`) and their files; and `scripts/backup-sqlite.sh` does not back up
-  `shares.sqlite3` or `data/shared/`, so a restore loses every share link (content
-  is not lost: a share is a copy).
+  `creator_id`) and their files. `scripts/backup-sqlite.sh` backs up `shares.sqlite3`
+  since 2026-11-06, but not `data/shared/`, so a restore keeps the share rows and loses
+  their files (content is not lost: a share is a copy).
 - **Credentials.** SOPS (legacy ADR-109, VisionClaw) was accepted 2026-05-09 but
   NEVER EXECUTED — `.env` is plaintext, no SOPS artifacts in tree. Open.
 - **Open-by-default posture is a compose choice, not a code default.** The code

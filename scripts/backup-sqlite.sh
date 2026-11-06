@@ -72,7 +72,7 @@ DATA_DIR="${DATA_DIR:-./data}"                 # host-mode source dir
 BACKUP_ROOT="${BACKUP_ROOT:-./backups/sqlite}" # where timestamped dirs land
 KEEP="${KEEP:-14}"                             # rotation depth
 # ADR-2017 membership: required members fail the run when absent.
-REQUIRED_DBS="${REQUIRED_DBS:-settings.sqlite3 enrichment.sqlite3 kpi.sqlite3}"
+REQUIRED_DBS="${REQUIRED_DBS:-settings.sqlite3 enrichment.sqlite3 kpi.sqlite3 shares.sqlite3}"
 OPTIONAL_DBS="${OPTIONAL_DBS:-liveness.sqlite3}"
 # DBS stays overridable for ad-hoc runs; when set explicitly it is treated as
 # the required set unless REQUIRED_DBS is also given.
