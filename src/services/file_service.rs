@@ -1142,6 +1142,9 @@ impl FileService {
             let mut node = AppNode::new_with_id(filename.clone(), Some(meta_node_id));
             node.label = meta.file_name.trim_end_matches(".md").to_string();
             node.size = Some(meta.node_size as f32);
+            // ADR-2184/2185: last_modified, last_commit, change_count (RFC 3339 UTC). Node metadata
+            // round-trips through Oxigraph, so these reach the graph the actor reloads.
+            meta.write_temporal_keys(&mut node.metadata);
 
             // Detect ontology classification from file content.
             // Files declaring a frontmatter `owl-class: <iri>` are surfaced
