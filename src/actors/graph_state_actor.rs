@@ -71,7 +71,6 @@ pub struct GraphStateActor {
 
     node_map: Arc<HashMap<u32, Node>>,
 
-
     next_node_id: std::sync::atomic::AtomicU32,
 
     // Full metadata store — kept in sync so edge generation always has complete context
@@ -175,16 +174,8 @@ impl GraphStateActor {
                 .graph_data
                 .nodes
                 .iter()
-                .filter(|n| {
-                    !n.metadata
-                        .get("public")
-                        .map(|v| v.eq_ignore_ascii_case("true"))
-                        .unwrap_or(false)
-                })
-                .map(|n| match n.metadata.get("owner_pubkey") {
-                    Some(owner) => NodeVisibility::private_owned_by(n.id, owner.clone()),
-                    None => NodeVisibility::private_unowned(n.id),
-                })
+                .map(NodeVisibility::of_node)
+                .filter(|v| !v.is_public)
                 .collect(),
         }
     }

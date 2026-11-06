@@ -1,8 +1,9 @@
 use crate::services::file_service::FileService;
+use crate::settings::OptionalAuth;
 use crate::types::vec3::Vec3Data;
 use crate::AppState;
 use crate::{bad_request, error_json, ok_json};
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpResponse, Responder};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -217,7 +218,7 @@ pub async fn get_physics_state_summary(state: web::Data<AppState>) -> impl Respo
 pub async fn get_graph_data(
     state: web::Data<AppState>,
     query: web::Query<GraphQuery>,
-    _req: HttpRequest,
+    caller: OptionalAuth,
 ) -> impl Responder {
     info!(
         "Received request for graph data (CQRS Phase 1D), graph_type={:?}",
@@ -255,76 +256,17 @@ pub async fn get_graph_data(
                 physics_state
             );
 
-            let nodes_with_positions: Vec<NodeWithPosition> = graph_data
-                .nodes
-                .iter()
-                .map(|node| {
-                    // Use node's own data for position and velocity
-                    // node_map contains HashMap<i32, Vec<i32>>, not physics nodes
-                    let position: Vec3Data = node.data.position().into();
-                    let velocity: Vec3Data = node.data.velocity().into();
-
-                    NodeWithPosition {
-                        id: node.id,
-                        metadata_id: node.metadata_id.clone(),
-                        label: node.label.clone(),
-                        position,
-                        velocity,
-                        metadata: node.metadata.clone(),
-                        node_type: node.node_type.clone(),
-                        size: node.size,
-                        color: node.color.clone(),
-                        weight: node.weight,
-                        group: node.group.clone(),
-                    }
-                })
-                .collect();
-
-            // Server-side population filtering (PRD-018 WS-4). `graph_type`
-            // absent ⇒ all nodes (behaviour unchanged). Population membership is
-            // defined by `PopulationFilter`, which mirrors the binary-protocol
-            // flag bits so the REST and wire classifications agree.
-            let population = PopulationFilter::parse(query.graph_type.as_deref());
-            // linked_page stub gate (mirrors client nodeFilter.includeLinkedPages).
-            // Authoritative origin is metadata["type"] (matches the client
-            // `nodePopulationType` precedence), with node_type as the fallback.
-            let exclude_linked_pages = query.exclude_linked_pages.unwrap_or(false);
-            let filtered_nodes: Vec<NodeWithPosition> = nodes_with_positions
-                .into_iter()
-                .filter(|node| match population {
-                    Some(p) => p.matches(node.node_type.as_deref(), &node.metadata),
-                    None => true,
-                })
-                .filter(|node| {
-                    if !exclude_linked_pages {
-                        return true;
-                    }
-                    let origin = node
-                        .metadata
-                        .get("type")
-                        .map(String::as_str)
-                        .or(node.node_type.as_deref())
-                        .unwrap_or("");
-                    origin != "linked_page"
-                })
-                .collect();
-
-            // Filter edges to only include those connecting filtered nodes
-            let filtered_node_ids: std::collections::HashSet<u32> =
-                filtered_nodes.iter().map(|n| n.id).collect();
-            let filtered_edges: Vec<_> = graph_data
-                .edges
-                .iter()
-                .filter(|e| {
-                    filtered_node_ids.contains(&e.source) && filtered_node_ids.contains(&e.target)
-                })
-                .cloned()
-                .collect();
+            let (filtered_nodes, filtered_edges, visible_metadata) = graph_data_projection(
+                &graph_data,
+                &query,
+                caller_pubkey(&caller),
+                visionclaw_domain::utils::visibility_filter::filter_enabled(),
+            );
 
             let response = GraphResponseWithPositions {
                 nodes: filtered_nodes,
                 edges: filtered_edges,
-                metadata: graph_data.metadata.clone(),
+                metadata: visible_metadata,
                 // Honest settlement telemetry from the GPU force-compute actor;
                 // falls back to run-state truth only when no telemetry exists.
                 settlement_state: build_settlement_state(
@@ -358,9 +300,88 @@ pub async fn get_graph_data(
     }
 }
 
+/// The `GET /api/graph/data` node, edge and metadata projection for one caller: the ADR-060
+/// visibility gate (the same `visible_subgraph` the `/wss` load applies), then the population and
+/// linked-page filters, then the edges with both endpoints kept.
+pub(crate) fn graph_data_projection(
+    graph_data: &Arc<GraphData>,
+    query: &GraphQuery,
+    caller_pubkey: Option<&str>,
+    visibility_filter_on: bool,
+) -> (
+    Vec<NodeWithPosition>,
+    Vec<visionclaw_domain::models::edge::Edge>,
+    HashMap<String, Metadata>,
+) {
+    let graph_data = &visionclaw_domain::utils::visibility_filter::visible_subgraph(
+        graph_data,
+        caller_pubkey,
+        visibility_filter_on,
+    );
+    let nodes_with_positions: Vec<NodeWithPosition> = graph_data
+        .nodes
+        .iter()
+        .map(|node| NodeWithPosition {
+            id: node.id,
+            metadata_id: node.metadata_id.clone(),
+            label: node.label.clone(),
+            position: node.data.position().into(),
+            velocity: node.data.velocity().into(),
+            metadata: node.metadata.clone(),
+            node_type: node.node_type.clone(),
+            size: node.size,
+            color: node.color.clone(),
+            weight: node.weight,
+            group: node.group.clone(),
+        })
+        .collect();
+
+    // Server-side population filtering (PRD-018 WS-4). `graph_type`
+    // absent ⇒ all nodes (behaviour unchanged). Population membership is
+    // defined by `PopulationFilter`, which mirrors the binary-protocol
+    // flag bits so the REST and wire classifications agree.
+    let population = PopulationFilter::parse(query.graph_type.as_deref());
+    // linked_page stub gate (mirrors client nodeFilter.includeLinkedPages).
+    // Authoritative origin is metadata["type"] (matches the client
+    // `nodePopulationType` precedence), with node_type as the fallback.
+    let exclude_linked_pages = query.exclude_linked_pages.unwrap_or(false);
+    let filtered_nodes: Vec<NodeWithPosition> = nodes_with_positions
+        .into_iter()
+        .filter(|node| match population {
+            Some(p) => p.matches(node.node_type.as_deref(), &node.metadata),
+            None => true,
+        })
+        .filter(|node| {
+            if !exclude_linked_pages {
+                return true;
+            }
+            let origin = node
+                .metadata
+                .get("type")
+                .map(String::as_str)
+                .or(node.node_type.as_deref())
+                .unwrap_or("");
+            origin != "linked_page"
+        })
+        .collect();
+
+    // Filter edges to only include those connecting filtered nodes
+    let filtered_node_ids: std::collections::HashSet<u32> =
+        filtered_nodes.iter().map(|n| n.id).collect();
+    let filtered_edges: Vec<_> = graph_data
+        .edges
+        .iter()
+        .filter(|e| filtered_node_ids.contains(&e.source) && filtered_node_ids.contains(&e.target))
+        .cloned()
+        .collect();
+
+    (filtered_nodes, filtered_edges, graph_data.metadata.clone())
+}
+
 pub async fn get_paginated_graph_data(
     state: web::Data<AppState>,
     query: web::Query<GraphQuery>,
+    caller: OptionalAuth,
 ) -> impl Responder {
     info!(
         "Received request for paginated graph data (CQRS Phase 1D): {:?}",
@@ -379,8 +400,9 @@ pub async fn get_paginated_graph_data(
     let graph_result =
         execute_in_thread(move || graph_handler.handle(GetGraphData).map_err(Box::new)).await;
 
+    // Gate first, so the page counts and `total_items` describe only what this caller may see.
     let graph_data_owned = match graph_result {
-        Ok(Ok(g_owned)) => g_owned,
+        Ok(Ok(g_owned)) => caller_view(&g_owned, &caller),
         Ok(Err(e)) => {
             error!("Failed to get graph data for pagination (CQRS): {}", e);
             return Ok(HttpResponse::InternalServerError()
@@ -461,7 +483,7 @@ pub async fn get_paginated_graph_data(
     ok_json!(response)
 }
 
-pub async fn refresh_graph(state: web::Data<AppState>) -> impl Responder {
+pub async fn refresh_graph(state: web::Data<AppState>, caller: OptionalAuth) -> impl Responder {
     info!("Received request to refresh graph (CQRS Phase 1D)");
 
     let graph_handler = state.graph_query_handlers.get_graph_data.clone();
@@ -470,6 +492,7 @@ pub async fn refresh_graph(state: web::Data<AppState>) -> impl Responder {
 
     match graph_result {
         Ok(Ok(graph_data_owned)) => {
+            let graph_data_owned = caller_view(&graph_data_owned, &caller);
             debug!(
                 "Returning current graph state with {} nodes and {} edges (CQRS)",
                 graph_data_owned.nodes.len(),
@@ -629,7 +652,10 @@ pub async fn get_auto_balance_notifications(
 /// Return the current GPU-computed node positions (not the initial loaded zeros).
 ///
 /// `GET /api/graph/positions`
-pub async fn get_graph_positions(state: web::Data<AppState>) -> impl Responder {
+pub async fn get_graph_positions(
+    state: web::Data<AppState>,
+    caller: OptionalAuth,
+) -> impl Responder {
     // Acquire ForceComputeActor address
     let gpu_addr = match state.get_gpu_compute_addr().await {
         Some(addr) => addr,
@@ -645,9 +671,30 @@ pub async fn get_graph_positions(state: web::Data<AppState>) -> impl Responder {
 
     match gpu_addr.send(GetCurrentPositions).await {
         Ok(Ok(snapshot)) => {
+            // ADR-060: GPU index == compact node id, so the caller's visible node ids filter the
+            // positions directly. No graph snapshot means no visibility decision: fail closed.
+            let visible: Option<std::collections::HashSet<u32>> =
+                if visionclaw_domain::utils::visibility_filter::filter_enabled() {
+                    match fetch_graph_snapshot(&state, &caller).await {
+                        Ok(graph) => Some(graph.nodes.iter().map(|n| n.id).collect()),
+                        Err(e) => {
+                            error!(
+                                "positions: graph snapshot unavailable for the visibility gate: {}",
+                                e
+                            );
+                            return HttpResponse::ServiceUnavailable().json(serde_json::json!({
+                                "success": false,
+                                "error": "Graph state not available"
+                            }));
+                        }
+                    }
+                } else {
+                    None
+                };
             let positions: Vec<serde_json::Value> = snapshot
                 .positions
                 .iter()
+                .filter(|(id, _, _, _)| visible.as_ref().is_none_or(|v| v.contains(id)))
                 .map(|(id, x, y, z)| {
                     serde_json::json!({
                         "id": id,
@@ -657,13 +704,14 @@ pub async fn get_graph_positions(state: web::Data<AppState>) -> impl Responder {
                     })
                 })
                 .collect();
+            let visible_count = positions.len();
 
             HttpResponse::Ok().json(serde_json::json!({
                 "success": true,
                 "data": {
                     "positions": positions,
                     "metadata": {
-                        "numNodes": snapshot.num_nodes,
+                        "numNodes": visible_count,
                         "settled": snapshot.settled,
                         "stableFrameCount": snapshot.stable_frame_count,
                         "kineticEnergy": snapshot.kinetic_energy,
@@ -994,7 +1042,10 @@ where
 /// cost and a DoS lever. We instead resolve the actor address from the
 /// supervisor and `send` the `GetGraphData` actor message asynchronously. The
 /// result is an `Arc<GraphData>` clone — cheap, no graph copy.
-async fn fetch_graph_snapshot(state: &web::Data<AppState>) -> Result<Arc<GraphData>, String> {
+async fn fetch_graph_snapshot(
+    state: &web::Data<AppState>,
+    caller: &OptionalAuth,
+) -> Result<Arc<GraphData>, String> {
     use crate::actors::messages::{GetGraphData as ActorGetGraphData, GetGraphStateActor};
 
     let actor = state
@@ -1004,10 +1055,30 @@ async fn fetch_graph_snapshot(state: &web::Data<AppState>) -> Result<Arc<GraphDa
         .map_err(|e| format!("supervisor mailbox error: {}", e))?
         .ok_or_else(|| "GraphStateActor not initialised in supervisor".to_string())?;
 
-    actor
+    let graph = actor
         .send(ActorGetGraphData)
         .await
-        .map_err(|e| format!("graph actor mailbox error: {}", e))?
+        .map_err(|e| format!("graph actor mailbox error: {}", e))??;
+    Ok(caller_view(&graph, caller))
+}
+
+/// The caller's pubkey, when the request carried a verified identity. `OptionalAuth` reuses the
+/// identity `RbacGate`/`RequireAuth` stored, else verifies the request's own header, and yields
+/// `None` on any failure, so a bad or missing credential reads as anonymous (fail closed).
+fn caller_pubkey(caller: &OptionalAuth) -> Option<&str> {
+    caller.0.as_ref().map(|u| u.pubkey.as_str())
+}
+
+/// The part of `graph` this caller may see, under the same ADR-060 policy and the same
+/// `PUBKEY_VISIBILITY_FILTER` flag as the `/wss` `initialGraphLoad`
+/// (`visionclaw_domain::utils::visibility_filter::visible_subgraph`). Every REST graph read goes
+/// through this before it shapes a response.
+fn caller_view(graph: &Arc<GraphData>, caller: &OptionalAuth) -> Arc<GraphData> {
+    visionclaw_domain::utils::visibility_filter::visible_subgraph(
+        graph,
+        caller_pubkey(caller),
+        visionclaw_domain::utils::visibility_filter::filter_enabled(),
+    )
 }
 
 /// `GET /api/graph/node/{id}/relations`
@@ -1022,10 +1093,11 @@ async fn fetch_graph_snapshot(state: &web::Data<AppState>) -> Result<Arc<GraphDa
 pub async fn get_node_relations(
     state: web::Data<AppState>,
     path: web::Path<u32>,
+    caller: OptionalAuth,
 ) -> impl Responder {
     let node_id = path.into_inner() & crate::utils::binary_protocol::NODE_ID_MASK;
 
-    let graph_data = match fetch_graph_snapshot(&state).await {
+    let graph_data = match fetch_graph_snapshot(&state, &caller).await {
         Ok(g) => g,
         Err(e) => {
             error!("Failed to get graph data for relations: {}", e);
@@ -1054,12 +1126,13 @@ pub async fn expand_node(
     state: web::Data<AppState>,
     path: web::Path<u32>,
     body: web::Json<ExpandRequest>,
+    caller: OptionalAuth,
 ) -> impl Responder {
     let node_id = path.into_inner() & crate::utils::binary_protocol::NODE_ID_MASK;
     let req = body.into_inner();
     let limit = clamp_expand_limit(req.limit);
 
-    let graph_data = match fetch_graph_snapshot(&state).await {
+    let graph_data = match fetch_graph_snapshot(&state, &caller).await {
         Ok(g) => g,
         Err(e) => {
             error!("Failed to get graph data for expand: {}", e);
@@ -1490,11 +1563,12 @@ fn match_pattern(
 pub async fn query_pattern(
     state: web::Data<AppState>,
     body: web::Json<PatternQueryRequest>,
+    caller: OptionalAuth,
 ) -> impl Responder {
     let req = body.into_inner();
     let limit = clamp_query_limit(req.limit);
 
-    let graph_data = match fetch_graph_snapshot(&state).await {
+    let graph_data = match fetch_graph_snapshot(&state, &caller).await {
         Ok(g) => g,
         Err(e) => {
             error!("Failed to get graph data for pattern query: {}", e);
@@ -2225,5 +2299,120 @@ mod physics_state_summary_tests {
             "{j}"
         );
         assert!(j["settlementState"].get("kineticEnergy").is_some());
+    }
+}
+
+/// ADR-2184 D1 precondition: the REST graph read and the `/wss` `initialGraphLoad` must expose the
+/// same nodes to the same caller. One fixture, three callers, compared end to end.
+#[cfg(test)]
+mod visibility_parity_tests {
+    use super::{graph_data_projection, GraphQuery};
+    use crate::handlers::socket_flow_handler::types::initial_graph_load_projection;
+    use std::collections::BTreeSet;
+    use visionclaw_domain::models::edge::Edge;
+    use visionclaw_domain::models::graph::GraphData;
+    use visionclaw_domain::models::metadata::Metadata;
+    use visionclaw_domain::models::node::Node;
+
+    const OWNER_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const OTHER_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    fn node(id: u32, metadata_id: &str) -> Node {
+        Node::new_with_id(metadata_id.to_string(), Some(id))
+    }
+
+    /// Node 1 public, node 2 private and owned by A, node 3 private with no known owner.
+    /// Edges: 1-2 (touches A's private node), 1-3 (touches the unowned node), 2-3.
+    fn fixture() -> GraphData {
+        let mut public = node(1, "public.md");
+        public
+            .metadata
+            .insert("public".to_string(), "true".to_string());
+        let mut private_a = node(2, "private-a.md");
+        private_a
+            .metadata
+            .insert("owner_pubkey".to_string(), OWNER_A.to_string());
+        let unowned = node(3, "unowned.md");
+
+        let mut graph = GraphData::new();
+        for n in [public, private_a, unowned] {
+            graph.metadata.insert(
+                n.metadata_id.clone(),
+                Metadata {
+                    file_name: n.metadata_id.clone(),
+                    ..Metadata::default()
+                },
+            );
+            graph.nodes.push(n);
+        }
+        graph.edges = vec![
+            Edge::new(1, 2, 1.0),
+            Edge::new(1, 3, 1.0),
+            Edge::new(2, 3, 1.0),
+        ];
+        graph
+    }
+
+    fn no_filters() -> GraphQuery {
+        GraphQuery {
+            query: None,
+            page: None,
+            page_size: None,
+            sort: None,
+            filter: None,
+            graph_type: None,
+            exclude_linked_pages: None,
+        }
+    }
+
+    type View = (BTreeSet<u32>, BTreeSet<(u32, u32)>, BTreeSet<String>);
+
+    fn rest_view(graph: &GraphData, caller: Option<&str>) -> View {
+        let graph = std::sync::Arc::new(graph.clone());
+        let (nodes, edges, metadata) = graph_data_projection(&graph, &no_filters(), caller, true);
+        (
+            nodes.iter().map(|n| n.id).collect(),
+            edges.iter().map(|e| (e.source, e.target)).collect(),
+            metadata.keys().cloned().collect(),
+        )
+    }
+
+    fn wss_view(graph: &GraphData, caller: Option<&str>) -> View {
+        let (nodes, edges) = initial_graph_load_projection(graph, caller, true, usize::MAX);
+        (
+            nodes.iter().map(|n| n.id).collect(),
+            edges.iter().map(|e| (e.source_id, e.target_id)).collect(),
+            nodes.iter().map(|n| n.metadata_id.clone()).collect(),
+        )
+    }
+
+    fn assert_parity(caller: Option<&str>, expected_nodes: &[u32]) {
+        let graph = fixture();
+        let rest = rest_view(&graph, caller);
+        let wss = wss_view(&graph, caller);
+        assert_eq!(
+            wss.0,
+            expected_nodes.iter().copied().collect::<BTreeSet<u32>>(),
+            "the /wss gate itself must give the expected nodes"
+        );
+        assert_eq!(
+            rest, wss,
+            "REST /api/graph/data must match /wss initialGraphLoad"
+        );
+    }
+
+    #[test]
+    fn rest_graph_data_matches_wss_for_an_anonymous_caller() {
+        assert_parity(None, &[1]);
+    }
+
+    #[test]
+    fn rest_graph_data_matches_wss_for_a_non_owner() {
+        assert_parity(Some(OTHER_B), &[1]);
+    }
+
+    #[test]
+    fn rest_graph_data_matches_wss_for_the_owner() {
+        assert_parity(Some(OWNER_A), &[1, 2]);
     }
 }

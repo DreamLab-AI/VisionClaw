@@ -571,12 +571,13 @@ fn base_plan_memoised(
 pub async fn get_fold_plan(
     state: web::Data<AppState>,
     query: web::Query<FoldQuery>,
+    caller: crate::settings::OptionalAuth,
 ) -> impl Responder {
     let level = query.level.unwrap_or(0).min(MAX_FOLD_LEVEL);
     let graph_type = query.graph_type.clone();
     let pinned = parse_pinned(query.pinned.as_deref());
 
-    let graph = match fetch_graph_snapshot(&state).await {
+    let graph = match fetch_graph_snapshot(&state, &caller).await {
         Ok(g) => g,
         Err(e) => {
             error!("fold: failed to get graph snapshot: {}", e);
