@@ -181,7 +181,7 @@ export function useEdgeBufferComputation(opts: EdgeBufferComputationOptions): { 
     // Highlight edges for selected node
     if (selectedNodeId) {
       const selIdx = nodeIdToIndexMap.get(selectedNodeId) ?? -1
-      const hlCount = fillHighlightFrame(plan, positions, selIdx, buffers)
+      const hlCount = fillHighlightFrame(plan, positions, selIdx, buffers, adjacency)
       const hlIdx = hlCount * 6
       if (highlightEdgeFlowRef.current) {
         highlightEdgeFlowRef.current.updatePoints(buffers.highlight, hlIdx)

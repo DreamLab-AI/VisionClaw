@@ -102,3 +102,18 @@ describe('tube subset (ADR-2181 D3)', () => {
     expect(buf.points.slice(6, 12)).toEqual([20, 0, 0, 50, 0, 0]);
   });
 });
+
+describe('highlight tubes walk the selected node only (no O(E) scan)', () => {
+  it('fillHighlightFrame with the adjacency emits the same edges as the full scan', async () => {
+    const { fillHighlightFrame } = await import('../../hooks/edgeBufferPlan');
+    const f = fixture(6, [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [2, 5]]);
+    const a = createEdgeFrameBuffers(), b = createEdgeFrameBuffers();
+    const full = fillHighlightFrame(f.plan, f.positions, 2, a);
+    const viaAdj = fillHighlightFrame(f.plan, f.positions, 2, b, f.adjacency);
+    expect(viaAdj).toBe(3);
+    expect(full).toBe(3);
+    const pairs = (buf: number[], n: number) => Array.from({ length: n }, (_, k) => `${buf[k * 6]}-${buf[k * 6 + 3]}`).sort();
+    expect(pairs(b.highlight, viaAdj)).toEqual(pairs(a.highlight, full));
+    expect(b.highlight.length).toBe(3 * 6); // sized to the degree, not E
+  });
+});

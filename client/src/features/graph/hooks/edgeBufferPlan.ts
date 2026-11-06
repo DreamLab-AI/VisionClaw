@@ -213,13 +213,18 @@ export function fillEdgeFrame(
  */
 export function fillHighlightFrame(
   plan: EdgePlan, positions: Float32Array, selIdx: number, out: EdgeFrameBuffers,
+  /** Node → edge CSR (overview/tubeSelect.buildEdgeAdjacency): walk only the selected node's edges. */
+  adjacency?: { offsets: Int32Array; edges: Int32Array; nodeCount: number } | null,
 ): number {
   if (selIdx < 0) return 0
-  const n = plan.count
+  const useAdj = !!adjacency && selIdx < adjacency.nodeCount
+  const lo = useAdj ? adjacency!.offsets[selIdx] : 0
+  const n = useAdj ? adjacency!.offsets[selIdx + 1] - lo : plan.count
   if (out.highlight.length < n * 6) out.highlight = new Array<number>(n * 6)
   const hl = out.highlight
   let emitted = 0
-  for (let i = 0; i < n; i++) {
+  for (let k = 0; k < n; k++) {
+    const i = useAdj ? adjacency!.edges[lo + k] : k
     if (plan.srcIdx[i] !== selIdx && plan.tgtIdx[i] !== selIdx) continue
     if (!offsetEndpoints(plan, i, positions)) continue
     if (tmpSrcOff.distanceTo(tmpTgtOff) > 0.2) {
