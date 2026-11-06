@@ -34,6 +34,11 @@ import { useGraphSelection } from '../hooks/useGraphSelection'
 import { useEdgeBufferComputation } from '../hooks/useEdgeBufferComputation'
 import { nodePageUrl } from '../utils/pageLinks'
 import { setSharedNodePositions, setSharedNodeIdToIndexMap } from '../contexts/NodePositionContext'
+import { OverviewLayer, resolveGraphView } from '../overview/OverviewLayer'
+import { useNodeEncodingSync } from '../overview/useNodeEncodingSync'
+import { TUBE_BUDGET, type GlassTubeLod } from './GlassEdges'
+import { highlightMask, HIGHLIGHT_SELECTED } from '../state/highlightMask'
+import type { GraphViewSettings } from '../../settings/config/settings'
 
 const logger = createLogger('GraphManager')
 
@@ -79,6 +84,18 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   const { visibleNodes, nodeIdToIndexMap, expansionState } = useGraphFiltering(graphData, hierarchyMap, connectionCountMap)
 
   useEffect(() => { setSharedNodeIdToIndexMap(nodeIdToIndexMap) }, [nodeIdToIndexMap])
+
+  // ADR-2184 D4: the one encodeAll caller, over the whole delivered node set.
+  useNodeEncodingSync({ nodes: graphData.nodes, nodeIdToIndexMap, connectionCountMap, hierarchyMap })
+
+  // ADR-2181/2182 settings: overview edges on → glass tubes become the
+  // close-zoom LOD (or nothing, when glassAtCloseZoom is off).
+  const graphViewStored = useSettingsStore(s => s.settings?.visualisation?.graphView as GraphViewSettings | undefined)
+  const graphView = useMemo(() => resolveGraphView(graphViewStored), [graphViewStored])
+  const tubeLod = useMemo<GlassTubeLod | null>(() => {
+    if (!graphView.overviewEdges.enabled) return null
+    return { maxDistance: graphView.overviewEdges.glassAtCloseZoom ? graphView.nodes.gemLodDistance : 0, budget: TUBE_BUDGET }
+  }, [graphView.overviewEdges.enabled, graphView.overviewEdges.glassAtCloseZoom, graphView.nodes.gemLodDistance])
 
   // Node-type visibility filtering + per-population partition.
   //
@@ -314,6 +331,13 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
     camera,
   })
 
+  // ADR-2183 D2: the selection is one emphasis source of the highlight mask, so
+  // sprites, edges, labels and bloom see it like any other writer's emphasis.
+  useEffect(() => {
+    highlightMask.setEmphasis('render:selection', HIGHLIGHT_SELECTED, selectedNodeId ? [selectedNodeId] : null)
+  }, [selectedNodeId])
+  useEffect(() => () => highlightMask.clearSource('render:selection'), [])
+
   // Fly-to interpolation state: captured start endpoints + which destination we
   // captured them for (object identity distinguishes a NEW fly). Interpolating
   // captured-start → destination by eased progress (rather than a fractional
@@ -487,7 +511,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   }, -2)
 
   // === Edge buffer computation (extracted hot loop) — its own useFrame(-0.5), after this pass and GemNodes ===
-  useEdgeBufferComputation({
+  const { plan: edgePlan } = useEdgeBufferComputation({
     graphData,
     nodePositionsRef,
     nodeIdToIndexMap,
@@ -660,6 +684,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
       <GlassEdges
         ref={edgeFlowRef}
         points={edgePoints}
+        lod={tubeLod}
         settings={settings?.visualisation?.graphs?.knowledge?.edges || settings?.visualisation?.edges || defaultEdgeSettings}
         colorOverride={
           graphMode === 'knowledge_graph'
@@ -675,15 +700,20 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
         points={highlightEdgePoints}
         settings={settings?.visualisation?.graphs?.knowledge?.edges || settings?.visualisation?.edges || defaultEdgeSettings}
         colorOverride={settings?.visualisation?.interaction?.selectionHighlightColor || '#00FFFF'}
+        bloom
       />
 
-      {/* Inferred-graph edges (urn:ngm:graph:ontology:inferred) rendered in a
-          distinct dashed-amber style, gated by the InferencePanel toggle.
-          Additive overlay — does not touch the GlassEdges instanced pipeline. */}
-      <InferredEdges
+      {/* ADR-2181/2182 overview: screen-space edges + node sprites over one GPU
+          node source. Inferred-graph edges (urn:ngm:graph:ontology:inferred) ride
+          the same path, dashed amber, gated by the InferencePanel toggle. */}
+      <OverviewLayer
+        plan={edgePlan}
         nodePositionsRef={nodePositionsRef}
-        nodeIdToIndexMap={nodeIdToIndexMap}
-      />
+        nodeCount={graphData.nodes.length}
+        knowledgeGemRef={knowledgeGemRef}
+      >
+        <InferredEdges nodeIdToIndexMap={nodeIdToIndexMap} />
+      </OverviewLayer>
 
       <KnowledgeRings
         nodes={knowledgeNodes}

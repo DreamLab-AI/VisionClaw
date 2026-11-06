@@ -15,7 +15,7 @@ import type { GlassEdgesHandle } from '../components/GlassEdges'
 import type { GraphVisualMode } from './useGraphVisualState'
 import {
   buildEdgePlan, createEdgeFrameBuffers, fillEdgeFrame, fillHighlightFrame,
-  EdgeFrameGate, type EdgeFrameBuffers,
+  EdgeFrameGate, type EdgeFrameBuffers, type EdgePlan,
 } from './edgeBufferPlan'
 import { createLogger } from '../../../utils/loggerConfig'
 
@@ -44,7 +44,11 @@ export interface EdgeBufferComputationOptions {
   setHighlightEdgePoints: (pts: number[]) => void
 }
 
-export function useEdgeBufferComputation(opts: EdgeBufferComputationOptions) {
+/**
+ * Returns the memoised edge plan: the overview edges (ADR-2181, OverviewLayer)
+ * draw from the same renderable set, endpoint indices, colours and weights.
+ */
+export function useEdgeBufferComputation(opts: EdgeBufferComputationOptions): { plan: EdgePlan } {
   const {
     graphData, nodePositionsRef, nodeIdToIndexMap, connectionCountMap,
     perNodeVisualModeMap, hierarchyMap, graphMode, visibleNodeIds,
@@ -171,4 +175,6 @@ export function useEdgeBufferComputation(opts: EdgeBufferComputationOptions) {
   // After GraphManager's -2 pass, which builds this frame's drawn-positions array (the array
   // `positions` is), and before the priority-0 consumers.
   }, -0.5)
+
+  return { plan }
 }
