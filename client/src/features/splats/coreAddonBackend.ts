@@ -1,16 +1,15 @@
 import * as THREE from 'three';
 import { SPZLoader } from 'three/addons/loaders/SPZLoader.js';
 import { GaussianSplat } from 'three/addons/objects/GaussianSplat.js';
-import type { SplatBackendKind, SplatLayer } from './SplatLayer';
+import type { SplatLayer } from './SplatLayer';
 
 /**
- * WebGPU path: the three `GaussianSplat` addon (TSL, GPU counting sort). It
- * runs only under WebGPURenderer, so this module is imported only after the
- * live renderer has been identified as one. `SPZLoader.parse` reads SPZ v3
+ * The splat backend: the three `GaussianSplat` addon (TSL; GPU counting sort
+ * on the WebGPU backend). It runs under WebGPURenderer on either backend, the
+ * only desktop renderer. `SPZLoader.parse` reads SPZ v3
  * (gzip) synchronously and v4 (zstd) asynchronously; the server serves v3.
  */
 export class CoreAddonSplatLayer implements SplatLayer {
-  readonly kind: SplatBackendKind = 'core-addon';
   readonly root = new THREE.Group();
   private splat: GaussianSplat | null = null;
   private source: THREE.BufferGeometry | null = null;

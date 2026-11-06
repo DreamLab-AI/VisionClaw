@@ -21,7 +21,6 @@
  */
 import type { Node as GraphNode } from '../managers/graphDataManager';
 import type { NodeFilterSettings } from '../../settings/config/settings';
-import type { HierarchyNode } from '../utils/hierarchyDetector';
 
 /** Ordinal OWL maturity rank (same table as before; tableSchema's MATURITY_ORDER). */
 export const MATURITY_RANK: Readonly<Record<string, number>> = Object.freeze({
@@ -109,7 +108,6 @@ export function isGreyedByNodeFilter(
   node: GraphNode,
   f: ResolvedNodeFilter,
   connectionCountMap: ReadonlyMap<string, number>,
-  _hierarchyMap: ReadonlyMap<string, HierarchyNode>, // kept for callers; authority no longer falls back to depth
 ): boolean {
   const id = String(node.id);
   if (f.minConnections > 0 && (connectionCountMap.get(id) || 0) < f.minConnections) return true;

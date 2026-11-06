@@ -19,11 +19,8 @@ import type { Node as GraphNode } from '../managers/graphDataManager';
 import type { GraphTypeVisualsSettings, QualityGatesSettings } from '../../settings/config/settings';
 import { nodeEncoding, type EncodingContext } from '../state/nodeEncoding';
 import { sharedNodeIndexResolver } from '../state/nodeIndex';
-import {
-  nodeAnalyticsStore,
-  ANALYTICS_STRIDE,
-  ANALYTICS_CENTRALITY_OFFSET,
-} from '../../analytics/store/nodeAnalyticsStore';
+import { nodeAnalyticsStore } from '../../analytics/store/nodeAnalyticsStore';
+import { ANALYTICS_STRIDE, ANALYTICS_CENTRALITY_OFFSET } from '../../analytics/analyticsLayout';
 
 let reencodeEpoch = 0;
 

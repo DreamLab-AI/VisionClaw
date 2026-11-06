@@ -55,6 +55,7 @@ None yet. Each decision has its own check:
 - **D4:** a test shows that a node withheld by the visibility filter has no mask slot and no label.
 
 ## Implementation notes
+- **D3 blend space, single renderer (2026-11-06).** The renderer now blends in linear space everywhere (WebGPURenderer on either backend; measured 82/255 on the WebGL2 backend without post-processing). `greyoutOpacity` therefore means one thing on every path, and the sRGB correction for `WebGLRenderer` (`srgbBlendAlpha`, `rendering/blendSpace.ts`) is deleted.
 - **Filter classification** (`client/src/features/graph/explore/nodeFilter.ts`, `hooks/useGraphFiltering.ts`):
   - *Grey out* through the mask source `filter:settings`: the quality / authority predicates (AND / OR), `minConnections` and `minMaturity`.
   - *Remove* from the render set: the `linked_page` gate and hierarchy collapse (D4). The `linked_page` gate is population scope, because the server applies the same `include_linked_pages` scope (`graphDataManager.setGraphData` already drops the stubs), so the client gate only mirrors it.

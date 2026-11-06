@@ -11,7 +11,7 @@ import React, { useCallback, useState, useSyncExternalStore } from 'react';
 import { RefreshCw } from 'lucide-react';
 import type { RegistryField } from '../registry/types';
 import { webSocketService } from '../../../store/websocketStore';
-import { isWebGPURenderer, setForceWebGLOverride } from '../../../rendering/rendererFactory';
+import { activeBackendIsWebGPU, setForceWebGLOverride } from '../../../rendering/rendererFactory';
 import { useAgentDemo } from '../../bots/agentDemo';
 import { agentOffsetsEnabled, setAgentOffsetsEnabled, subscribeAgentOffsets } from '../../../store/agentOffsetPrefs';
 import { createLogger } from '../../../utils/loggerConfig';
@@ -55,7 +55,7 @@ export const SettingAction: React.FC<SettingActionProps> = ({
   const isDemoToggle = field.action === 'toggle-demo';
   const isAgentOffsetToggle = field.action === 'toggle-agent-offsets';
   const agentOffsetsOn = useSyncExternalStore(subscribeAgentOffsets, agentOffsetsEnabled);
-  const webgpuActive = isWebGPUToggle ? isWebGPURenderer : false;
+  const webgpuActive = isWebGPUToggle ? activeBackendIsWebGPU() : false;
 
   const handleAction = useCallback(async () => {
     if (field.action === 'refresh_graph') {
@@ -77,7 +77,8 @@ export const SettingAction: React.FC<SettingActionProps> = ({
     }
 
     if (field.action === 'toggle-webgpu') {
-      setForceWebGLOverride(isWebGPURenderer);
+      // WebGPU backend on → force the WebGL2 backend; off → let WebGPU back.
+      setForceWebGLOverride(activeBackendIsWebGPU());
       window.location.reload();
       return;
     }

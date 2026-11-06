@@ -1,6 +1,14 @@
 import { getActualNodeId } from '../../../types/binaryProtocol';
 import type { BinaryNodeData } from '../../../types/binaryProtocol';
 import { useSettingsStore } from '../../../store/settingsStore';
+import {
+  ANALYTICS_STRIDE,
+  ANALYTICS_CLUSTER_OFFSET,
+  ANALYTICS_ANOMALY_OFFSET,
+  ANALYTICS_COMMUNITY_OFFSET,
+  ANALYTICS_CENTRALITY_OFFSET,
+  ANALYTICS_SSSP_OFFSET,
+} from '../analyticsLayout';
 
 /**
  * Main-thread per-node analytics store (ADR-03 D7 "Phase 5", ADR-031 D2/D6).
@@ -10,18 +18,11 @@ import { useSettingsStore } from '../../../store/settingsStore';
  * (wire offsets 36/40/44/48 plus the existing sssp_distance@28) and are decoded
  * on the main thread in the websocket receive path. This singleton ingests them
  * keyed by masked node id, and exposes a render-index-aligned Float32Array
- * (stride 5: [clusterId, anomalyScore, communityId, centrality, ssspDistance])
+ * (layout: `../analyticsLayout`)
  * that GemNodes and ClusterHulls consume — exactly the contract the removed
  * graphWorkerProxy.getAnalyticsBuffer() used to satisfy.
  */
 
-/** Stride of the render-index-aligned analytics buffer. */
-export const ANALYTICS_STRIDE = 5;
-export const ANALYTICS_CLUSTER_OFFSET = 0;
-export const ANALYTICS_ANOMALY_OFFSET = 1;
-export const ANALYTICS_COMMUNITY_OFFSET = 2;
-export const ANALYTICS_CENTRALITY_OFFSET = 3;
-export const ANALYTICS_SSSP_OFFSET = 4;
 
 interface AnalyticsRecord {
   cluster: number;

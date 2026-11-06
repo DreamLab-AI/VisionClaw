@@ -29,7 +29,7 @@ import {
   HIGHLIGHT_LEVEL_GREYED,
   highlightLevel,
 } from '../state/highlightMask';
-import { ANALYTICS_STRIDE, ANALYTICS_CENTRALITY_OFFSET } from '../../analytics/store/nodeAnalyticsStore';
+import { ANALYTICS_STRIDE, ANALYTICS_CENTRALITY_OFFSET } from '../../analytics/analyticsLayout';
 import { CLUSTER_LABEL_MAX } from './clusterLabels';
 
 /** Label selection cadence (ADR-2186 D5). */

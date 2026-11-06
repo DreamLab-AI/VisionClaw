@@ -29,7 +29,8 @@ import * as THREE from 'three';
 import type { Node as GraphNode } from '../managers/graphDataManager';
 import type { NodeEncoder, EncodingContext } from '../state/nodeEncoding';
 import { DEFAULT_NODE_ENCODER, isSchemeColorBy } from '../state/nodeEncoding';
-import { ANALYTICS_STRIDE } from './analyticsLayout';
+import { ANALYTICS_STRIDE } from '../../analytics/analyticsLayout';
+import { centralityHsl, clusterHsl, communityHsl } from '../state/analyticColours';
 import { DEFAULT_DOMAIN_COLOR, getDomainColor } from '../utils/domainColors';
 import { getTypeColor } from '../hooks/useGraphNodeColors';
 import {
@@ -193,9 +194,9 @@ function categoricalColor(table: NodeColumns, def: ColumnDef): ColorPart {
   if (name === 'domain' || name === 'source_domain') {
     colorOf = (v) => getDomainColor(v);
   } else if (def.source.from === 'wire' && name === 'community') {
-    colorOf = (v) => hslHex(((Number(v) * 83) % 360) / 360, 0.65, 0.5);
+    colorOf = (v) => hslHex(...communityHsl(Number(v)));
   } else if (def.source.from === 'wire' && name === 'cluster') {
-    colorOf = (v) => hslHex(((Number(v) * 137) % 360) / 360, 0.7, 0.55);
+    colorOf = (v) => hslHex(...clusterHsl(Number(v)));
   } else {
     const assigned = new Map(ranked.slice(0, CATEGORICAL_PALETTE.length).map(([v], i) => [v, CATEGORICAL_PALETTE[i]]));
     colorOf = (v) => assigned.get(v) ?? OTHER_COLOR;
@@ -326,9 +327,9 @@ function schemeCategorical(
   };
 }
 
-/** The default 'centrality' scheme's ramp (nodeEncoding.ts): hue 0.62 → 0, lightness 0.25 → 0.65. */
+/** The default 'centrality' scheme's ramp (state/analyticColours.centralityHsl). */
 export function centralitySchemeCss(): string {
-  const stops = [0, 0.25, 0.5, 0.75, 1].map((t) => hslHex(0.62 - 0.62 * t, 0.85, 0.25 + 0.4 * t));
+  const stops = [0, 0.25, 0.5, 0.75, 1].map((t) => hslHex(...centralityHsl(t)));
   return `linear-gradient(to right, ${stops.join(', ')})`;
 }
 
@@ -351,10 +352,10 @@ export function createSchemeLegend(table: NodeColumns | null, colorScheme: strin
         { note: MODULATION_NOTE })];
     case 'community':
       return [schemeCategorical(table, 'community', 'Colour: Community',
-        (v) => hslHex(((Number(v) * 83) % 360) / 360, 0.65, 0.5), { note: FALLTHROUGH_NOTE, nullLabel: 'Unassigned' })];
+        (v) => hslHex(...communityHsl(Number(v))), { note: FALLTHROUGH_NOTE, nullLabel: 'Unassigned' })];
     case 'cluster':
       return [schemeCategorical(table, 'cluster', 'Colour: Cluster',
-        (v) => hslHex(((Number(v) * 137) % 360) / 360, 0.7, 0.55), { note: FALLTHROUGH_NOTE, nullLabel: 'Unassigned' })];
+        (v) => hslHex(...clusterHsl(Number(v))), { note: FALLTHROUGH_NOTE, nullLabel: 'Unassigned' })];
     case 'centrality': {
       const d = numericDomain(table, 'centrality');
       return [{

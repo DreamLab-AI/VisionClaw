@@ -11,8 +11,8 @@
  * The cloud frames itself on the graph (cloudFrame.ts): an outer group sits at
  * the graph's robust centre and scales the cloud's robust radius to the
  * graph's (times cloudScale / 5); an inner group recentres the cloud on its
- * dense core. Points draw as round sprites: THREE.Points on WebGL, instanced
- * disc sprites on WebGPU (cloudSprites.ts), sized relative to the cloud with a
+ * dense core. Points draw as instanced disc sprites (cloudSprites.ts; the
+ * THREE.Points beneath them is kept for picking), sized relative to the cloud with a
  * screen-size floor (cloudPointWorldSize). The layout is always separated
  * (ADR-2135): the cloud sits behind the two graphs on the memory vertex's
  * ray, ten graphs wide and clear of both; route, beads, bursts and the
@@ -44,7 +44,6 @@ import MemoryCameraRig from '../memoryCloud/MemoryCameraRig';
 import { useReducedMotion } from '../memoryCloud/useReducedMotion';
 import { cloudPlacement, cloudPointSize, cloudPointWorldSize, discSpritePixels, graphBoundsFor } from '../memoryCloud/cloudFrame';
 import { createCloudSprites, type CloudSprites } from '../memoryCloud/cloudSprites';
-import { isWebGPURenderer } from '../../../rendering/rendererFactory';
 import { robustBounds, type RobustBounds } from '@/utils/robustBounds';
 import { sharedNodePositions, sharedNodeIdToIndexMap } from '../../graph/contexts/NodePositionContext';
 import { graphDataManager } from '../../graph/managers/graphDataManager';
@@ -206,12 +205,12 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
 
   useEffect(() => () => geometry?.dispose(), [geometry]);
 
-  // WebGPU draws THREE.Points as unsized 1 px points with no sprite UV, which
-  // left the cloud invisible; there the points draw as instanced disc sprites
-  // over the same buffers (cloudSprites.ts) and <points> stays for picking.
+  // WebGPURenderer draws THREE.Points as unsized 1 px points with no sprite UV,
+  // so the points draw as instanced disc sprites over the same buffers
+  // (cloudSprites.ts); <points> stays, invisible, for picking.
   const [sprites, setSprites] = useState<CloudSprites | null>(null);
   useEffect(() => {
-    if (!isWebGPURenderer || !geometry) return;
+    if (!geometry) return;
     let live = true;
     let built: CloudSprites | null = null;
     const pos = geometry.getAttribute('position').array as Float32Array;

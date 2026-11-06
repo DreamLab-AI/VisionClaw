@@ -347,8 +347,14 @@ export const useAnalyticsStore = create<AnalyticsState>()(
             // route was removed server-side). The reply's `result.distances` is a
             // position-indexed array for a caller who sees the whole graph, or an
             // object keyed by visible node id for a gated caller (PROTOCOL 0.1.18).
+            // The route takes the numeric wire id (`source_idx: usize`). A
+            // non-numeric id would go out as NaN, i.e. null in JSON: compute
+            // locally instead of sending it.
+            if (!/^\d+$/.test(sourceNodeId)) {
+              throw new Error(`source id ${sourceNodeId} is not a numeric wire id`)
+            }
             const response = await unifiedApiClient.post('/api/analytics/pathfinding/sssp', {
-              sourceIdx: parseInt(sourceNodeId),
+              sourceIdx: Number(sourceNodeId),
             })
 
             const body = response.data

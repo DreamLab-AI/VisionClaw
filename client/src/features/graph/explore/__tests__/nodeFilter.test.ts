@@ -26,7 +26,7 @@ const nodes = fixture.nodes.map(
 // would score 0 and be greyed, so a regression to that fallback fails the cases.
 const degree = new Map(nodes.map((n) => [String(n.id), 0]));
 const greyedFor = (filter: Partial<NodeFilterSettings>) =>
-  nodes.filter((n) => isGreyedByNodeFilter(n, resolveNodeFilter(filter), degree, new Map())).map((n) => Number(n.id));
+  nodes.filter((n) => isGreyedByNodeFilter(n, resolveNodeFilter(filter), degree)).map((n) => Number(n.id));
 
 describe('node filter parity fixture', () => {
   for (const c of fixture.cases) {
@@ -42,16 +42,15 @@ describe('node filter semantics', () => {
       .toEqual([1, 2, 7]);
   });
 
-  it('an unscored node is neutral to the authority predicate, whatever its hierarchy depth', () => {
-    const deep = new Map(nodes.map((n) => [String(n.id), { depth: 5 } as never]));
+  it('an unscored node is neutral to the authority predicate (no depth fallback)', () => {
     const f = resolveNodeFilter({ enabled: true, filterByQuality: false, filterByAuthority: true, authorityThreshold: 0.5 });
-    expect(isGreyedByNodeFilter(nodes[9], f, degree, deep)).toBe(false); // id 10, unscored
+    expect(isGreyedByNodeFilter(nodes[9], f, degree)).toBe(false); // id 10, unscored
   });
 
   it('an unscored node is neutral to the quality predicate, whatever its degree', () => {
     const lowDegree = new Map(nodes.map((n) => [String(n.id), 1]));
     const f = resolveNodeFilter({ enabled: true, filterByQuality: true, qualityThreshold: 0.9 });
-    expect(isGreyedByNodeFilter(nodes[4], f, lowDegree, new Map())).toBe(false); // id 5, unscored
+    expect(isGreyedByNodeFilter(nodes[4], f, lowDegree)).toBe(false); // id 5, unscored
   });
 });
 

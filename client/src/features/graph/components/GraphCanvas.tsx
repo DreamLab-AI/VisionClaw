@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls, Stats, Environment, Lightformer } from '@react-three/drei';
+import { OrbitControls, Stats } from '@react-three/drei';
+import { StudioEnvironment } from '../../../rendering/StudioEnvironment';
 import * as THREE from 'three';
 import { createGemRenderer } from '../../../rendering/rendererFactory';
 import { createLogger } from '../../../utils/loggerConfig';
@@ -135,7 +136,7 @@ const EnsureEventsConnected: React.FC = () => {
 // Phase 6 (ADR-04 D5 / T3) — Software-WebGL detection + Environment fallback
 // ============================================================================
 //
-// `<Environment resolution={256}>` triggers drei's PMREM generator which
+// The environment map (StudioEnvironment, prefiltered by PMREM in the node materials) which
 // renders 6 cube faces through the WebGL pipeline. On hardware GL that's
 // GPU-side and fast. On software GL (SwiftShader, llvmpipe, etc.) each draw
 // is CPU-rasterised, holding the JS thread for 2–4s on mount and producing
@@ -147,8 +148,8 @@ const EnsureEventsConnected: React.FC = () => {
 //
 // Policy (settings.rendering.softwareFallback):
 //   - 'auto'       (default) — detect renderer; use fallback only on software
-//   - 'force-on'   — always use fallback (no <Environment>)
-//   - 'force-off'  — always render <Environment>, ignore detection
+//   - 'force-on'   — always use fallback (no environment map)
+//   - 'force-off'  — always build the environment map, ignore detection
 // ============================================================================
 
 const SOFTWARE_RENDERER_PATTERNS = [
@@ -158,9 +159,8 @@ const SOFTWARE_RENDERER_PATTERNS = [
   'microsoft basic render driver',
 ];
 
-function detectSoftwareRenderer(gl: THREE.WebGLRenderer): { isSoftware: boolean; rendererString: string | null } {
+function detectSoftwareRenderer(ctx: WebGL2RenderingContext): { isSoftware: boolean; rendererString: string | null } {
   try {
-    const ctx = gl.getContext();
     const ext = ctx.getExtension('WEBGL_debug_renderer_info');
     if (!ext) {
       // Extension blocked / unavailable — default to hardware
@@ -265,6 +265,9 @@ const GraphCanvas: React.FC = () => {
 
             <Canvas
                 gl={createGemRenderer}
+                // R3F's default (shadows = false) still sets PCFSoftShadowMap,
+                // which WebGPURenderer has removed and warns about every frame.
+                shadows={{ enabled: false, type: THREE.PCFShadowMap }}
                 dpr={[1, 2]}
                 camera={{
                     fov: 75,
@@ -275,10 +278,12 @@ const GraphCanvas: React.FC = () => {
                 onCreated={({ gl, camera, scene, invalidate }) => {
                     gl.setClearColor(0x000033, 1);
 
-                    // Phase 6 (ADR-04 D5): one-shot software-renderer detection.
-                    // Only run if gl is a WebGLRenderer (skip WebGPU paths).
-                    if (gl instanceof THREE.WebGLRenderer) {
-                        const { isSoftware, rendererString } = detectSoftwareRenderer(gl);
+                    // Phase 6 (ADR-04 D5): one-shot software-renderer detection,
+                    // on WebGPURenderer's WebGL2 backend (the WebGPU backend has
+                    // no GL context to ask).
+                    const glContext = (gl as unknown as { backend?: { isWebGLBackend?: boolean; gl?: WebGL2RenderingContext } }).backend;
+                    if (glContext?.isWebGLBackend && glContext.gl) {
+                        const { isSoftware, rendererString } = detectSoftwareRenderer(glContext.gl);
                         setIsSoftwareRenderer(isSoftware);
                         if (!softwareDetectedLoggedRef.current) {
                             softwareDetectedLoggedRef.current = true;
@@ -319,31 +324,19 @@ const GraphCanvas: React.FC = () => {
                 <directionalLight position={[10, 10, 10]} intensity={directionalLightIntensity} />
                 <directionalLight position={[-5, -5, -10]} intensity={0.2} />
 
-                {/* Environment map for PBR glass material reflections.
-                    Uses a generated environment instead of CDN-hosted HDR to avoid
-                    network failures in Docker/LAN/offline environments.
+                {/* Environment map for PBR glass material reflections
+                    (rendering/StudioEnvironment: a generated Lightformer studio,
+                    no CDN-hosted HDR, so Docker/LAN/offline work).
 
                     Phase 6 (ADR-04 D5): on software-rendered WebGL contexts the
                     PMREM generation freezes the JS thread for 2-4s. Detection
-                    happens in `onCreated`; below we skip <Environment> on
+                    happens in `onCreated`; below we skip the environment map on
                     software, or honour the explicit policy override. The result
                     is graceful: hardware retains the full PBR look; software
                     gets a flat-but-fast scene. */}
                 {(softwareFallbackPolicy === 'force-off' ||
                   (softwareFallbackPolicy === 'auto' && isSoftwareRenderer !== true)) && (
-                  <Environment background={false} resolution={256}>
-                    {/* A flat near-black env (#111) gave the near-mirror glass
-                        gems (roughness 0.08) nothing to reflect, so nodes read
-                        as black. A brighter base plus a few Lightformer panels
-                        supply reflected light and specular highlights so the
-                        glass is visibly lit — the scene background stays dark
-                        because background={false}. */}
-                    <color attach="background" args={['#181b22']} />
-                    <Lightformer intensity={1.4} position={[0, 6, -9]} scale={[12, 12, 1]} color="#cfe0ff" />
-                    <Lightformer intensity={1.0} position={[-7, 1, -2]} scale={[12, 3, 1]} color="#a8c4ff" />
-                    <Lightformer intensity={1.0} position={[7, -1, -2]} scale={[12, 3, 1]} color="#ffd9b0" />
-                    <Lightformer intensity={0.8} position={[0, -6, 4]} scale={[12, 12, 1]} color="#6b7a9c" />
-                  </Environment>
+                  <StudioEnvironment resolution={256} />
                 )}
 
                 {/* Scene ambient effects (WASM particles, wisps, atmosphere) */}
