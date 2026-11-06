@@ -14,8 +14,8 @@
  *
  * Rows are aligned to the shared node render index (see `../state/nodeIndex.ts`):
  * row `i` is the node in slot `i` of the highlight mask and the encoding buffers,
- * so an encoder or widget never needs a second lookup. The explore lane turns
- * these arrays into an Apache Arrow table; this module stays Arrow-free.
+ * so an encoder or widget never needs a second lookup. These typed arrays are
+ * the node table (ADR-2184 D1, amended 2026-11-06).
  */
 import type { Node as GraphNode } from '../managers/graphDataManager';
 import {
@@ -24,7 +24,7 @@ import {
   ANALYTICS_ANOMALY_OFFSET,
   ANALYTICS_COMMUNITY_OFFSET,
   ANALYTICS_CENTRALITY_OFFSET,
-} from './analyticsLayout';
+} from '../../analytics/analyticsLayout';
 import { slotCountFor } from '../state/nodeIndex';
 
 export type ColumnType = 'categorical' | 'numeric' | 'temporal' | 'text' | 'boolean';

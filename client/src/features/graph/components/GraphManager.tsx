@@ -18,6 +18,7 @@ import { VirtualAgentMarkers } from '../../visualisation/components/VirtualAgent
 import { agentMarkers, agentMarkerPosition, liveMarkerDeps } from '../../bots/agentMarkerPass'
 import { resolveNodeWorldPosition } from '../../visualisation/cameraFocus'
 import { drawnPositions, fillLabelPositions } from '../utils/drawnPositions'
+import { lerpLayoutTransition } from '../utils/layoutTransition'
 import { separatedFrame } from '../triLayout'
 import { sceneFitBounds } from '../utils/sceneFitBounds'
 import { cloudFitInput } from '../hooks/useCameraAutoFit'
@@ -206,14 +207,10 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   const highlightEdgeFlowRef = useRef<GlassEdgesHandle>(null)
   const prevLabelPositionsLengthRef = useRef<number>(0)
   const labelPositionsRef = useRef<Array<{x: number, y: number, z: number}>>([])
-  const labelTickRef  = useRef(0)
-  const [labelUpdateTick, setLabelUpdateTick] = useState(0)
 
   const [nodesAreAtOrigin, setNodesAreAtOrigin] = useState(false)
   const [forceUpdate, setForceUpdate] = useState(0)
 
-  const frustum = useMemo(() => new THREE.Frustum(), [])
-  const cameraViewProjectionMatrix = useMemo(() => new THREE.Matrix4(), [])
 
   const animationStateRef = useRef({
     time: 0,
@@ -423,15 +420,6 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
       }
     }
 
-    // Periodic label frustum refresh (~4 updates/sec at 60fps)
-    labelTickRef.current++
-    if (labelTickRef.current >= 15) {
-      labelTickRef.current = 0
-      cameraViewProjectionMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
-      frustum.setFromProjectionMatrix(cameraViewProjectionMatrix)
-      setLabelUpdateTick(prev => prev + 1)
-    }
-
     if (graphData.nodes.length > 0) {
       const positions = graphWorkerProxy.getPositionsSync()
       if (!positions) return
@@ -458,17 +446,8 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
         const progress = rawProgress < 0.5
           ? 2 * rawProgress * rawProgress
           : 1 - Math.pow(-2 * rawProgress + 2, 2) / 2
-        const nodeCount = graphData.nodes.length
-        for (let i = 0; i < nodeCount; i++) {
-          const idx = i * 3
-          if (idx + 2 >= drawn.length) break
-          const cc = connectionCountMap.get(String(i)) || 0
-          const massFactor = 1.0 / (1.0 + Math.sqrt(cc) * 0.3)
-          const np = Math.min(progress / massFactor, 1.0)
-          drawn[idx]     = t.startPositions[idx]     + (t.targetPositions[idx]     - t.startPositions[idx])     * np
-          drawn[idx + 1] = t.startPositions[idx + 1] + (t.targetPositions[idx + 1] - t.startPositions[idx + 1]) * np
-          drawn[idx + 2] = t.startPositions[idx + 2] + (t.targetPositions[idx + 2] - t.startPositions[idx + 2]) * np
-        }
+        lerpLayoutTransition(drawn, t.startPositions, t.targetPositions, progress, graphData.nodes.length,
+          connectionCountMap, graphData.nodes, nodeIdToIndexMap)
         if (rawProgress >= 1.0) { transitionRef.current.active = false; setLayoutTransitioning(false) }
       }
 

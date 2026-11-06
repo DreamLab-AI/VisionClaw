@@ -15,7 +15,7 @@
  * per-refresh pass is O(N) over the label population, like the rest of the
  * label runner, and allocation-free once warmed.
  */
-import { ANALYTICS_STRIDE, ANALYTICS_CLUSTER_OFFSET } from '../../analytics/store/nodeAnalyticsStore';
+import { ANALYTICS_STRIDE, ANALYTICS_CLUSTER_OFFSET } from '../../analytics/analyticsLayout';
 import { HIGHLIGHT_LEVEL_GREYED, highlightLevel } from '../state/highlightMask';
 
 /** Fewer live members than this: not worth a cluster label. */

@@ -15,15 +15,15 @@ import { createLogger } from '../../../utils/loggerConfig';
 // ADR-03 D7: analytics buffer no longer lives in the worker — it is rebuilt on
 // the main thread from V3 binary frames. Stride 5 (ADR-031 D2):
 // [clusterId, anomalyScore, communityId, centrality, ssspDistance].
+import { nodeAnalyticsStore } from '../../analytics/store/nodeAnalyticsStore';
 import {
-  nodeAnalyticsStore,
   ANALYTICS_STRIDE,
   ANALYTICS_CLUSTER_OFFSET,
   ANALYTICS_ANOMALY_OFFSET,
   ANALYTICS_COMMUNITY_OFFSET,
   ANALYTICS_CENTRALITY_OFFSET,
   ANALYTICS_SSSP_OFFSET,
-} from '../../analytics/store/nodeAnalyticsStore';
+} from '../../analytics/analyticsLayout';
 
 const logger = createLogger('GemNodes');
 import { computeNodeScale } from '../utils/nodeScaling';
@@ -33,6 +33,7 @@ import { highlightVisualFor, createHighlightVisual, backgroundFromSetting, type 
 import { selectGemLod, createGemLodScratch, cameraMoved, GEM_BUDGET } from '../overview/gemLod';
 import { PositionSnapshot } from '../hooks/edgeBufferPlan';
 import { isOverviewLive } from '../overview/overviewLive';
+import { anomalyRgb, centralityHsl, clusterHsl, communityHsl } from '../state/analyticColours';
 import { DEFAULT_GRAPH_VIEW } from '../../../api/settings/defaults';
 import type { GraphViewSettings } from '../../settings/config/settings';
 import { agentStatusActivity } from '../../bots/agentVisualConstants';
@@ -519,29 +520,18 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
       // schemes) from the encoding, below; it still wins over SSSP there.
       const anomalous = qualityGates?.showAnomalies === true && anomalyScore > 0.01;
       if (isKnowledge && anomalous) return knowledgeBaseColour(node, nodeIndex, encodingCtxRef.current);
-      if (anomalous) {
-        const intensity = Math.min(anomalyScore, 1.0);
-        return _col.setRGB(0.9 * intensity + 0.1, 0.15 * (1 - intensity), 0.1);
-      }
+      if (anomalous) return _col.setRGB(...anomalyRgb(anomalyScore));
 
       // Community (Louvain, wire offset 44): deterministic hue per community.
-      if (!isKnowledge && colorScheme === 'community' && communityId > 0) {
-        const hue = ((communityId * 83) % 360) / 360;
-        return _col.setHSL(hue, 0.65, 0.5);
-      }
+      if (!isKnowledge && colorScheme === 'community' && communityId > 0) return _col.setHSL(...communityHsl(communityId));
 
       // Cluster (DBSCAN/k-means, wire offset 36): golden-angle hue per cluster.
-      if (!isKnowledge && colorScheme === 'cluster' && clusterId > 0) {
-        const hue = ((clusterId * 137) % 360) / 360;
-        return _col.setHSL(hue, 0.7, 0.55);
-      }
+      if (!isKnowledge && colorScheme === 'cluster' && clusterId > 0) return _col.setHSL(...clusterHsl(clusterId));
 
       // Centrality (PageRank, normalised, wire offset 48). Scaled by the live
       // maximum so the (tiny, sum-to-1) PageRank values span the full ramp.
       if (!isKnowledge && colorScheme === 'centrality' && centrality > 0) {
-        const max = maxCentralityRef.current || 1;
-        const t = Math.min(centrality / max, 1.0);
-        return _col.setHSL(0.62 - 0.62 * t, 0.85, 0.25 + 0.4 * t); // blue→cyan→yellow ramp
+        return _col.setHSL(...centralityHsl(centrality / (maxCentralityRef.current || 1)));
       }
 
       // SSSP distance from the active source (wire offset 28). Only paints once a

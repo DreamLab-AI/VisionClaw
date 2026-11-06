@@ -6,11 +6,12 @@
  * (ADR-2186) read slot `i` of these buffers and of the highlight mask for the same
  * node. `encodeAll` runs the active encoder over the node list and bumps `version`.
  *
- * The DEFAULT encoder reproduces today's knowledge-gem base colour — GemNodes'
- * `computeColor` (GemNodes.tsx:454-583) for the knowledge-graph mode — and its
- * scale (`computeNodeScale(...) * nodeSize`, GemNodes.tsx:863). It covers the
- * anomaly overlay, the community / cluster / centrality analytic schemes (each
- * falling through when the node has no value), and the type / domain / base
+ * The DEFAULT encoder is the knowledge-gem base colour: GemNodes' `computeColor`
+ * hands knowledge nodes to it (`knowledgeBaseColour`), and its scale is
+ * `computeNodeScale(...) * nodeSize`, as GemNodes sizes gems. It covers the
+ * anomaly overlay, the community / cluster / centrality analytic schemes (the
+ * formulas in `analyticColours.ts`, each falling through when the node has no
+ * value), and the type / domain / base
  * schemes with their authority + connection modulation. It leaves to the renderer
  * the overlays that are not node attributes: the `cycles` and `sssp` schemes, an
  * on-demand SSSP result, ontology / agent populations, timeline tint and
@@ -30,8 +31,9 @@ import {
   ANALYTICS_ANOMALY_OFFSET,
   ANALYTICS_COMMUNITY_OFFSET,
   ANALYTICS_CENTRALITY_OFFSET,
-} from '../../analytics/store/nodeAnalyticsStore';
+} from '../../analytics/analyticsLayout';
 import { type NodeIndexResolver, sharedNodeIndexResolver, slotCountFor } from './nodeIndex';
+import { anomalyRgb, centralityHsl, clusterHsl, communityHsl } from './analyticColours';
 
 /** The `visualisation.graphs.knowledge.nodes.colorScheme` values. */
 export type NodeColorScheme =
@@ -86,18 +88,16 @@ function defaultColor(node: GraphNode, index: number, ctx: EncodingContext, out:
     const b = index * ANALYTICS_STRIDE;
     const anomaly = a[b + ANALYTICS_ANOMALY_OFFSET];
     if (ctx.showAnomalies && anomaly > 0.01) {
-      const t = Math.min(anomaly, 1.0);
-      out.setRGB(0.9 * t + 0.1, 0.15 * (1 - t), 0.1);
+      out.setRGB(...anomalyRgb(anomaly));
       return;
     }
     const community = a[b + ANALYTICS_COMMUNITY_OFFSET];
-    if (scheme === 'community' && community > 0) { out.setHSL(((community * 83) % 360) / 360, 0.65, 0.5); return; }
+    if (scheme === 'community' && community > 0) { out.setHSL(...communityHsl(community)); return; }
     const cluster = a[b + ANALYTICS_CLUSTER_OFFSET];
-    if (scheme === 'cluster' && cluster > 0) { out.setHSL(((cluster * 137) % 360) / 360, 0.7, 0.55); return; }
+    if (scheme === 'cluster' && cluster > 0) { out.setHSL(...clusterHsl(cluster)); return; }
     const centrality = a[b + ANALYTICS_CENTRALITY_OFFSET];
     if (scheme === 'centrality' && centrality > 0) {
-      const t = Math.min(centrality / (ctx.maxCentrality || 1), 1.0);
-      out.setHSL(0.62 - 0.62 * t, 0.85, 0.25 + 0.4 * t);
+      out.setHSL(...centralityHsl(centrality / (ctx.maxCentrality || 1)));
       return;
     }
   }

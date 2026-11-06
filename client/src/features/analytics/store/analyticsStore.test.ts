@@ -394,4 +394,22 @@ describe('server SSSP route (POST /api/analytics/pathfinding/sssp)', () => {
     expect(result.distances['3']).toBe(Infinity)
     expect(result.unreachableCount).toBe(2)
   })
+
+  it('a non-numeric source id never posts sourceIdx NaN (null on the wire); it computes locally', async () => {
+    const { unifiedApiClient } = await import('../../../services/api')
+    const post = vi.mocked(unifiedApiClient.post)
+    post.mockClear()
+    const named: GraphNode[] = ['a', 'b', 'c'].map((id, i) => ({ id, label: id, position: { x: i, y: 0, z: 0 } }))
+    const namedEdges: GraphEdge[] = [{ id: 'ab', source: 'a', target: 'b', weight: 2 }]
+
+    const result = await useAnalyticsStore.getState().computeSSSP(named, namedEdges, 'a')
+
+    for (const call of post.mock.calls) {
+      const sent = JSON.parse(JSON.stringify(call[1] ?? {})) as { sourceIdx?: unknown }
+      expect(sent.sourceIdx, 'sourceIdx on the wire').not.toBeNull()
+    }
+    expect(post).not.toHaveBeenCalled()
+    expect(result.distances['b']).toBe(2)
+    expect(result.distances['c']).toBe(Infinity)
+  })
 })

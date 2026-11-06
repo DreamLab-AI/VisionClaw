@@ -4,7 +4,7 @@ import {
   clusterLabelText, MIN_CLUSTER_MEMBERS, CLUSTER_LABEL_MAX, type Projector,
 } from '../clusterLabels';
 import { selectLabels, createLabelSelection, CollisionGrid, TIER_OVERVIEW, TIER_SELECTION } from '../labelBudget';
-import { ANALYTICS_STRIDE, ANALYTICS_CLUSTER_OFFSET } from '../../../analytics/store/nodeAnalyticsStore';
+import { ANALYTICS_STRIDE, ANALYTICS_CLUSTER_OFFSET } from '../../../analytics/analyticsLayout';
 import { HIGHLIGHT_FILTERED_OUT, HIGHLIGHT_SELECTED } from '../../state/highlightMask';
 
 /** Local i = render index i; cluster ids per node; x = 10·i. */
