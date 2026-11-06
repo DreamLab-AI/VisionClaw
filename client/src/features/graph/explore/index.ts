@@ -10,4 +10,3 @@ export { GraphLegend, LegendView } from './GraphLegend';
 export { clearAllFilters, exploreStore } from './exploreStore';
 export { useActiveFilterCount, useExploreEncoding, useExploreTableSource } from './useExplore';
 export { setHoveredNodeEmphasis, SOURCE as HIGHLIGHT_SOURCES } from './filterRegistry';
-export { toArrowTable } from './nodeTable';
