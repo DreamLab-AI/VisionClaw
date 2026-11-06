@@ -833,3 +833,76 @@ pub(crate) fn generate_graph_based_clusters(
         })
         .collect()
 }
+
+/// Consumer audit: `/clustering/status` must never carry node ids, even
+/// though the stored task does. A verdict test: it passes against the
+/// current code and fails the moment the reply starts echoing `clusters`.
+#[cfg(test)]
+mod status_verdict_tests {
+    use super::*;
+
+    #[actix_rt::test]
+    async fn status_reply_never_carries_the_stored_cluster_members() {
+        let task_id = "status-verdict-task".to_string();
+        CLUSTERING_TASKS.lock().await.insert(
+            task_id.clone(),
+            ClusteringTask {
+                task_id: task_id.clone(),
+                method: "dbscan".into(),
+                status: "completed".into(),
+                progress: 1.0,
+                started_at: 0,
+                clusters: Some(vec![Cluster {
+                    id: "c0".into(),
+                    label: "Private Page Cluster".into(),
+                    node_count: 1,
+                    coherence: 1.0,
+                    color: "#000000".into(),
+                    keywords: vec!["private-page".into()],
+                    nodes: vec![424_242],
+                    centroid: Some([1.0, 2.0, 3.0]),
+                }]),
+                error: None,
+            },
+        );
+
+        let mut q = HashMap::new();
+        q.insert("task_id".to_string(), task_id.clone());
+        let resp = get_clustering_status(web::Query(q)).await.unwrap();
+        let body = actix_web::body::to_bytes(resp.into_body()).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        CLUSTERING_TASKS.lock().await.remove(&task_id);
+
+        // ok_json! wraps the reply in StandardResponse; the task fields sit in `data`.
+        let keys: Vec<&str> = json["data"]
+            .as_object()
+            .expect("status reply carries a data object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        for k in &keys {
+            assert!(
+                [
+                    "success",
+                    "taskId",
+                    "task_id",
+                    "status",
+                    "progress",
+                    "method",
+                    "startedAt",
+                    "started_at",
+                    "estimatedCompletion",
+                    "estimated_completion",
+                    "error"
+                ]
+                .contains(k),
+                "status reply grew a field `{k}`; if it carries cluster data it must be \
+                 gated with caller_gate like /dbscan and /focus"
+            );
+        }
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        for leak in ["424242", "Private Page Cluster", "private-page"] {
+            assert!(!text.contains(leak), "status reply leaked `{leak}`: {text}");
+        }
+    }
+}
