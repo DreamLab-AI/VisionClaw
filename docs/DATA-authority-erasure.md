@@ -117,7 +117,7 @@ distributed transaction and no compensating-action framework in code.
   actix worker and vanished on restart, leaving the file orphaned under `data/shared/`;
   share creation also always failed (the export file was looked up under the wrong
   name). The record now lives in `data/shares.sqlite3`, one store for every worker,
-  built once (`src/app_state.rs:509-515`, `src/main.rs:979-1000`). Retention: a share
+  built once (`src/app_state.rs:503-510`, `src/main.rs:980-1002`). Retention: a share
   with `expires_in_hours` is answered 410 after expiry and its row and file are removed
   at the next start-up (`remove_expired`); `ShareRequest::default` sets 7 days, but a
   request may omit the expiry, and such a share is kept until its creator deletes it.

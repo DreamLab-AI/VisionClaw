@@ -75,8 +75,8 @@ Persistence is embedded, not networked. Neo4j is fully removed — no `neo4rs` o
   - `liveness.sqlite3` — liveness/canary rows, `src/app_state.rs:487-491`.
   - `kpi.sqlite3` — KPI snapshot + lineage, `src/app_state.rs:517-522`.
   - `shares.sqlite3` — graph shares (`/api/graph-export/share`), one store for every
-    actix worker, `src/app_state.rs:509-515`; the handler is built once before
-    `HttpServer::new` (`src/main.rs:997-1000`).
+    actix worker, `src/app_state.rs:503-510`; the handler is built once before
+    `HttpServer::new` (`src/main.rs:999-1002`).
 - **Storage root**: `DATA_DIR` (default `./data`), mounted from the Docker named
   volume `visionclaw-data:/app/data` (`docker-compose.unified.yml:95,190,303`);
   `DATA_ROOT=/app/data` in production, `docker-compose.unified.yml:172`.
