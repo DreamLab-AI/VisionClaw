@@ -199,6 +199,8 @@ function refetchSettingsCategory(category: string): void {
     return;
   }
 
+  // A peer just wrote: read the server's current state, not the 2 s cache.
+  settingsApi.invalidateSettingsCache();
   settingsApi.getSettingsByPaths(paths)
     .then((fetched) => {
       const state = useSettingsStore.getState();

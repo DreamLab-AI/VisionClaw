@@ -7,8 +7,6 @@ const logger = createLogger('SettingsStore')
 // Essential paths loaded at startup for fast initialization
 export const ESSENTIAL_PATHS = [
   'system.debug.enabled',
-  'auth.enabled',
-  'auth.required',
   'visualisation.rendering.context',
   'xr.mode',
 
@@ -159,6 +157,13 @@ export function setNestedValue(obj: Record<string, unknown>, path: string, value
   current[keys[keys.length - 1]] = value;
 }
 
+/** Visual-bucket subtrees outside the named sections (schemaMappings.serverBucketForPath). */
+const VISUAL_ONLY_SECTION_PATHS = [
+  'visualisation.embeddingCloud',
+  'visualisation.graphs.visionclaw.nodes',
+  'visualisation.rendering.agentColors',
+];
+
 // Helper function to get paths for a specific section
 export function getSectionPaths(section: string): string[] {
   const sectionPathMap: Record<string, string[]> = {
@@ -247,10 +252,14 @@ export function getSectionPaths(section: string): string[] {
   // visualisation.* path outside rendering and physics, so its broadcast
   // re-reads all of those sections.
   if (section === 'visual') {
-    return Object.values(sectionPathMap).flat().filter((p) =>
-      p.startsWith('visualisation.')
-      && !p.startsWith('visualisation.rendering')
-      && !p.includes('.physics'));
+    return [
+      ...Object.values(sectionPathMap).flat().filter((p) =>
+        p.startsWith('visualisation.')
+        && !p.startsWith('visualisation.rendering')
+        && !p.includes('.physics')),
+      // stored in the visual bucket but in no named section above
+      ...VISUAL_ONLY_SECTION_PATHS,
+    ];
   }
 
   return sectionPathMap[section] || [];

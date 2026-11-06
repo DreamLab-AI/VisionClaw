@@ -373,7 +373,7 @@
     {
       "id": "encode",
       "label": "Encode",
-      "description": "What colour, size, edges and labels mean.",
+      "description": "What colour, size and labels mean.",
       "hotkey": "3",
       "subsections": [
         {
@@ -412,47 +412,6 @@
               "label": "Show Legend",
               "path": "visualisation.graphView.explore.showLegend",
               "control": "toggle",
-              "scope": "server"
-            }
-          ],
-          "panels": []
-        },
-        {
-          "label": "Edges",
-          "fields": [
-            {
-              "key": "edgeWidth",
-              "label": "Edge Thickness",
-              "path": "visualisation.graphs.knowledge.edges.baseWidth",
-              "control": "slider",
-              "scope": "server"
-            },
-            {
-              "key": "edgeOpacity",
-              "label": "Edge Opacity",
-              "path": "visualisation.graphs.knowledge.edges.opacity",
-              "control": "slider",
-              "scope": "server"
-            },
-            {
-              "key": "kgEdgeColor",
-              "label": "Edge colour: knowledge graph mode",
-              "path": "visualisation.graphTypeVisuals.knowledgeGraph.edgeColor",
-              "control": "color",
-              "scope": "server"
-            },
-            {
-              "key": "ontologyEdgeColor",
-              "label": "Edge colour: ontology mode",
-              "path": "visualisation.graphTypeVisuals.ontology.edgeColor",
-              "control": "color",
-              "scope": "server"
-            },
-            {
-              "key": "agentEdgeColor",
-              "label": "Edge colour: agent mode",
-              "path": "visualisation.graphTypeVisuals.agent.edgeColor",
-              "control": "color",
               "scope": "server"
             }
           ],
@@ -1319,6 +1278,34 @@
           "label": "Edges",
           "fields": [
             {
+              "key": "edgeWidth",
+              "label": "Edge Thickness (close-up tubes)",
+              "path": "visualisation.graphs.knowledge.edges.baseWidth",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
+              "key": "kgEdgeColor",
+              "label": "Edge colour: knowledge graph mode",
+              "path": "visualisation.graphTypeVisuals.knowledgeGraph.edgeColor",
+              "control": "color",
+              "scope": "server"
+            },
+            {
+              "key": "ontologyEdgeColor",
+              "label": "Edge colour: ontology mode",
+              "path": "visualisation.graphTypeVisuals.ontology.edgeColor",
+              "control": "color",
+              "scope": "server"
+            },
+            {
+              "key": "agentEdgeColor",
+              "label": "Edge colour: agent mode",
+              "path": "visualisation.graphTypeVisuals.agent.edgeColor",
+              "control": "color",
+              "scope": "server"
+            },
+            {
               "key": "overviewEdgesEnabled",
               "label": "Overview Edges",
               "path": "visualisation.graphView.overviewEdges.enabled",
@@ -1354,8 +1341,15 @@
               "scope": "server"
             },
             {
+              "key": "edgeOpacity",
+              "label": "Edge Opacity (all edges)",
+              "path": "visualisation.graphs.knowledge.edges.opacity",
+              "control": "slider",
+              "scope": "server"
+            },
+            {
               "key": "overviewEdgeMinOpacity",
-              "label": "Long-Edge Opacity",
+              "label": "Long-Edge Fade Floor",
               "path": "visualisation.graphView.overviewEdges.minOpacity",
               "control": "slider",
               "scope": "server"
@@ -1860,21 +1854,21 @@
               "label": "Edge memory budget",
               "path": "visualisation.rendering.maxEdgesCeiling",
               "control": "slider",
-              "scope": "server"
+              "scope": "browser"
             },
             {
               "key": "softwareFallback",
               "label": "Software WebGL Fallback",
               "path": "visualisation.rendering.softwareFallback",
               "control": "select",
-              "scope": "server"
+              "scope": "browser"
             },
             {
               "key": "labelLayoutEvery",
               "label": "Label Layout Cadence (frames)",
               "path": "visualisation.rendering.labelLayoutEvery",
               "control": "slider",
-              "scope": "server"
+              "scope": "browser"
             },
             {
               "key": "autoAdjust",
@@ -1888,13 +1882,6 @@
               "label": "Min FPS Threshold",
               "path": "qualityGates.minFpsThreshold",
               "control": "slider",
-              "scope": "server"
-            },
-            {
-              "key": "ruvectorEnabled",
-              "label": "RuVector Integration",
-              "path": "qualityGates.ruvectorEnabled",
-              "control": "toggle",
               "scope": "server"
             },
             {
@@ -1956,20 +1943,6 @@
               "label": "Nostr Login",
               "path": "auth.nostr",
               "control": "nostr-button",
-              "scope": "browser"
-            },
-            {
-              "key": "authEnabled",
-              "label": "Auth Enabled",
-              "path": "auth.enabled",
-              "control": "toggle",
-              "scope": "browser"
-            },
-            {
-              "key": "authRequired",
-              "label": "Auth Required",
-              "path": "auth.required",
-              "control": "toggle",
               "scope": "browser"
             }
           ],

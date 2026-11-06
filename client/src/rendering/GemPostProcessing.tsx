@@ -6,6 +6,7 @@ import { createLogger } from '../utils/loggerConfig';
 import { setSceneComposited } from './blendSpace';
 import type { Node as TslNode } from 'three/webgpu';
 import { BLOOM_LAYER } from './bloomLayer';
+import { glowEffectParams } from './glowEffect';
 import {
   initRenderGuard,
   recordRenderFailure,
@@ -42,15 +43,6 @@ interface RendererWithWebGPUFlag {
   __isWebGPURenderer?: boolean;
   getDrawingBufferSize: (target: THREE.Vector2) => THREE.Vector2;
   render: (scene: THREE.Scene, camera: THREE.Camera) => void;
-}
-
-/** Bloom/glow settings shape with optional strength/intensity/radius/threshold. */
-interface BloomLikeSettings {
-  enabled?: boolean;
-  strength?: number;
-  intensity?: number;
-  radius?: number;
-  threshold?: number;
 }
 
 /** TSL texture node with optional toTexture method. */
@@ -103,8 +95,7 @@ export const GemPostProcessing: React.FC<GemPostProcessingProps> = ({ enabled = 
   }, [pipelineReady]);
   const guardRef = useRef(initRenderGuard());
 
-  const glowSettings = settings?.visualisation?.glow;
-  const bloomSettings = settings?.visualisation?.bloom;
+  const glow = glowEffectParams(settings?.visualisation);
 
   // ADR-2182 D4: what blooms. 'emphasis' (default) blooms only the bloom layer
   // (emphasis halos + the selection's tubes) from a camera that sees nothing
@@ -112,7 +103,7 @@ export const GemPostProcessing: React.FC<GemPostProcessingProps> = ({ enabled = 
   // drops the post-processing pipeline altogether.
   const bloomScope = (settings?.visualisation?.graphView?.nodes?.bloomScope ?? 'emphasis') as 'emphasis' | 'scene' | 'off';
   const selective = bloomScope === 'emphasis';
-  const effectEnabled = (glowSettings?.enabled || bloomSettings?.enabled) && bloomScope !== 'off';
+  const effectEnabled = glow.enabled && bloomScope !== 'off';
   // The camera the selective bloom pass renders from: a copy of the scene
   // camera, re-synced every frame, that sees only BLOOM_LAYER.
   const bloomCamera = useMemo(() => {
@@ -124,13 +115,10 @@ export const GemPostProcessing: React.FC<GemPostProcessingProps> = ({ enabled = 
   const isEnabledWebGL = enabled && !isWebGPU && effectEnabled && ppAvailable;
   const isEnabledWebGPU = enabled && isWebGPU && effectEnabled && ppAvailable;
 
-  // Extract primitive values to avoid stale closures and unnecessary effect deps.
-  // Object references (glowSettings, bloomSettings) change on every settings update
-  // even when the underlying values haven't changed -- primitives are stable.
-  const activeSource: BloomLikeSettings | undefined = !bloomSettings?.enabled && glowSettings?.enabled ? glowSettings as BloomLikeSettings : bloomSettings as BloomLikeSettings;
-  const bloomStrength = activeSource?.strength ?? activeSource?.intensity ?? 0.3;
-  const bloomRadius = activeSource?.radius ?? 0.2;
-  const bloomThreshold = activeSource?.threshold ?? 0.3;
+  // Primitives (stable across settings updates whose values did not change).
+  const bloomStrength = glow.strength;
+  const bloomRadius = glow.radius;
+  const bloomThreshold = glow.threshold;
 
   // Stable params object for WebGL EffectComposer (triggers rebuild on change — acceptable
   // because WebGL bloom is cheap to reconstruct).

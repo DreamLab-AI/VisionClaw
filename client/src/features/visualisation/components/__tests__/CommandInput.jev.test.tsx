@@ -124,3 +124,26 @@ describe('CommandInput Jev option', () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith(SETTINGS_ASSISTANT, expect.objectContaining({ command: 'pause everything' })));
   });
 });
+
+describe('CommandInput: node opacity is not a setting', () => {
+  beforeEach(() => {
+    resetJevStatusCache();
+    post.mockReset().mockResolvedValue({ data: { taskId: 'abcdef012345' } });
+    get.mockReset().mockResolvedValue({ data: { enabled: {}, available: false } });
+    applyWrites.mockReset();
+  });
+
+  it('a node-opacity command writes nothing and says the setting does not exist', async () => {
+    await submit('make the nodes 50% transparent');
+    await screen.findByText(/Node opacity is not a setting/i);
+    const paths = applyWrites.mock.calls.flatMap((c) => (c[0] as Array<{ path: string }>).map((w) => w.path));
+    expect(paths).not.toContain('visualisation.graphs.knowledge.nodes.opacity');
+  });
+
+  it('an edge-opacity command still writes Edge Opacity', async () => {
+    await submit('make the edges 50% transparent');
+    await waitFor(() => expect(applyWrites).toHaveBeenCalled());
+    const paths = applyWrites.mock.calls.flatMap((c) => (c[0] as Array<{ path: string }>).map((w) => w.path));
+    expect(paths).toContain('visualisation.graphs.knowledge.edges.opacity');
+  });
+});

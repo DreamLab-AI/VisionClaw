@@ -7,7 +7,7 @@
  * RegistryGroup[] the UI consumes, and re-exports `testIdFor`.
  */
 import type { GroupData, RegistryField, ManifestEntry, SettingScope } from './types';
-import { SECTION_DEFS, PANEL_PLACEMENT, placeField } from './placement';
+import { PATH_BEFORE, SECTION_DEFS, PANEL_PLACEMENT, placeField } from './placement';
 import type { SectionId } from './placement';
 import { motion } from './groups/motion';
 import { look } from './groups/look';
@@ -79,6 +79,12 @@ function buildSections(): SectionData[] {
       return { g, f, section, subsection, order: gi * 1000 + fi };
     }),
   );
+  const orderOf = new Map(placed.filter((p) => p.f.path).map((p) => [p.f.path!, p.order]));
+  for (const p of placed) {
+    const before = p.f.path ? PATH_BEFORE[p.f.path] : undefined;
+    const anchor = before ? orderOf.get(before) : undefined;
+    if (anchor !== undefined) p.order = anchor - 0.5;
+  }
   return SECTION_DEFS.map((def) => {
     const mine = placed
       .filter((p) => p.section === def.id)
@@ -107,10 +113,24 @@ export const SECTION_DATA: SectionData[] = buildSections();
  * Replicated (not imported) to keep this module free of the settings-api graph so
  * the ts-node emitter stays dependency-light. `null` = client/localStorage only.
  */
+/** Mirrors schemaMappings.SERVER_RENDERING_KEYS (settingsRoundTrip.test.ts pins the two). */
+const SERVER_RENDERING_KEYS: ReadonlySet<string> = new Set([
+  'ambientLightIntensity', 'backgroundColor', 'directionalLightIntensity',
+  'enableAmbientOcclusion', 'enableAntialiasing', 'enableShadows', 'environmentIntensity',
+  'shadowMapSize', 'shadowBias', 'context',
+]);
+
 export function serverBucketFor(path: string | undefined): string | null {
   if (!path) return null;
   if (path.startsWith('visualisation.graphs.') && path.includes('.physics.')) return 'physics';
-  if (path.startsWith('visualisation.rendering.')) return 'rendering';
+  if (path.startsWith('visualisation.rendering.')) {
+    // Only the server RenderingSettings fields go to /rendering (serde drops anything else);
+    // agentColors.*, maxEdgesCeiling, softwareFallback and labelLayoutEvery live in /visual.
+    const rest = path.slice('visualisation.rendering.'.length);
+    // per-device performance budgets stay in this browser (schemaMappings.DEVICE_LOCAL_RENDERING_KEYS)
+    if (['maxEdgesCeiling', 'softwareFallback', 'labelLayoutEvery'].includes(rest.split('.')[0])) return null;
+    return !rest.includes('.') && SERVER_RENDERING_KEYS.has(rest) ? 'rendering' : 'visual';
+  }
   if (path.startsWith('qualityGates.')) return 'qualityGates';
   if (path.startsWith('nodeFilter.')) return 'nodeFilter';
   if (path.startsWith('constraints.')) return 'constraints';

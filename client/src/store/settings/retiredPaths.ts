@@ -17,8 +17,15 @@ const K = 'visualisation.graphs.knowledge.';
 const V = 'visualisation.graphs.visionclaw.';
 const A = 'visualisation.graphTypeVisuals.agent.';
 
-/** The 37 dead paths with no replacement. */
+/** The dead paths with no replacement (37 from ADR-2189, 4 from the 2026-11-06 settings audit). */
 export const DEAD_PATHS: readonly string[] = [
+  // settings audit 2026-11-06 (docs: scratchpad settings-audit/AUDIT.md): no renderer reads node
+  // opacity; RuVector Integration gated gnnPhysics.ts, which nothing imports; Auth Enabled /
+  // Auth Required were browser-only toggles nothing reads (server auth is server config).
+  `${K}nodes.opacity`,
+  'qualityGates.ruvectorEnabled',
+  'auth.enabled',
+  'auth.required',
   `${K}nodes.perNodeGlow`,
   `${K}nodes.enableMetadataShape`,
   'visualisation.graphTypeVisuals.ontology.ringTintByClass',
@@ -71,6 +78,13 @@ export const REPLACED_PATHS: readonly string[] = [
   `${K}labels.desktopFontSize`,
   `${K}edges.colorByType`,
   `${K}edges.widthByWeight`,
+  // settings audit 2026-11-06: the legacy bloom group had no control, defaulted to enabled
+  // and overrode the Emphasis glow controls (visualisation.glow.*), which replace it
+  'visualisation.bloom.enabled',
+  'visualisation.bloom.intensity',
+  'visualisation.bloom.strength',
+  'visualisation.bloom.threshold',
+  'visualisation.bloom.radius',
 ];
 
 /**

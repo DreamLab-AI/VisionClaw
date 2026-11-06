@@ -28,7 +28,6 @@ const fields: RegistryField[] = [
   { key: 'autoAdjust', subgroup: 'GPU & Quality Gates', label: 'Auto-Adjust Quality', type: 'toggle', path: 'qualityGates.autoAdjust', description: 'Automatic quality scaling' },
   { key: 'minFpsThreshold', subgroup: 'GPU & Quality Gates', label: 'Min FPS Threshold', type: 'slider', min: 15, max: 60, step: 5, path: 'qualityGates.minFpsThreshold', description: 'Minimum acceptable FPS' },
   // step-grid: min 0 (not 1000) so the 500000 default lands exactly on the grid (100*5000) and stays reachable — see defect-3.
-  { key: 'ruvectorEnabled', subgroup: 'GPU & Quality Gates', label: 'RuVector Integration', type: 'toggle', path: 'qualityGates.ruvectorEnabled', description: 'HNSW similarity search' },
   // Cluster Visualisation (Show Clusters / Show Communities merged into
   // Encode › Colour & size › Colour by = Cluster / Community, ADR-2189)
   { key: 'showAnomalies', subgroup: 'Cluster Visualisation', label: 'Show Anomalies', type: 'toggle', path: 'qualityGates.showAnomalies', description: 'Highlight outliers' },

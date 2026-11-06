@@ -303,14 +303,14 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
       description: `Setting edge opacity to ${edgeOpacityValue}`,
       writes: [{ path: 'visualisation.graphs.knowledge.edges.opacity', value: edgeOpacityValue }],
     });
-  } else if (lower.includes('opacity') || lower.includes('transparent') || lower.includes('visible')) {
-    // Node opacity
-    const match = lower.match(/(\d+\.?\d*)/);
-    let value = match ? parseFloat(match[1]) : 0.8;
-    if (value > 1) value = value / 100;
+  } else if (/\bnodes?\b/.test(lower) && /opacit|opaque|transparen|see.?through/.test(lower)) {
+    // There is no node opacity: neither the overview sprites nor the close-up gems read
+    // one (the chat used to write visualisation.graphs.knowledge.nodes.opacity, which
+    // nothing renders). Say so instead of reporting a change that does nothing.
     actions.push({
-      description: `Setting node opacity to ${value}`,
-      writes: [{ path: 'visualisation.graphs.knowledge.nodes.opacity', value }],
+      description:
+        'Node opacity is not a setting: nodes are drawn opaque. Edge Opacity (Look › Edges) and '
+        + 'Gem Transmission (Look › Close-up nodes) are the nearest controls.',
     });
   }
 
@@ -346,10 +346,8 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
     const enable = !lower.includes('off') && !lower.includes('disable');
     actions.push({
       description: `${enable ? 'Enabling' : 'Disabling'} emphasis glow`,
-      writes: [
-        { path: 'visualisation.bloom.enabled', value: enable },
-        { path: 'visualisation.glow.enabled', value: enable },
-      ],
+      // The Emphasis glow toggle is the one glow switch (the legacy bloom group is retired).
+      writes: [{ path: 'visualisation.glow.enabled', value: enable }],
     });
   }
 

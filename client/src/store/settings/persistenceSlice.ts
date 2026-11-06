@@ -1,6 +1,17 @@
 import { StateCreator } from 'zustand'
 import { createLogger, createErrorMetadata } from '../../utils/loggerConfig'
 import { settingsApi } from '../../api/settingsApi'
+import { useSettingsSyncStatus } from '../settingsSyncStatus'
+import { serverBucketForPath } from '../../api/settings/schemaMappings'
+
+/** Record a direct write's outcome (setByPath / batchUpdate bypass the auto-save queue). */
+function recordWrite(paths: string[], ok: boolean): void {
+  const server = paths.filter((p) => serverBucketForPath(p) !== null)
+  if (server.length === 0) return
+  const status = useSettingsSyncStatus.getState()
+  if (ok) status.markSaved(server)
+  else status.markUnsaved(server, 'failed')
+}
 import { SettingsState, SettingsPath } from './settingsTypes'
 import {
   getAllAvailableSettingsPaths,
@@ -40,7 +51,8 @@ export const createPersistenceSlice: StateCreator<SettingsState, [], [], Persist
     state.set(path, value, true);
 
     // Single server write from setByPath
-    settingsApi.updateSettingByPath(path, value).catch(error => {
+    settingsApi.updateSettingByPath(path, value).then(() => recordWrite([path], true)).catch(error => {
+      recordWrite([path], false)
       logger.error(`Failed to update setting ${path}:`, createErrorMetadata(error));
     });
   },
@@ -62,7 +74,9 @@ export const createPersistenceSlice: StateCreator<SettingsState, [], [], Persist
     });
 
     // Single batched server write
-    settingsApi.updateSettingsByPaths(updates.map(u => ({ path: u.path, value: u.value }))).catch(error => {
+    const paths = updates.map(u => u.path as string)
+    settingsApi.updateSettingsByPaths(updates.map(u => ({ path: u.path, value: u.value }))).then(() => recordWrite(paths, true)).catch(error => {
+      recordWrite(paths, false)
       logger.error('Failed to batch update settings:', createErrorMetadata(error));
     });
   },

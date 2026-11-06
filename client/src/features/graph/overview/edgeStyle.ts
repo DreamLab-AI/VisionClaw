@@ -22,18 +22,30 @@ export function fadeAlpha(lenPx: number, nearPx: number, farPx: number, minOpaci
 /** Overview line alpha at the shipped Edge Opacity default (ADR-2181 D2). */
 export const OVERVIEW_EDGE_BASE_OPACITY = 0.6;
 
+/** Top of the Edge Opacity slider (registry look.ts `edgeOpacity`). */
+export const EDGE_OPACITY_SLIDER_MAX = 0.3;
+
 /**
  * Overview line alpha from the one Edge Opacity setting
  * (`visualisation.graphs.knowledge.edges.opacity`, the same control that sets
- * the close-zoom glass tubes). Scaled so the shipped default reproduces
- * OVERVIEW_EDGE_BASE_OPACITY, linear to 0 at 0, clamped to [0, 1]. A missing
- * or non-finite setting gives the base alpha.
+ * the close-zoom glass tubes). Piecewise linear so the whole slider is live:
+ * [0, default] → [0, OVERVIEW_EDGE_BASE_OPACITY] (the shipped look at the default)
+ * and [default, settingMax] → [OVERVIEW_EDGE_BASE_OPACITY, 1]. A plain 4× scale
+ * saturated at 1 a sixth of the way below the slider's top. Clamped to [0, 1]; a
+ * missing or non-finite setting gives the base alpha.
  */
-export function overviewEdgeOpacity(setting: number | undefined, settingDefault: number): number {
+export function overviewEdgeOpacity(
+  setting: number | undefined,
+  settingDefault: number,
+  settingMax: number = EDGE_OPACITY_SLIDER_MAX,
+): number {
   if (typeof setting !== 'number' || !Number.isFinite(setting) || !(settingDefault > 0)) {
     return OVERVIEW_EDGE_BASE_OPACITY;
   }
-  const a = (setting / settingDefault) * OVERVIEW_EDGE_BASE_OPACITY;
+  const base = OVERVIEW_EDGE_BASE_OPACITY;
+  const a = setting <= settingDefault || !(settingMax > settingDefault)
+    ? (setting / settingDefault) * base
+    : base + ((setting - settingDefault) / (settingMax - settingDefault)) * (1 - base);
   return a < 0 ? 0 : a > 1 ? 1 : a;
 }
 

@@ -389,6 +389,14 @@ pub fn validate_node_filter_settings(settings: &NodeFilterSettings) -> Result<()
     if settings.filter_mode != "and" && settings.filter_mode != "or" {
         return Err("filter_mode must be 'and' or 'or'".into());
     }
+    if settings.min_maturity != "off"
+        && !crate::settings::models::MATURITY_STAGES.contains(&settings.min_maturity.as_str())
+    {
+        return Err(format!(
+            "min_maturity must be 'off' or one of {:?}",
+            crate::settings::models::MATURITY_STAGES
+        ));
+    }
     Ok(())
 }
 
@@ -963,6 +971,7 @@ pub async fn get_rendering_settings(
 /// Validates input before applying (QE Fix #1). Returns updated state (QE Fix #2).
 pub async fn update_rendering_settings(
     state: web::Data<AppState>,
+    settings_repo: web::Data<Arc<SqliteSettingsRepository>>,
     body: web::Json<RenderingSettings>,
     auth: AuthenticatedUser,
 ) -> impl Responder {
@@ -981,6 +990,30 @@ pub async fn update_rendering_settings(
     match state.settings_addr.send(GetSettings).await {
         Ok(Ok(mut full_settings)) => {
             full_settings.visualisation.rendering = new_rendering.clone();
+            // Persist the document: `UpdateSettings` only replaces the actor's in-memory copy
+            // (AppFullSettings::save is a no-op since ADR-11), so without this row every
+            // lighting/background change was lost on the next restart.
+            let row = match serde_json::to_value(&new_rendering) {
+                Ok(json) => json,
+                Err(e) => {
+                    return HttpResponse::InternalServerError().json(ErrorResponse {
+                        error: format!("Failed to serialise rendering settings: {}", e),
+                    })
+                }
+            };
+            if let Err(e) = settings_repo
+                .set_setting(
+                    crate::adapters::sqlite_settings_repository::RENDERING_ROW,
+                    SettingValue::Json(row),
+                    Some("Rendering settings (lighting, background, AA, shadows)"),
+                )
+                .await
+            {
+                error!("Failed to persist rendering settings: {}", e);
+                return HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: format!("Failed to persist rendering settings: {}", e),
+                });
+            }
             match state
                 .settings_addr
                 .send(UpdateSettings {
@@ -1123,6 +1156,10 @@ pub async fn update_node_filter_settings(
             "filterMode": settings.filter_mode,
             "includeLinkedPages": settings.include_linked_pages,
             "serverRemove": settings.server_remove,
+            // the receiver replaces its whole nodeFilter object with this payload, so a field
+            // left out here would be wiped on every other client
+            "minConnections": settings.min_connections,
+            "minMaturity": settings.min_maturity,
         },
         "updatedBy": auth.pubkey,
         "timestamp": chrono::Utc::now().timestamp_millis()
@@ -1944,6 +1981,16 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
 
 #[cfg(test)]
 mod tests {
+    /// Settings audit 2026-11-06: an unknown maturity name is refused, a known one accepted.
+    #[test]
+    fn node_filter_validation_checks_min_maturity() {
+        let mut f = crate::settings::models::NodeFilterSettings::default();
+        f.min_maturity = "draft".into();
+        assert!(super::validate_node_filter_settings(&f).is_ok());
+        f.min_maturity = "ripe".into();
+        assert!(super::validate_node_filter_settings(&f).is_err());
+    }
+
     use super::*;
 
     /// ADR-2179..2186: the graph-view settings live only in the opaque `visual` blob. A one-slider
