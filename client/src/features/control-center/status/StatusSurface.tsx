@@ -23,6 +23,7 @@ import { useBotsDataOptional } from '../../bots/contexts/BotsDataContext';
 import { useWebSocketStatus } from './useConnectionTelemetry';
 import { useSpacePilot } from './useSpacePilot';
 import { StatusFlyout } from './StatusFlyout';
+import { useSettingsSyncStatus, describeUnsaved } from '../../../store/settingsSyncStatus';
 
 function dotColor(status: 'connected' | 'connecting' | 'disconnected'): string {
   if (status === 'connected') return '#22c55e';
@@ -41,6 +42,14 @@ export const StatusSurface: React.FC = () => {
   const spacePilot = useSpacePilot();
   const agentCount = useBotsDataOptional()?.botsData?.nodeCount ?? 0;
   const [voiceIssues] = useState(voiceSupportIssues);
+  // Settings changes the server does not have (failed, sync off, or made before load):
+  // shown here so a lost change is never only a debug log line.
+  const unsaved = useSettingsSyncStatus((s) => s.unsaved);
+  const unsavedCount = Object.keys(unsaved).length;
+  const label = [
+    voiceIssues.length ? 'System status (voice unavailable)' : 'System status',
+    unsavedCount ? `${unsavedCount} settings not saved on the server` : '',
+  ].filter(Boolean).join('; ');
 
   return (
     <div className="relative flex flex-col items-end gap-2" data-corner-item="status">
@@ -55,7 +64,7 @@ export const StatusSurface: React.FC = () => {
       <button
         type="button"
         data-testid="status-surface"
-        aria-label={voiceIssues.length ? 'System status (voice unavailable)' : 'System status'}
+        aria-label={label}
         aria-expanded={expanded}
         onClick={() => setExpanded((v) => !v)}
         className="cc-glass flex items-center gap-2 px-3 py-1.5 rounded-full text-xs text-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -79,6 +88,16 @@ export const StatusSurface: React.FC = () => {
             aria-label="Voice unavailable"
             title={`Voice unavailable: ${voiceIssues.join('; ')}`}
           />
+        )}
+        {unsavedCount > 0 && (
+          <span
+            data-testid="status-unsaved-settings"
+            className="cc-value-readout rounded-full px-1.5 text-[10px] leading-4"
+            style={{ background: '#f59e0b33', color: '#f59e0b' }}
+            title={`Settings not saved on the server: ${describeUnsaved(unsaved)}`}
+          >
+            {unsavedCount} unsaved
+          </span>
         )}
         {spacePilot.connected && (
           <span

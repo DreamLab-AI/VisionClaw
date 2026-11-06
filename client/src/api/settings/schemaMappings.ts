@@ -6,7 +6,6 @@ import type { AllSettings, PhysicsSettings, ConstraintSettings, RenderingSetting
 import { NODE_FILTER_DEFAULTS } from '../../features/graph/explore/nodeFilter';
 import {
   DEFAULT_GLOW_SETTINGS,
-  DEFAULT_BLOOM_SETTINGS,
   DEFAULT_HOLOGRAM_SETTINGS,
   DEFAULT_GRAPH_TYPE_VISUALS,
   DEFAULT_GEM_MATERIAL,
@@ -55,11 +54,22 @@ export function transformApiToClientSettings(
   apiResponse: AllSettings
 ): Record<string, unknown> {
   const v = (apiResponse.visual || {}) as Record<string, Record<string, unknown>>;
+  const vGraphs = (v.graphs || {}) as Record<string, Record<string, unknown> | undefined>;
+  // Paths under visual.graphs the client writes (toVisualKey keeps the graph segment for
+  // anything outside nodes/edges/labels). The stale pre-ADR-2041 `logseq` subtree is not read.
+  const extraGraphs: Record<string, unknown> = {};
+  if (vGraphs.visionclaw && typeof vGraphs.visionclaw === 'object') extraGraphs.visionclaw = vGraphs.visionclaw;
+  const knowledgeTweening = vGraphs.knowledge?.tweening;
   return {
     visualisation: {
-      rendering: apiResponse.rendering || {},
+      // The server RenderingSettings document wins for the keys it owns; the keys it has no
+      // field for (agentColors, maxEdgesCeiling, softwareFallback, labelLayoutEvery) are kept
+      // in the visual bucket under `rendering` (see routeRenderingPath).
+      rendering: deepMergeVisual(
+        (v.rendering || {}) as Record<string, unknown>,
+        (apiResponse.rendering || {}) as unknown as Record<string, unknown>,
+      ),
       glow: deepMergeVisual(DEFAULT_GLOW_SETTINGS, v.glow || {}),
-      bloom: deepMergeVisual(DEFAULT_BLOOM_SETTINGS, v.bloom || {}),
       hologram: deepMergeVisual(DEFAULT_HOLOGRAM_SETTINGS, v.hologram || {}),
       graphTypeVisuals: deepMergeVisual(DEFAULT_GRAPH_TYPE_VISUALS, v.graphTypeVisuals || {}),
       gemMaterial: deepMergeVisual(DEFAULT_GEM_MATERIAL, v.gemMaterial || {}),
@@ -70,7 +80,9 @@ export function transformApiToClientSettings(
       animations: deepMergeVisual(DEFAULT_ANIMATION_SETTINGS, v.animations || {}),
       interaction: deepMergeVisual(DEFAULT_INTERACTION_SETTINGS, v.interaction || {}),
       graphs: {
+        ...extraGraphs,
         knowledge: {
+          ...(knowledgeTweening && typeof knowledgeTweening === 'object' ? { tweening: knowledgeTweening } : {}),
           physics: apiResponse.physics || {},
           nodes: deepMergeVisual(DEFAULT_NODES_SETTINGS, v.nodes || {}),
           edges: deepMergeVisual(DEFAULT_EDGES_SETTINGS, v.edges || {}),
@@ -96,9 +108,7 @@ export function transformApiToClientSettings(
       quality: 'medium' as const
     },
     auth: {
-      enabled: false,
       provider: 'nostr' as const,
-      required: false
     },
     // ADR-031 D6: merge defaults UNDER the server response so a partial
     // qualityGates payload still ships render-by-default values (and the new
@@ -123,7 +133,36 @@ export function transformApiToClientSettings(
  * Returns true when the client path should be routed to /api/settings/visual.
  * Excludes paths already handled by dedicated endpoints (rendering, physics).
  */
+/**
+ * The keys of the server's RenderingSettings struct (crates/visionclaw-domain
+ * config/visualisation.rs). PUT /api/settings/rendering deserialises into that struct,
+ * so any other key is silently dropped by serde; those go to the visual bucket instead.
+ */
+export const SERVER_RENDERING_KEYS: ReadonlySet<string> = new Set([
+  'ambientLightIntensity', 'backgroundColor', 'directionalLightIntensity',
+  'enableAmbientOcclusion', 'enableAntialiasing', 'enableShadows', 'environmentIntensity',
+  'shadowMapSize', 'shadowBias', 'context',
+]);
+
+/** True for a `visualisation.rendering.<key>` path the server rendering document stores. */
+export function isServerRenderingPath(path: string): boolean {
+  if (!path.startsWith('visualisation.rendering.')) return false;
+  const rest = path.slice('visualisation.rendering.'.length);
+  return !rest.includes('.') && SERVER_RENDERING_KEYS.has(rest);
+}
+
+/** The server bucket a client path is written to, or null for browser-only paths. */
+export function serverBucketForPath(path: string): 'physics' | 'rendering' | 'qualityGates' | 'nodeFilter' | 'constraints' | 'visual' | null {
+  if (path.startsWith('visualisation.graphs.') && path.includes('.physics.')) return 'physics';
+  if (path.startsWith('visualisation.rendering.')) return isServerRenderingPath(path) ? 'rendering' : 'visual';
+  if (path.startsWith('qualityGates.')) return 'qualityGates';
+  if (path.startsWith('nodeFilter.')) return 'nodeFilter';
+  if (path.startsWith('constraints.')) return 'constraints';
+  return isVisualSettingsPath(path) ? 'visual' : null;
+}
+
 export function isVisualSettingsPath(path: string): boolean {
+  if (path.startsWith('visualisation.rendering.')) return !isServerRenderingPath(path);
   if (path.startsWith('visualisation.rendering')) return false;
   if (path.startsWith('visualisation.graphs.') && path.includes('.physics')) return false;
   if (path.startsWith('visualisation.')) return true;
@@ -192,4 +231,36 @@ export function emptyAllSettings(): AllSettings {
     nodeFilter: {} as NodeFilterSettings,
     qualityGates: { ...DEFAULT_QUALITY_GATES },
   };
+}
+
+/** Inverse of toVisualKey: a key within the visual blob → the client path it came from. */
+export function fromVisualKey(key: string): string {
+  const head = key.split('.')[0];
+  if (head === 'nodes' || head === 'edges' || head === 'labels') return `visualisation.graphs.knowledge.${key}`;
+  return `visualisation.${key}`;
+}
+
+function leafPaths(obj: unknown, prefix: string, out: Set<string>): void {
+  if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) leafPaths(v, prefix ? `${prefix}.${k}` : k, out);
+  } else if (prefix) {
+    out.add(prefix);
+  }
+}
+
+/**
+ * The client paths the server actually stores in this response, as opposed to the
+ * defaults transformApiToClientSettings fills in. Used at load to decide where the
+ * server wins over a value this browser kept.
+ */
+export function storedClientPaths(apiResponse: AllSettings): Set<string> {
+  const out = new Set<string>();
+  const visual = new Set<string>();
+  leafPaths(apiResponse.visual || {}, '', visual);
+  for (const k of visual) if (!k.startsWith('graphs.logseq')) out.add(fromVisualKey(k));
+  leafPaths(apiResponse.rendering || {}, 'visualisation.rendering', out);
+  leafPaths(apiResponse.physics || {}, 'visualisation.graphs.knowledge.physics', out);
+  leafPaths(apiResponse.qualityGates || {}, 'qualityGates', out);
+  leafPaths(apiResponse.nodeFilter || {}, 'nodeFilter', out);
+  return out;
 }

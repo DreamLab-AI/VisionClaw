@@ -48,6 +48,8 @@ export {
   exportSettings,
   importSettings,
   flushPendingUpdates,
+  invalidateSettingsCache,
+  getStoredServerPaths,
 } from './settings/endpoints';
 
 // ============================================================================
@@ -82,6 +84,8 @@ import {
   exportSettings,
   importSettings,
   flushPendingUpdates,
+  invalidateSettingsCache,
+  getStoredServerPaths,
 } from './settings/endpoints';
 
 export const settingsApi = {
@@ -112,4 +116,6 @@ export const settingsApi = {
   exportSettings,
   importSettings,
   flushPendingUpdates,
+  invalidateSettingsCache,
+  getStoredServerPaths,
 };

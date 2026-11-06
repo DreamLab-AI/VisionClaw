@@ -1,7 +1,7 @@
 {
   "version": "2.0",
   "generatedFrom": "settingsRegistry.ts",
-  "count": 247,
+  "count": 244,
   "groups": [
     {
       "id": "layers",
@@ -22,7 +22,7 @@
       "label": "Encode",
       "testid": "group-encode",
       "hotkey": "3",
-      "fieldCount": 24
+      "fieldCount": 19
     },
     {
       "id": "layout",
@@ -36,7 +36,7 @@
       "label": "Look",
       "testid": "group-look",
       "hotkey": "5",
-      "fieldCount": 44
+      "fieldCount": 49
     },
     {
       "id": "agents",
@@ -50,7 +50,7 @@
       "label": "System",
       "testid": "group-system",
       "hotkey": "7",
-      "fieldCount": 27
+      "fieldCount": 24
     }
   ],
   "panels": [
@@ -730,77 +730,6 @@
       "subgroup": "Colour & size",
       "scope": "server",
       "label": "Show Legend",
-      "clientOnly": false,
-      "server": "visual"
-    },
-    {
-      "key": "edgeWidth",
-      "path": "visualisation.graphs.knowledge.edges.baseWidth",
-      "testid": "setting-visualisation.graphs.knowledge.edges.baseWidth",
-      "control": "slider",
-      "group": "encode",
-      "sourceGroup": "look",
-      "subgroup": "Edges",
-      "scope": "server",
-      "label": "Edge Thickness",
-      "clientOnly": false,
-      "server": "visual",
-      "min": 0.02,
-      "max": 0.5,
-      "step": 0.01
-    },
-    {
-      "key": "edgeOpacity",
-      "path": "visualisation.graphs.knowledge.edges.opacity",
-      "testid": "setting-visualisation.graphs.knowledge.edges.opacity",
-      "control": "slider",
-      "group": "encode",
-      "sourceGroup": "look",
-      "subgroup": "Edges",
-      "scope": "server",
-      "label": "Edge Opacity",
-      "clientOnly": false,
-      "server": "visual",
-      "min": 0,
-      "max": 0.3,
-      "step": 0.005
-    },
-    {
-      "key": "kgEdgeColor",
-      "path": "visualisation.graphTypeVisuals.knowledgeGraph.edgeColor",
-      "testid": "setting-visualisation.graphTypeVisuals.knowledgeGraph.edgeColor",
-      "control": "color",
-      "group": "encode",
-      "sourceGroup": "look",
-      "subgroup": "Edges",
-      "scope": "server",
-      "label": "Edge colour: knowledge graph mode",
-      "clientOnly": false,
-      "server": "visual"
-    },
-    {
-      "key": "ontologyEdgeColor",
-      "path": "visualisation.graphTypeVisuals.ontology.edgeColor",
-      "testid": "setting-visualisation.graphTypeVisuals.ontology.edgeColor",
-      "control": "color",
-      "group": "encode",
-      "sourceGroup": "look",
-      "subgroup": "Edges",
-      "scope": "server",
-      "label": "Edge colour: ontology mode",
-      "clientOnly": false,
-      "server": "visual"
-    },
-    {
-      "key": "agentEdgeColor",
-      "path": "visualisation.graphTypeVisuals.agent.edgeColor",
-      "testid": "setting-visualisation.graphTypeVisuals.agent.edgeColor",
-      "control": "color",
-      "group": "encode",
-      "sourceGroup": "look",
-      "subgroup": "Edges",
-      "scope": "server",
-      "label": "Edge colour: agent mode",
       "clientOnly": false,
       "server": "visual"
     },
@@ -2388,6 +2317,61 @@
       "step": 0.05
     },
     {
+      "key": "edgeWidth",
+      "path": "visualisation.graphs.knowledge.edges.baseWidth",
+      "testid": "setting-visualisation.graphs.knowledge.edges.baseWidth",
+      "control": "slider",
+      "group": "look",
+      "sourceGroup": "look",
+      "subgroup": "Edges",
+      "scope": "server",
+      "label": "Edge Thickness (close-up tubes)",
+      "clientOnly": false,
+      "server": "visual",
+      "min": 0.02,
+      "max": 0.5,
+      "step": 0.01
+    },
+    {
+      "key": "kgEdgeColor",
+      "path": "visualisation.graphTypeVisuals.knowledgeGraph.edgeColor",
+      "testid": "setting-visualisation.graphTypeVisuals.knowledgeGraph.edgeColor",
+      "control": "color",
+      "group": "look",
+      "sourceGroup": "look",
+      "subgroup": "Edges",
+      "scope": "server",
+      "label": "Edge colour: knowledge graph mode",
+      "clientOnly": false,
+      "server": "visual"
+    },
+    {
+      "key": "ontologyEdgeColor",
+      "path": "visualisation.graphTypeVisuals.ontology.edgeColor",
+      "testid": "setting-visualisation.graphTypeVisuals.ontology.edgeColor",
+      "control": "color",
+      "group": "look",
+      "sourceGroup": "look",
+      "subgroup": "Edges",
+      "scope": "server",
+      "label": "Edge colour: ontology mode",
+      "clientOnly": false,
+      "server": "visual"
+    },
+    {
+      "key": "agentEdgeColor",
+      "path": "visualisation.graphTypeVisuals.agent.edgeColor",
+      "testid": "setting-visualisation.graphTypeVisuals.agent.edgeColor",
+      "control": "color",
+      "group": "look",
+      "sourceGroup": "look",
+      "subgroup": "Edges",
+      "scope": "server",
+      "label": "Edge colour: agent mode",
+      "clientOnly": false,
+      "server": "visual"
+    },
+    {
       "key": "overviewEdgesEnabled",
       "path": "visualisation.graphView.overviewEdges.enabled",
       "testid": "setting-visualisation.graphView.overviewEdges.enabled",
@@ -2465,6 +2449,22 @@
       "step": 5
     },
     {
+      "key": "edgeOpacity",
+      "path": "visualisation.graphs.knowledge.edges.opacity",
+      "testid": "setting-visualisation.graphs.knowledge.edges.opacity",
+      "control": "slider",
+      "group": "look",
+      "sourceGroup": "look",
+      "subgroup": "Edges",
+      "scope": "server",
+      "label": "Edge Opacity (all edges)",
+      "clientOnly": false,
+      "server": "visual",
+      "min": 0,
+      "max": 0.3,
+      "step": 0.005
+    },
+    {
       "key": "overviewEdgeMinOpacity",
       "path": "visualisation.graphView.overviewEdges.minOpacity",
       "testid": "setting-visualisation.graphView.overviewEdges.minOpacity",
@@ -2473,7 +2473,7 @@
       "sourceGroup": "graphView",
       "subgroup": "Edges",
       "scope": "server",
-      "label": "Long-Edge Opacity",
+      "label": "Long-Edge Fade Floor",
       "clientOnly": false,
       "server": "visual",
       "min": 0,
@@ -3149,7 +3149,7 @@
       "scope": "server",
       "label": "Coordinator",
       "clientOnly": false,
-      "server": "rendering"
+      "server": "visual"
     },
     {
       "key": "agentColorCoder",
@@ -3162,7 +3162,7 @@
       "scope": "server",
       "label": "Coder",
       "clientOnly": false,
-      "server": "rendering"
+      "server": "visual"
     },
     {
       "key": "agentColorArchitect",
@@ -3175,7 +3175,7 @@
       "scope": "server",
       "label": "Architect",
       "clientOnly": false,
-      "server": "rendering"
+      "server": "visual"
     },
     {
       "key": "agentColorAnalyst",
@@ -3188,7 +3188,7 @@
       "scope": "server",
       "label": "Analyst",
       "clientOnly": false,
-      "server": "rendering"
+      "server": "visual"
     },
     {
       "key": "agentColorTester",
@@ -3201,7 +3201,7 @@
       "scope": "server",
       "label": "Tester",
       "clientOnly": false,
-      "server": "rendering"
+      "server": "visual"
     },
     {
       "key": "agentColorResearcher",
@@ -3214,7 +3214,7 @@
       "scope": "server",
       "label": "Researcher",
       "clientOnly": false,
-      "server": "rendering"
+      "server": "visual"
     },
     {
       "key": "agentColorReviewer",
@@ -3227,7 +3227,7 @@
       "scope": "server",
       "label": "Reviewer",
       "clientOnly": false,
-      "server": "rendering"
+      "server": "visual"
     },
     {
       "key": "agentColorOptimizer",
@@ -3240,7 +3240,7 @@
       "scope": "server",
       "label": "Optimizer",
       "clientOnly": false,
-      "server": "rendering"
+      "server": "visual"
     },
     {
       "key": "agentColorDocumenter",
@@ -3253,7 +3253,7 @@
       "scope": "server",
       "label": "Documenter",
       "clientOnly": false,
-      "server": "rendering"
+      "server": "visual"
     },
     {
       "key": "agentColorQueen",
@@ -3266,7 +3266,7 @@
       "scope": "server",
       "label": "Queen",
       "clientOnly": false,
-      "server": "rendering"
+      "server": "visual"
     },
     {
       "key": "agentColorDefault",
@@ -3279,7 +3279,7 @@
       "scope": "server",
       "label": "Default / Other",
       "clientOnly": false,
-      "server": "rendering"
+      "server": "visual"
     },
     {
       "key": "showAttribution",
@@ -3344,7 +3344,7 @@
       "scope": "server",
       "label": "Edge memory budget",
       "clientOnly": false,
-      "server": "rendering",
+      "server": "visual",
       "min": 1024,
       "max": 262144,
       "step": 1024
@@ -3360,7 +3360,7 @@
       "scope": "server",
       "label": "Software WebGL Fallback",
       "clientOnly": false,
-      "server": "rendering"
+      "server": "visual"
     },
     {
       "key": "labelLayoutEvery",
@@ -3373,7 +3373,7 @@
       "scope": "server",
       "label": "Label Layout Cadence (frames)",
       "clientOnly": false,
-      "server": "rendering",
+      "server": "visual",
       "min": 1,
       "max": 10,
       "step": 1
@@ -3406,19 +3406,6 @@
       "min": 15,
       "max": 60,
       "step": 5
-    },
-    {
-      "key": "ruvectorEnabled",
-      "path": "qualityGates.ruvectorEnabled",
-      "testid": "setting-qualityGates.ruvectorEnabled",
-      "control": "toggle",
-      "group": "system",
-      "sourceGroup": "quality",
-      "subgroup": "Performance",
-      "scope": "server",
-      "label": "RuVector Integration",
-      "clientOnly": false,
-      "server": "qualityGates"
     },
     {
       "key": "webgpuRenderer",
@@ -3518,32 +3505,6 @@
       "subgroup": "Account & sync",
       "scope": "browser",
       "label": "Nostr Login",
-      "clientOnly": true,
-      "server": null
-    },
-    {
-      "key": "authEnabled",
-      "path": "auth.enabled",
-      "testid": "setting-auth.enabled",
-      "control": "toggle",
-      "group": "system",
-      "sourceGroup": "system",
-      "subgroup": "Account & sync",
-      "scope": "browser",
-      "label": "Auth Enabled",
-      "clientOnly": true,
-      "server": null
-    },
-    {
-      "key": "authRequired",
-      "path": "auth.required",
-      "testid": "setting-auth.required",
-      "control": "toggle",
-      "group": "system",
-      "sourceGroup": "system",
-      "subgroup": "Account & sync",
-      "scope": "browser",
-      "label": "Auth Required",
       "clientOnly": true,
       "server": null
     },

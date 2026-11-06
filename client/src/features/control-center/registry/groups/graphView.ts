@@ -40,7 +40,7 @@ const fields: RegistryField[] = [
   { key: 'overviewEdgeMaxWidth', subgroup: 'Overview Edges', label: 'Max Edge Width (px)', type: 'slider', min: 1, max: 8, step: 0.5, path: `${G}overviewEdges.maxWidthPx`, description: 'Width of the heaviest edge when width follows weight' },
   { key: 'overviewEdgeFadeNear', subgroup: 'Overview Edges', label: 'Fade Start (px)', type: 'slider', min: 0, max: 300, step: 5, path: `${G}overviewEdges.fadeNearPx`, description: 'Edges shorter than this on screen are fully opaque' },
   { key: 'overviewEdgeFadeFar', subgroup: 'Overview Edges', label: 'Fade End (px)', type: 'slider', min: 0, max: 600, step: 5, path: `${G}overviewEdges.fadeFarPx`, description: 'Edges longer than this on screen fade to the minimum opacity' },
-  { key: 'overviewEdgeMinOpacity', subgroup: 'Overview Edges', label: 'Long-Edge Opacity', type: 'slider', min: 0, max: 1, step: 0.05, path: `${G}overviewEdges.minOpacity`, description: 'Opacity of the longest on-screen edges' },
+  { key: 'overviewEdgeMinOpacity', subgroup: 'Overview Edges', label: 'Long-Edge Fade Floor', type: 'slider', min: 0, max: 1, step: 0.05, path: `${G}overviewEdges.minOpacity`, description: 'How far the longest on-screen edges fade, as a fraction of Edge Opacity (1 = no fade; edges between Fade Start and Fade End ramp down to it). It does not change short edges: use Edge Opacity for that.' },
   { key: 'glassAtCloseZoom', subgroup: 'Overview Edges', label: 'Glass Edges Up Close', type: 'toggle', path: `${G}overviewEdges.glassAtCloseZoom`, description: 'Draw glass tubes for selected, hovered and close-up edges' },
 
   // ADR-2182

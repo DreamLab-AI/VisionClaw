@@ -56,8 +56,13 @@ describe('isVisualSettingsPath', () => {
     expect(isVisualSettingsPath('visualisation.glow.intensity')).toBe(true);
   });
 
-  it('returns false for rendering sub-paths', () => {
-    expect(isVisualSettingsPath('visualisation.rendering.fxaa')).toBe(false);
+  it('returns false for the rendering keys the server RenderingSettings struct stores', () => {
+    expect(isVisualSettingsPath('visualisation.rendering.ambientLightIntensity')).toBe(false);
+  });
+
+  it('returns true for rendering sub-paths the server struct would drop (kept in the visual bucket)', () => {
+    expect(isVisualSettingsPath('visualisation.rendering.fxaa')).toBe(true);
+    expect(isVisualSettingsPath('visualisation.rendering.agentColors.coder')).toBe(true);
   });
 
   it('returns false for physics inside graphs', () => {

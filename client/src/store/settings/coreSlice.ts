@@ -6,6 +6,8 @@ import { isViewportSetting } from '../../features/settings/config/viewportSettin
 import { settingsApi } from '../../api/settingsApi'
 import { nostrAuth } from '../../services/nostrAuthService'
 import { autoSaveManager } from '../autoSaveManager'
+import { isUnsyncedPath } from '../settingsSyncStatus'
+import { serverBucketForPath } from '../../api/settings/schemaMappings'
 import { Settings, SettingsPath } from '../../features/settings/config/settings'
 import { SettingsState, ConstraintConfig } from './settingsTypes'
 import {
@@ -15,6 +17,7 @@ import {
   findChangedPaths,
   setNestedValue,
   getSectionPaths,
+  collectPathsFromSettings,
 } from './settingsHelpers'
 import {
   getOrCreateTrieNode,
@@ -104,42 +107,37 @@ export const createCoreSlice: StateCreator<SettingsState, [], [], CoreSlice> = (
         logger.info('Essential settings loaded:', { essentialSettings })
       }
 
+      const storedOnServer: Set<string> = settingsApi.getStoredServerPaths?.() ?? new Set();
+
       set(state => {
-        // Deep merge: server-fetched settings provide defaults and authoritative
-        // values as the base. localStorage-persisted customizations overlay on top
-        // so user tweaks (graphTypeVisuals, glow, edges, etc.) survive reloads.
+        // Base: the server document (stored values plus the shipped defaults it is
+        // merged over). Overlay: this browser's persisted settings, so browser-only
+        // settings and values the server has never stored survive a reload.
         const merged = deepMergeSettings(
           essentialSettings as Record<string, unknown>,
           state.partialSettings as Record<string, unknown>,
         ) as import('./settingsTypes').DeepPartial<Settings>;
-
-        // For physics and tweening paths, server values are authoritative.
-        // localStorage may hold stale values that conflict with server-side
-        // tuning, so we overlay the server-fetched essential values back on top.
-        const essRec = essentialSettings as Record<string, unknown>;
         const mergedRec = merged as Record<string, unknown>;
+        const essRec = essentialSettings as Record<string, unknown>;
+
+        // A server bucket is one shared document for every viewer, so a value the
+        // server STORES wins over this browser's copy, which may predate another
+        // viewer's change. The exception is a change this browser made and could not
+        // save (settingsSyncStatus): that local value is the newer one.
+        for (const path of collectPathsFromSettings(state.partialSettings)) {
+          if (!storedOnServer.has(path) || !serverBucketForPath(path) || isUnsyncedPath(path)) continue;
+          const serverValue = getValueFromPathLocal(essRec, path);
+          if (serverValue !== undefined) setNestedValue(mergedRec, path, serverValue);
+        }
+
+        // Physics: the server document is authoritative as a whole (ADR-2140, shared layout).
         const essVis = essRec.visualisation as Record<string, unknown> | undefined;
         const mergedVis = mergedRec.visualisation as Record<string, unknown> | undefined;
         if (essVis && mergedVis) {
           const essGraphs = essVis.graphs as Record<string, Record<string, unknown>> | undefined;
           const mergedGraphs = mergedVis.graphs as Record<string, Record<string, unknown>> | undefined;
-          if (essGraphs?.knowledge?.tweening && mergedGraphs?.knowledge) {
-            mergedGraphs.knowledge.tweening = essGraphs.knowledge.tweening;
-          }
           if (essGraphs?.knowledge?.physics && mergedGraphs?.knowledge) {
             mergedGraphs.knowledge.physics = essGraphs.knowledge.physics;
-          }
-          // Node visibility and core visual settings are server-authoritative
-          // to prevent stale localStorage from hiding graph types or making
-          // nodes invisible for new sessions inheriting shared state.
-          if (essGraphs?.knowledge?.nodes && mergedGraphs?.knowledge) {
-            const essNodes = essGraphs.knowledge.nodes as Record<string, unknown>;
-            const mergedNodes = (mergedGraphs.knowledge.nodes || {}) as Record<string, unknown>;
-            // Server wins for: visibility toggles, opacity, size
-            if (essNodes.nodeTypeVisibility) mergedNodes.nodeTypeVisibility = essNodes.nodeTypeVisibility;
-            if (essNodes.opacity !== undefined) mergedNodes.opacity = essNodes.opacity;
-            if (essNodes.nodeSize !== undefined) mergedNodes.nodeSize = essNodes.nodeSize;
-            mergedGraphs.knowledge.nodes = mergedNodes;
           }
         }
         if (essRec.clientTweening !== undefined && essRec.clientTweening !== null) {
@@ -149,7 +147,14 @@ export const createCoreSlice: StateCreator<SettingsState, [], [], CoreSlice> = (
         return {
           partialSettings: merged,
           settings: merged,
-          loadedPaths: new Set([...state.loadedPaths, ...ESSENTIAL_PATHS]),
+          // Every path the server document carries is loaded: get() must return the
+          // server's value, not undefined (which made readers fall back to defaults
+          // until the user happened to open that menu group).
+          loadedPaths: new Set([
+            ...state.loadedPaths,
+            ...ESSENTIAL_PATHS,
+            ...collectPathsFromSettings(essentialSettings),
+          ]),
           initialized: true,
           authenticated: isAuthenticated,
           user: user ? { isPowerUser: user.isPowerUser, pubkey: user.pubkey } : null,

@@ -1,6 +1,8 @@
 import { createLogger } from '../utils/loggerConfig';
 import { settingsApi } from '../api/settingsApi';
 import { settingsRetryManager } from './settingsRetryManager';
+import { useSettingsSyncStatus, type UnsavedReason } from './settingsSyncStatus';
+import { serverBucketForPath } from '../api/settings/schemaMappings';
 
 interface BatchOperation {
   path: string;
@@ -27,6 +29,8 @@ export class AutoSaveManager {
         clearTimeout(this.saveDebounceTimer);
         this.saveDebounceTimer = null;
       }
+      // Pending changes stay in this browser only: say so rather than dropping them silently.
+      this.markUnsaved([...this.pendingChanges.keys()], 'sync-off');
       this.pendingChanges.clear();
     }
   }
@@ -46,45 +50,37 @@ export class AutoSaveManager {
   setInitialized(initialized: boolean) {
     logger.debug(`[SETTINGS-DIAG] autoSaveManager.setInitialized(${initialized})`);
     this.isInitialized = initialized;
+    // Changes made before the store finished loading were held, not dropped: send them now.
+    if (initialized && this._syncEnabled && this.pendingChanges.size > 0) this.scheduleFlush();
   }
 
+  /** Record changes the server does not have, so the user sees them and a reload keeps them. */
+  private markUnsaved(paths: string[], reason: UnsavedReason) {
+    const serverPaths = paths.filter((p) => serverBucketForPath(p) !== null);
+    if (serverPaths.length === 0) return;
+    useSettingsSyncStatus.getState().markUnsaved(serverPaths, reason);
+    logger.warn(`Settings not saved to the server (${reason}): ${serverPaths.join(', ')}`);
+  }
 
   queueChange(path: string, value: any) {
-    if (!this.isInitialized) {
-      logger.debug(`[SETTINGS-DIAG] autoSaveManager.queueChange DROPPED (not initialized): ${path}`, value);
-      return;
-    }
-    if (!this._syncEnabled) {
-      logger.debug(`[SETTINGS-DIAG] autoSaveManager.queueChange DROPPED (sync disabled): ${path}`, value);
-      return;
-    }
-    logger.debug(`[SETTINGS-DIAG] autoSaveManager.queueChange: ${path} =`, value);
-
-    if (this.isClientOnlyPath(path)) {
-      logger.debug(`Skipping client-only path: ${path}`);
-      return;
-    }
-
-    this.pendingChanges.set(path, value);
-    this.scheduleFlush();
+    this.queueChanges(new Map([[path, value]]));
   }
 
 
   queueChanges(changes: Map<string, any>) {
-    if (!this.isInitialized) {
-      logger.debug(`[SETTINGS-DIAG] autoSaveManager.queueChanges DROPPED (not initialized): ${changes.size} changes`, [...changes.keys()]);
+    const paths = [...changes.keys()].filter((path) => !this.isClientOnlyPath(path));
+    if (paths.length === 0) return;
+    if (!this._syncEnabled) {
+      this.markUnsaved(paths, 'sync-off');
       return;
     }
-    logger.debug(`[SETTINGS-DIAG] autoSaveManager.queueChanges: ${changes.size} changes`, [...changes.keys()]);
-
-    changes.forEach((value, path) => {
-      if (this.isClientOnlyPath(path)) {
-        logger.debug(`Skipping client-only path: ${path}`);
-        return;
-      }
-
-      this.pendingChanges.set(path, value);
-    });
+    for (const path of paths) this.pendingChanges.set(path, changes.get(path));
+    if (!this.isInitialized) {
+      // Held until setInitialized(true); flagged meanwhile.
+      this.markUnsaved(paths, 'not-ready');
+      return;
+    }
+    logger.debug(`[SETTINGS-DIAG] autoSaveManager.queueChanges: ${paths.length} changes`, paths);
     this.scheduleFlush();
   }
 
@@ -123,8 +119,9 @@ export class AutoSaveManager {
     try {
       await settingsApi.updateSettingsByPaths(updates);
       logger.debug(`[SETTINGS-DIAG] autoSaveManager.flush SUCCESS: ${updates.length} updates sent to server`);
+      useSettingsSyncStatus.getState().markSaved(updates.map((u) => u.path));
     } catch (error) {
-      logger.debug(`[SETTINGS-DIAG] autoSaveManager.flush FAILED:`, error);
+      this.markUnsaved(updates.map((u) => u.path), 'failed');
 
       // Delegate all failed updates to the centralized retry manager
       for (const { path, value } of updates) {
