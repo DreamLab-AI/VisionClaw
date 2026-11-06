@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 81e71126779b0b312b93ab459058ee8977233331
+verified_commit: 809a859aae9e3d96d4d6b99690378018e48e3ad8
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -397,3 +397,14 @@ Governed-path changes since the last stamp, all in `6b811f7a1`: `physics_orchest
 Re-run: `git diff 5c94c3cbd..81e711267 -- Cargo.toml src/actors crates/visionclaw-actors/src crates/visionclaw-integration-tests/tests/layer_direction.rs .github/workflows/ci.yml`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
 
 Governed-path change (server consolidation, 2026-11-06, `923feef34..b5200feb4`): this branch removed `ProtectedSettingsActor` from both `src/actors/` and `crates/visionclaw-actors/` (the duplicate the crate split left), `SetNodeSSSP` from both message modules, and the networking deps from `Cargo.toml`; `semantic_processor_actor.rs` reads an optional `last_modified`. The crate boundaries are unchanged. Not re-stamped: other governed paths changed before this branch and need their own re-verification. **Decision unaffected.**
+
+## Amendment — 2026-11-06 (re-verified at `809a859aa`)
+
+The Close-out's "Remains" item names two diverged copies, `protected_settings_actor.rs` and `voice_commands.rs`, and says the root `protected_settings_actor` is live in `src/app_state.rs`. That no longer holds. `7a0674e79` deleted `ProtectedSettingsActor` from both trees. The crate's top level is now `lib.rs`, `supervisor.rs`, `voice_commands.rs` and `messages/` (`crates/visionclaw-actors/src/lib.rs:17-19`). `src/actors/mod.rs` no longer declares the module. Only `voice_commands.rs` is still duplicated; its root copy is the live one (`speech_service`, `voice_tag_manager` and `speech_voice_integration` import `crate::actors::voice_commands`). `src/actors` has 25 `.rs` files at the top level, `mod.rs` included.
+
+Other governed changes since `81e711267`, all inside the root actor layer, none moving a crate boundary:
+- the visibility sweep (`client_coordinator_actor.rs`, `client_filter.rs`, the analytics supervisors and `pagerank_actor.rs`);
+- `UpdateClientFilter.server_remove` in the crate's message copy (`crates/visionclaw-actors/src/messages/client_messages.rs:87-89`);
+- the removal of `SetNodeSSSP` from both message modules and of the networking dependencies from `Cargo.toml`.
+
+No `crates/*/Cargo.toml` changed. **Decision and `partial` status hold.** The remaining extraction work is the actor move, reconciling `voice_commands.rs`, and build timing. Re-run: `git diff --stat 81e711267..809a859aa -- <verified_paths>`. I checked this by reading that diff; `layer_direction` was not re-run for this stamp.

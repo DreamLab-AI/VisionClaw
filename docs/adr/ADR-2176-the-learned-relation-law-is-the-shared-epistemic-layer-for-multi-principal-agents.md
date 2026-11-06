@@ -7,7 +7,7 @@ implementation_status: none
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 309c03ae2cd51ee49fc06e98f116b4dfad47c0a3
+verified_commit: 809a859aae9e3d96d4d6b99690378018e48e3ad8
 relates: [ADR-2174, ADR-2139, ADR-2157, ADR-2160, ADR-2170, ADR-2022, ADR-2115]
 verified_paths: [crates/relational-field/Cargo.toml, crates/relational-field/PREREGISTRATION.md, crates/relational-field/PREREGISTRATION-D2.md, src/services/semantic_type_registry.rs, crates/visionclaw-domain/src/utils/visibility_filter.rs, src/handlers/api_handler/graph/mod.rs, docs/DATA-authority-erasure.md]
 owner: jjohare
@@ -66,3 +66,11 @@ Without M1 and M2 the work remains a well-tested library; with all four it is th
 - **Build disclosure accounting into the agent layer directly, without the physical law.** Possible, but it loses the closed-form account of what a release reveals, which comes from the Gaussian reading of the spring energy.
 
 Governed-path change (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `docs/DATA-authority-erasure.md` gains the graph-share ownership row and retention note. Not re-stamped: other governed paths changed before this branch. **Decision unaffected.**
+
+## Amendment — 2026-11-06 (re-verified at `809a859aa`)
+
+Two statements here no longer hold at `809a859aa`: the Context fact "the REST graph read (`src/handlers/api_handler/graph/mod.rs`) returns every node" (true at `309c03ae2`, as stamped) and the Consequences line "today's REST read returns private nodes to any caller". `GET /api/graph/data` takes the caller as `OptionalAuth` (`src/handlers/api_handler/graph/mod.rs:218-221`), and `graph_data_projection` applies the same `visible_subgraph` gate the `/wss` load uses before any other filter (`:304-318`; `crates/visionclaw-domain/src/utils/visibility_filter.rs:171`). The paginated read and refresh take the caller as well (`graph/mod.rs:381-384`, `:486`). Owner-based visibility is therefore no longer WebSocket-only (`dc7fd3858`, `ab05ee9d6`, `5d1d841a1`).
+
+Only M2's "every read path, REST included, filters server-side" clause has progressed, and only on the handlers named above; this note does not claim every read path. The rest of M2 is still open: outside test fixtures, nothing writes node `owner_pubkey` at creation, edges carry no owner, and highlights and settings are not session-scoped. `docs/DATA-authority-erasure.md` gained the graph-share store row in the same range; no claim of this record rests on it. M1, M3, M4 and I1–I5 are unchanged. **Decision unaffected.**
+
+Re-run: `git diff 309c03ae2..809a859aa -- <verified_paths>`. I checked this by reading that diff and the handlers cited; no tests were re-run for this stamp.

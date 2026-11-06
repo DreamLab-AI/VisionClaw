@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: c7c78c88d6fbeaa91d873dc80e20d8ed163faffb
+verified_commit: 809a859aae9e3d96d4d6b99690378018e48e3ad8
 verified_paths: [client/src/features/control-center/registry/placement.ts, client/src/features/control-center/registry/manifest.ts, client/src/features/control-center/registry/ia.json, xr-client/data/ia.json, client/src/store/settings/retiredPaths.ts, client/src/features/control-center/state/settingWrites.ts, client/src/features/control-center/integrationSlots.ts, client/src/features/control-center/drawer/RightDrawer.tsx, client/src/features/control-center/hooks/useExclusiveSidePanels.ts, client/src/features/control-center/macros/MacroBar.tsx]
 relates: [ADR-2179, ADR-2180, ADR-2181, ADR-2182, ADR-2183, ADR-2184, ADR-2185, ADR-2186, ADR-2187, ADR-2188]
 owner: jjohare
@@ -15,12 +15,12 @@ review_trigger: "The render and explore lanes land the ADR-2180..2186 settings; 
 repo: visionclaw
 domain: XR-client
 evidence_class: source+test
-acceptance_boundary: "Accepted on operator instruction on 2026-11-06. Desktop implemented and verified by tsc, the full Vitest suite (189 files, 1801 tests), vite build, narrow cargo tests for the three removed server fields, and elementsFromPoint probes of a worktree dev build at 1280x900 and 1024x768 (0 occluded or off-screen controls, against 7 and 12 before; 0 of 31 at 1024x768 with a section open; 0 with the memory cloud on across the explore, memory and node drawer tabs at both sizes). The XR HUD is not built. Every server bucket is stored under a constant key, so server-saved settings reach every viewer; the UI says so. The render and explore lanes are merged and wired (requestFit, OverviewEdgeNotice, ExplorePanel, GraphLegend, clearAllFilters, useActiveFilterCount, hideFiltered)."
+acceptance_boundary: "Accepted on operator instruction on 2026-11-06. Desktop implemented and verified by tsc, the full Vitest suite (189 files, 1801 tests), vite build, narrow cargo tests for the three removed server fields, and elementsFromPoint probes of a worktree dev build at 1280x900 and 1024x768 (0 occluded or off-screen controls, against 7 and 12 before; 0 of 31 at 1024x768 with a section open; 0 with the memory cloud on across the explore, memory and node drawer tabs at both sizes). The XR HUD is built and reads xr-client/data/ia.json (corrected 2026-11-06, see the 2026-11-06 amendment). Every server bucket is stored under a constant key, so server-saved settings reach every viewer; the UI says so. The render and explore lanes are merged and wired (requestFit, OverviewEdgeNotice, ExplorePanel, GraphLegend, clearAllFilters, useActiveFilterCount, hideFiltered)."
 ---
 
 # ADR-2189 — Desktop and XR menus share one seven-section information architecture
 
-> Accepted 2026-11-06 on operator instruction. Desktop implemented at `b018ca0f3`; the XR HUD is not built. See *Implementation (2026-11-06)* at the end.
+> Accepted 2026-11-06 on operator instruction. Desktop implemented at `b018ca0f3`. The XR HUD is built and reads `xr-client/data/ia.json` (corrected 2026-11-06; an earlier version of this line said it was not built). See *Implementation (2026-11-06)* and *Amendment — 2026-11-06 (settings-integrity merge)* at the end.
 
 ## Context
 - The desktop has 11 registry groups (268 fields). On top of those sit a dock with 5 macro dials, 11 group icons, 4 chips, a command palette, a keyword CommandInput, and a Memory explorer panel. The audit (`docs/audits/menus-2026-11-06.md`) found four structural problems:
@@ -311,7 +311,7 @@ Desktop built on `feat/gv-menus` (rebased onto the integration branch; final wir
 - `graphView.overviewEdges.*` (width, fade, minimum opacity, glass up close) sit in Look › Edges, not Encode › Edges: they set how edges render, not what they mean. Encode › Edges keeps the edge colours.
 
 **Not built yet**
-- The XR HUD reading `ia.json`, its GUT parity test, and persisting the XR view preferences.
+- ~~The XR HUD reading `ia.json`, its GUT parity test, and persisting the XR view preferences.~~ Built; see *Amendment — 2026-11-06 (settings-integrity merge)*.
 - §5 filter behaviour: built by gv-explore. Filters grey out by default, and Explore › Filters › "Hide filtered nodes" (`graphView.explore.hideFiltered`) removes them instead. The older server-side node filter stays, labelled "Filter on server (hides nodes for every viewer)".
 - §4 warnings region: the voice-support warning became a dot on the Status chip and a note in its flyout, not a top-centre overlay (at 1024 px a top-centre warning covered the settings panel header). Toasts are transient and sit at the top centre.
 
@@ -355,3 +355,30 @@ Desktop built on `feat/gv-menus` (rebased onto the integration branch; final wir
 - Live probe: at 800x700, each of four open sequences showed one surface at a time, with 0 controls covered. At 1024x768, both stayed open side by side (0 of 57 covered). Dragging the panel to 700 px hid the drawer (0 of 54 covered).
 - The probe also found that the DOM width lags the store during a drag, which first left the drawer over "Close settings". Widths now come from the store.
 
+
+## Amendment — 2026-11-06 (settings-integrity merge; re-verified at `809a859aa`)
+
+**The XR side is built.** Earlier text in this record said the XR HUD was not built, and that is wrong. The acceptance boundary, the status line and the "Not built yet" list are corrected to point here.
+- `xr-client/scripts/hud_ia.gd` reads `res://data/ia.json` (`:19`, `load_doc` `:88`). It falls back to a built-in seven-section list when the file is missing or malformed (`:24-35`).
+- `hud.gd` preloads it (`:271`) and builds the tab bar and per-section rails from it (`:510`, `:1922-1961`).
+- The GUT parity tests are in `xr-client/tests/unit/test_hud_ia.gd`: the committed document parses as the seven sections (`:29`), the fallback matches it (`:38`), and every XR subsection is the desktop's or listed as headset-only (`:68`).
+- The XR view preferences persist in `user://xr_prefs.cfg` (`xr_prefs.gd:17`, `:83-98`; `75c94eeda`).
+- The two `ia.json` copies are byte-identical (same SHA-256).
+
+**Edges moved from Encode to Look (`2bd1cbc1b`).**
+- Encode's subsections are now `Colour & size`, `Labels`, `Emphasis` and `Analytic overlays` (`client/src/features/control-center/registry/placement.ts:44-48`). `look|Edges` and `look|Graph-Type Visuals` map to `['look', 'Edges']` (`:123-126`).
+- Look › Edges holds edge width, the three per-mode edge colours, the overview-edge controls, and Edge Opacity, which `PATH_BEFORE` places directly before the long-edge fade floor (`placement.ts:199-201`).
+- The *Implementation* note's sentence "Encode › Edges keeps the edge colours" and the §-tables that put edges in Encode are superseded by this placement.
+- XR mirrors it: Encode's page groups are `Colour & size` and `Labels`, and Edges is a group of the Look page (`hud_ia.gd:51-53`, `:60-62`).
+
+**Retired in the same merge** (`client/src/store/settings/retiredPaths.ts`):
+- Dead paths (`:25-28`): `graphs.knowledge.nodes.opacity` (no renderer reads it), `qualityGates.ruvectorEnabled`, `auth.enabled` and `auth.required`.
+- Replaced paths (`:83-87`): `visualisation.bloom.{enabled,intensity,strength,threshold,radius}`. The legacy bloom group defaulted on and overrode the Emphasis glow controls, so `visualisation.glow.*` is now the only glow source.
+- Neither `bloom.*` nor `nodes.opacity` appears in either `ia.json`.
+- Removed paths now total 53 (41 dead, 9 replaced, 3 merged; `ADR_2189_REMOVED_PATHS`, `:116`), against 44 before.
+
+**Scope (`7800b213f`).** `maxEdgesCeiling`, `softwareFallback` and `labelLayoutEvery` tune one machine's GPU and CPU, so they have no server bucket. They are scoped "This browser only" and stay in System › Performance. The agent colours stay shared.
+
+**Unchanged.** `visualisation.graphView.explore.hideFiltered` sits in Explore › Filters (`placement.ts:191`), as recorded above. The seven sections, their hotkeys and the generated-from-registry rule (the Decision) hold.
+
+Re-run: `git diff c7c78c88d..809a859aa -- <verified_paths>`. I checked this by reading that diff and the XR scripts cited; Vitest and GUT were not re-run for this stamp.

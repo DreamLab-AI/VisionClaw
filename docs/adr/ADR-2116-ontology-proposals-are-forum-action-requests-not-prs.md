@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
+verified_commit: 809a859aae9e3d96d4d6b99690378018e48e3ad8
 verified_paths: [src/handlers/ontology_agent_handler.rs, tests/rec1_route_guard.rs, crates/vault/src/main.rs, crates/vault/src/propose.rs]
 owner: jjohare
 review_trigger: "the first caller reported still POSTing to /api/ontology-agent/propose; any change to the 410 body, or any new HTTP ontology write route"
@@ -92,3 +92,11 @@ Governed-path change since the last stamp: `crates/vault/src/propose.rs` (`6b811
 Re-run: `git diff 974daf5d2..81e711267 -- src/handlers/ontology_agent_handler.rs tests/rec1_route_guard.rs crates/vault/src/main.rs crates/vault/src/propose.rs`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
 
 Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `crates/vault/src/propose.rs` names the `RESOURCE_IMMUTABLE` blocker through the `vault_core::promotion::RESOURCE_IMMUTABLE` constant; the emitted code is byte-identical. The forum-request model is untouched. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.
+
+## Implementation note — 2026-11-06 (re-verified at `809a859aa`)
+
+- **Route count.** Decision 3's "five surviving read routes" was already wrong at `b5200feb4`. The scope has six read POSTs (`/discover`, `/read`, `/query`, `/traverse`, `/validate`, `/check`) plus `GET /status` (`src/handlers/ontology_agent_handler.rs:472-478`). The decision itself is unaffected.
+- **Read routes are caller-scoped (`3d1539ef7`).** Each read handler now takes `OptionalAuth` and resolves `caller_hidden_classes`. A class hidden from the caller is answered as one never stored. The routes still carry no auth or rate-limit middleware (`:470-482`), so decision 2 still holds: they are anonymous and read-only, and only the answer depends on who asks.
+- **`/propose` is unchanged.** It still answers 410 Gone with `route_retired` (`:301-303`, route `:482`), and `ontology_propose` is still absent from the status list (`:445`).
+
+**Decision unaffected.** Re-run: `git diff b5200feb4..809a859aa -- <verified_paths>`. I checked this by reading that diff; `rec1_route_guard` was not re-run for this stamp.
