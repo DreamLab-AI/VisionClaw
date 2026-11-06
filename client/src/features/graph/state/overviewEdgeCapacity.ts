@@ -6,7 +6,7 @@
  * number as a string, so any numeric string is accepted; anything else is 'auto'.
  */
 export interface OverviewEdgeCapacity {
-  /** Buffer size to allocate (a power of two, at least 1). */
+  /** Buffer size to allocate: a power of two for 'auto' (at least 1); otherwise the budget, capped at that power of two. */
   capacity: number;
   /** Edges actually drawn: min(edgeCount, capacity). */
   drawn: number;
