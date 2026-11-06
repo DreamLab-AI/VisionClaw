@@ -161,3 +161,39 @@ export function selectDrawnEdges(weights: ArrayLike<number>, count: number, capa
   chosen.sort();
   return chosen;
 }
+
+/** A screen region's edge load for the overdraw model. */
+export interface EdgeOverdrawScene {
+  edgeCount: number;
+  /** Screen area the edges fall in, px². */
+  areaPx: number;
+  /** Mean on-screen edge length, px. */
+  meanLengthPx: number;
+  /** Mean edge width, px (the shader's feathered quad covers `width` px across on average). */
+  widthPx: number;
+}
+
+/**
+ * Expected fraction of the background hidden by `edgeCount` alpha-blended
+ * edges spread evenly over `areaPx`: each pixel sees on average
+ * k = edgeCount·meanLength·width / area layers, so 1 − (1 − alpha)^k ≈
+ * 1 − exp(−k·alpha). A planning model for ADR-2181 D2/D4, not a renderer
+ * path: it says at what density a given alpha turns the edges into a slab.
+ */
+export function edgeOverdrawCoverage(s: EdgeOverdrawScene & { alpha: number }): number {
+  if (!(s.areaPx > 0)) return 0;
+  const exposure = (s.edgeCount * s.meanLengthPx * s.widthPx * s.alpha) / s.areaPx;
+  return exposure > 0 ? 1 - Math.exp(-exposure) : 0;
+}
+
+/** Largest per-edge alpha that keeps `edgeOverdrawCoverage` at or below `coverage` (0..1). */
+export function maxEdgeAlphaForCoverage(coverage: number, s: EdgeOverdrawScene): number {
+  const load = s.edgeCount * s.meanLengthPx * s.widthPx;
+  return load > 0 ? (-Math.log(1 - coverage) * s.areaPx) / load : Infinity;
+}
+
+/** Most edges at `alpha` that keep `edgeOverdrawCoverage` at or below `coverage` (0..1). */
+export function maxEdgesForCoverage(coverage: number, s: Omit<EdgeOverdrawScene, 'edgeCount'> & { alpha: number }): number {
+  const perEdge = s.meanLengthPx * s.widthPx * s.alpha;
+  return perEdge > 0 ? (-Math.log(1 - coverage) * s.areaPx) / perEdge : Infinity;
+}
