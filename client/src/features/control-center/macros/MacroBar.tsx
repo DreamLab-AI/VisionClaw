@@ -258,8 +258,10 @@ const LegendToggle: React.FC = () => {
 /** Explore (ADR-2185): opens the explore panel; the badge counts active filters. */
 const ExploreButton: React.FC = () => {
   const count = useActiveFilterCount();
-  const open = useControlCenterUI((s) => s.explorePanelOpen);
-  const setOpen = useControlCenterUI((s) => s.setExplorePanelOpen);
+  const open = useControlCenterUI((s) => s.drawerTab === 'explore');
+  const openDrawer = useControlCenterUI((s) => s.openDrawer);
+  const closeDrawer = useControlCenterUI((s) => s.closeDrawer);
+  const setOpen = (next: boolean) => (next ? openDrawer('explore') : closeDrawer());
   // "Explore panel", not "Explore": section 2 is also called Explore (its settings).
   const label = count > 0 ? `Explore panel: search and filter (${count} active filter${count === 1 ? '' : 's'})` : 'Explore panel: search and filter';
   return (

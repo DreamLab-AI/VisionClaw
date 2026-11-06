@@ -72,14 +72,14 @@ export function useControlCenterHotkeys(): void {
           ui.closePanel();
           return;
         }
-        // Then the explore drawer (same rule: an open popper or dialog owns Escape).
+        // Then the right-hand drawer (same rule: an open popper or dialog owns Escape).
         if (
-          ui.explorePanelOpen &&
+          ui.drawerTab !== null &&
           !(typeof document !== 'undefined' &&
             document.querySelector('[data-radix-popper-content-wrapper], [role="listbox"], [role="dialog"][data-state="open"]'))
         ) {
           e.preventDefault();
-          ui.setExplorePanelOpen(false);
+          ui.closeDrawer();
         }
         return;
       }
@@ -98,7 +98,7 @@ export function useControlCenterHotkeys(): void {
       // / → open the explore panel and focus its search.
       if (e.key === '/') {
         e.preventDefault();
-        ui.setExplorePanelOpen(true);
+        ui.openDrawer('explore');
         focusExploreSearch();
         return;
       }
