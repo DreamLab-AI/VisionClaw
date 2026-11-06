@@ -158,7 +158,7 @@ Rules for the seven sections:
 ### 5. Filters follow ADR-2183
 - **Explore › Filters** (`nodeFilter.*`) and all ADR-2185 widgets write the highlight mask by default.
 - A single "Hide filtered nodes" switch keeps today's server-side removal for users who want it.
-- **Layers › Populations** (`nodeTypeVisibility.*`, XR `set_type_visible`) stays as scoping, which is the ADR-2179 P3 exception for population scoping.
+- **Layers › Populations** (`nodeTypeVisibility.*`, XR `set_type_visible`) stays as scoping, which is the ADR-2179 P3 exception for population scoping. On the XR HUD the type toggle (Knowledge / Ontology / Agents) is in Layers › Populations; it hides nodes, with the hint "Show / hide" (`hud.gd:641-653`). It is not an Explore › Filters grey-out control.
 
 ### 6. Delete, merge and rename
 
@@ -342,4 +342,8 @@ Desktop built on `feat/gv-menus` (rebased onto the integration branch; final wir
   - `showClusters` defaulted to on, which alone kept analytics ingestion running. The ingestion gate in `nodeAnalyticsStore.ts` now names the real consumers (the ADR-2186 label budget and ADR-2184 explore columns), with a test.
   - The renderer reads to delete went to gv-render as file:line lists: GemNodes.tsx:707-708 and :950, ClusterHulls.tsx:222-226, GraphManager.tsx:713-719 (agent branch), GlassEdges.tsx:349/389/396/415/449/459, GlassEdgeMaterial.ts:127.
   - gv-render removed those reads in `f6ab77deb`. The retired fields then left the client types and the eager-load path list (`84a4744ef`).
+
+**XR placements recorded (corrects a phase-2 coordination note)**
+- The HUD type toggle sits in **Layers › Populations**: population scoping that hides nodes (§5), with the hint "Show / hide". An earlier lane message placed it in Explore › Filters as "Show / grey out"; that was wrong, and this record supersedes it.
+- The HUD's "Edges N of M drawn" badge (`EdgeBadge`, `hud.gd:466`) is a status readout in the HUD header, not a setting, so it has no section. Its desktop counterpart is `OverviewEdgeNotice`.
 
