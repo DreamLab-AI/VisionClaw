@@ -78,7 +78,9 @@
         "filterByAuthority": false,
         "filterMode": "or",
         "includeLinkedPages": false,
-        "serverRemove": false
+        "serverRemove": false,
+        "minConnections": 0,
+        "minMaturity": "off"
       },
       "greyed": []
     },

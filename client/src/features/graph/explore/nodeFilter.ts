@@ -63,6 +63,8 @@ export const NODE_FILTER_DEFAULTS = Object.freeze({
   filterByAuthority: false,
   filterMode: 'or' as const,
   includeLinkedPages: false,
+  minConnections: 0,
+  minMaturity: 'off' as string,
 });
 
 const toScore = (v: unknown): number | undefined => {
