@@ -1,7 +1,7 @@
 ---
 title: VisionClaw Current Architecture Baseline
 doc_id: VC-BASELINE
-version: 0.4.1
+version: 0.4.2
 status: draft-for-ratification
 verified_commit: 
 date: 2026-08-31
@@ -21,6 +21,7 @@ sources:
   - crates/visionclaw-protocol/src/protocols/binary_settings_protocol.rs
   - src/utils/binary_protocol.rs
 changelog:
+  - "0.4.2 (2026-11-05): ADR-2179 to ADR-2187 (proposed, not built): desktop graph-view upgrade suite note under XR + React clients (overview-first contract, knowledge-body fit, screen-space edges, sprite nodes, highlight mask, client-side node table, crossfilter widgets, label budget, cosmos.gl reference spike). No invariant changed."
   - "0.4.1 (2026-11-01): ADR-2170 (proposed, not built): Gaussian splat rendering note under XR + React clients. No invariant changed."
   - "0.4.0 (2026-10-18): ADR-2143 A4/A5: Codescape served as its own compose service behind the dev nginx at /codescape/ on 3001; the frozen wire record extracted to crates/visionclaw-wire (re-exported by visionclaw-protocol); Codescape's only estate dependency is that crate and its CUDA PTX is a runtime artefact. Minor bump: subsystem paragraph and crate census updated; the one Codescape invariant is unchanged in kind"
   - "0.3.0 (2026-10-17): ADR-2143: Codescape section (separate workspace and lock, ports 4100/4101, tested build-graph isolation) and one invariant; citation refresh in Processes and ports (compose :8/:26,215/:48-49/:70-71/:204/:304, HttpServer::new at main.rs:959). Minor bump: new subsystem and one additive invariant; no existing invariant changed"
@@ -286,6 +287,37 @@ owning ADR (the Protocol Registry becomes its owner).
   - **Shared rules:** both serve offline-converted SPZ LOD variants from a
     content-addressed cache. A splat scene is a scene-level volume or environment,
     never per-node geometry.
+- **Desktop graph-view upgrade (proposed, ADR-2179 to ADR-2187, not built).**
+  ADR-2179 holds the desktop knowledge view to four properties:
+  - a legible overview at the default fit;
+  - edges carry the structure;
+  - interactive filters grey out rather than remove;
+  - no silent render-side truncation.
+
+  Today's gaps against those properties, observed live on 2026-11-05:
+  - the all-bodies camera fit (ADR-2135, `sceneFitBounds.ts:57-74`) shrinks the
+    knowledge graph to a few dozen pixels when the memory cloud is on;
+  - world-space glass-tube edges are sub-pixel at fit and capped at 65,536
+    (`GlassEdges.tsx:39-40`) against a live 147,048;
+  - `useGraphFiltering.ts:116` removes nodes from the render set;
+  - colour has no column binding and there is no legend;
+  - WebGPU labels fall back to DOM (`InstancedLabels.tsx:302-304`).
+
+  Each record decides one fix:
+  - ADR-2180: knowledge-body fit;
+  - ADR-2181: screen-space, length-faded edges with data-sized capacity;
+  - ADR-2182: sprite nodes with gems as close-zoom detail and glow for emphasis;
+  - ADR-2183: a per-node highlight mask;
+  - ADR-2184: a client-side Arrow node table built from the existing graph load
+    (no new read path) driving colour, size and legend;
+  - ADR-2185: linked timeline, histogram, category and search widgets over it;
+  - ADR-2186: a priority-ranked label budget on one drawing path;
+  - ADR-2187: a time-boxed cosmos.gl (MIT) 2D reference route. The CC BY-NC
+    Cosmograph library is excluded.
+
+  WebGPU has no sized point or line primitives, so sprites and wide lines are
+  instanced quads (three `PointsNodeMaterial` on `Sprite`, `Line2NodeMaterial`).
+  Performance claims use ADR-2171's GPU-timestamp receipt.
 
 ### Trust boundaries
 

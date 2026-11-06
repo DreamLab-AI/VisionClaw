@@ -1,10 +1,11 @@
 ---
 title: Protocol Registry — Wire Frames, Endpoints & Version Policy
 doc_id: VC-PROTOCOL
-version: 0.1.14
+version: 0.1.15
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.15 (2026-11-05): PROPOSED only, nothing implemented. ADR-2184 adds a Proposed subsection: the desktop node table is built client-side from the existing graph load and the live V3/V5 analytics fields, with no new endpoint or read path; any column it needs is a new key in the existing node object (ADR-2164 precedent). No tag, frame or endpoint change."
   - "0.1.14 (2026-11-01): ADR-2169 — /wss node hold and pin text frames: nodeDragStart/Update/End are holds owned by the connection (the released node rejoins the simulation; two holds per connection; last write wins across connections), new nodePin frame with nodePinAck, nodeUnpin unchanged; drag timeout 2 s; no binary frame change"
   - "0.1.13 (2026-10-30): PROPOSED only, nothing implemented. ADR-2157 and ADR-2161 add a Proposed section: presence text-frame table (room_meta, room_kicked) a pointer for Nostr kinds, and the initial-load `urn` field with the server-side federated-read connection mode (audit round 2: `rev`/`proj` tag conventions, D = 90 s kick bound, selector ∩ visibility ∩ acl). No binary opcode is allocated. Current-state tables and Invariants untouched. Drafted against e74bcddc7."
   - "0.1.12 (2026-10-19): ADR-2133 re-verified at b4a175412 — the /api/memory-cloud rows now state that every endpoint, health included, is PowerUser in the handler (the health row wrongly said the central read policy), that VISIONCLAW_DEV_MODE admits every caller as a power user in debug/dev-auth builds only, and that rows past metadata.expires_at are hidden from counts, samples, searches and the recall probe (estate ER-11); citation refresh to memory_cloud_handler.rs:65"
@@ -376,6 +377,16 @@ This registry tabulates binary tags, not Nostr kinds. Kinds used by the estate a
 - The client keeps one connection per (source node, dataspace), and `id`-to-`urn` tables keyed by (node key, dataspace, stream generation). A link is drawn only if the viewer is authorised for both ends; otherwise nothing is drawn.
 - The data-space catalogue (NIP-78 30078) is replaceable and carries `["rev"]`; beyond the contract fields (`d`, `rev`, `endpoint` or withdrawal `status`, id, pubkey, signature), a public entry's descriptive metadata is only the space id and `acl` kind. `space:` takes the exact registered room-URN form, `space:<nip29-room-urn>`, resolved through ADR-2157's registry. The node-to-node control envelopes are exactly `dataspace_announce`, `link_notice` and `retraction`; the catalogue is the separately signed 30078 event that `dataspace_announce` references.
 - `/v1/uri` 410 emission for erased subjects is a prerequisite and is not wired today.
+
+### Desktop node table: no new read path (ADR-2184, proposed)
+
+- **Sources.** The desktop explore layer (ADR-2184, ADR-2185) builds its Apache Arrow node table in the client, from two things clients already receive:
+  - the `/api/graph/data` / `initialGraphLoad` node objects;
+  - the analytics fields of the live `0x03`/`0x05` stream, joined by wire id.
+- **No new endpoint.** **No new endpoint, tag or frame is added.** The table therefore exposes nothing beyond what the client already receives.
+- **Open item (precondition of ADR-2184).** `/wss` `initialGraphLoad` applies the `PUBKEY_VISIBILITY_FILTER` drop-set (`src/handlers/socket_flow_handler/position_updates.rs:64-72`). No visibility gate was found in the REST `/api/graph/data` handler (`src/handlers/api_handler/graph/mod.rs:217-312`), which filters by population and linked-page only. Whether private nodes reach it is untested.
+- **The rejected alternative.** A dedicated `/api/graph/table` Arrow endpoint was considered and rejected. It would be a second read path that must re-apply every gate.
+- **Adding columns.** A column the table needs that the load does not carry (for example a page's `last_commit`) is added as a **new key in the existing node object**, following the `ontology_refs` precedent (ADR-2164 D3), and is listed here when it lands.
 
 ## Invariants (must not silently change)
 
