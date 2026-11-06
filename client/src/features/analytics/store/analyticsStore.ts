@@ -75,6 +75,24 @@ interface AnalyticsState {
 }
 
 // Hash function for graph structure (safe for non-Latin1 characters)
+/**
+ * Normalise the server SSSP `distances` field to a node id → finite distance map.
+ * Accepts the whole-graph array (index = node id; unreachable is null or
+ * non-finite) and the gated id-keyed object (unreachable nodes are absent).
+ */
+export function toDistanceMap(raw: unknown): Map<string, number> {
+  const out = new Map<string, number>()
+  const entries: Array<[string, unknown]> = Array.isArray(raw)
+    ? raw.map((d, i) => [String(i), d])
+    : raw && typeof raw === 'object'
+      ? Object.entries(raw as Record<string, unknown>)
+      : []
+  for (const [id, d] of entries) {
+    if (typeof d === 'number' && Number.isFinite(d) && d < 3.0e38) out.set(id, d)
+  }
+  return out
+}
+
 function hashGraph(nodes: GraphNode[], edges: GraphEdge[]): string {
   const nodeIds = nodes.map(n => n.id).sort().join(',')
   const edgeIds = edges.map(e => `${e.source}-${e.target}-${e.weight || 1}`).sort().join(',')
@@ -325,25 +343,31 @@ export const useAnalyticsStore = create<AnalyticsState>()(
 
           
           try {
-            const response = await unifiedApiClient.post('/api/analytics/shortest-path', {
-              source_node_id: parseInt(sourceNodeId), 
+            // POST /api/analytics/pathfinding/sssp (the old /api/analytics/shortest-path
+            // route was removed server-side). The reply's `result.distances` is a
+            // position-indexed array for a caller who sees the whole graph, or an
+            // object keyed by visible node id for a gated caller (PROTOCOL 0.1.17).
+            const response = await unifiedApiClient.post('/api/analytics/pathfinding/sssp', {
+              sourceIdx: parseInt(sourceNodeId),
             })
 
-            const data = response.data
+            const body = response.data
+            const sssp = body?.data ?? body
 
-            if (!data.success) {
-              throw new Error(data.error || 'SSSP computation failed on server')
+            if (!body?.success || !sssp?.success || !sssp.result) {
+              throw new Error(sssp?.error || body?.error || 'SSSP computation failed on server')
             }
 
-            
             const distances: Record<string, number> = {}
             const predecessors: Record<string, string | null> = {}
+            const reported = toDistanceMap(sssp.result.distances)
 
-            for (const [nodeId, distance] of Object.entries(data.distances || {})) {
-              distances[nodeId] = distance === null ? Infinity : distance as number
-              
-              predecessors[nodeId] = null
+            for (const node of nodes) {
+              const distance = reported.get(String(node.id))
+              distances[node.id] = distance ?? Infinity
+              predecessors[node.id] = null
             }
+            const unreachableCount = Object.values(distances).filter(d => !Number.isFinite(d)).length
 
             const computationTime = performance.now() - startTime
 
@@ -351,7 +375,7 @@ export const useAnalyticsStore = create<AnalyticsState>()(
               sourceNodeId,
               distances,
               predecessors,
-              unreachableCount: data.unreachable_count || 0,
+              unreachableCount,
               algorithm,
               computationTime,
               timestamp: Date.now()

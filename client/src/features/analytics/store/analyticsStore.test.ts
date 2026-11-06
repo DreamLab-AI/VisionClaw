@@ -1,6 +1,6 @@
 // @ts-ignore - vitest types may not be available in all environments
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { useAnalyticsStore } from './analyticsStore'
+import { toDistanceMap, useAnalyticsStore } from './analyticsStore'
 import type { GraphNode, GraphEdge } from '../../graph/types/graphTypes'
 
 // Mock the logger and debug utilities
@@ -359,5 +359,39 @@ describe('AnalyticsStore', () => {
       expect(state.loading).toBe(false)
       expect(state.error).toBeTruthy()
     })
+  })
+})
+describe('server SSSP route (POST /api/analytics/pathfinding/sssp)', () => {
+  const numericNodes: GraphNode[] = [0, 1, 2, 3].map(i => ({
+    id: String(i), label: `N${i}`, position: { x: i, y: 0, z: 0 }
+  }))
+  const numericEdges: GraphEdge[] = [
+    { id: 'e01', source: '0', target: '1', weight: 1 },
+    { id: 'e12', source: '1', target: '2', weight: 1 }
+  ]
+
+  beforeEach(() => {
+    useAnalyticsStore.setState({ currentResult: null, cache: {}, loading: false, error: null, lastGraphHash: null })
+  })
+
+  it('normalises the whole-graph array and the gated id-keyed object', () => {
+    expect([...toDistanceMap([0, 1.5, null, 3.4028235e38]).entries()]).toEqual([['0', 0], ['1', 1.5]])
+    expect([...toDistanceMap({ 0: 0, 2: 2 }).entries()]).toEqual([['0', 0], ['2', 2]])
+    expect(toDistanceMap(undefined).size).toBe(0)
+  })
+
+  it('posts sourceIdx to the pathfinding route and reads result.distances', async () => {
+    const { unifiedApiClient } = await import('../../../services/api')
+    const post = vi.mocked(unifiedApiClient.post)
+    post.mockResolvedValueOnce({
+      data: { success: true, data: { success: true, result: { distances: { 0: 0, 1: 1 } }, error: null } }
+    } as never)
+
+    const result = await useAnalyticsStore.getState().computeSSSP(numericNodes, numericEdges, '0')
+
+    expect(post).toHaveBeenCalledWith('/api/analytics/pathfinding/sssp', { sourceIdx: 0 })
+    expect(result.distances['1']).toBe(1)
+    expect(result.distances['3']).toBe(Infinity)
+    expect(result.unreachableCount).toBe(2)
   })
 })
