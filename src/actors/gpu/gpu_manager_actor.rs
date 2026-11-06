@@ -726,37 +726,6 @@ impl Handler<SetPhysicsSettingsSource> for GPUManagerActor {
     }
 }
 
-/// ADR-2053 (landed by vc-core, 2026-09-05): the shared SSSP map, routed to
-/// `GraphAnalyticsSupervisor` so it reaches the *supervised* `ShortestPathActor`
-/// — the one that actually receives a `SharedGPUContext`.
-///
-/// `AppState` holds only this actor's address, not the supervisor's, so without
-/// this hop the map could not reach the supervised child at all. The supervisor's
-/// own forward (`graph_analytics_supervisor.rs:359`) spawns its children first if
-/// the map arrives early and logs loudly rather than dropping silently, because a
-/// lost map means wire slot 28 stops publishing per-node SSSP distances
-/// (ADR-031 D2b) with no other symptom.
-///
-/// `do_send` is deliberate: this is fire-and-forget configuration sent once
-/// during `AppState::new`, and boot must not block on a supervisor mailbox.
-impl Handler<SetNodeSSSP> for GPUManagerActor {
-    type Result = ();
-
-    fn handle(&mut self, msg: SetNodeSSSP, ctx: &mut Self::Context) {
-        match self.get_supervisors(ctx) {
-            Ok(supervisors) => {
-                supervisors.graph_analytics.do_send(msg);
-                info!("GPUManagerActor: forwarded SetNodeSSSP to GraphAnalyticsSupervisor");
-            }
-            Err(e) => error!(
-                "GPUManagerActor: SetNodeSSSP dropped — supervisors unavailable ({}) — \
-                 wire slot 28 will not publish per-node SSSP distances",
-                e
-            ),
-        }
-    }
-}
-
 /// ADR-2053: the message set the `/api/analytics/*` pathfinding routes actually
 /// send, routed to the supervised children. Each mirrors the existing
 /// `ComputeShortestPaths` forward below.

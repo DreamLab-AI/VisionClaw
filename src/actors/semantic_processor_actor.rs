@@ -468,7 +468,10 @@ impl SemanticProcessorActor {
 
         score += (metadata.file_size as f32 / 10000.0).min(0.2);
 
-        if metadata.last_modified.timestamp() > time::timestamp_seconds() - 86400 {
+        if metadata
+            .last_modified
+            .is_some_and(|t| t.timestamp() > time::timestamp_seconds() - 86400)
+        {
             score += 0.1;
         }
 
@@ -846,7 +849,10 @@ impl SemanticProcessorActor {
 
         score += (metadata.file_size as f32 / 10000.0).min(0.2);
 
-        if metadata.last_modified.timestamp() > time::timestamp_seconds() - 86400 {
+        if metadata
+            .last_modified
+            .is_some_and(|t| t.timestamp() > time::timestamp_seconds() - 86400)
+        {
             score += 0.1;
         }
 

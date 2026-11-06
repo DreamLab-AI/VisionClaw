@@ -17,8 +17,10 @@ pub struct Metadata {
     pub sha1: String,
     #[serde(default = "default_node_id")]
     pub node_id: String,
-    #[serde(default = "Utc::now")]
-    pub last_modified: DateTime<Utc>,
+    /// When the file last changed, if known. A row without one gets no `last_modified` key; the
+    /// load time is not a modification time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_modified: Option<DateTime<Utc>>,
     #[serde(default)]
     pub last_content_change: Option<DateTime<Utc>>,
     #[serde(default)]
@@ -75,30 +77,53 @@ pub fn wire_timestamp(at: &DateTime<Utc>) -> String {
     at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
-impl Metadata {
-    /// Write the temporal keys onto a node's metadata map: `last_modified` and `last_commit` as
-    /// [`wire_timestamp`] strings, `change_count` as a base-10 integer string. A field that is
-    /// absent removes its key, so a node rebuilt from newer metadata never keeps a stale value.
-    pub fn write_temporal_keys(&self, node_metadata: &mut HashMap<String, String>) {
-        node_metadata.insert(
-            LAST_MODIFIED_KEY.to_string(),
-            wire_timestamp(&self.last_modified),
+/// A node's three temporal keys (ADR-2184/2185), whichever source supplied them: the
+/// `Metadata` store ([`Metadata::temporal_keys`]) or a corpus source's commit history.
+///
+/// One writer and one rule for every source: a present value writes its key, an absent one
+/// removes it, so a node rebuilt from newer data never keeps a stale value and a node with no
+/// history carries none (the wire contract is "omit when absent").
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TemporalKeys {
+    /// `last_modified`, a [`wire_timestamp`] string.
+    pub last_modified: Option<DateTime<Utc>>,
+    /// `last_commit`, a [`wire_timestamp`] string.
+    pub last_commit: Option<DateTime<Utc>>,
+    /// `change_count`, a base-10 integer string.
+    pub change_count: Option<u32>,
+}
+
+impl TemporalKeys {
+    /// Write the keys onto a node's metadata map, removing the key of every absent value.
+    /// Other keys are untouched.
+    pub fn write(&self, node_metadata: &mut HashMap<String, String>) {
+        let mut set = |key: &str, value: Option<String>| match value {
+            Some(v) => {
+                node_metadata.insert(key.to_string(), v);
+            }
+            None => {
+                node_metadata.remove(key);
+            }
+        };
+        set(
+            LAST_MODIFIED_KEY,
+            self.last_modified.as_ref().map(wire_timestamp),
         );
-        match self.last_commit {
-            Some(at) => {
-                node_metadata.insert(LAST_COMMIT_KEY.to_string(), wire_timestamp(&at));
-            }
-            None => {
-                node_metadata.remove(LAST_COMMIT_KEY);
-            }
-        }
-        match self.change_count {
-            Some(n) => {
-                node_metadata.insert(CHANGE_COUNT_KEY.to_string(), n.to_string());
-            }
-            None => {
-                node_metadata.remove(CHANGE_COUNT_KEY);
-            }
+        set(
+            LAST_COMMIT_KEY,
+            self.last_commit.as_ref().map(wire_timestamp),
+        );
+        set(CHANGE_COUNT_KEY, self.change_count.map(|n| n.to_string()));
+    }
+}
+
+impl Metadata {
+    /// This row's [`TemporalKeys`].
+    pub fn temporal_keys(&self) -> TemporalKeys {
+        TemporalKeys {
+            last_modified: self.last_modified,
+            last_commit: self.last_commit,
+            change_count: self.change_count,
         }
     }
 }
@@ -150,13 +175,13 @@ mod tests {
     #[test]
     fn temporal_keys_are_rfc3339_utc_and_an_integer_string() {
         let m = Metadata {
-            last_modified: Utc.with_ymd_and_hms(2026, 11, 6, 9, 30, 0).unwrap(),
+            last_modified: Some(Utc.with_ymd_and_hms(2026, 11, 6, 9, 30, 0).unwrap()),
             last_commit: Some(Utc.with_ymd_and_hms(2026, 11, 5, 23, 59, 59).unwrap()),
             change_count: Some(42),
             ..Metadata::default()
         };
         let mut map = HashMap::new();
-        m.write_temporal_keys(&mut map);
+        m.temporal_keys().write(&mut map);
         assert_eq!(
             map.get("last_modified").map(String::as_str),
             Some("2026-11-06T09:30:00Z")
@@ -170,6 +195,16 @@ mod tests {
     }
 
     #[test]
+    fn a_row_without_a_modification_time_gets_no_timestamp() {
+        // The wire rule is "omit when absent" (PROTOCOL-registry, temporal columns): the load
+        // time is not a modification time.
+        let m: Metadata = serde_json::from_str(r#"{"fileName":"A.md"}"#).unwrap();
+        let mut map = HashMap::new();
+        m.temporal_keys().write(&mut map);
+        assert!(!map.contains_key("last_modified"), "{map:?}");
+    }
+
+    #[test]
     fn absent_temporal_fields_omit_and_clear_their_keys() {
         let mut map = HashMap::from([
             ("last_commit".to_string(), "stale".to_string()),
@@ -177,10 +212,10 @@ mod tests {
             ("ontology_refs".to_string(), "kept".to_string()),
         ]);
         let m = Metadata {
-            last_modified: Utc.with_ymd_and_hms(2026, 1, 2, 3, 4, 5).unwrap(),
+            last_modified: Some(Utc.with_ymd_and_hms(2026, 1, 2, 3, 4, 5).unwrap()),
             ..Metadata::default()
         };
-        m.write_temporal_keys(&mut map);
+        m.temporal_keys().write(&mut map);
         assert_eq!(
             map.get("last_modified").map(String::as_str),
             Some("2026-01-02T03:04:05Z")

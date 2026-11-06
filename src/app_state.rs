@@ -28,11 +28,11 @@ use crate::actors::ontology_actor::OntologyActor;
 use crate::actors::GPUManagerActor;
 use crate::actors::{
     AgentBeamActor, AgentMonitorActor, ClientCoordinatorActor, MetadataActor,
-    OptimizedSettingsActor, ProtectedSettingsActor, TaskOrchestratorActor, WorkspaceActor,
+    OptimizedSettingsActor, TaskOrchestratorActor, WorkspaceActor,
 };
 use crate::config::feature_access::FeatureAccess;
 use crate::config::AppFullSettings;
-use crate::models::protected_settings::{ApiKeys, NostrUser, ProtectedSettings};
+use crate::models::protected_settings::{ApiKeys, NostrUser};
 use crate::services::bots_client::BotsClient;
 use crate::services::github::content_enhanced::EnhancedContentAPI;
 use crate::services::github::{ContentAPI, GitHubClient};
@@ -308,6 +308,10 @@ pub struct AppState {
     // (data/kpi.sqlite3) and the compute engine over it. The store is fed by the
     // agent-event volume tap spawned in main.rs; the service backs /api/kpi/*.
     pub sqlite_kpi_repository: Arc<SqliteKpiRepository>,
+    /// Graph shares (`data/shares.sqlite3`), one store for every actix worker.
+    pub share_repository: Arc<crate::adapters::SqliteShareRepository>,
+    /// The data directory (`DATA_DIR`, default `./data`) every store above lives in.
+    pub data_dir: std::path::PathBuf,
     pub kpi_compute_service: Arc<crate::services::kpi_compute::KpiComputeService>,
 
     // Oxigraph graph repository — canonical knowledge graph store (ADR-11)
@@ -323,7 +327,6 @@ pub struct AppState {
     pub event_store: Arc<EventStore>,
 
     pub settings_addr: Addr<OptimizedSettingsActor>,
-    pub protected_settings_addr: Addr<ProtectedSettingsActor>,
     pub metadata_addr: Addr<MetadataActor>,
     pub client_manager_addr: Addr<ClientCoordinatorActor>,
     /// The shared agents demo (ADR-2142): one director whose action frames reach every client.
@@ -380,12 +383,6 @@ pub struct AppState {
             std::collections::HashMap<u32, crate::utils::binary_protocol::NodeAnalytics>,
         >,
     >,
-
-    /// Shared per-node SSSP distances populated by ShortestPathActor after a
-    /// ComputeSSP run. Maps compact node_id -> (distance, parent_id). Read by the
-    /// binary broadcast path to fill V3 wire slot 28 (sssp_distance@28). Absent
-    /// nodes default to (INFINITY, -1).
-    pub node_sssp: crate::actors::messages::SharedNodeSssp,
 }
 
 impl AppState {
@@ -501,6 +498,14 @@ impl AppState {
             SqliteKpiRepository::open(&kpi_db_path)
                 .await
                 .map_err(|e| format!("Failed to open SQLite KPI store: {}", e))?,
+        );
+        // Graph shares: one durable store instead of a map per actix worker.
+        let share_repository = Arc::new(
+            crate::adapters::SqliteShareRepository::open(
+                &std::path::Path::new(&data_dir).join("shares.sqlite3"),
+            )
+            .await
+            .map_err(|e| format!("Failed to open SQLite share store: {}", e))?,
         );
         let kpi_compute_service = Arc::new(crate::services::kpi_compute::KpiComputeService::new(
             sqlite_kpi_repository.clone(),
@@ -672,11 +677,6 @@ impl AppState {
                 std::collections::HashMap<u32, crate::utils::binary_protocol::NodeAnalytics>,
             >,
         > = Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
-
-        // ADR-031 D2b: shared SSSP map fed by ShortestPathActor, read by the
-        // binary broadcast path to fill wire slot 28.
-        let node_sssp: crate::actors::messages::SharedNodeSssp =
-            Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
 
         info!("[AppState::new] Starting ClientCoordinatorActor");
         let mut client_coordinator = ClientCoordinatorActor::new();
@@ -957,20 +957,6 @@ impl AppState {
             info!("[AppState::new] Starting GPUManagerActor (modular architecture)");
             let gpu_manager = GPUManagerActor::new().start();
 
-            // ADR-2053: the shared SSSP map goes to the SUPERVISED ShortestPathActor,
-            // via GPUManagerActor -> GraphAnalyticsSupervisor. This used to start a
-            // second, standalone ShortestPathActor/ConnectedComponentsActor pair here
-            // and send the map to that one — but ResourceSupervisor distributes
-            // SharedGPUContext only to the subsystem supervisors, so the standalone
-            // pair never received a context and always took the GPU-absent arm. Every
-            // /api/analytics pathfinding route addressed that GPU-blind pair.
-            // ADR-031 D2b: without this map, wire slot 28 stops publishing per-node
-            // SSSP distances.
-            gpu_manager.do_send(crate::actors::messages::SetNodeSSSP {
-                node_sssp: node_sssp.clone(),
-            });
-            info!("[AppState::new] Sent SetNodeSSSP to GPUManagerActor for the supervised ShortestPathActor");
-
             // ADR-014 DL4 fix: Send shared node_analytics to GPUManagerActor so it reaches
             // ClusteringActor and AnomalyDetectionActor via AnalyticsSupervisor.
             gpu_manager.do_send(crate::actors::messages::SetNodeAnalytics {
@@ -1153,10 +1139,6 @@ impl AppState {
         graph_service_addr.do_send(update_msg.clone());
 
         if let Some(ref _gpu_addr) = gpu_manager_addr {}
-
-        info!("[AppState::new] Starting ProtectedSettingsActor");
-        let protected_settings_addr =
-            ProtectedSettingsActor::new(ProtectedSettings::default()).start();
 
         info!("[AppState::new] Starting WorkspaceActor");
         let workspace_addr = WorkspaceActor::new().start();
@@ -1372,6 +1354,8 @@ impl AppState {
             acsp_client,
             liveness_harness,
             sqlite_kpi_repository,
+            share_repository,
+            data_dir: std::path::PathBuf::from(&data_dir),
             kpi_compute_service,
 
             graph_adapter,
@@ -1385,7 +1369,6 @@ impl AppState {
             event_store,
 
             settings_addr,
-            protected_settings_addr,
             metadata_addr,
             client_manager_addr,
             agent_demo_addr,
@@ -1414,7 +1397,6 @@ impl AppState {
             ontology_pipeline_service,
             degraded_reason: Arc::new(std::sync::RwLock::new(None)),
             node_analytics,
-            node_sssp,
         };
 
         // Validate optional actor addresses
@@ -1573,18 +1555,6 @@ impl AppState {
                 }
             })
             .unwrap_or(0)
-    }
-
-    pub async fn get_api_keys(&self, pubkey: &str) -> ApiKeys {
-        self.get_nostr_user(pubkey).await.map(|user| user.api_keys).unwrap_or_default()
-    }
-
-    pub async fn get_nostr_user(&self, pubkey: &str) -> Option<NostrUser> {
-        if let Some(nostr_service) = &self.nostr_service {
-            nostr_service.get_user(pubkey).await
-        } else {
-            None
-        }
     }
 
     pub async fn validate_nostr_session(&self, pubkey: &str, token: &str) -> bool {

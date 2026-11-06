@@ -6,6 +6,50 @@ use crate::adapters::sqlite_settings_repository::CURRENT_OWNER_PUBKEY;
 use crate::ports::settings_repository::{SettingValue, SettingsRepository};
 use crate::settings::api::settings_routes::UserFilter;
 
+/// The `filter_update` frame's filter as the coordinator message. The frame's keys are snake
+/// case (`includeLinkedPages`/`serverRemove` are also read in camel case); a key the frame
+/// omits takes its shipped default.
+pub(crate) fn filter_update_from_wire(
+    client_id: usize,
+    filter_data: &serde_json::Value,
+) -> crate::actors::messages::UpdateClientFilter {
+    use crate::actors::messages::UpdateClientFilter;
+    let d = crate::settings::models::NodeFilterSettings::default();
+    let flag = |keys: &[&str], fallback: bool| {
+        keys.iter()
+            .find_map(|k| filter_data.get(*k))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(fallback)
+    };
+    let number = |key: &str, fallback: f64| {
+        filter_data
+            .get(key)
+            .and_then(|v| v.as_f64())
+            .unwrap_or(fallback)
+    };
+    UpdateClientFilter {
+        client_id,
+        enabled: flag(&["enabled"], d.enabled),
+        quality_threshold: number("quality_threshold", d.quality_threshold),
+        authority_threshold: number("authority_threshold", d.authority_threshold),
+        filter_by_quality: flag(&["filter_by_quality"], d.filter_by_quality),
+        filter_by_authority: flag(&["filter_by_authority"], d.filter_by_authority),
+        filter_mode: filter_data
+            .get("filter_mode")
+            .and_then(|v| v.as_str())
+            .map_or(d.filter_mode, str::to_string),
+        max_nodes: filter_data
+            .get("max_nodes")
+            .and_then(|v| v.as_i64())
+            .map(|n| n as i32),
+        include_linked_pages: flag(
+            &["includeLinkedPages", "include_linked_pages"],
+            d.include_linked_pages,
+        ),
+        server_remove: flag(&["server_remove", "serverRemove"], d.server_remove),
+    }
+}
+
 /// Handle "authenticate" message -- NIP-98 and legacy token/pubkey paths.
 pub(crate) fn handle_authenticate(
     act: &mut SocketFlowServer,
@@ -288,49 +332,7 @@ pub(crate) fn handle_filter_update(
         // Check both nested "filter" key and "data" key (client sends in data)
         let filter_data = msg.get("filter").or_else(|| msg.get("data")).unwrap_or(msg);
 
-        use crate::actors::messages::UpdateClientFilter;
-        let update = UpdateClientFilter {
-            client_id,
-            enabled: filter_data
-                .get("enabled")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
-            quality_threshold: filter_data
-                .get("quality_threshold")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.7),
-            authority_threshold: filter_data
-                .get("authority_threshold")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.5),
-            filter_by_quality: filter_data
-                .get("filter_by_quality")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true),
-            filter_by_authority: filter_data
-                .get("filter_by_authority")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
-            filter_mode: filter_data
-                .get("filter_mode")
-                .and_then(|v| v.as_str())
-                .unwrap_or("or")
-                .to_string(),
-            max_nodes: filter_data
-                .get("max_nodes")
-                .and_then(|v| v.as_i64())
-                .map(|n| n as i32),
-            include_linked_pages: filter_data
-                .get("includeLinkedPages")
-                .or_else(|| filter_data.get("include_linked_pages"))
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true),
-            server_remove: filter_data
-                .get("server_remove")
-                .or_else(|| filter_data.get("serverRemove"))
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
-        };
+        let update = filter_update_from_wire(client_id, filter_data);
 
         info!(
             "Processing filter update: enabled={}, quality_threshold={}, filter_by_quality={}",
@@ -565,5 +567,67 @@ pub(crate) fn handle_ontology_reasoning(
                 ctx.text(msg_str);
             }
         }));
+    }
+}
+
+#[cfg(test)]
+mod filter_update_wire_tests {
+    use super::filter_update_from_wire;
+
+    fn fixture_default_case() -> serde_json::Value {
+        let v: serde_json::Value =
+            serde_json::from_str(include_str!("../../../tests/node-filter-parity.json")).unwrap();
+        v["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["default"].as_bool() == Some(true))
+            .unwrap()["filter"]
+            .clone()
+    }
+
+    /// The fourth copy of the node-filter defaults: a frame that omits every key gets the
+    /// shipped defaults (`tests/node-filter-parity.json`, its `default` case).
+    #[test]
+    fn an_empty_filter_update_takes_the_shipped_defaults() {
+        let d = fixture_default_case();
+        let u = filter_update_from_wire(7, &serde_json::json!({}));
+        assert_eq!(u.client_id, 7);
+        assert_eq!(serde_json::json!(u.enabled), d["enabled"]);
+        assert_eq!(
+            serde_json::json!(u.quality_threshold),
+            d["qualityThreshold"]
+        );
+        assert_eq!(
+            serde_json::json!(u.authority_threshold),
+            d["authorityThreshold"]
+        );
+        assert_eq!(serde_json::json!(u.filter_by_quality), d["filterByQuality"]);
+        assert_eq!(
+            serde_json::json!(u.filter_by_authority),
+            d["filterByAuthority"]
+        );
+        assert_eq!(serde_json::json!(u.filter_mode), d["filterMode"]);
+        assert_eq!(
+            serde_json::json!(u.include_linked_pages),
+            d["includeLinkedPages"]
+        );
+        assert_eq!(serde_json::json!(u.server_remove), d["serverRemove"]);
+        assert_eq!(u.max_nodes, None);
+    }
+
+    #[test]
+    fn sent_keys_win_over_the_defaults() {
+        let u = filter_update_from_wire(
+            1,
+            &serde_json::json!({
+                "enabled": true, "quality_threshold": 0.9, "includeLinkedPages": true,
+                "server_remove": true, "filter_mode": "and", "max_nodes": 50
+            }),
+        );
+        assert!(u.enabled && u.include_linked_pages && u.server_remove);
+        assert_eq!(u.quality_threshold, 0.9);
+        assert_eq!(u.filter_mode, "and");
+        assert_eq!(u.max_nodes, Some(50));
     }
 }

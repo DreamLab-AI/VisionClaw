@@ -140,7 +140,14 @@ folder is gone and pages sit at each vault root. The folders beside them —
 Obsidian furniture: `vault-core` reports a markdown file under one of them as a
 skip (`vault_core::page::FURNITURE_DIRS`) and the ingest never lists it
 (`visionclaw_domain::vault::VAULT_FURNITURE_DIRS`). A namespace one level down
-may reuse those names.
+may reuse those names. Ingest applies one exclusion rule on every source,
+`visionclaw_domain::vault::is_excluded_from_ingest`: furniture at the first
+component, any dot-folder, and a `bak/` folder at any depth. `_misc/` is
+**ingested** (it is an unpublished namespace, `vault_core::page::UNPUBLISHED_DIRS`,
+a publication rule, not an existence rule); its nodes are visible or private by
+`public:` like any page. Until 2026-11-06 the local walk skipped `_misc/` and any
+furniture-named folder at any depth while the GitHub listings did not (ADR-2114
+amendment).
 
 - `vault.toml` is the single path authority. No consumer hard-codes a corpus path;
   agentbox's manifest `[vault].root` supplies the root and every sub-path derives
@@ -378,7 +385,7 @@ leading paragraph. `resource` was copied from the fence's `@id`, not recomputed.
 2. **One parser.** `vault-core::parse` is the only code that reads the corpus.
    A second parser — in VisionClaw, in a skill, in a script — is a violation.
 3. **`resource` is immutable.** Minted once, never recomputed, never reused.
-   A changed `resource` is the `RESOURCE_MUTATED` blocker; an amendment that would change an existing page's resource IRI is refused by `vault propose` as `RESOURCE_IMMUTABLE` before it can be posted (`6b811f7a1`).
+   A changed `resource` is the `RESOURCE_IMMUTABLE` blocker: an amendment that would change an existing page's resource IRI is refused by `vault propose` with it before it can be posted (`6b811f7a1`). `RESOURCE_MUTATED`, the name the corpus vocabulary's `validation.blockers` still uses, is an accepted alias read as `RESOURCE_IMMUTABLE` (`vault_core::promotion::BLOCKER_CODE_ALIASES`, the one place an alias lives); the vocabulary file should be updated by its owner.
 4. **Identity is the vault-relative path.** Non-namespace page ids are
    byte-identical to their v1 values; namespace ids derive from `Ns/Title`.
 5. **Path authority is `vault.toml`.** No consumer hard-codes a corpus path.

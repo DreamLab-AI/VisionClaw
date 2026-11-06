@@ -154,15 +154,6 @@ visionclaw-jev = { path = "crates/visionclaw-jev" }
 utoipa = { version = "5", features = ["actix_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { version = "9", features = ["actix-web"] }
 
-# High-Performance Networking (fastwebsockets). quinn/rustls/rcgen were pulled
-# in solely for the dead QuicTransportServer (removed under ADR-2066, see
-# src/handlers/quic_transport_handler.rs) and are no longer direct deps.
-fastwebsockets = { version = "0.8", features = ["upgrade"] }
-postcard = { version = "1.1", features = ["alloc", "use-std"] }
-http = "1.2"
-hyper = { version = "1.6", features = ["http1", "http2", "server"] }
-hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
-http-body-util = "0.1"
 
 # Utilities
 uuid = { version = "1.18.0", features = ["v4", "serde"] }

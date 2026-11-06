@@ -113,14 +113,6 @@ pub use ontology_class_count_handler::configure_routes as configure_ontology_cla
 pub mod layout_handler;
 pub use layout_handler::configure_layout_routes;
 
-// High-Performance Networking (fastwebsockets). `quic_transport_handler` is kept
-// only as a home for the `PostcardNodeUpdate`/`PostcardBatchUpdate` wire types
-// that `fastwebsockets_handler` imports directly — the QUIC/WebTransport server
-// itself (`QuicTransportServer` and friends) was dead code, never constructed or
-// routed, and was removed under ADR-2066.
-pub mod fastwebsockets_handler;
-pub mod quic_transport_handler;
-
 // Solid Pod (embedded solid-pod-rs)
 pub mod solid_proxy_handler;
 pub use solid_proxy_handler::configure_routes as configure_solid_routes;
@@ -141,8 +133,3 @@ pub use pay_handler::configure_pay_routes;
 
 // PRD-008: XR presence WebSocket (`/ws/presence`)
 pub mod presence_handler;
-
-pub use fastwebsockets_handler::{
-    negotiate_protocol, FastWebSocketConfig, FastWebSocketServer, NegotiatedProtocol,
-    SerializationFormat, StandaloneFastWsHandler, TransportProtocol,
-};

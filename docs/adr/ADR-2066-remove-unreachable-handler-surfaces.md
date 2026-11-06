@@ -161,3 +161,22 @@ $ grep -n "paused" src/handlers/bots_visualization_handler.rs
 $ grep -rn "get_real_agent_data" src/ --include=*.rs
 # (no matches — removed)
 ```
+
+## Amendment 2026-11-06 — the fastwebsockets server and its wire types
+
+This record kept `quic_transport_handler.rs` only as the home of `PostcardNodeUpdate` /
+`PostcardBatchUpdate`, which `fastwebsockets_handler.rs` imported. `FastWebSocketServer`
+was itself never constructed or routed: nothing outside its own file referenced it. Both
+files are now removed under this record's rule, with `tests/high_perf_networking_tests.rs`
+(entirely commented out) and the direct dependencies only they used (`fastwebsockets`,
+`postcard`, `hyper`, `hyper-util`, `http-body-util`, `http`). The server was the only reader of
+the shared `node_sssp` map, so the map, `SetNodeSSSP` and `ShortestPathActor`'s write into it
+are removed too (PROTOCOL-registry 0.1.19). In the same pass `ProtectedSettingsActor` (two
+copies, `src/actors/` and `crates/visionclaw-actors/`), the `ProtectedSettings` model it
+alone used, and `AppState::get_api_keys` / `get_nostr_user` (no caller since the API-key GET
+reads `NostrService`) were removed.
+
+```
+$ grep -rn "FastWebSocketServer\|SetNodeSSSP\|ProtectedSettingsActor\|get_api_keys(" src crates --include=*.rs
+# only nostr_handler's own get_api_keys route handler remains
+```

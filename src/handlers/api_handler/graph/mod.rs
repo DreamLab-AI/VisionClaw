@@ -2466,12 +2466,12 @@ mod visibility_parity_tests {
         use chrono::{TimeZone, Utc};
         let mut graph = fixture();
         let meta = Metadata {
-            last_modified: Utc.with_ymd_and_hms(2026, 11, 6, 9, 30, 0).unwrap(),
+            last_modified: Some(Utc.with_ymd_and_hms(2026, 11, 6, 9, 30, 0).unwrap()),
             last_commit: Some(Utc.with_ymd_and_hms(2026, 11, 5, 18, 0, 0).unwrap()),
             change_count: Some(3),
             ..Metadata::default()
         };
-        meta.write_temporal_keys(&mut graph.nodes[0].metadata);
+        meta.temporal_keys().write(&mut graph.nodes[0].metadata);
         let expected = [
             ("last_modified", "2026-11-06T09:30:00Z"),
             ("last_commit", "2026-11-05T18:00:00Z"),

@@ -75,6 +75,9 @@ Persistence is embedded, not networked. Neo4j is fully removed — no `neo4rs` o
     `src/app_state.rs:472-481`.
   - `liveness.sqlite3` — liveness/canary rows, `src/app_state.rs:487-491`.
   - `kpi.sqlite3` — KPI snapshot + lineage, `src/app_state.rs:517-522`.
+  - `shares.sqlite3` — graph shares (`/api/graph-export/share`), one store for every
+    actix worker, `src/app_state.rs:503-510`; the handler is built once before
+    `HttpServer::new` (`src/main.rs:999-1002`).
 - **Storage root**: `DATA_DIR` (default `./data`), mounted from the Docker named
   volume `visionclaw-data:/app/data` (`docker-compose.unified.yml:95,190,303`);
   `DATA_ROOT=/app/data` in production, `docker-compose.unified.yml:172`.
@@ -142,15 +145,16 @@ allow-list, on any dependency on `visionclaw-server`, and on a member with no
 declared layer.
 
 **Actor extraction is unfinished**: `src/actors/*.rs` holds **25** actor
-source files while `crates/visionclaw-actors/src` holds **11** counted
-recursively (4 at the top level — `lib.rs`, `supervisor.rs`, `voice_commands.rs`,
-`protected_settings_actor.rs` — plus 7 under `messages/`). The live supervisor
-tree still runs from `src/actors/`, not the crate (63 `.rs` files recursively). The count
+source files while `crates/visionclaw-actors/src` holds **10** counted
+recursively (3 at the top level — `lib.rs`, `supervisor.rs`, `voice_commands.rs` —
+plus 7 under `messages/`). The live supervisor
+tree still runs from `src/actors/`, not the crate (64 `.rs` files recursively, counted 2026-11-06). The count
 was 25, fell to 23 when `ADR-2045` deleted the two dead supervision files, and is 25 again
 (new files include `position_stream.rs`, ADR-2141, and `agent_demo_director.rs`, ADR-2142, both
 in the root), so the extraction gap has widened, not narrowed. The crate still carries its own copy
-of `supervisor.rs`, which the root crate no longer has, and `protected_settings_actor.rs` and
-`voice_commands.rs` exist in both trees.
+of `supervisor.rs`, which the root crate no longer has, and `voice_commands.rs` exists in
+both trees. `protected_settings_actor.rs`, formerly in both, was deleted from both on
+2026-11-06 (dead: started, never addressed).
 
 ### Actor system topology
 
@@ -170,7 +174,7 @@ supervisor via `SetClientCoordinatorAddr` (`src/app_state.rs:944` region) becaus
 the supervisor's own child has an empty client registry. Peer actors started in
 `AppState`: `MetadataActor` (`:802`), `AgentBeamActor` (`:719`, fans 0x23 agent
 frames), plus `OntologyActor`, `SemanticProcessorActor`, `MetadataActor`,
-`OptimizedSettingsActor`, `ProtectedSettingsActor`, `WorkspaceActor`,
+`OptimizedSettingsActor`, `WorkspaceActor`,
 `PresenceActor`, `TaskOrchestratorActor`, `ElevationActor`,
 `DecisionElevationActor`, `VoiceInterfaceActor`,
 `AgentMonitorActor` (each `impl Actor` in the corresponding `src/actors/*.rs`).
@@ -243,8 +247,10 @@ then flow GPU → `ForceComputeActor` broadcast → `PhysicsOrchestratorActor` �
 
 Dual Rust/CUDA `SimParams` (212 bytes, static assertions; legacy ADR-138/141).
 `ForceComputeActor` runs force integration and drives the periodic
-full-position broadcast; the SSSP result map (`node_sssp`,
-`src/app_state.rs:695-698`) feeds wire slot 28. Ontology constraints
+position stream; wire slot 28 (SSSP distance) carries only its defaults,
+`(INFINITY, -1)`: the live encoder is passed no SSSP map, and the shared
+`node_sssp` map that only the never-constructed `FastWebSocketServer` read was
+removed with it (2026-11-06). An SSSP run is returned to its caller only. Ontology constraints
 (legacy ADR-098) are wired and live via `ENABLE_CONSTRAINTS`. DAG-rank radial
 layout is live (commit `73540faa0`, "hierarchical" edge label). Analytics
 kernels are Partial — see divergences.

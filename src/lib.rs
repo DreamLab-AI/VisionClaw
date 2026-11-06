@@ -55,7 +55,6 @@ pub use app_state::AppState;
 // (tests, downstream binaries) without forcing them through a long import.
 pub use models::user_settings::UserSettings;
 pub use visionclaw_domain::models::metadata::MetadataStore;
-pub use visionclaw_domain::models::protected_settings::ProtectedSettings;
 pub use visionclaw_domain::models::simulation_params::SimulationParams;
 
 // Re-export commonly used utilities for easier access

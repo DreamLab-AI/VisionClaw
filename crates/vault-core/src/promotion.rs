@@ -129,6 +129,32 @@ impl Transition {
     }
 }
 
+/// The blocker for an amendment that would change an existing page's resource IRI
+/// (`resource` is immutable). Emitted by `vault propose` into posted proposals.
+pub const RESOURCE_IMMUTABLE: &str = "RESOURCE_IMMUTABLE";
+
+/// Older names still accepted for a blocker code, each with the code it means. This is the
+/// one place an alias lives: the corpus vocabulary's `validation.blockers` still says
+/// `RESOURCE_MUTATED`, and reading it through [`canonical_blocker_code`] gives the code the
+/// producer emits.
+pub const BLOCKER_CODE_ALIASES: &[(&str, &str)] = &[("RESOURCE_MUTATED", RESOURCE_IMMUTABLE)];
+
+/// The canonical form of a blocker `code`: its alias target when it is an older name
+/// ([`BLOCKER_CODE_ALIASES`]), else `code` itself.
+///
+/// ```
+/// use vault_core::promotion::{canonical_blocker_code, RESOURCE_IMMUTABLE};
+/// assert_eq!(canonical_blocker_code("RESOURCE_MUTATED"), RESOURCE_IMMUTABLE);
+/// assert_eq!(canonical_blocker_code("SUBCLASS_CYCLE"), "SUBCLASS_CYCLE");
+/// ```
+#[must_use]
+pub fn canonical_blocker_code(code: &str) -> &str {
+    BLOCKER_CODE_ALIASES
+        .iter()
+        .find(|(alias, _)| *alias == code)
+        .map_or(code, |(_, canonical)| canonical)
+}
+
 /// A machine-checkable reason a transition cannot happen.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Blocker {

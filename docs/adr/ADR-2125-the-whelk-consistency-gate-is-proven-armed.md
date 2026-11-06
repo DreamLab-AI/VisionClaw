@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 81e71126779b0b312b93ab459058ee8977233331
+verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
 verified_paths: [crates/vault-core/src/consistency.rs, crates/vault-core/src/lib.rs, crates/vault/src/model.rs, crates/vault/src/build/turtle.rs, crates/vault/src/whelk.rs, crates/vault/src/validate.rs, crates/vault/src/build/mod.rs, crates/vault/src/propose.rs, crates/vault/tests/probe_consistency.rs, src/actors/elevation_actor.rs]
 owner: jjohare
 review_trigger: the `disjoint-with` key entering ontology/vocabulary.yaml; any proposal to re-enable domain-root disjointness; a WHELK_INCONSISTENT blocker firing on a real proposal
@@ -87,3 +87,5 @@ Re-verified 2026-10-30 at c75004696: `crates/vault/src/model.rs` changes one rus
 Governed-path change since the last stamp: `crates/vault/src/propose.rs` (`6b811f7a1`): `build_with_certificates` adds a `RESOURCE_IMMUTABLE` blocker for an amendment that changes an existing page's resource IRI. The consistency gate (`consistency.rs`, `whelk.rs`, `elevation_actor.rs`) and the Whelk blocker are untouched; the new blocker is an additional, independent refusal. **Decision unaffected.**
 
 Re-run: `git diff c75004696..81e711267 -- crates/vault-core/src/consistency.rs crates/vault-core/src/lib.rs crates/vault/src/model.rs crates/vault/src/build/turtle.rs crates/vault/src/whelk.rs crates/vault/src/validate.rs crates/vault/src/build/mod.rs crates/vault/src/propose.rs crates/vault/tests/probe_consistency.rs src/actors/elevation_actor.rs`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
+
+Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `crates/vault/src/propose.rs` names the `RESOURCE_IMMUTABLE` blocker through a constant; the emitted code is byte-identical. The consistency gate is untouched. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.

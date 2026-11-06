@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 81e71126779b0b312b93ab459058ee8977233331
+verified_commit: de4ee9e3a91d2307ea56d66a040f495688c9c6cf
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -287,3 +287,5 @@ Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The gov
 Governed-path change since the last stamp: `src/app_state.rs` (`6b811f7a1`): `get_api_keys` now reads the `NostrService` user record that the POST writes, through `get_nostr_user`, instead of messaging `ProtectedSettingsActor`. No Oxigraph, SQLite or `Cargo.toml` line moved. **Decision unaffected:** persistence adapters and features are as recorded.
 
 Re-run: `git diff 5c94c3cbd..81e711267 -- Cargo.toml src/app_state.rs`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
+
+Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..de4ee9e3a`, the last hunk whitespace-only): `src/app_state.rs` opens one more SQLite store (`shares.sqlite3`, graph shares) and no longer builds the `node_sssp` map or `ProtectedSettingsActor`; `Cargo.toml` drops the fastwebsockets/postcard/hyper networking deps of the deleted `FastWebSocketServer`. The embedded Oxigraph open and its sharing are untouched. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.

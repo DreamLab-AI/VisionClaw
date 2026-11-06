@@ -121,3 +121,26 @@ All governed paths were byte-identical between the previous verification pin and
 the pre-change baseline `5e1bd90a4`. The reviewed delta is the shared-layout change
 through `974daf5d22d2d0ea709140777eae58d60ddb2c36`. Existing activation and acceptance limits
 remain in force; this stamp does not repeat historical runtime measurements.
+
+## Amendment 2026-11-06 — one ingest-exclusion rule
+
+The listing exclusions were written four times and disagreed: the local walk's
+`SKIP_DIRS` (any depth, any case, `_misc` included), two GitHub substring filters
+(`/bak`, `/journals`, `/.obsidian`, `/.trash`, `/.recycle`; `/bak` also matched
+`/bakery`), and the sync's identity check (`is_vault_furniture`, first component
+only). A `_misc/` page was skipped locally and ingested from GitHub.
+
+Every source now prunes with `visionclaw_domain::vault::is_excluded_from_ingest`, and
+`page_name_from_repo_path` applies the same rule: furniture at the first component
+(equal to `vault_core::page::FURNITURE_DIRS`), any dot component, and `bak/` at any
+depth, matched exactly. The Decision paragraph's skip list above is replaced by it.
+
+`_misc/` is ingested on every source. This follows the production (GitHub) behaviour
+and the owner decision recorded at `vault_core::page::UNPUBLISHED_DIRS` (2026-09-02:
+`_misc` pages "are ingested by VisionClaw — only the publish scope ignores them") and
+ADR-2113. A local vault therefore gains its `_misc/` pages as nodes, visible or
+private by `public:`. Furniture names below the first component (`Ns/assets/`) are
+pages on every source; nested `journals/` is no longer skipped from GitHub.
+Row-by-row table: `crates/visionclaw-domain/src/vault/mod.rs`
+`the_ingest_exclusion_table`; local walk: `the_walk_uses_the_shared_exclusion_rule`.
+**Decision unaffected:** the port, the two sources and their selection are unchanged.

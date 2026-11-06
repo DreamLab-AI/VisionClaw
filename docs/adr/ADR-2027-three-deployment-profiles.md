@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 81e71126779b0b312b93ab459058ee8977233331
+verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -376,3 +376,5 @@ Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The gov
 Governed-path change since the last stamp: `src/handlers/socket_flow_handler/position_updates.rs` (`6b811f7a1`): a blank line is removed and the holder is now passed into `NodeInteractionMessage`. No profile table, flag, RBAC gate or compose default is touched. **Decision unaffected.**
 
 Re-run: `git diff 5c94c3cbd..81e711267 -- src/config/security_profile.rs src/middleware/rbac_gate.rs src/main.rs src/services/role_store.rs src/handlers/socket_flow_handler/position_updates.rs docker-compose.unified.yml`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
+
+Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `src/main.rs` builds the `/api/graph-export` handler once before `HttpServer::new` and sweeps expired shares at start-up. Security-profile selection and the RBAC gate are untouched. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.

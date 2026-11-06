@@ -15,7 +15,8 @@
 //!   sub-property of `vc:utilises`, which no page ever authors; it is declared
 //!   under `super_properties`.
 //! * **`resource` is immutable.** The `identity` block says so and
-//!   `validation.blockers` lists `RESOURCE_MUTATED`. 412 of 8,446 classes carry
+//!   `validation.blockers` lists `RESOURCE_MUTATED`, read as `RESOURCE_IMMUTABLE`,
+//!   the code `vault propose` emits. 412 of 8,446 classes carry
 //!   a slug a case/digit-boundary splitter produced, and those IRIs are the
 //!   subject of 104,731 edges and of every published URL.
 //!
@@ -324,9 +325,22 @@ pub struct ValidationSchema {
     /// Keys every `knowledge/` page must carry.
     #[serde(default)]
     pub required_knowledge_keys: Vec<String>,
-    /// Codes that are never approvable (PRD Q6).
-    #[serde(default)]
+    /// Codes that are never approvable (PRD Q6), each in its canonical form
+    /// ([`crate::promotion::canonical_blocker_code`]): an older name in the file reads as
+    /// the code the producer emits.
+    #[serde(default, deserialize_with = "canonical_blockers")]
     pub blockers: Vec<String>,
+}
+
+fn canonical_blockers<'de, D>(deserializer: D) -> std::result::Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let codes: Vec<String> = serde::Deserialize::deserialize(deserializer)?;
+    Ok(codes
+        .iter()
+        .map(|c| crate::promotion::canonical_blocker_code(c).to_owned())
+        .collect())
 }
 
 impl ValidationSchema {
@@ -1210,6 +1224,21 @@ relations:
         );
         assert_eq!(v.validation.rejects_unknown_keys_in("working"), Some(false));
         assert!(v
+            .validation
+            .blockers
+            .contains(&"WHELK_INCONSISTENCY".to_owned()));
+    }
+
+    /// The corpus vocabulary still names the resource-identity blocker `RESOURCE_MUTATED`;
+    /// `vault propose` emits `RESOURCE_IMMUTABLE`. Both must read as the one code.
+    #[test]
+    fn the_resource_blocker_reads_as_the_code_the_producer_emits() {
+        let v = flat();
+        assert!(v
+            .validation
+            .blockers
+            .contains(&"RESOURCE_IMMUTABLE".to_owned()));
+        assert!(!v
             .validation
             .blockers
             .contains(&"RESOURCE_MUTATED".to_owned()));

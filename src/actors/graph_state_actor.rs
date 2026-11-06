@@ -590,7 +590,7 @@ impl GraphStateActor {
         node.metadata
             .insert("file_size".to_string(), size.to_string());
         // ADR-2184/2185: last_modified, last_commit, change_count (RFC 3339 UTC).
-        metadata.write_temporal_keys(&mut node.metadata);
+        metadata.temporal_keys().write(&mut node.metadata);
 
         // Copy ontology fields to node metadata for edge generation and client display
         if let Some(ref domain) = metadata.source_domain {
@@ -690,7 +690,7 @@ impl GraphStateActor {
                     node.metadata
                         .insert("file_size".to_string(), size.to_string());
                     // ADR-2184/2185: last_modified, last_commit, change_count (RFC 3339 UTC).
-                    metadata.write_temporal_keys(&mut node.metadata);
+                    metadata.temporal_keys().write(&mut node.metadata);
                     node_found = true;
                     break;
                 }
@@ -714,7 +714,7 @@ impl GraphStateActor {
                         node.metadata
                             .insert("file_size".to_string(), size.to_string());
                         // ADR-2184/2185: last_modified, last_commit, change_count (RFC 3339 UTC).
-                        metadata.write_temporal_keys(&mut node.metadata);
+                        metadata.temporal_keys().write(&mut node.metadata);
                         break;
                     }
                 }

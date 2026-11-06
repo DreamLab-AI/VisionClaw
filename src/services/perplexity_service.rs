@@ -223,7 +223,7 @@ impl PerplexityService {
             node_size: 10.0,
             hyperlink_count: 0,
             sha1: String::new(),
-            last_modified: time::now(),
+            last_modified: Some(time::now()),
             last_content_change: Some(time::now()),
             last_commit: None,
             change_count: Some(1),

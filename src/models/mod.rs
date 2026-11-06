@@ -23,7 +23,6 @@ pub mod user_settings;
 pub mod workspace;
 
 pub use pagination::PaginationParams;
-pub use protected_settings::ProtectedSettings;
 pub use simulation_params::SimulationParams;
 pub use user_settings::UserSettings;
 pub use visionclaw_domain::models::edge::SemanticEdgeType;

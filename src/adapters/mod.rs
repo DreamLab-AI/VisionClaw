@@ -57,6 +57,8 @@ pub mod decision_elevation_store;
 pub mod sqlite_canary_repository;
 // REC-4: durable KPI snapshot + lineage store (data/kpi.sqlite3), ADR-130 D5
 pub mod sqlite_kpi_repository;
+// Graph shares (data/shares.sqlite3): one store for every actix worker, kept across restarts
+pub mod sqlite_share_repository;
 
 pub use decision_elevation_store::{DecisionCase, DecisionElevationStore};
 pub use oxigraph_graph_repository::OxigraphGraphRepository;
@@ -71,6 +73,7 @@ pub use sqlite_kpi_repository::{
     KpiLineageRow, KpiSnapshotRow, KpiStoreError, NewKpiSnapshot, SqliteKpiRepository,
 };
 pub use sqlite_settings_repository::SqliteSettingsRepository;
+pub use sqlite_share_repository::{AccessClaim, ShareStoreError, SqliteShareRepository};
 
 pub use whelk_inference_engine::WhelkInferenceEngine;
 

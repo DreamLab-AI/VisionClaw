@@ -428,6 +428,38 @@ pub fn is_vault_furniture(rel: &str) -> bool {
     first_is_furniture || parts.any(|p| p.starts_with('.'))
 }
 
+/// Folders never ingested, at any depth beneath a base path: backup trees (ADR-2040 D6).
+/// Editor and app folders (`.obsidian/`, `.trash/`, `.recycle/`, `.git/`) are dot-folders
+/// and need no entry.
+pub const INGEST_EXCLUDED_DIRS: &[&str] = &["bak"];
+
+/// `true` when a **base-relative** path (a page or a folder) is not ingested: it sits under
+/// vault furniture ([`is_vault_furniture`]: a first component in [`VAULT_FURNITURE_DIRS`], or
+/// any dot component), or any component is one of [`INGEST_EXCLUDED_DIRS`].
+///
+/// This is the one ingest-exclusion rule. Every corpus source prunes its listing with it
+/// (the local walk, both GitHub listings) and [`page_name_from_repo_path`] applies it again,
+/// so a path excluded on one source is excluded on all. Names match exactly, as in
+/// `vault_core::page::is_furniture`. `_misc/` is ingested: it is a publication rule
+/// (`vault_core::page::UNPUBLISHED_DIRS`), not an existence rule, and node visibility
+/// comes from `public:` like any other page.
+pub fn is_excluded_from_ingest(rel: &str) -> bool {
+    is_vault_furniture(rel)
+        || rel
+            .trim_start_matches('/')
+            .split('/')
+            .any(|p| INGEST_EXCLUDED_DIRS.contains(&p))
+}
+
+/// [`is_excluded_from_ingest`] for a **repository** path: the path is made base-relative
+/// against whichever configured base prefixes it (the whole path when none is configured or
+/// none matches).
+pub fn is_repo_path_excluded_from_ingest(path: &str, base_paths: &[String]) -> bool {
+    let trimmed = path.trim().trim_start_matches("./").trim_start_matches('/');
+    let rel = vault_base_of(trimmed, base_paths).map_or(trimmed, |(_, rel)| rel);
+    is_excluded_from_ingest(rel)
+}
+
 /// Derive a page's vault identity from a **repository** path, given the
 /// configured base paths (§V1).
 ///
@@ -443,8 +475,9 @@ pub fn is_vault_furniture(rel: &str) -> bool {
 /// `None` — the path is **not a page** and the caller must skip it — when
 ///
 /// * no configured base path prefixes it, or
-/// * it sits under vault furniture ([`is_vault_furniture`]): `templates/`,
-///   `bases/`, `assets/`, `journals/` or a dot-folder beneath the base.
+/// * it is excluded from ingest ([`is_excluded_from_ingest`]): `templates/`,
+///   `bases/`, `assets/`, `journals/` or a dot-folder beneath the base, or a
+///   `bak/` folder at any depth.
 ///
 /// With no base paths configured at all the whole repo is ingested, so the
 /// full path is the identity (furniture still excluded).
@@ -458,7 +491,7 @@ pub fn page_name_from_repo_path(path: &str, base_paths: &[String]) -> Option<Str
     } else {
         vault_base_of(trimmed, base_paths)?.1
     };
-    if rel.is_empty() || is_vault_furniture(rel) {
+    if rel.is_empty() || is_excluded_from_ingest(rel) {
         return None;
     }
     Some(page_name_from_path(rel))
@@ -748,6 +781,68 @@ fn split_comma_list(value: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    /// The one ingest-exclusion rule, row by row. The trailing comment is what each of the
+    /// three former lists did with the row (G = GitHub listings, L = local walk, D = this
+    /// crate's identity check); `*` marks a row whose behaviour changed when they merged.
+    #[test]
+    fn the_ingest_exclusion_table() {
+        let rows: &[(&str, bool)] = &[
+            ("Alpha.md", false),              // G in, L in, D in
+            ("Ns/Gamma.md", false),           // G in, L in, D in
+            ("_misc/Scratch.md", false),      // * G in, L out, D in
+            ("Ns/_misc/Scratch.md", false),   // * G in, L out, D in
+            ("templates/Class.md", true),     // G in(D out), L out, D out
+            ("bases/All.md", true),           // L out, D out
+            ("assets/x.md", true),            // L out, D out
+            ("journals/2026-09-22.md", true), // G out, L out, D out
+            ("Ns/assets/x.md", false),        // * G in, L out, D in
+            ("Ns/templates/x.md", false),     // * G in, L out, D in
+            ("Ns/journals/x.md", false),      // * G out, L out, D in
+            ("Templates/x.md", false),        // * G in, L out (any case), D in
+            ("bak/x.md", true),               // * G in (no leading /), L out, D in
+            ("Ns/bak/x.md", true),            // * G out, L out, D in
+            ("Ns/bakery/x.md", false),        // * G out (contains "/bak"), L in, D in
+            (".obsidian/types.md", true),     // G out, L out, D out
+            ("Ns/.trash/x.md", true),         // G out, L out, D out
+            ("Ns/.recycle/x.md", true),       // G out, L out, D out
+            (".hidden.md", true),             // L out, D out
+        ];
+        for (rel, excluded) in rows {
+            assert_eq!(is_excluded_from_ingest(rel), *excluded, "{rel}");
+        }
+    }
+
+    #[test]
+    fn a_repo_path_is_judged_relative_to_its_base() {
+        let bases = vec!["knowledge".to_string(), "working".to_string()];
+        assert!(is_repo_path_excluded_from_ingest(
+            "knowledge/templates/A.md",
+            &bases
+        ));
+        assert!(!is_repo_path_excluded_from_ingest(
+            "knowledge/Ns/templates/A.md",
+            &bases
+        ));
+        assert!(is_repo_path_excluded_from_ingest(
+            "working/Ns/bak/A.md",
+            &bases
+        ));
+        assert!(!is_repo_path_excluded_from_ingest(
+            "knowledge/_misc/A.md",
+            &bases
+        ));
+        // No base configured: the repository root is the base.
+        assert!(is_repo_path_excluded_from_ingest(
+            "journals/2026-01-01.md",
+            &[]
+        ));
+        assert!(page_name_from_repo_path("knowledge/Ns/bak/A.md", &bases).is_none());
+        assert_eq!(
+            page_name_from_repo_path("knowledge/_misc/A.md", &bases).as_deref(),
+            Some("_misc/A")
+        );
+    }
+
     use super::*;
 
     // -- EXP-V01: the publish half of the gate ------------------------------

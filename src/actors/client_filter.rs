@@ -417,10 +417,38 @@ mod tests {
             assert_eq!(&json[k], want, "NodeFilterSettings::default().{k}");
         }
         assert_eq!(json["serverRemove"], serde_json::json!(false));
+        // Every field of the coordinator's per-client default, against the same case.
         let c = ClientFilter::default();
-        assert_eq!(c.enabled, s.enabled);
-        assert_eq!(c.quality_threshold, s.quality_threshold);
-        assert_eq!(c.server_remove, s.server_remove);
+        let f = &d["filter"];
+        assert_eq!(serde_json::json!(c.enabled), f["enabled"]);
+        assert_eq!(
+            serde_json::json!(c.quality_threshold),
+            f["qualityThreshold"]
+        );
+        assert_eq!(
+            serde_json::json!(c.authority_threshold),
+            f["authorityThreshold"]
+        );
+        assert_eq!(serde_json::json!(c.filter_by_quality), f["filterByQuality"]);
+        assert_eq!(
+            serde_json::json!(c.filter_by_authority),
+            f["filterByAuthority"]
+        );
+        assert_eq!(
+            serde_json::json!(if matches!(c.filter_mode, FilterMode::And) {
+                "and"
+            } else {
+                "or"
+            }),
+            f["filterMode"]
+        );
+        assert_eq!(
+            serde_json::json!(c.include_linked_pages),
+            f["includeLinkedPages"]
+        );
+        assert_eq!(serde_json::json!(c.server_remove), f["serverRemove"]);
+        assert_eq!(c.max_nodes, None);
+        assert!(c.filtered_node_ids.is_empty());
     }
 
     #[test]

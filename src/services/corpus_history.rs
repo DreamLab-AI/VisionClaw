@@ -17,9 +17,9 @@
 //!
 //! ## Scope
 //!
-//! - Only **public** pages (`public: true`, the same predicate the graph
-//!   stream uses to withhold private nodes) and edges between them. Anything
-//!   written here cannot be removed until VisionClaw ADR-2102 lands an erasure
+//! - Only **public** pages (`public: true`, through `NodeVisibility::of_node`,
+//!   the predicate the graph stream uses to withhold private nodes) and edges
+//!   between them. Anything written here cannot be removed until VisionClaw ADR-2102 lands an erasure
 //!   mechanism, so private content never enters.
 //! - Only IRI-object triples: class typing and class relations, from
 //!   [`ontology_graph_iri_triples`], the projection `save_ontology_graph` also
@@ -27,10 +27,11 @@
 //!
 //! ## Clocks
 //!
-//! Neither corpus source supplies a commit time (the local vault gives
-//! `mtime:size`, GitHub a blob SHA), so valid time and recorded time are both
-//! the sync instant. History therefore starts at the first sync with this
-//! writer enabled, at the granularity of full syncs.
+//! Valid time and recorded time are both the sync instant. The corpus sources
+//! can now read commit history (`CorpusSource::page_history`, the temporal node
+//! keys), but this writer does not use it: a version's valid time is when a full
+//! sync saw it, not when it was committed. History therefore starts at the first
+//! sync with this writer enabled, at the granularity of full syncs.
 //!
 //! ## Convergence (ADR-2022 P4)
 //!
@@ -50,6 +51,7 @@ use sha2::{Digest, Sha256};
 use visionclaw_adapters::oxigraph_ontology_repository::ontology_graph_iri_triples;
 use visionclaw_adapters::provenance_emitter::{build_activity_quads, ActivityRecord};
 use visionclaw_domain::models::graph::GraphData;
+use visionclaw_domain::utils::visibility_filter::NodeVisibility;
 
 use crate::services::provenance_writer::{
     build_assertion_version, build_retraction_update, AssertionInput, AssertionVersion, DL_NS,
@@ -116,17 +118,13 @@ pub fn corpus_sync_activity_urn(at: &DateTime<Utc>) -> String {
     )
 }
 
-/// The public part of `graph`: nodes whose metadata says `public: true`, and
-/// the edges with both endpoints among them.
+/// The public part of `graph`: nodes [`NodeVisibility::of_node`] calls public (the predicate
+/// every wire path uses), and the edges with both endpoints among them.
 pub fn public_subgraph(graph: &GraphData) -> GraphData {
     let nodes: Vec<_> = graph
         .nodes
         .iter()
-        .filter(|n| {
-            n.metadata
-                .get("public")
-                .is_some_and(|v| v.eq_ignore_ascii_case("true"))
-        })
+        .filter(|n| NodeVisibility::of_node(n).is_public)
         .cloned()
         .collect();
     let ids: std::collections::HashSet<u32> = nodes.iter().map(|n| n.id).collect();
@@ -494,6 +492,40 @@ mod tests {
     const AGENT: &str =
         "did:nostr:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const SUB: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
+
+    /// The public test is the wire's: `public` equal to `true` in any case, nothing else.
+    #[test]
+    fn public_subgraph_keeps_exactly_the_nodes_the_wire_calls_public() {
+        let node = |id: u32, public: Option<&str>| {
+            let mut n = Node::new_with_id(format!("n{id}"), Some(id));
+            if let Some(v) = public {
+                n.metadata.insert("public".to_string(), v.to_string());
+            }
+            n
+        };
+        let graph = GraphData {
+            nodes: vec![
+                node(1, Some("true")),
+                node(2, Some("TRUE")),
+                node(3, Some("True")),
+                node(4, Some("false")),
+                node(5, None),
+                node(6, Some("yes")),
+                node(7, Some(" true")),
+            ],
+            ..GraphData::new()
+        };
+        let kept: Vec<u32> = public_subgraph(&graph).nodes.iter().map(|n| n.id).collect();
+        assert_eq!(kept, vec![1, 2, 3]);
+        for n in &graph.nodes {
+            assert_eq!(
+                kept.contains(&n.id),
+                visionclaw_domain::utils::visibility_filter::NodeVisibility::of_node(n).is_public,
+                "node {}",
+                n.id
+            );
+        }
+    }
 
     fn t(h: u32) -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 11, 3, h, 0, 0).unwrap()

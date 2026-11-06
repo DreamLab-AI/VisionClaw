@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: [ADR-2113]
-verified_commit: dcf38bf50e1f3b0d5b67abf472e8011cd1ff2a28
+verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
 verified_paths: [crates/vault-migrate, Cargo.toml, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: the in-place conversion of the corpus repo is committed, after which the crate is kept only as the round-trip/no-op checker
@@ -204,3 +204,5 @@ Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The gov
 ## Re-verification — 2026-11-05 (`dcf38bf50`)
 
 Governed-path change since `5c94c3cbd`: `docs/VAULT-corpus-format.md` (`dcf38bf50`) amends Invariant 3 (an amendment changing a page's resource IRI is refused as `RESOURCE_IMMUTABLE`) and notes that `vault propose` event construction refuses grouped proposals. Neither touches the Logseq-to-Obsidian converter, which this record covers and ADR-2113 supersedes. `crates/vault-migrate` and `Cargo.toml` are unchanged. **Decision unaffected.** Re-run: `git diff 5c94c3cbd..dcf38bf50 -- crates/vault-migrate Cargo.toml docs/VAULT-corpus-format.md`.
+
+Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `docs/VAULT-corpus-format.md` records the one ingest-exclusion rule (`_misc/` ingested; ADR-2114 amendment) and the `RESOURCE_MUTATED` alias of `RESOURCE_IMMUTABLE`. The converter is untouched. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.
