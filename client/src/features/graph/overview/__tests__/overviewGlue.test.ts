@@ -113,3 +113,46 @@ describe('LabelBudgetRunner (shared by both label paths)', () => {
     highlightMask.setIndexResolver(sharedNodeIndexResolver);
   });
 });
+
+describe('overview render faults (ADR-2181 D4: no silent skip)', () => {
+  it('a fault drops the layer out of live, is reported, and clears on unmount', async () => {
+    const live = await import('../overviewLive');
+    live.clearOverviewFaults();
+    live.setOverviewLive('edges', true);
+    live.setOverviewLive('nodes', true);
+    expect(live.isOverviewLive('edges')).toBe(true);
+    expect(live.overviewFaultNoticeText({})).toBeNull();
+
+    live.markOverviewFault('edges', 'drawIndexed(Infinity)');
+    expect(live.isOverviewLive('edges')).toBe(false);
+    expect(live.isOverviewLive('nodes')).toBe(true);
+    const text = live.overviewFaultNoticeText({ edges: 'x' });
+    expect(text).toContain('overview edges');
+    expect(text).toContain('gems and glass tubes');
+    expect(live.overviewFaultNoticeText({ inferred: 'x' })).not.toContain('gems');
+
+    live.clearOverviewFaults();
+    expect(live.isOverviewLive('edges')).toBe(true);
+    live.setOverviewLive('edges', false);
+    live.setOverviewLive('nodes', false);
+  });
+
+  it('the guard hook calls the object handler once and survives a throwing handler', async () => {
+    const { notifyRenderFault, onRenderFault, webglProgramFailure } = await import('../../../../rendering/renderFaults');
+    const obj = new THREE.Mesh();
+    const seen: unknown[] = [];
+    onRenderFault(obj, (e) => seen.push(e));
+    notifyRenderFault(obj, new Error('boom'));
+    expect(seen).toHaveLength(1);
+    onRenderFault(obj, () => { throw new Error('handler'); });
+    expect(() => notifyRenderFault(obj, 'x')).not.toThrow();
+    notifyRenderFault(null, 'x');
+    // WebGL: diagnostics.runnable false → the failure text; runnable or missing → null
+    const mat = new THREE.MeshBasicMaterial();
+    const gl = (d: unknown) => ({ properties: { get: () => ({ currentProgram: { diagnostics: d } }) } });
+    expect(webglProgramFailure(gl({ runnable: false, programLog: 'link failed' }), mat)).toBe('link failed');
+    expect(webglProgramFailure(gl({ runnable: true }), mat)).toBeNull();
+    expect(webglProgramFailure(gl(undefined), mat)).toBeNull();
+    expect(webglProgramFailure({}, mat)).toBeNull();
+  });
+});

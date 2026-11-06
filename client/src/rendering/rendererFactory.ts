@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { notifyRenderFault } from './renderFaults';
 import type { RendererCapabilities } from '../features/settings/config/settings';
 import { createLogger } from '../utils/loggerConfig';
 
@@ -216,6 +217,9 @@ export async function createGemRenderer(defaultProps: Record<string, unknown>) {
               object?.name || object?.type || object?.uuid,
               err instanceof Error ? err.message : err,
             );
+            // ADR-2181 D4: objects that must not vanish silently (the overview
+            // layers) fall back and surface the fault on screen.
+            notifyRenderFault(object, err);
           }
         }
       };

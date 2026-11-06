@@ -19,7 +19,8 @@ import {
 } from '../../../rendering/materials/OverviewEdgeMaterial';
 import { edgeWidthPx } from './edgeStyle';
 import { useOverviewMaterial } from './useOverviewMaterial';
-import { setOverviewLive } from './overviewLive';
+import { isOverviewFaulted, setOverviewLive } from './overviewLive';
+import { useRenderFaultWatch } from './useRenderFaultWatch';
 import type { NodePositionTexture } from './nodePositionTexture';
 
 export interface OverviewEdgeData {
@@ -100,6 +101,9 @@ export const OverviewEdgeLines: React.FC<Props> = ({ positions, data, style, vis
     return m;
   }, [geometry, material, name, renderOrder]);
 
+  // ADR-2181 D4: a faulting draw hides this batch and is reported, never skipped silently.
+  const faultLayer = publishLive ? 'edges' : 'inferred';
+  useRenderFaultWatch(mesh, faultLayer);
   // Tubes shrink to close zoom only while these edges really draw.
   const live = publishLive && mesh !== null && visible;
   useEffect(() => {
@@ -139,7 +143,7 @@ export const OverviewEdgeLines: React.FC<Props> = ({ positions, data, style, vis
 
   useFrame(({ camera }) => {
     if (!mesh) return;
-    mesh.visible = visible && geometry.instanceCount > 0;
+    mesh.visible = visible && geometry.instanceCount > 0 && !isOverviewFaulted(faultLayer);
     if (!mesh.visible) return;
     uniforms.uResolution.value.set(size.width || 1, size.height || 1);
     uniforms.uDpr.value = gl.getPixelRatio();

@@ -16,6 +16,7 @@
  * edges draw on the same path.
  */
 import React, { createContext, useContext, useEffect, useMemo } from 'react';
+import { clearOverviewFaults } from './overviewLive';
 import { useFrame } from '@react-three/fiber';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { DEFAULT_GRAPH_VIEW } from '../../../api/settings/defaults';
@@ -85,7 +86,7 @@ export const OverviewLayer: React.FC<Props> = ({ plan, nodePositionsRef, nodeCou
     const cap = resolveOverviewEdgeCapacity(oe.capacity, plan.count);
     publishOverviewEdgeReport({ capacity: cap.capacity, drawn: cap.drawn, total: plan.count, truncated: cap.truncated });
   }, [plan, oe.enabled, oe.capacity]);
-  useEffect(() => () => resetOverviewEdgeReport(), []);
+  useEffect(() => () => { resetOverviewEdgeReport(); clearOverviewFaults(); }, []);
 
   const edgeStyle = useMemo<OverviewEdgeStyle>(() => ({
     widthPx: oe.widthPx,
