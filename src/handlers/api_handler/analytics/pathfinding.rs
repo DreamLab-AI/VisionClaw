@@ -414,6 +414,7 @@ impl std::fmt::Display for PointToPointResponse {
 pub async fn compute_point_to_point(
     data: web::Data<AppState>,
     payload: web::Json<PointToPointRequest>,
+    caller: crate::settings::OptionalAuth,
 ) -> Result<HttpResponse> {
     info!(
         "API: Computing point-to-point path from {} to {} using {:?}",
@@ -422,7 +423,7 @@ pub async fn compute_point_to_point(
 
     // Retrieve graph data from the repository
     let graph_data = match data.graph_repository.get_graph().await {
-        Ok(graph) => graph,
+        Ok(graph) => crate::handlers::graph_access::caller_view(&graph, &caller),
         Err(e) => {
             error!("Failed to get graph data: {:?}", e);
             return error_json!(PointToPointResponse {

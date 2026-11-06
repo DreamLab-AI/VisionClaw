@@ -1046,6 +1046,18 @@ async fn fetch_graph_snapshot(
     state: &web::Data<AppState>,
     caller: &OptionalAuth,
 ) -> Result<Arc<GraphData>, String> {
+    fetch_graph_view(state, caller)
+        .await
+        .map(|(graph, _)| graph)
+}
+
+/// [`fetch_graph_snapshot`], plus whether the caller's view is the whole graph (`true` when the
+/// visibility gate removed nothing). A cache shared across callers may only hold whole-graph
+/// results, since a per-caller view can carry that caller's private ids.
+pub(super) async fn fetch_graph_view(
+    state: &web::Data<AppState>,
+    caller: &OptionalAuth,
+) -> Result<(Arc<GraphData>, bool), String> {
     use crate::actors::messages::{GetGraphData as ActorGetGraphData, GetGraphStateActor};
 
     let actor = state
@@ -1059,7 +1071,9 @@ async fn fetch_graph_snapshot(
         .send(ActorGetGraphData)
         .await
         .map_err(|e| format!("graph actor mailbox error: {}", e))??;
-    Ok(caller_view(&graph, caller))
+    let view = caller_view(&graph, caller);
+    let whole = Arc::ptr_eq(&view, &graph);
+    Ok((view, whole))
 }
 
 /// The caller's pubkey, when the request carried a verified identity. `OptionalAuth` reuses the
@@ -1069,16 +1083,9 @@ fn caller_pubkey(caller: &OptionalAuth) -> Option<&str> {
     caller.0.as_ref().map(|u| u.pubkey.as_str())
 }
 
-/// The part of `graph` this caller may see, under the same ADR-060 policy and the same
-/// `PUBKEY_VISIBILITY_FILTER` flag as the `/wss` `initialGraphLoad`
-/// (`visionclaw_domain::utils::visibility_filter::visible_subgraph`). Every REST graph read goes
-/// through this before it shapes a response.
+/// The caller's view of `graph`; see [`crate::handlers::graph_access::caller_view`].
 fn caller_view(graph: &Arc<GraphData>, caller: &OptionalAuth) -> Arc<GraphData> {
-    visionclaw_domain::utils::visibility_filter::visible_subgraph(
-        graph,
-        caller_pubkey(caller),
-        visionclaw_domain::utils::visibility_filter::filter_enabled(),
-    )
+    crate::handlers::graph_access::caller_view(graph, caller)
 }
 
 /// `GET /api/graph/node/{id}/relations`

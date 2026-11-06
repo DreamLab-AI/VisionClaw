@@ -95,11 +95,19 @@ impl GraphExportHandler {
         })
     }
 
-    async fn get_current_graph(&self, app_state: &AppState) -> Result<GraphData> {
+    /// The caller's view of the current graph (ADR-060): an export or share never carries
+    /// another owner's private nodes.
+    async fn get_current_graph(
+        &self,
+        app_state: &AppState,
+        caller: &crate::settings::OptionalAuth,
+    ) -> Result<GraphData> {
         use crate::actors::messages::GetGraphData;
 
         match app_state.graph_service_addr.send(GetGraphData).await {
-            Ok(Ok(graph_data)) => Ok((*graph_data).clone()),
+            Ok(Ok(graph_data)) => {
+                Ok((*crate::handlers::graph_access::caller_view(&graph_data, caller)).clone())
+            }
             Ok(Err(e)) => Err(anyhow::anyhow!("Graph service error: {}", e)),
             Err(e) => Err(anyhow::anyhow!("Graph service actor not responding: {}", e)),
         }
@@ -111,6 +119,7 @@ pub async fn export_graph(
     handler: web::Data<GraphExportHandler>,
     request: web::Json<ExportRequest>,
     req: HttpRequest,
+    caller: crate::settings::OptionalAuth,
 ) -> ActixResult<HttpResponse> {
     let client_ip = req
         .connection_info()
@@ -128,7 +137,7 @@ pub async fn export_graph(
         _ => {}
     }
 
-    let graph = match handler.get_current_graph(&app_state).await {
+    let graph = match handler.get_current_graph(&app_state, &caller).await {
         Ok(graph) => graph,
         Err(e) => {
             return error_json!("Failed to get graph: {}", e);
@@ -150,6 +159,7 @@ pub async fn share_graph(
     handler: web::Data<GraphExportHandler>,
     request: web::Json<ShareRequest>,
     req: HttpRequest,
+    caller: crate::settings::OptionalAuth,
 ) -> ActixResult<HttpResponse> {
     let client_ip = req
         .connection_info()
@@ -167,7 +177,7 @@ pub async fn share_graph(
         _ => {}
     }
 
-    let graph = match handler.get_current_graph(&app_state).await {
+    let graph = match handler.get_current_graph(&app_state, &caller).await {
         Ok(graph) => graph,
         Err(e) => {
             return error_json!("Failed to get graph: {}", e);

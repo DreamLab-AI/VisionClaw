@@ -60,9 +60,10 @@ fn select_edges(edges: &[Edge], wanted: Option<&str>) -> Vec<(u32, u32)> {
 pub async fn get_cycles(
     app_state: web::Data<AppState>,
     query: web::Query<CyclesQuery>,
+    caller: crate::settings::OptionalAuth,
 ) -> Result<HttpResponse> {
     let graph = match app_state.graph_service_addr.send(GetGraphData).await {
-        Ok(Ok(g)) => g,
+        Ok(Ok(g)) => crate::handlers::graph_access::caller_view(&g, &caller),
         Ok(Err(e)) => {
             error!("cycles: graph unavailable: {}", e);
             return error_json!(format!("Graph unavailable: {}", e));
