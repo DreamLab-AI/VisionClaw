@@ -7,15 +7,15 @@ implementation_status: partial
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 84a4744ef8b7abdb39853e61cc782009d8b7ef4e
-verified_paths: [client/src/features/control-center/registry/placement.ts, client/src/features/control-center/registry/manifest.ts, client/src/features/control-center/registry/ia.json, xr-client/data/ia.json, client/src/store/settings/retiredPaths.ts, client/src/features/control-center/state/settingWrites.ts, client/src/features/control-center/integrationSlots.ts, client/src/features/control-center/drawer/RightDrawer.tsx, client/src/features/control-center/macros/MacroBar.tsx]
+verified_commit: f6b68521f9395cccca3d42ba6a303a2ecf97e865
+verified_paths: [client/src/features/control-center/registry/placement.ts, client/src/features/control-center/registry/manifest.ts, client/src/features/control-center/registry/ia.json, xr-client/data/ia.json, client/src/store/settings/retiredPaths.ts, client/src/features/control-center/state/settingWrites.ts, client/src/features/control-center/integrationSlots.ts, client/src/features/control-center/drawer/RightDrawer.tsx, client/src/features/control-center/hooks/useExclusiveSidePanels.ts, client/src/features/control-center/macros/MacroBar.tsx]
 relates: [ADR-2179, ADR-2180, ADR-2181, ADR-2182, ADR-2183, ADR-2184, ADR-2185, ADR-2186, ADR-2187, ADR-2188]
 owner: jjohare
 review_trigger: "The render and explore lanes land the ADR-2180..2186 settings; a new registry group is proposed; a headset session finds a control more than two levels deep."
 repo: visionclaw
 domain: XR-client
 evidence_class: source+test
-acceptance_boundary: "Accepted on operator instruction on 2026-11-06. Desktop implemented and verified by tsc, the full Vitest suite (188 files, 1795 tests), vite build, narrow cargo tests for the three removed server fields, and elementsFromPoint probes of a worktree dev build at 1280x900 and 1024x768 (0 occluded or off-screen controls, against 7 and 12 before; 0 of 31 at 1024x768 with a section open; 0 with the memory cloud on across the explore, memory and node drawer tabs at both sizes). The XR HUD is not built. Every server bucket is stored under a constant key, so server-saved settings reach every viewer; the UI says so. The render and explore lanes are merged and wired (requestFit, OverviewEdgeNotice, ExplorePanel, GraphLegend, clearAllFilters, useActiveFilterCount, hideFiltered)."
+acceptance_boundary: "Accepted on operator instruction on 2026-11-06. Desktop implemented and verified by tsc, the full Vitest suite (189 files, 1801 tests), vite build, narrow cargo tests for the three removed server fields, and elementsFromPoint probes of a worktree dev build at 1280x900 and 1024x768 (0 occluded or off-screen controls, against 7 and 12 before; 0 of 31 at 1024x768 with a section open; 0 with the memory cloud on across the explore, memory and node drawer tabs at both sizes). The XR HUD is not built. Every server bucket is stored under a constant key, so server-saved settings reach every viewer; the UI says so. The render and explore lanes are merged and wired (requestFit, OverviewEdgeNotice, ExplorePanel, GraphLegend, clearAllFilters, useActiveFilterCount, hideFiltered)."
 ---
 
 # ADR-2189 — Desktop and XR menus share one seven-section information architecture
@@ -346,4 +346,12 @@ Desktop built on `feat/gv-menus` (rebased onto the integration branch; final wir
 **XR placements recorded (corrects a phase-2 coordination note)**
 - The HUD type toggle sits in **Layers › Populations**: population scoping that hides nodes (§5), with the hint "Show / hide". An earlier lane message placed it in Explore › Filters as "Show / grey out"; that was wrong, and this record supersedes it.
 - The HUD's "Edges N of M drawn" badge (`EdgeBadge`, `hud.gd:466`) is a status readout in the HUD header, not a setting, so it has no section. Its desktop counterpart is `OverviewEdgeNotice`.
+
+**Narrow widths (`f6b68521f`)**
+- `hooks/useExclusiveSidePanels.ts`: the settings panel and the drawer never overlap. When both fit, they stay open together. When they do not, the one opened last wins. They stop fitting below about 830 px at default widths, or at any width with the panel dragged wide (it goes up to 900 px).
+  - Opening a drawer tab closes the panel.
+  - Opening a section, or dragging the panel wider, hides the drawer and keeps its tab, without deselecting.
+  - A window resize that stops them fitting closes the panel.
+- Live probe: at 800x700, each of four open sequences showed one surface at a time, with 0 controls covered. At 1024x768, both stayed open side by side (0 of 57 covered). Dragging the panel to 700 px hid the drawer (0 of 54 covered).
+- The probe also found that the DOM width lags the store during a drag, which first left the drawer over "Close settings". Widths now come from the store.
 
