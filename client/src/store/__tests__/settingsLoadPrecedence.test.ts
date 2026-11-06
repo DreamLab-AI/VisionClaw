@@ -60,7 +60,9 @@ async function reload(persisted: Record<string, unknown> | null, unsynced: Recor
   return useSettingsStore.getState();
 }
 
-describe('settings load precedence', () => {
+// Each case re-imports the store module graph after resetModules (a reload); the first
+// import is cold and can exceed the 10 s default under a full parallel run.
+describe('settings load precedence', { timeout: 60000 }, () => {
   beforeEach(seedServer);
 
   it('a fresh browser reads server values through get(), not the shipped defaults', async () => {
