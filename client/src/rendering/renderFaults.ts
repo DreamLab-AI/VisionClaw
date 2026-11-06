@@ -1,8 +1,8 @@
 /**
  * Per-object render-fault hook (ADR-2181 D4 / ADR-2182: no silent skip).
  *
- * The WebGPU renderObject guard (rendererFactory.ts) catches a draw that
- * throws and skips that object. An object that must not vanish silently sets
+ * The renderObject guard (rendererFactory.ts) catches a draw that throws and
+ * skips that object. An object that must not vanish silently sets
  * `object.userData[RENDER_FAULT_KEY] = (err) => …`; the guard calls it once,
  * on the first fault, alongside its console warning.
  */
@@ -49,31 +49,26 @@ export function notifyRenderFault(object: THREE.Object3D | null | undefined, err
   try { (h as RenderFaultHandler)(err); } catch { /* a fault handler must not break the render loop */ }
 }
 
-/**
- * WebGL has no equivalent guard: a shader that fails to compile or link is
- * logged by three and the object then draws nothing. three records the
- * outcome on the program (`diagnostics.runnable`, with checkShaderErrors on,
- * the default), so a caller can ask once after the first render.
- * Returns the failure text, or null when the program is fine or not built yet.
- */
-export function webglProgramFailure(gl: unknown, material: THREE.Material): string | null {
-  const props = (gl as { properties?: { get(m: unknown): { currentProgram?: { diagnostics?: { runnable: boolean; programLog?: string; fragmentShader?: { log?: string }; vertexShader?: { log?: string } } } } } }).properties;
-  if (!props || typeof props.get !== 'function') return null;
-  const d = props.get(material)?.currentProgram?.diagnostics;
-  if (!d || d.runnable) return null;
-  return (d.programLog || d.vertexShader?.log || d.fragmentShader?.log || 'shader failed to compile').trim().slice(0, 200);
-}
-
-// --- WebGPU pipeline failures ------------------------------------------------
+// --- Pipeline and program failures --------------------------------------------
 //
-// On real WebGPU a WGSL compile or pipeline validation failure does not throw
+// A material whose shader fails to build never throws; three logs it and then
+// draws nothing with it. Both backends of WebGPURenderer are routed to the same
+// per-material handler (onPipelineError), so such a layer is not reported live
+// while drawing nothing. A failure is permanent, so it fires at once (no
+// debounce).
+//
+// WebGPU backend:  a WGSL compile or pipeline validation failure does not throw
 // inside renderObject: three logs it through its console hook as
 // "WebGPURenderer: … render pipeline creation failed (renderPipeline_<material
 // name>_<material id>): …" and then silently skips every draw with that
-// pipeline (WebGPUBackend.draw: pipelineData.error). The watch below routes
-// those messages to a per-material handler so such a layer is not reported
-// live while drawing nothing. A pipeline failure is permanent, so it fires at
-// once (no debounce).
+// pipeline (WebGPUBackend.draw: pipelineData.error). installPipelineErrorWatch
+// matches the material id in that label.
+//
+// WebGL2 backend: a GLSL link failure is reported through
+// `renderer.debug.onShaderError(gl, program, vs, fs)` (WebGLBackend
+// _logProgramError), with no material. installShaderErrorWatch records which
+// material each program was created for (WebGLBackend.createRenderPipeline)
+// and routes the failure to that material's handler.
 
 const pipelineHandlers = new Map<number, RenderFaultHandler>();
 const PIPELINE_LABEL = /renderPipeline_[^()\s]*?_(\d+)\)/;
@@ -116,4 +111,61 @@ export function installPipelineErrorWatch(
     const c = console as unknown as Record<string, (...a: unknown[]) => void>;
     (c[type] ?? console.log)(message, ...params);
   });
+}
+
+interface ShaderErrorRenderer {
+  debug?: { onShaderError?: ((gl: WebGL2RenderingContext, program: WebGLProgram, vs: WebGLShader, fs: WebGLShader) => void) | null };
+  backend?: {
+    isWebGLBackend?: boolean;
+    get?: (key: object) => { programGPU?: WebGLProgram } | undefined;
+    createRenderPipeline?: (renderObject: { material?: THREE.Material; pipeline?: object }, promises: unknown) => unknown;
+  };
+}
+
+/** Route one WebGL2 program failure to the handler of the material it was built for. */
+export function routeShaderFailure(materialId: number | undefined, message: string): boolean {
+  if (materialId === undefined) return false;
+  const h = pipelineHandlers.get(materialId);
+  if (!h) return false;
+  try { h(new Error(message)); } catch { /* never break three's compile path */ }
+  return true;
+}
+
+function shaderLog(gl: WebGL2RenderingContext, shader: WebGLShader, kind: string): string {
+  const log = (gl.getShaderInfoLog(shader) || '').trim();
+  return log ? `${kind}: ${log}` : '';
+}
+
+/**
+ * WebGL2 backend only: attribute GLSL link failures to their material and
+ * route them like a WebGPU pipeline failure. Setting `debug.onShaderError`
+ * replaces three's default report, so the failure is still logged here.
+ * No-op on the WebGPU backend.
+ */
+export function installShaderErrorWatch(renderer: unknown): void {
+  const r = renderer as ShaderErrorRenderer;
+  const backend = r.backend;
+  if (!backend?.isWebGLBackend || !r.debug || typeof backend.createRenderPipeline !== 'function') return;
+  const programMaterial = new WeakMap<WebGLProgram, number>();
+  let building: number | undefined;
+  const create = backend.createRenderPipeline.bind(backend);
+  backend.createRenderPipeline = (renderObject, promises) => {
+    building = renderObject?.material?.id;
+    try {
+      return create(renderObject, promises);
+    } finally {
+      // With parallel compile (compileAsync) the link result arrives later:
+      // keep the program → material record for that callback.
+      const program = renderObject?.pipeline ? backend.get?.(renderObject.pipeline)?.programGPU : undefined;
+      if (program && building !== undefined) programMaterial.set(program, building);
+      building = undefined;
+    }
+  };
+  r.debug.onShaderError = (gl, program, vs, fs) => {
+    const detail = [(gl.getProgramInfoLog(program) || '').trim(), shaderLog(gl, vs, 'vertex'), shaderLog(gl, fs, 'fragment')]
+      .filter(Boolean).join('\n');
+    const message = `WebGLProgram: shader link failed: ${detail || 'no info log'}`;
+    console.error(message);
+    routeShaderFailure(building ?? programMaterial.get(program), message);
+  };
 }

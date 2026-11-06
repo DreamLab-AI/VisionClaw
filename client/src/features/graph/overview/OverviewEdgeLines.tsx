@@ -14,12 +14,11 @@ import * as THREE from 'three';
 import {
   createOverviewEdgeGeometry,
   createOverviewEdgeUniforms,
-  createGlslOverviewEdgeMaterial,
   createTslOverviewEdgeMaterial,
 } from '../../../rendering/materials/OverviewEdgeMaterial';
 import { edgeWidthPx } from './edgeStyle';
 import { useOverviewMaterial } from './useOverviewMaterial';
-import { isOverviewFaulted, setOverviewLive } from './overviewLive';
+import { buildFault, isOverviewFaulted, setOverviewLive } from './overviewLive';
 import { useRenderFaultWatch } from './useRenderFaultWatch';
 import type { NodePositionTexture } from './nodePositionTexture';
 
@@ -89,7 +88,8 @@ export const OverviewEdgeLines: React.FC<Props> = ({ positions, data, style, vis
   }), [positions]);
   useEffect(() => positions.onReallocate(() => { uniforms.uPos.value = positions.texture; }), [positions, uniforms]);
 
-  const material = useOverviewMaterial(geometry, uniforms, createGlslOverviewEdgeMaterial, createTslOverviewEdgeMaterial);
+  const faultLayer = publishLive ? 'edges' : 'inferred';
+  const material = useOverviewMaterial(geometry, uniforms, createTslOverviewEdgeMaterial, buildFault(faultLayer));
 
   const mesh = useMemo(() => {
     if (!material) return null;
@@ -102,7 +102,6 @@ export const OverviewEdgeLines: React.FC<Props> = ({ positions, data, style, vis
   }, [geometry, material, name, renderOrder]);
 
   // ADR-2181 D4: a faulting draw hides this batch and is reported, never skipped silently.
-  const faultLayer = publishLive ? 'edges' : 'inferred';
   useRenderFaultWatch(mesh, faultLayer);
   // Tubes shrink to close zoom only while these edges really draw.
   const live = publishLive && mesh !== null && visible;

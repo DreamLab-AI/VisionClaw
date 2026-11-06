@@ -45,6 +45,14 @@ acceptance_boundary: "Label path read in client/src/features/graph/components/In
 - **One code path.** Both renderers share it, which removes the DOM-count scaling risk on WebGPU.
 - **New work.** Requires a TSL glyph material, and a priority column that is cheap on the wire (centrality) or comes from ADR-2184.
 
+## Implementation notes
+- **One label path (2026-11-06).** The desktop runs only three's `WebGPURenderer`, which falls back to its own WebGL2 backend where WebGPU is missing (`client/src/rendering/rendererFactory.ts`; the `visionclaw-force-webgl` override maps to `forceWebGL: true`). Every material is TSL, compiled to WGSL or GLSL by the backend, so there is one dialect of each material and no `WebGLRenderer` path. Labels are the instanced glyph quads with the one TSL glyph material (`client/src/rendering/text/createTextMaterial.ts`). Deleted: the GLSL glyph shader, and the budgeted DOM `<Html>` label layer that drew while the TSL material built, or after it failed (`labelsUseDomFallback`, `rendering/text/labelOcclusion.ts`). That layer was the VC-31 D4 tension. Now:
+  - a failed glyph build or a faulting glyph draw hides the labels;
+  - the fault is reported as the `labels` layer on the canvas notice (`overview/overviewLive.ts`, `OverviewEdgeNotice`);
+  - the DOM `<Html>` stays only for the node tooltip, as D4 says.
+
+  The atlas is still a stroked bitmap raster, not SDF or MSDF, so the D4 atlas clause remains open.
+
 ## Verification
 None yet. Each decision has its own check:
 - **D1/D2:** at fit on the live graph, the label count is within the budget and labels name the top-centrality nodes (screenshot plus the ranked list).

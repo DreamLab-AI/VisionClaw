@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
 import { NodePositionTexture, texelOf, POSITION_TEX_WIDTH } from '../nodePositionTexture';
 import { LabelBudgetRunner } from '../labelRunner';
@@ -138,7 +138,7 @@ describe('overview render faults (ADR-2181 D4: no silent skip)', () => {
   });
 
   it('the guard hook calls the object handler once and survives a throwing handler', async () => {
-    const { notifyRenderFault, onRenderFault, webglProgramFailure } = await import('../../../../rendering/renderFaults');
+    const { notifyRenderFault, onRenderFault } = await import('../../../../rendering/renderFaults');
     const obj = new THREE.Mesh();
     const seen: unknown[] = [];
     onRenderFault(obj, (e) => seen.push(e));
@@ -147,13 +147,77 @@ describe('overview render faults (ADR-2181 D4: no silent skip)', () => {
     onRenderFault(obj, () => { throw new Error('handler'); });
     expect(() => notifyRenderFault(obj, 'x')).not.toThrow();
     notifyRenderFault(null, 'x');
-    // WebGL: diagnostics.runnable false → the failure text; runnable or missing → null
-    const mat = new THREE.MeshBasicMaterial();
-    const gl = (d: unknown) => ({ properties: { get: () => ({ currentProgram: { diagnostics: d } }) } });
-    expect(webglProgramFailure(gl({ runnable: false, programLog: 'link failed' }), mat)).toBe('link failed');
-    expect(webglProgramFailure(gl({ runnable: true }), mat)).toBeNull();
-    expect(webglProgramFailure(gl(undefined), mat)).toBeNull();
-    expect(webglProgramFailure({}, mat)).toBeNull();
+  });
+
+  it('a material that fails to build faults its layer (buildFault)', async () => {
+    const live = await import('../overviewLive');
+    live.clearOverviewFaults();
+    live.buildFault('labels')(new Error('glyph build failed'));
+    expect(live.isOverviewFaulted('labels')).toBe(true);
+    expect(live.useOverviewLive).toBeTypeOf('function');
+    live.clearOverviewFaults();
+    expect(live.isOverviewFaulted('labels')).toBe(false);
+  });
+});
+
+describe('WebGL2-backend shader failures reach the fault path (they never throw)', () => {
+  type Ro = { material: THREE.Material; pipeline: object };
+  function fakeRenderer() {
+    const store = new Map<object, { programGPU: object }>();
+    const gl = {
+      getProgramInfoLog: () => 'link failed',
+      getShaderInfoLog: (sh: { log: string }) => sh.log,
+    };
+    const r = {
+      debug: {} as { onShaderError?: (gl: unknown, p: object, vs: object, fs: object) => void },
+      backend: {
+        isWebGLBackend: true,
+        get: (k: object) => store.get(k),
+        // three links in createRenderPipeline; without parallel compile the
+        // link result (onShaderError) arrives inside the call.
+        createRenderPipeline(ro: Ro & { failNow?: boolean }) {
+          const programGPU = {};
+          store.set(ro.pipeline, { programGPU });
+          if (ro.failNow) r.debug.onShaderError?.(gl, programGPU, { log: 'ERROR: 0:1 vs' }, { log: '' });
+        },
+      },
+    };
+    return { r, gl, store };
+  }
+
+  it('routes a link failure to the material it was built for, synchronously and later', async () => {
+    const { installShaderErrorWatch, onPipelineError } = await import('../../../../rendering/renderFaults');
+    const { r, gl, store } = fakeRenderer();
+    installShaderErrorWatch(r);
+    expect(typeof r.debug.onShaderError).toBe('function');
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const a = new THREE.MeshBasicMaterial();
+    const b = new THREE.MeshBasicMaterial();
+    const seen: string[] = [];
+    onPipelineError(a, (e) => seen.push(`a:${(e as Error).message}`));
+    onPipelineError(b, (e) => seen.push(`b:${(e as Error).message}`));
+
+    const pa = {}, pb = {};
+    r.backend.createRenderPipeline({ material: a, pipeline: pa, failNow: true } as Ro);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatch(/^a:WebGLProgram: shader link failed: link failed/);
+    expect(seen[0]).toContain('vertex: ERROR: 0:1 vs');
+
+    // parallel compile: the failure arrives after createRenderPipeline returned
+    r.backend.createRenderPipeline({ material: b, pipeline: pb } as Ro);
+    r.debug.onShaderError!(gl, store.get(pb)!.programGPU, { log: '' }, { log: 'ERROR: fs' });
+    expect(seen[1]).toMatch(/^b:/);
+    expect(errSpy).toHaveBeenCalledTimes(2); // still logged, as three's default report would
+    errSpy.mockRestore();
+    onPipelineError(a, null);
+    onPipelineError(b, null);
+  });
+
+  it('is a no-op on the WebGPU backend', async () => {
+    const { installShaderErrorWatch } = await import('../../../../rendering/renderFaults');
+    const r = { debug: {} as Record<string, unknown>, backend: { isWebGPUBackend: true, createRenderPipeline: () => {} } };
+    installShaderErrorWatch(r);
+    expect(r.debug.onShaderError).toBeUndefined();
   });
 });
 

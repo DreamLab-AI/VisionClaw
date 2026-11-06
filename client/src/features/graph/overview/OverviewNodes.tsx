@@ -20,7 +20,6 @@ import * as THREE from 'three';
 import {
   createOverviewNodeGeometry,
   createOverviewNodeUniforms,
-  createGlslOverviewNodeMaterial,
   createTslOverviewNodeMaterial,
   spriteSizePx,
   type OverviewNodeUniforms,
@@ -30,7 +29,7 @@ import { nodeEncoding } from '../state/nodeEncoding';
 import { highlightMask, highlightLevel, HIGHLIGHT_LEVEL_EMPHASISED } from '../state/highlightMask';
 import { EMPHASIS_SCALE, backgroundFromSetting } from './highlightVisual';
 import { useOverviewMaterial } from './useOverviewMaterial';
-import { setOverviewLive } from './overviewLive';
+import { buildFault, setOverviewLive } from './overviewLive';
 import { useRenderFaultWatch } from './useRenderFaultWatch';
 import type { NodePositionTexture } from './nodePositionTexture';
 import type { GemNodesHandle } from '../components/GemNodes';
@@ -77,7 +76,7 @@ function useSpriteMesh(
   useEffect(() => () => geometry.dispose(), [geometry]);
   const uniforms = useMemo(() => createOverviewNodeUniforms(positions.texture, positions.width, halo), [positions, halo]);
   useEffect(() => positions.onReallocate(() => { uniforms.uPos.value = positions.texture; }), [positions, uniforms]);
-  const material = useOverviewMaterial(geometry, uniforms, createGlslOverviewNodeMaterial, createTslOverviewNodeMaterial);
+  const material = useOverviewMaterial(geometry, uniforms, createTslOverviewNodeMaterial, buildFault('nodes'));
   const mesh = useMemo(() => {
     if (!material) return null;
     const m = new THREE.Mesh(geometry, material);

@@ -4,7 +4,7 @@
  * Camera-facing instanced quads sized in CSS pixels: the centre is fetched
  * from the node position texture by render index (nodePositionTexture.ts),
  * projected, and the corner offset added in clip space (the PointsNodeMaterial
- * technique, done by hand so both dialects share one data layout). Flat
+ * technique, done by hand). Flat
  * soft-edged disc with a thin darker rim for contrast on dark backgrounds.
  * Unlit, alpha-blended, depth-tested.
  *
@@ -63,98 +63,7 @@ export function createOverviewNodeGeometry(capacity: number): THREE.InstancedBuf
 /** Halo size multiple (the bloom source is wider than the sprite). */
 export const HALO_SCALE = 2.5;
 
-export const OVERVIEW_NODE_VERTEX_GLSL = /* glsl */ `
-precision highp float;
-precision highp int;
-precision highp sampler2D;
-uniform sampler2D uPos;
-uniform float uTexWidth;
-uniform vec2 uResolution;
-uniform float uGreyMix;
-uniform float uGreyOpacity;
-uniform vec3 uBg;
-uniform float uEmphScale;
-uniform float uEmphBrighten;
-uniform float uHalo;
-in float aIndex;
-in vec3 aColor;
-in float aSize;
-out vec3 vColor;
-out float vAlpha;
-out vec2 vCorner;
-void main() {
-  int i = int(aIndex + 0.5);
-  int w = int(uTexWidth + 0.5);
-  vec4 p = texelFetch(uPos, ivec2(i % w, i / w), 0);
-  float level = p.w;
-  bool greyed = level < 0.5;
-  bool emph = level > 1.5;
-  vec4 clip = projectionMatrix * viewMatrix * vec4(p.xyz, 1.0);
-  float size = aSize * (emph ? uEmphScale : 1.0);
-  vec3 col = aColor;
-  float alpha = 1.0;
-  if (greyed) {
-    float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
-    col = mix(vec3(l), uBg, clamp(uGreyMix, 0.0, 1.0));
-    alpha = uGreyOpacity;
-  } else if (emph) {
-    col *= uEmphBrighten;
-  }
-  if (uHalo > 0.5) {
-    if (!emph) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vAlpha = 0.0; return; }
-    size *= ${HALO_SCALE.toFixed(2)};
-    alpha = 0.6;
-  }
-  clip.xy += position.xy * (0.5 * size) / (uResolution * 0.5) * clip.w;
-  gl_Position = clip;
-  vColor = col;
-  vAlpha = alpha;
-  vCorner = position.xy;
-}
-`;
-
-export const OVERVIEW_NODE_FRAGMENT_GLSL = /* glsl */ `
-precision highp float;
-// GLSL3 ShaderMaterial: three declares no output for us (WebGLProgram.js:778).
-layout(location = 0) out highp vec4 fragColor;
-uniform float uHalo;
-in vec3 vColor;
-in float vAlpha;
-in vec2 vCorner;
-void main() {
-  if (vAlpha <= 0.0) discard;
-  float r = length(vCorner);
-  if (r > 1.0) discard;
-  vec3 col = vColor;
-  float a;
-  if (uHalo > 0.5) {
-    a = vAlpha * (1.0 - smoothstep(0.0, 1.0, r));
-  } else {
-    a = vAlpha * (1.0 - smoothstep(0.85, 1.0, r));
-    // thin darker rim for contrast
-    col = mix(col, col * 0.45, smoothstep(0.62, 0.78, r));
-  }
-  fragColor = vec4(col, a);
-  fragColor = linearToOutputTexel(fragColor);
-}
-`;
-
-export function createGlslOverviewNodeMaterial(uniforms: OverviewNodeUniforms): THREE.ShaderMaterial {
-  const halo = uniforms.uHalo.value > 0.5;
-  return new THREE.ShaderMaterial({
-    name: halo ? 'OverviewNodeHaloMaterial' : 'OverviewNodeMaterial',
-    glslVersion: THREE.GLSL3,
-    uniforms: uniforms as unknown as Record<string, THREE.IUniform>,
-    vertexShader: OVERVIEW_NODE_VERTEX_GLSL,
-    fragmentShader: OVERVIEW_NODE_FRAGMENT_GLSL,
-    transparent: true,
-    depthWrite: !halo,
-    depthTest: true,
-    blending: halo ? THREE.AdditiveBlending : THREE.NormalBlending,
-  });
-}
-
-/** WebGPU dialect (TSL), same layout and maths as the GLSL above. */
+/** The sprite material (TSL; WebGPURenderer compiles it for either backend). */
 export async function createTslOverviewNodeMaterial(
   uniforms: OverviewNodeUniforms,
   geometry: THREE.InstancedBufferGeometry,

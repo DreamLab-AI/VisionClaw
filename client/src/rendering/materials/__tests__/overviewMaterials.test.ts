@@ -1,18 +1,16 @@
 /**
- * Both dialects of the overview materials build (ADR-2181/2182). The GLSL is
- * a ShaderMaterial (compiled by the browser, checked here for shape); the TSL
- * material is built for real from three/webgpu + three/tsl, which catches a
- * wrong TSL export or method at test time. Neither runs on a GPU here.
+ * The overview materials build (ADR-2181/2182). Each is a TSL node material,
+ * built for real from three/webgpu + three/tsl, which catches a wrong TSL
+ * export or method at test time. Nothing runs on a GPU here.
  */
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import {
-  createOverviewEdgeGeometry, createOverviewEdgeUniforms, createGlslOverviewEdgeMaterial, createTslOverviewEdgeMaterial,
-  OVERVIEW_EDGE_VERTEX_GLSL,
+  createOverviewEdgeGeometry, createOverviewEdgeUniforms, createTslOverviewEdgeMaterial,
 } from '../OverviewEdgeMaterial';
 import {
-  createOverviewNodeGeometry, createOverviewNodeUniforms, createGlslOverviewNodeMaterial, createTslOverviewNodeMaterial,
-  OVERVIEW_NODE_VERTEX_GLSL, spriteSizePx, SPRITE_MIN_PX, SPRITE_MAX_PX,
+  createOverviewNodeGeometry, createOverviewNodeUniforms, createTslOverviewNodeMaterial,
+  spriteSizePx, SPRITE_MIN_PX, SPRITE_MAX_PX,
 } from '../OverviewNodeMaterial';
 
 const tex = new THREE.DataTexture(new Float32Array(16), 4, 1, THREE.RGBAFormat, THREE.FloatType);
@@ -30,37 +28,26 @@ describe('overview edge material', () => {
     expect(g.getAttribute('aColor').itemSize).toBe(3);
     expect(g.instanceCount).toBe(0);
   });
-  it('GLSL: GLSL3 ShaderMaterial, unlit, blended, no depth write; never LineSegments/Points', () => {
-    const m = createGlslOverviewEdgeMaterial(edgeUniforms());
-    expect(m.glslVersion).toBe(THREE.GLSL3);
-    expect(m.transparent).toBe(true);
-    expect(m.depthWrite).toBe(false);
-    expect(OVERVIEW_EDGE_VERTEX_GLSL).toMatch(/texelFetch\(uPos/);
-    expect(OVERVIEW_EDGE_VERTEX_GLSL).not.toMatch(/\$\{/);
-  });
-  it('TSL: builds a node material with a clip-space vertexNode and a colorNode', async () => {
+  it('builds an unlit blended node material with a clip-space vertexNode and a colorNode, no depth write', async () => {
     const g = createOverviewEdgeGeometry(8);
     const m = await createTslOverviewEdgeMaterial(edgeUniforms(), g) as THREE.Material & { isNodeMaterial?: boolean; vertexNode?: unknown; colorNode?: unknown };
     expect(m.isNodeMaterial).toBe(true);
     expect(m.vertexNode).toBeTruthy();
     expect(m.colorNode).toBeTruthy();
     expect(m.transparent).toBe(true);
+    expect(m.depthWrite).toBe(false);
+    expect(m.type).not.toMatch(/Line|Points/);
   });
 });
 
 describe('overview node material', () => {
-  it('GLSL sprite and halo materials', () => {
-    const s = createGlslOverviewNodeMaterial(createOverviewNodeUniforms(tex, 4, false));
-    const h = createGlslOverviewNodeMaterial(createOverviewNodeUniforms(tex, 4, true));
-    expect(s.depthWrite).toBe(true);
-    expect(h.blending).toBe(THREE.AdditiveBlending);
-    expect(OVERVIEW_NODE_VERTEX_GLSL).toMatch(/size \*= 2\.50;/);
-  });
-  it('TSL sprite and halo materials build', async () => {
+  it('sprite and halo materials build: the sprite writes depth, the halo blends additively', async () => {
     for (const halo of [false, true]) {
       const g = createOverviewNodeGeometry(4);
       const m = await createTslOverviewNodeMaterial(createOverviewNodeUniforms(tex, 4, halo), g) as THREE.Material & { vertexNode?: unknown };
       expect(m.vertexNode).toBeTruthy();
+      expect(m.depthWrite).toBe(!halo);
+      expect(m.blending).toBe(halo ? THREE.AdditiveBlending : THREE.NormalBlending);
     }
   });
   it('sprite size: spriteSizePx for the smallest node, larger nodes larger, clamped', () => {

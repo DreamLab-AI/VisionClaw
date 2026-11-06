@@ -8,7 +8,6 @@ import { assetWith } from './fixtures';
 
 function fakeLayer() {
   const layer = {
-    kind: 'spark' as const,
     root: new THREE.Group(),
     load: vi.fn(async () => {}),
     attach: vi.fn(function (this: unknown, parent: THREE.Object3D) { parent.add(layer.root); }),
@@ -36,7 +35,8 @@ function setup(over: Partial<SplatControllerDeps> = {}) {
     onStatus: (s) => statuses.push(s),
     ...over,
   };
-  const controller = new SplatController({ isWebGLRenderer: true }, parent, deps);
+  // WebGPURenderer on its WebGL2 backend: the `desktop` tier
+  const controller = new SplatController({ isWebGPURenderer: true, backend: { isWebGLBackend: true } }, parent, deps);
   return { controller, parent, layers, statuses, deps };
 }
 
@@ -44,14 +44,13 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 const framed = (asset: SplatAsset) => ({ asset, mode: 'framed' as const });
 
 describe('SplatController', () => {
-  it('on a WebGL renderer loads the desktop variant, attaches at scene level and places it', async () => {
+  it('on the WebGL2 backend loads the desktop variant, attaches at scene level and places it', async () => {
     const { controller, parent, layers, statuses, deps } = setup();
     const asset = assetWith(['desktop-hi', 'desktop']);
     controller.request(framed(asset));
     await flush();
     expect(statuses).toEqual(['loading', 'ready']);
     expect((deps.loadBytes as ReturnType<typeof vi.fn>).mock.calls[0][0].name).toBe('desktop');
-    expect((deps.createLayer as ReturnType<typeof vi.fn>).mock.calls[0][1]).toBe('spark');
     expect(layers).toHaveLength(1);
     expect(layers[0].attach).toHaveBeenCalledWith(parent);
     expect(layers[0].root.scale.x).toBeGreaterThan(0);

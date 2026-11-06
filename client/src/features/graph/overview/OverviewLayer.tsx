@@ -17,8 +17,6 @@
  */
 import React, { createContext, useContext, useEffect, useMemo } from 'react';
 import { clearOverviewFaults } from './overviewLive';
-import { useSceneBlendsLinear } from '../../../rendering/blendSpace';
-import { srgbBlendAlpha, srgbLuma } from './highlightVisual';
 import { useFrame } from '@react-three/fiber';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { DEFAULT_EDGES_SETTINGS, DEFAULT_GRAPH_VIEW } from '../../../api/settings/defaults';
@@ -28,16 +26,13 @@ import { resolveOverviewEdgeCapacity } from '../state/overviewEdgeCapacity';
 import type { EdgePlan } from '../hooks/edgeBufferPlan';
 import type { GemNodesHandle } from '../components/GemNodes';
 import { NodePositionTexture } from './nodePositionTexture';
-import { selectDrawnEdges, overviewEdgeOpacity, OVERVIEW_EDGE_BASE_OPACITY } from './edgeStyle';
+import { selectDrawnEdges, overviewEdgeOpacity } from './edgeStyle';
 import { publishOverviewEdgeReport, resetOverviewEdgeReport } from './overviewEdgeStore';
 import { OverviewEdgeLines, type OverviewEdgeData, type OverviewEdgeStyle } from './OverviewEdgeLines';
 import { OverviewNodes } from './OverviewNodes';
 
 export const OverviewTextureContext = createContext<NodePositionTexture | null>(null);
 export const useOverviewPositionTexture = () => useContext(OverviewTextureContext);
-
-/** Base alpha of an overview edge at the shipped Edge Opacity default. */
-export const OVERVIEW_EDGE_OPACITY = OVERVIEW_EDGE_BASE_OPACITY;
 
 /** Resolve the stored graph-view settings with the shipped defaults under them. */
 export function resolveGraphView(gv: Partial<GraphViewSettings> | undefined): GraphViewSettings {
@@ -57,21 +52,6 @@ interface Props {
   nodeCount: number;
   knowledgeGemRef: React.RefObject<GemNodesHandle | null>;
   children?: React.ReactNode;
-}
-
-/**
- * The greyed alpha the overview materials receive in the live blend space
- * (ADR-2183 D3): the setting as is under linear blending (WebGPU, or WebGL
- * through the post-processing composer), corrected when WebGL draws straight
- * to the canvas and blends in sRGB (highlightVisual.srgbBlendAlpha).
- */
-export function useBackendGreyoutOpacity(greyoutOpacity: number): number {
-  const background = useSettingsStore((s) => s.get<string>('visualisation.rendering.backgroundColor')) ?? '#000000';
-  const linear = useSceneBlendsLinear();
-  return useMemo(
-    () => (linear ? greyoutOpacity : srgbBlendAlpha(greyoutOpacity, srgbLuma(background))),
-    [greyoutOpacity, background, linear],
-  );
 }
 
 export const OverviewLayer: React.FC<Props> = ({ plan, nodePositionsRef, nodeCount, knowledgeGemRef, children }) => {
@@ -105,7 +85,9 @@ export const OverviewLayer: React.FC<Props> = ({ plan, nodePositionsRef, nodeCou
   }, [plan, oe.enabled, oe.capacity]);
   useEffect(() => () => { resetOverviewEdgeReport(); clearOverviewFaults(); }, []);
 
-  const greyOpacity = useBackendGreyoutOpacity(gv.explore.greyoutOpacity);
+  // ADR-2183 D3: the scene blends in linear space on both backends, so the
+  // setting is used as is.
+  const greyOpacity = gv.explore.greyoutOpacity;
   // The one Edge Opacity control (Look › Edges, and the chat) drives the
   // overview lines as well as the close-zoom tubes.
   const edgeOpacitySetting = useSettingsStore((s) => s.get<number>('visualisation.graphs.knowledge.edges.opacity'));

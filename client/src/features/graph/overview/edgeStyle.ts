@@ -1,22 +1,91 @@
 /**
  * Overview edge styling and capacity ordering (ADR-2181 D2, D4).
  *
- * The shaders (OverviewEdgeMaterial) mirror `fadeAlpha` and `edgeWidthPx`
- * exactly; these TS versions are the tested reference and are used on the CPU
- * for the glass-tube close-zoom selection.
+ * The on-screen length fade is written once, `fadeAlphaWith`, over a small
+ * scalar interface: `fadeAlpha` evaluates it on numbers (CPU, the glass-tube
+ * close-zoom selection, the tests) and OverviewEdgeMaterial evaluates it on TSL
+ * nodes, so the shader and the CPU cannot drift. `edgeWidthPx` is mirrored by
+ * the shader's width term.
  */
 
 /**
- * Alpha by on-screen length: 1 up to `nearPx`, falling linearly to `minOpacity`
- * at `farPx` and beyond (cosmos.gl's linkVisibilityDistanceRange /
- * linkVisibilityMinTransparency). A degenerate range (far <= near) is a step.
+ * The arithmetic `fadeAlphaWith` needs. `N` is a scalar (number or TSL float
+ * node), `B` a boolean of the same kind.
  */
+export interface ScalarOps<N, B> {
+  lit(v: number): N;
+  add(a: N, b: N): N;
+  sub(a: N, b: N): N;
+  mul(a: N, b: N): N;
+  div(a: N, b: N): N;
+  max(a: N, b: N): N;
+  clamp01(a: N): N;
+  gt(a: N, b: N): B;
+  select(c: B, ifTrue: N, ifFalse: N): N;
+}
+
+/** Plain-number ScalarOps. */
+export const numberOps: ScalarOps<number, boolean> = {
+  lit: (v) => v,
+  add: (a, b) => a + b,
+  sub: (a, b) => a - b,
+  mul: (a, b) => a * b,
+  div: (a, b) => a / b,
+  max: (a, b) => (a > b ? a : b),
+  clamp01: (a) => (a < 0 ? 0 : a > 1 ? 1 : a),
+  gt: (a, b) => a > b,
+  select: (c, t, f) => (c ? t : f),
+};
+
+/** The TSL node methods `tslScalarOps` calls. */
+interface TslScalar {
+  add(b: unknown): TslScalar;
+  sub(b: unknown): TslScalar;
+  mul(b: unknown): TslScalar;
+  div(b: unknown): TslScalar;
+  greaterThan(b: unknown): unknown;
+}
+
+/** ScalarOps over TSL float nodes; `T` is the `three/tsl` module. */
+export function tslScalarOps(T: {
+  float(v: number): TslScalar;
+  max(a: unknown, b: unknown): TslScalar;
+  clamp(a: unknown, lo: number, hi: number): TslScalar;
+  select(c: unknown, a: unknown, b: unknown): TslScalar;
+}): ScalarOps<TslScalar, unknown> {
+  return {
+    lit: (v) => T.float(v),
+    add: (a, b) => a.add(b),
+    sub: (a, b) => a.sub(b),
+    mul: (a, b) => a.mul(b),
+    div: (a, b) => a.div(b),
+    max: (a, b) => T.max(a, b),
+    clamp01: (a) => T.clamp(a, 0, 1),
+    gt: (a, b) => a.greaterThan(b),
+    select: (c, t, f) => T.select(c, t, f),
+  };
+}
+
+/** Smallest fade range: a degenerate range (far <= near) acts as a step at `near`. */
+const MIN_FADE_RANGE_PX = 1e-4;
+
+/**
+ * Alpha by on-screen length: 1 up to `nearPx`, falling linearly to
+ * `minOpacity` (clamped to [0, 1]) at `farPx` and beyond (cosmos.gl's
+ * linkVisibilityDistanceRange / linkVisibilityMinTransparency). A NaN length
+ * draws at full alpha.
+ */
+export function fadeAlphaWith<N, B>(o: ScalarOps<N, B>, lenPx: N, nearPx: N, farPx: N, minOpacity: N): N {
+  const min = o.clamp01(minOpacity);
+  const range = o.max(o.sub(farPx, nearPx), o.lit(MIN_FADE_RANGE_PX));
+  const t = o.clamp01(o.div(o.sub(lenPx, nearPx), range));
+  // min + (1 − min)(1 − t): exactly `min` at t = 1 (1 + (min − 1)t is not, in floats).
+  return o.select(o.gt(lenPx, nearPx), o.add(min, o.mul(o.sub(o.lit(1), min), o.sub(o.lit(1), t))), o.lit(1));
+}
+
+/** `fadeAlphaWith` on numbers. */
 export function fadeAlpha(lenPx: number, nearPx: number, farPx: number, minOpacity: number): number {
-  const min = minOpacity < 0 ? 0 : minOpacity > 1 ? 1 : minOpacity;
-  if (!(lenPx > nearPx)) return 1;
-  if (!(farPx > nearPx) || lenPx >= farPx) return min;
-  const t = (lenPx - nearPx) / (farPx - nearPx);
-  return 1 + (min - 1) * t;
+  return fadeAlphaWith(numberOps, lenPx, nearPx, farPx, minOpacity);
 }
 
 /** Overview line alpha at the shipped Edge Opacity default (ADR-2181 D2). */

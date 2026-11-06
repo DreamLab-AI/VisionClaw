@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { isWebGPURenderer } from '../rendererFactory';
 import { createLogger } from '../../utils/loggerConfig';
 
 const logger = createLogger('GlassEdgeMaterial');
@@ -26,7 +25,7 @@ export interface GlassEdgeMaterialResult {
 }
 
 // ---------------------------------------------------------------------------
-// Shared glass edge material — works on both renderers.
+// Glass edge material.
 // Edges stay thin and subtle; depth-write off so they don't z-fight with nodes.
 // ---------------------------------------------------------------------------
 
@@ -47,14 +46,14 @@ export function createGlassEdgeMaterial(baseColor?: string | THREE.Color): Glass
   const material = new THREE.MeshPhysicalMaterial({
     color: neutralBase,
     ior: 1.5,
-    // Transmission masks alpha — keep it ~0 on edges (both renderers) so the
+    // Transmission masks alpha — keep it ~0 on edges so the
     // opacity/alpha channel has full authority over edge visibility.
     transmission: 0,
     thickness: 0,
     roughness: 0.05,
     metalness: 0.0,
     transparent: true,
-    opacity: isWebGPURenderer ? 0.6 : 0.4,
+    opacity: 0.6,
     side: THREE.DoubleSide,
     // 32k transparent tubes overdraw heavily. depthWrite=true causes stacked
     // edges to z-reject and saturate to white; with depthWrite off they blend.
@@ -68,12 +67,9 @@ export function createGlassEdgeMaterial(baseColor?: string | THREE.Color): Glass
     // each tube's per-edge instanceColor intensity rather than re-tinting all
     // edges toward one fixed accent. Toned down so tubes don't self-illuminate
     // to white; the dominant readable signal is the coloured tube.
-    emissive: neutralBase.clone().multiplyScalar(isWebGPURenderer ? 0.15 : 0.1),
-    emissiveIntensity: isWebGPURenderer ? 0.2 : 0.15,
-    // Iridescence/sheen/specular are standard MeshPhysicalMaterial PBR features
-    // supported on BOTH backends — they were previously gated to WebGPU for no
-    // hard reason, leaving the WebGL edges flat. Applied uniformly now so the two
-    // renderers present the same glassy edge response (WebGL parity, task #49).
+    emissive: neutralBase.clone().multiplyScalar(0.15),
+    emissiveIntensity: 0.2,
+    // Iridescence/sheen/specular: standard MeshPhysicalMaterial PBR features.
     iridescence: 0.2,
     iridescenceIOR: 1.3,
     // three r187 deprecated iridescenceThicknessRange in favour of Minimum/Maximum.
@@ -87,20 +83,9 @@ export function createGlassEdgeMaterial(baseColor?: string | THREE.Color): Glass
     specularColor: neutralBase.clone(),
   });
 
-  // WebGL parity (task #49): inject the EXACT same Fresnel emissive + opacity
-  // maths the WebGPU TSL nodes apply (below), via onBeforeCompile GLSL. Without
-  // this the WebGL edge was flat PBR + a per-frame emissiveIntensity pulse —
-  // no grazing-angle rim glow and no Fresnel opacity gain, the visible
-  // divergence from the WebGPU edge. Applied synchronously here (not a
-  // post-mount effect) so every recreated edge material (capacity growth) gets
-  // it. No-op on WebGPU (the TSL `ready` block owns that backend).
-  applyGlslEdgeFresnel(material);
-
-  // TSL ENABLED (r183+) with PBR fallback — Fresnel emissive and opacity nodes
-  // are applied asynchronously on WebGPU; standard PBR + per-frame emissive
-  // modulation in GlassEdges useFrame remains the active fallback path.
+  // Fresnel emissive and opacity TSL nodes, applied asynchronously; until they
+  // land the edge draws as plain PBR.
   const ready = (async () => {
-    if (!isWebGPURenderer) return;
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Three.js TSL module exports are complex node builder types with no stable public API
       const { float, normalize, positionView, normalView, dot, saturate, pow, oneMinus, materialOpacity, materialColor } = await import('three/tsl') as any;
@@ -134,60 +119,6 @@ export function createGlassEdgeMaterial(baseColor?: string | THREE.Color): Glass
   })();
 
   return { material, uniforms, ready };
-}
-
-/** Edge material augmented with the idempotency guard for the GLSL injection. */
-interface GlslEdgeMaterial extends THREE.MeshPhysicalMaterial {
-  userData: { glslEdgeFresnelApplied?: boolean } & Record<string, unknown>;
-}
-
-/**
- * WebGL counterpart to the WebGPU TSL edge nodes (createGlassEdgeMaterial's
- * `ready` block). WebGL has no node graph, so this injects the equivalent GLSL
- * into the MeshPhysicalMaterial shader via onBeforeCompile, reproducing the TSL
- * maths exactly:
- *   - emissiveNode  = materialColor * fresnel * 0.25   → a grazing-angle rim glow
- *   - opacityNode   = materialOpacity * (0.55 + fresnel*0.45)
- *
- * The injection lives at <emissivemap_fragment> (after <normal_fragment_begin>,
- * so `normal` is defined; `vViewPosition`, `diffuse` and `diffuseColor` are all
- * in scope). It REPLACES totalEmissiveRadiance — matching WebGPU, where setting
- * emissiveNode overrides the standard emissive entirely (the per-frame
- * emissiveIntensity pulse in GlassEdges useFrame is therefore inert on both
- * backends; the WebGPU edge does not pulse, so neither does this). `diffuse`
- * is the material.color uniform (forced white once per-edge instanceColor is
- * active), mirroring the WebGPU `materialColor` node — the per-edge hue stays in
- * the diffuse/instanceColor path, not the emissive rim. GLSL ES 1.00 native
- * (no GLSL3 forcing — that breaks Three's built-in <opaque_fragment>).
- * Idempotent and a no-op on WebGPU.
- */
-export function applyGlslEdgeFresnel(material: THREE.MeshPhysicalMaterial): boolean {
-  if (isWebGPURenderer) return false;
-
-  const mat = material as GlslEdgeMaterial;
-  if (mat.userData.glslEdgeFresnelApplied) return true;
-
-  const prevOnBeforeCompile = mat.onBeforeCompile;
-  mat.onBeforeCompile = (shader, renderer) => {
-    if (prevOnBeforeCompile) prevOnBeforeCompile.call(mat, shader, renderer);
-
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <emissivemap_fragment>',
-      `#include <emissivemap_fragment>
-{
-  vec3 _evd = normalize(vViewPosition);
-  float _endv = clamp(dot(normalize(normal), _evd), 0.0, 1.0);
-  float _efres = pow(1.0 - _endv, 3.0);
-  totalEmissiveRadiance = diffuse * _efres * 0.25;
-  diffuseColor.a *= (0.55 + _efres * 0.45);
-}`,
-    );
-  };
-
-  mat.userData.glslEdgeFresnelApplied = true;
-  mat.needsUpdate = true;
-  logger.info('GLSL Fresnel emissive + opacity injected (WebGL edge parity)');
-  return true;
 }
 
 /**

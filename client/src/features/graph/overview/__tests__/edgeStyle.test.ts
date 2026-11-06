@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { fadeAlpha, edgeWidthPx, selectDrawnEdges, WEIGHT_AT_MAX_WIDTH } from '../edgeStyle';
+import { fadeAlpha, fadeAlphaWith, numberOps, tslScalarOps, edgeWidthPx, selectDrawnEdges, WEIGHT_AT_MAX_WIDTH } from '../edgeStyle';
 import {
   publishOverviewEdgeReport, getOverviewEdgeReport, resetOverviewEdgeReport, subscribeOverviewEdgeReport,
   overviewEdgeNoticeText,
@@ -70,5 +70,37 @@ describe('overview edge report store (no silent cap)', () => {
     publishOverviewEdgeReport({ capacity: 16, drawn: 10, total: 10, truncated: false });
     expect(overviewEdgeNoticeText(getOverviewEdgeReport())).toBeNull();
     off();
+  });
+});
+
+describe('one length fade for the CPU and the shader (VC-31 parallel fade)', () => {
+  // A stand-in for the three/tsl module over plain numbers: if tslScalarOps
+  // wires any op wrongly, the shader's fade parts from the CPU's here.
+  class N {
+    constructor(readonly v: number) {}
+    add(b: N) { return new N(this.v + b.v); }
+    sub(b: N) { return new N(this.v - b.v); }
+    mul(b: N) { return new N(this.v * b.v); }
+    div(b: N) { return new N(this.v / b.v); }
+    greaterThan(b: N) { return this.v > b.v; }
+  }
+  const T = {
+    float: (v: number) => new N(v),
+    max: (a: unknown, b: unknown) => new N(Math.max((a as N).v, (b as N).v)),
+    clamp: (a: unknown, lo: number, hi: number) => new N(Math.min(hi, Math.max(lo, (a as N).v))),
+    select: (c: unknown, a: unknown, b: unknown) => (c ? a : b) as N,
+  };
+  const ops = tslScalarOps(T as unknown as Parameters<typeof tslScalarOps>[0]);
+
+  it('the TSL ops give the CPU result across the range, the degenerate step and the clamp', () => {
+    const cases: [number, number, number, number][] = [
+      [0, 50, 150, 0.25], [50, 50, 150, 0.25], [75, 50, 150, 0.25], [100, 50, 150, 0.25], [150, 50, 150, 0.25],
+      [1e6, 50, 150, 0.25], [60, 50, 50, 0.3], [500, 50, 150, -2], [500, 50, 150, 3], [NaN, 50, 150, 0.3],
+    ];
+    for (const [len, near, far, min] of cases) {
+      const tsl = fadeAlphaWith(ops, new N(len), new N(near), new N(far), new N(min)) as unknown as N;
+      expect(tsl.v).toBeCloseTo(fadeAlpha(len, near, far, min), 12);
+      expect(fadeAlphaWith(numberOps, len, near, far, min)).toBe(fadeAlpha(len, near, far, min));
+    }
   });
 });

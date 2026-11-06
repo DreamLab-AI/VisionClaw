@@ -1,13 +1,11 @@
 import React, { useRef, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { Html } from '@react-three/drei';
 import * as THREE from 'three';
-import { isWebGPURenderer } from '../../../rendering/rendererFactory';
 import { createGlyphAtlas, type GlyphAtlasResult } from '../../../rendering/text/GlyphAtlas';
 import { layoutText, layoutTextInline, type GlyphInstance } from '../../../rendering/text/textLayout';
-import { createTextMaterial, createTextUniforms, createTslTextMaterial, type TextMaterialResult } from '../../../rendering/text/createTextMaterial';
+import { createTextUniforms, createTslTextMaterial } from '../../../rendering/text/createTextMaterial';
 import { debounceFault, onPipelineError, onRenderFault } from '../../../rendering/renderFaults';
-import { computeOcclusionMask, type OcclusionCandidate } from '../../../rendering/text/labelOcclusion';
+import { isOverviewFaulted, markOverviewFault } from '../overview/overviewLive';
 import type { Node as GraphNode } from '../managers/graphDataManager';
 import type { GraphVisualMode } from '../hooks/useGraphVisualState';
 import { computeNodeScale } from '../utils/nodeScaling';
@@ -159,7 +157,6 @@ export interface InstancedLabelsProps {
 /** Hard ceiling of the glyph buffer; the live size is glyphCapacityFor(budgets) (ADR-2186 D1). */
 const MAX_GLYPHS = 32768;
 const _tempVec3 = new THREE.Vector3();
-const _tempVec3b = new THREE.Vector3();
 const _tempColor = new THREE.Color();
 
 
@@ -250,22 +247,13 @@ function buildLabelLines(
   return lines;
 }
 
-// ===== WebGPU budgeted DOM fallback =====
-// ADR-2186 D4: both renderers draw labels as instanced glyph quads
-// (InstancedLabelsGlyph; GLSL material on WebGL, TSL on WebGPU), so the
-// WebGPU path draws 0 DOM labels. This DOM layer remains only as the fallback
-// while the TSL glyph material is building, or if it failed to build or its
-// draw faulted: the SAME budgeted selection (LabelBudgetRunner) as projected
-// CSS labels in one <Html> container, capped at the budget.
+// ===== Instanced glyph labels =====
+// ADR-2186 D4: labels are instanced glyph quads with one TSL material
+// (createTslTextMaterial), compiled by WebGPURenderer for either backend. There
+// is no DOM label layer: while the material builds no labels draw, and a
+// failed build or faulting draw hides them and reports a `labels` fault on the
+// canvas notice (overviewLive, OverviewEdgeNotice).
 
-interface WebGPULabel {
-  screenX: number;
-  screenY: number;
-  lines: LabelLine[];
-  opacity: number;
-}
-
-// ===== WebGL Instanced Labels =====
 
 /**
  * Phase 6 (ADR-04 D7 / T4): the wrapper forwards through an intermediate
@@ -292,224 +280,19 @@ export const InstancedLabels: React.FC<InstancedLabelsProps> = (props) => {
     ssspResult: props.ssspResult,
   };
 
-  return <InstancedLabelsSwitch {...forwardedProps} />;
+  return <InstancedLabelsGlyph {...forwardedProps} />;
 };
 
-/** Glyph material state on the live renderer (WebGL is always 'ready'). */
-export type GlyphStatus = 'building' | 'ready' | 'failed';
-
-/**
- * Whether the budgeted DOM fallback draws: only on WebGPU, and only while the
- * TSL glyph material is not ready (building, failed, or its draw faulted).
- */
-export function labelsUseDomFallback(webgpu: boolean, status: GlyphStatus): boolean {
-  return webgpu && status !== 'ready';
-}
-
-const InstancedLabelsSwitch: React.FC<InstancedLabelsProps> = (props) => {
-  const [status, setStatus] = React.useState<GlyphStatus>(isWebGPURenderer ? 'building' : 'ready');
-  return (
-    <>
-      {status !== 'failed' && <InstancedLabelsGlyph {...props} onStatus={setStatus} />}
-      {labelsUseDomFallback(isWebGPURenderer, status) && <InstancedLabelsWebGPU {...props} />}
-    </>
-  );
-};
-
-// ---------- WebGPU fallback implementation ----------
-
-// Phase 6 (ADR-04 D7): identical prop type as the parent wrapper, declared
-// as a type alias so any divergence is a TypeScript error, not a runtime
-// regression.
-type WebGPUProps = InstancedLabelsProps;
-
-const InstancedLabelsWebGPU: React.FC<WebGPUProps> = ({
-  nodes, nodeIdToIndexMap, nodePositionsRef, labelPositionsRef,
-  settings, graphMode, perNodeVisualModeMap, connectionCountMap,
-  hierarchyMap, graphTypeVisuals, ssspResult,
-}) => {
-  const { camera, size } = useThree();
-  const [webGPULabels, setWebGPULabels] = React.useState<WebGPULabel[]>([]);
-  const budgets = useLabelBudgets();
-  const runnerRef = useRef(new LabelBudgetRunner());
-  const frameCountRef = useRef(0);
-  const prevCameraRef = useRef({
-    x: 0, y: 0, z: 0,
-    qx: 0, qy: 0, qz: 0, qw: 1,
-  });
-  const motionStateRef = useRef({ lastFastTime: 0 });
-  const webGPULabelsRef = useRef<WebGPULabel[]>([]);
-
-  useFrame(() => {
-    frameCountRef.current++;
-
-    // Camera velocity tracking — hide labels during fast motion
-    const prev = prevCameraRef.current;
-    const dx = camera.position.x - prev.x;
-    const dy = camera.position.y - prev.y;
-    const dz = camera.position.z - prev.z;
-    const posDelta = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    const rotDot = Math.abs(
-      camera.quaternion.x * prev.qx + camera.quaternion.y * prev.qy +
-      camera.quaternion.z * prev.qz + camera.quaternion.w * prev.qw
-    );
-    const rotDelta = 1.0 - rotDot;
-    prev.x = camera.position.x; prev.y = camera.position.y; prev.z = camera.position.z;
-    prev.qx = camera.quaternion.x; prev.qy = camera.quaternion.y;
-    prev.qz = camera.quaternion.z; prev.qw = camera.quaternion.w;
-    const cameraMovingFast = posDelta > 0.5 || rotDelta > 0.001;
-
-    const now = performance.now();
-    if (cameraMovingFast) motionStateRef.current.lastFastTime = now;
-    const moving = cameraMovingFast || now - motionStateRef.current.lastFastTime < 150;
-    // ADR-2186 D5: selection at ~4 Hz and on camera stop, never per frame.
-    const due = runnerRef.current.due(now, moving);
-    if (cameraMovingFast) {
-      // Hide labels during fast camera motion — nodes keep rendering
-      if (webGPULabelsRef.current.length > 0) { webGPULabelsRef.current = []; setWebGPULabels([]); }
-      return;
-    }
-    if (moving || !due) return;
-
-    const labelSettings = (settings as any)?.visualisation?.graphs?.knowledge?.labels ?? (settings as any)?.visualisation?.labels;
-    if (!labelSettings?.enableLabels || nodes.length === 0) {
-      if (webGPULabelsRef.current.length > 0) { webGPULabelsRef.current = []; setWebGPULabels([]); }
-      return;
-    }
-
-    const nodeSettings = (settings as any)?.visualisation?.graphs?.knowledge?.nodes ?? (settings as any)?.visualisation?.nodes;
-    const nodeSize = nodeSettings?.nodeSize ?? 0.5;
-    const LABEL_DISTANCE_THRESHOLD = labelSettings?.labelDistanceThreshold ?? 1200;
-    const METADATA_DISTANCE_THRESHOLD = LABEL_DISTANCE_THRESHOLD * 0.6;
-    const metadataEnabled = labelSettings?.showMetadata !== false;
-    // Labels are sized in CSS px (graphView.labels.fontPx); line sizes keep their ratios.
-    const fontSize = 1;
-    const metaFontSize = META_SCALE;
-    const textColor = labelSettings.textColor || '#ffffff';
-    const textPadding = labelSettings.textPadding ?? 0.3;
-
-    // Read the drawn-positions array (the same one GemNodes and the edges read) for zero-lag positions.
-    // Falls back to labelPositionsRef if it is not available.
-    const rawPositions = nodePositionsRef?.current;
-    const halfW = size.width * 0.5;
-    const halfH = size.height * 0.5;
-    // PerspectiveCamera projection [1][1] = 1/tan(fovY/2); projects a world
-    // radius to NDC at unit distance. Used to size each node's screen disc for
-    // the screen-space occlusion test below.
-    const projF = camera.projectionMatrix.elements[5];
-
-    // ADR-2186: the budgeted, priority-ranked selection (shared with WebGL).
-    const runner = runnerRef.current;
-    const sel = runner.run(now, nodes, nodeIdToIndexMap, connectionCountMap, rawPositions, camera, size, budgets, budgets.fontPx, budgets.clusterMinDistance);
-
-    // Pass 1: the selected labels plus their node-centre occlusion discs.
-    const candidates: WebGPULabel[] = [];
-    const occluders: OcclusionCandidate[] = [];
-
-    for (let k = 0; k < sel.count; k++) {
-      const node = nodes[sel.nodes[k]];
-      const originalIndex = runner.renderIndexOf(sel.nodes[k]);
-      let position: { x: number; y: number; z: number };
-      if (originalIndex !== -1 && rawPositions && originalIndex * 3 + 2 < rawPositions.length) {
-        const i3 = originalIndex * 3;
-        position = { x: rawPositions[i3], y: rawPositions[i3 + 1], z: rawPositions[i3 + 2] };
-      } else {
-        const fallback = originalIndex !== -1 ? labelPositionsRef.current[originalIndex] : undefined;
-        position = fallback || node.position || { x: 0, y: 0, z: 0 };
-      }
-
-      _tempVec3.set(position.x, position.y, position.z);
-      const distanceToCamera = _tempVec3.distanceTo(camera.position);
-      const showMetadata = metadataEnabled && distanceToCamera <= METADATA_DISTANCE_THRESHOLD;
-      const nodeLabelVisualMode = perNodeVisualModeMap.get(String(node.id)) || graphMode;
-      const scale = computeNodeScale(node, connectionCountMap, nodeLabelVisualMode, hierarchyMap, graphTypeVisuals);
-      const labelOffsetY = scale * nodeSize + textPadding;
-
-      _tempVec3b.set(position.x, position.y, position.z).project(camera);
-      if (_tempVec3b.z > 1) continue; // behind camera
-      const centerScreenX = (_tempVec3b.x * halfW) + halfW;
-      const centerScreenY = (-_tempVec3b.y * halfH) + halfH;
-      const worldRadius = Math.max(1e-4, scale * nodeSize);
-      const screenRadius = Math.abs((worldRadius * projF * halfH) / distanceToCamera);
-
-      const labelText = node.label && node.label.length > 40
-        ? node.label.substring(0, 37) + '...' : (node.label || node.id);
-
-      const lines = buildLabelLines(
-        node, nodeLabelVisualMode, labelText, textColor, fontSize, metaFontSize,
-        showMetadata, connectionCountMap, hierarchyMap, ssspResult,
-      );
-
-      _tempVec3.set(position.x, position.y + labelOffsetY, position.z).project(camera);
-      const screenX = (_tempVec3.x * halfW) + halfW;
-      const screenY = (-_tempVec3.y * halfH) + halfH;
-
-      candidates.push({ screenX, screenY, lines, opacity: 1 });
-      occluders.push({ screenX: centerScreenX, screenY: centerScreenY, screenRadius, distance: distanceToCamera });
-    }
-
-    // Pass 2: drop labels whose node is hidden behind a nearer node. Restores
-    // depth occlusion that DOM overlays cannot get from the GPU depth buffer.
-    const occMask = computeOcclusionMask(occluders);
-    const labels: WebGPULabel[] = [];
-    for (let i = 0; i < candidates.length; i++) {
-      if (!occMask[i]) labels.push(candidates[i]);
-    }
-
-    // ADR-2186 D2: cluster labels at their centroids (no node to occlude them)
-    forEachClusterLabel(runner, nodes, fontSize, (line, _x, _y, _z, sx, sy) => {
-      labels.push({ screenX: sx, screenY: sy, lines: [line], opacity: 1 });
-    });
-
-    webGPULabelsRef.current = labels;
-    setWebGPULabels(labels);
-  });
-
-  // Render labels directly — useState triggers re-render when labels change
-  return (
-    <Html center={false} style={{ pointerEvents: 'none' }} calculatePosition={() => [0, 0, 0]}>
-      <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', pointerEvents: 'none' }}>
-        {webGPULabels.map((label, i) => (
-          <div key={i} style={{
-            position: 'absolute',
-            left: `${label.screenX}px`,
-            top: `${label.screenY}px`,
-            transform: 'translate(-50%, -100%)',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            whiteSpace: 'nowrap',
-            userSelect: 'none',
-            opacity: label.opacity,
-          }}>
-            {label.lines.map((line, j) => (
-              <span key={j} style={{
-                color: line.color,
-                fontSize: `${Math.round(line.fontSize * budgets.fontPx)}px`,
-                textShadow: '0 0 3px #000, 0 0 6px #000',
-                fontFamily: 'system-ui, sans-serif',
-                lineHeight: 1.3,
-              }}>{line.text}</span>
-            ))}
-          </div>
-        ))}
-      </div>
-    </Html>
-  );
-};
-
-// ---------- WebGL instanced implementation ----------
-
-// Phase 6 (ADR-04 D7): same alias as the WebGPU path. The wrapper
-// `InstancedLabels` builds a typed forwarding object so missing props are
-// compile errors. The runtime guard below (for `nodePositionsRef` absent)
-// remains as a developer sanity check that emits a single warn.
-type GlyphProps = InstancedLabelsProps & { onStatus: (s: GlyphStatus) => void };
+// The wrapper `InstancedLabels` builds a typed forwarding object so missing
+// props are compile errors (ADR-04 D7). The runtime guard below (for
+// `nodePositionsRef` absent) remains as a developer sanity check that emits a
+// single warn.
+type GlyphProps = InstancedLabelsProps;
 
 const InstancedLabelsGlyph: React.FC<GlyphProps> = ({
   nodes, nodeIdToIndexMap, nodePositionsRef, labelPositionsRef,
   settings, graphMode, perNodeVisualModeMap, connectionCountMap,
-  hierarchyMap, graphTypeVisuals, ssspResult, onStatus,
+  hierarchyMap, graphTypeVisuals, ssspResult,
 }) => {
   const { camera, size } = useThree();
   const meshRef = useRef<THREE.Mesh>(null);
@@ -536,12 +319,10 @@ const InstancedLabelsGlyph: React.FC<GlyphProps> = ({
   }>>([]);
 
   // Create atlas, material, and geometry once
-  const { geometry, uniforms, glslMaterial, atlas } = useMemo(() => {
+  const { geometry, uniforms, atlas } = useMemo(() => {
     const a = createGlyphAtlas();
-    // WebGL: the cached GLSL material and its uniforms. WebGPU: fresh uniforms;
-    // the TSL material binds to this geometry and is built below.
-    const glsl: TextMaterialResult | null = isWebGPURenderer ? null : createTextMaterial(a.texture);
-    const uniforms = glsl ? glsl.uniforms : createTextUniforms(a.texture);
+    // Fresh uniforms; the TSL material binds to this geometry and is built below.
+    const uniforms = createTextUniforms(a.texture);
 
     // Unit quad: two triangles, 4 vertices with positions in 0..1
     const geo = new THREE.InstancedBufferGeometry();
@@ -576,7 +357,7 @@ const InstancedLabelsGlyph: React.FC<GlyphProps> = ({
 
     geo.instanceCount = 0;
 
-    return { geometry: geo, uniforms, glslMaterial: glsl ? glsl.material : null, atlas: a };
+    return { geometry: geo, uniforms, atlas: a };
   }, [glyphCap]);
 
   // Dispose on unmount
@@ -592,47 +373,43 @@ const InstancedLabelsGlyph: React.FC<GlyphProps> = ({
   // A TSL material is paired with the geometry it binds: after a glyphCap
   // change the new geometry never draws with the previous material.
   const [tslBuilt, setTslBuilt] = React.useState<{ material: THREE.Material; geometry: THREE.InstancedBufferGeometry } | null>(null);
-  const material = glslMaterial ?? (tslBuilt && tslBuilt.geometry === geometry ? tslBuilt.material : null);
-  const onStatusRef = useRef(onStatus);
-  onStatusRef.current = onStatus;
+  const material = tslBuilt && tslBuilt.geometry === geometry ? tslBuilt.material : null;
   React.useEffect(() => {
-    if (glslMaterial) { onStatusRef.current('ready'); return; }
     let cancelled = false;
     let built: THREE.Material | null = null;
-    onStatusRef.current('building');
     createTslTextMaterial(uniforms, geometry).then((m) => {
       if (cancelled) { m.dispose(); return; }
       built = m;
       setTslBuilt({ material: m, geometry });
-      onStatusRef.current('ready');
     }).catch((err) => {
       if (cancelled) return;
-      console.warn('[InstancedLabels] TSL glyph material failed; using the budgeted DOM fallback:', err);
-      onStatusRef.current('failed');
+      console.warn('[InstancedLabels] glyph material failed to build; labels hidden:', err);
+      markOverviewFault('labels', err instanceof Error ? err.message : String(err));
     });
     return () => { cancelled = true; built?.dispose(); setTslBuilt(null); };
-  }, [glslMaterial, uniforms, geometry]);
+  }, [uniforms, geometry]);
 
-  // A draw that throws on WebGPU (the renderObject guard) also falls back.
+  // A draw that throws (renderObject guard) or a shader that fails on the GPU
+  // hides the labels and reports the fault.
   React.useEffect(() => {
     const mesh = meshRef.current;
-    if (!mesh || glslMaterial) return;
+    if (!mesh || !material) return;
     const fault = (err: unknown) => {
       mesh.visible = false;
-      console.warn('[InstancedLabels] glyph draw faulted; using the budgeted DOM fallback:', err);
-      onStatusRef.current('failed');
+      console.warn('[InstancedLabels] glyph draw faulted; labels hidden:', err);
+      markOverviewFault('labels', err instanceof Error ? err.message : String(err));
     };
     onRenderFault(mesh, debounceFault(fault));
-    const mat = mesh.material as THREE.Material;
-    onPipelineError(mat, fault);
-    return () => { onRenderFault(mesh, null); onPipelineError(mat, null); };
-  }, [material, glslMaterial]);
+    onPipelineError(material, fault);
+    return () => { onRenderFault(mesh, null); onPipelineError(material, null); };
+  }, [material]);
 
   // Priority 0 (default): runs after GraphManager (-2) and GemNodes (-1),
   // ensuring nodePositionsRef.current is populated for this frame.
   useFrame(() => {
     const mesh = meshRef.current;
     if (!mesh) return;
+    if (isOverviewFaulted('labels')) { mesh.visible = false; return; }
 
     // --- Camera uniforms (always needed for billboard orientation) ---
     camera.updateMatrixWorld();
@@ -680,7 +457,7 @@ const InstancedLabelsGlyph: React.FC<GlyphProps> = ({
     // in practice because the wrapper enforces it at compile time.
     if (!rawPositions && !diagLoggedRef.current && nodeMap.length > 0) {
       console.warn(
-        '[InstancedLabelsWebGL] nodePositionsRef absent — falling back to labelPositionsRef. ' +
+        '[InstancedLabels] nodePositionsRef absent — falling back to labelPositionsRef. ' +
         'This is a bug upstream: the parent should always forward nodePositionsRef.'
       );
       diagLoggedRef.current = true;
