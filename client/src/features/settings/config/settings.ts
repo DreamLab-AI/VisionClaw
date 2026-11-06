@@ -28,7 +28,9 @@ export interface NodeSettings {
 export interface EdgeSettings {
   arrowSize: number;
   baseWidth: number;
-  color: string;
+  /** @deprecated ADR-2189: merged into graphTypeVisuals.<mode>.edgeColor (one per
+   *  graph mode). Kept optional only until the renderer stops reading it. */
+  color?: string;
   enableArrows: boolean;
   opacity: number;
   widthRange: [number, number];
@@ -453,6 +455,8 @@ export interface OntologyVisualSettings {
 }
 
 export interface AgentVisualSettings {
+  /** The one edge colour for agent mode (ADR-2189; was the generic knowledge edges.color). */
+  edgeColor?: string;
   nucleusGlowIntensity?: number;
   breathingSpeed?: number;
   breathingAmplitude?: number;
@@ -776,9 +780,11 @@ export interface QualityGatesSettings {
   ontologyPhysics: boolean;
   /** @deprecated Read-only echo of `physics.layoutMode` in the legacy vocabulary; write the physics field. */
   layoutMode: 'force-directed' | 'dag-topdown' | 'dag-radial' | 'dag-leftright' | 'type-clustering' | 'spectral' | 'clustered';
-  showClusters: boolean;
+  /** @deprecated ADR-2189: merged into colour scheme = Cluster. */
+  showClusters?: boolean;
   showAnomalies: boolean;
-  showCommunities: boolean;
+  /** @deprecated ADR-2189: merged into colour scheme = Community. */
+  showCommunities?: boolean;
   /** Colour nodes by PageRank centrality (ADR-031 D2/D6, wire offset 48). */
   showCentrality: boolean;
   /** Colour nodes by SSSP distance from the active source (ADR-031 D6, wire offset 28). */

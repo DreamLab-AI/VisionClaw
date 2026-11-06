@@ -1,7 +1,7 @@
 {
   "version": "2.0",
   "generatedFrom": "settingsRegistry.ts",
-  "count": 248,
+  "count": 246,
   "groups": [
     {
       "id": "layers",
@@ -22,7 +22,7 @@
       "label": "Encode",
       "testid": "group-encode",
       "hotkey": "3",
-      "fieldCount": 26
+      "fieldCount": 24
     },
     {
       "id": "layout",
@@ -721,19 +721,6 @@
       "server": "visual"
     },
     {
-      "key": "edgeColor",
-      "path": "visualisation.graphs.knowledge.edges.color",
-      "testid": "setting-visualisation.graphs.knowledge.edges.color",
-      "control": "color",
-      "group": "encode",
-      "sourceGroup": "look",
-      "subgroup": "Edges",
-      "scope": "server",
-      "label": "Edge colour (fallback)",
-      "clientOnly": false,
-      "server": "visual"
-    },
-    {
       "key": "edgeWidth",
       "path": "visualisation.graphs.knowledge.edges.baseWidth",
       "testid": "setting-visualisation.graphs.knowledge.edges.baseWidth",
@@ -774,7 +761,7 @@
       "sourceGroup": "look",
       "subgroup": "Edges",
       "scope": "server",
-      "label": "Edge colour: knowledge graph",
+      "label": "Edge colour: knowledge graph mode",
       "clientOnly": false,
       "server": "visual"
     },
@@ -787,7 +774,20 @@
       "sourceGroup": "look",
       "subgroup": "Edges",
       "scope": "server",
-      "label": "Edge colour: ontology",
+      "label": "Edge colour: ontology mode",
+      "clientOnly": false,
+      "server": "visual"
+    },
+    {
+      "key": "agentEdgeColor",
+      "path": "visualisation.graphTypeVisuals.agent.edgeColor",
+      "testid": "setting-visualisation.graphTypeVisuals.agent.edgeColor",
+      "control": "color",
+      "group": "encode",
+      "sourceGroup": "look",
+      "subgroup": "Edges",
+      "scope": "server",
+      "label": "Edge colour: agent mode",
       "clientOnly": false,
       "server": "visual"
     },
@@ -988,19 +988,6 @@
       "step": 0.05
     },
     {
-      "key": "showClusters",
-      "path": "qualityGates.showClusters",
-      "testid": "setting-qualityGates.showClusters",
-      "control": "toggle",
-      "group": "encode",
-      "sourceGroup": "quality",
-      "subgroup": "Analytic overlays",
-      "scope": "server",
-      "label": "Show Clusters",
-      "clientOnly": false,
-      "server": "qualityGates"
-    },
-    {
       "key": "showAnomalies",
       "path": "qualityGates.showAnomalies",
       "testid": "setting-qualityGates.showAnomalies",
@@ -1010,19 +997,6 @@
       "subgroup": "Analytic overlays",
       "scope": "server",
       "label": "Show Anomalies",
-      "clientOnly": false,
-      "server": "qualityGates"
-    },
-    {
-      "key": "showCommunities",
-      "path": "qualityGates.showCommunities",
-      "testid": "setting-qualityGates.showCommunities",
-      "control": "toggle",
-      "group": "encode",
-      "sourceGroup": "quality",
-      "subgroup": "Analytic overlays",
-      "scope": "server",
-      "label": "Show Communities",
       "clientOnly": false,
       "server": "qualityGates"
     },
@@ -3342,7 +3316,7 @@
       "sourceGroup": "provenance",
       "subgroup": "Governance › Timeline",
       "scope": "browser",
-      "label": "Timeline Diff Mode",
+      "label": "Timeline diff",
       "clientOnly": true,
       "server": null
     },

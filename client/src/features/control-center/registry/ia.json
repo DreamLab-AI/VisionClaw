@@ -414,13 +414,6 @@
           "label": "Edges",
           "fields": [
             {
-              "key": "edgeColor",
-              "label": "Edge colour (fallback)",
-              "path": "visualisation.graphs.knowledge.edges.color",
-              "control": "color",
-              "scope": "server"
-            },
-            {
               "key": "edgeWidth",
               "label": "Edge Thickness",
               "path": "visualisation.graphs.knowledge.edges.baseWidth",
@@ -436,15 +429,22 @@
             },
             {
               "key": "kgEdgeColor",
-              "label": "Edge colour: knowledge graph",
+              "label": "Edge colour: knowledge graph mode",
               "path": "visualisation.graphTypeVisuals.knowledgeGraph.edgeColor",
               "control": "color",
               "scope": "server"
             },
             {
               "key": "ontologyEdgeColor",
-              "label": "Edge colour: ontology",
+              "label": "Edge colour: ontology mode",
               "path": "visualisation.graphTypeVisuals.ontology.edgeColor",
+              "control": "color",
+              "scope": "server"
+            },
+            {
+              "key": "agentEdgeColor",
+              "label": "Edge colour: agent mode",
+              "path": "visualisation.graphTypeVisuals.agent.edgeColor",
               "control": "color",
               "scope": "server"
             }
@@ -558,23 +558,9 @@
           "label": "Analytic overlays",
           "fields": [
             {
-              "key": "showClusters",
-              "label": "Show Clusters",
-              "path": "qualityGates.showClusters",
-              "control": "toggle",
-              "scope": "server"
-            },
-            {
               "key": "showAnomalies",
               "label": "Show Anomalies",
               "path": "qualityGates.showAnomalies",
-              "control": "toggle",
-              "scope": "server"
-            },
-            {
-              "key": "showCommunities",
-              "label": "Show Communities",
-              "path": "qualityGates.showCommunities",
               "control": "toggle",
               "scope": "server"
             }
@@ -1843,7 +1829,7 @@
             },
             {
               "key": "diffMode",
-              "label": "Timeline Diff Mode",
+              "label": "Timeline diff",
               "path": "provenance.diffMode",
               "control": "toggle",
               "scope": "browser"
