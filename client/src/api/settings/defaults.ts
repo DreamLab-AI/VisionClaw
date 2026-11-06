@@ -54,7 +54,7 @@ export const DEFAULT_PHYSICS_SETTINGS: Partial<PhysicsSettings> = {
   // only — the backend PhysicsSettings::default() is the single source of truth
   // and is hydrated over these on connect.
   enableBounds: true,
-  boundsSize: 400.0,
+  boundsSize: 1600.0,
   boundaryDamping: 0.95,
 
   // --- Layout forces (FA2 / dual-graph) ---

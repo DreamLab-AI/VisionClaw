@@ -60,6 +60,10 @@ None yet. Each decision has its own check:
 - **Tube trigger (D3).** The tubes take the subset whenever the overview edges are enabled and not faulted, including the startup window before they draw (`resolveTubeLod`, `client/src/features/graph/overview/tubeSelect.ts`). Feeding every edge in that window grew `GlassEdges` to its 65,536 ceiling and warned on the 140,352-edge graph. The cost is that far edges are blank for those first frames. Every edge is a tube only with the overview edges off or faulted.
 - **Worker buffer (D4).** `graphWorkerProxy.setGraphTopology` grows the position SAB to the delivered node count (`sharedCapacityFor`). Any shortfall it cannot cover goes to `publishNodeBufferReport` and appears in the same in-canvas notice as edges (`OverviewEdgeNotice`).
 
+### Overview density is a layout property, not an edge property (2026-11-06)
+
+A real-WebGPU check on `main` showed the ~140k overview edges as a near-opaque slab with hard straight edges. Measured on both backends it was identical (grey mean 185.6), and lowering the edge alpha to 0.05 barely changed it: the slab was the 9.6k knowledge nodes themselves, crushed into the 400-unit physics bounding cube (`default_bounds_size`, `physics_config.rs`), with p5/p95 on y pinned at exactly ±400. Widening the cube to 1600 on the live store let the layout settle into a round cloud and the fade in D2 then reads as intended. The default is now 1600 in all three copies (Rust, client defaults, registry slider; slider max raised to 4000). D2's alpha defaults are unchanged. Invariant: a slab at overview zoom is a sign of a boundary-pinned layout; check the position quantiles before touching edge alpha.
+
 ## Status at integration (2026-11-06)
 
 Partial: overview edges, data-sized capacity, the truncation notice and the worker-buffer growth are built and tested. Since 2026-11-06 there is one renderer, seen drawing all 140,352 overview edges on its WebGL2 backend in the browser sidecar. Not done: profiled receipts that a settled graph does no per-edge CPU work, and a check on a real WebGPU adapter.

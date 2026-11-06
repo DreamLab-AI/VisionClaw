@@ -111,7 +111,7 @@ fn default_constraint_max_force_per_node() -> f32 {
 }
 
 fn default_bounds_size() -> f32 {
-    400.0
+    1600.0
 }
 
 /// Default Z-scale factor: 1.0 = no compression (fully 3D). See the field doc
@@ -546,7 +546,7 @@ impl Default for PhysicsSettings {
             // repelK and reins in disconnected nodes springs can't reach.
             // Measured: 90% of nodes within ~45u of their cluster centroid, the
             // whole graph sitting well inside the ~400u soft-cube bounds.
-            bounds_size: 400.0,
+            bounds_size: 1600.0,
             separation_radius: 2.1155233,
             damping: 0.9,
             enable_bounds: true,
@@ -829,7 +829,7 @@ mod tests {
         assert_eq!(ps.repel_k, 120.0);
         assert_eq!(ps.spring_k, 12.0);
         assert_eq!(ps.center_gravity_k, 0.2);
-        assert_eq!(ps.bounds_size, 400.0);
+        assert_eq!(ps.bounds_size, 1600.0);
         assert!(ps.enable_bounds);
         assert_eq!(ps.max_repulsion_dist, 400.0);
         assert_eq!(ps.sssp_alpha, 1.5);
