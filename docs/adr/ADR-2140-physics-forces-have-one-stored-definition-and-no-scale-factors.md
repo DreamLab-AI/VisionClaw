@@ -9,7 +9,7 @@ evidence_class: source+test
 acceptance_boundary: local runs only, not deployed to any running server or headset. The GPU receipt (adr_2140_layout_mode_gpu_tests) drives merge_physics_patch, not the HTTP handler, because apply_physics_patch needs a live AppState; no test builds an AppState, so the quality-gate handler's decision is tested as a pure function (layout_mode_to_forward) and reset_layout's as reset_document_for, not through the HTTP handlers. The boot path is tested at the repository load (load_all_settings against a store holding only the physics row, and one with frozen leaves) which is what the settings actor calls at startup; OptimizedSettingsActor and AppState::new are not booted. The client round trip is pinned by unit tests, not a browser against a live backend; the removed sssp/params routes are shown absent by a routing test, not by a deployed 404.
 supersedes: []
 superseded_by: []
-verified_commit: e2afd65d656977d082382e724198e86d2b8cabdf
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [src/handlers/layout_handler.rs, src/actors/gpu/force_compute_actor.rs, src/actors/gpu/physics_restore.rs, crates/visionclaw-domain/src/types/layout.rs, src/utils/unified_gpu_compute/execution.rs, src/adapters/sqlite_settings_repository.rs, src/handlers/api_handler/analytics/sssp_handlers.rs, src/settings/api/settings_routes.rs, crates/visionclaw-domain/src/types/physics_config.rs, src/models/simulation_params.rs, crates/visionclaw-domain/src/models/simulation_params.rs, docs/reference/physics-parameters.md]
 owner: jjohare
 review_trigger: any new force, any new place that holds a physics value, any multiplier or clamp between the settings store and the GPU
@@ -184,3 +184,13 @@ Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (
 ## Re-stamp — 2026-11-01 (`e2afd65d6`)
 
 Re-verified after the phys/integrate branch: the governed-path changes since `f1fa1862c` are the branch's hold-spring and constraint-index work plus the change-only constraint upload. This record's claims are unchanged apart from the wording in "Amended by ADR-2169": the held gain also scales the overlap push, the boundary force and, in Hooke mode, the stored springs, and constraints are not part of the hold. Re-run: `git diff --stat f1fa1862c e2afd65d6 -- src/actors/gpu/force_compute_actor.rs src/utils/unified_gpu_compute/execution.rs`.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path changes since `e2afd65d6`:
+- **`bounds_size` default 400 → 1600** (`b11d8cba1`, `crates/visionclaw-domain/src/types/physics_config.rs:112-114` and `:548`). The reason is measured on main, as Decision 6 requires: a 10k-node graph had its p5/p95 pinned at ±400 and read as an edge slab, and at 1600 the layout settled into a round cloud. The commit records the measurement, and ADR-2181 carries the note. The value is still applied as stored, with no scale factor. **Drift, reported, not fixed here:** the calibration comment beside the default (`physics_config.rs:546-547`) still says the graph sits "well inside the ~400u soft-cube bounds". The commit also raised the client default and the registry slider by hand (`client/src/api/settings/defaults.ts`, `registry/groups/motion.ts`, `settings-manifest.json`). Those are copies of the default, not stored values, so Decision 1 is not breached, but nothing outside the Rust test pins them to the Rust value.
+- `src/actors/gpu/force_compute_actor.rs` (`7c58d3e6e`, `ab05ee9d6`, `405edcfe1`): `GetCurrentPositions` skips unmapped GPU slots (`slot_node_id`, `:3226`), and the refusing `RunCommunityDetection` stub is deleted. No parameter path changes.
+- `src/settings/api/settings_routes.rs`, `src/adapters/sqlite_settings_repository.rs` (`0cf6e0848`, `30b1e8de2`, `f93b560dd`, `bd170e81a`): rendering settings persist in their own `rendering` row (`RENDERING_ROW`); the node filter gains `serverRemove`, `minConnections` and `minMaturity` (validated); `maxNodeCount` leaves the quality-gate log. The physics write path is unchanged: `apply_physics_patch` is still `settings_routes.rs:617`.
+- `src/handlers/api_handler/analytics/sssp_handlers.rs` (`61115d43e`, `84ccd9aaa`): access gating and one shared error reply. `src/handlers/layout_handler.rs`: the layout is placed over the caller's view.
+
+**Decision unaffected.** Re-run: `git diff e2afd65d6..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 809a859aae9e3d96d4d6b99690378018e48e3ad8
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -289,3 +289,11 @@ Governed-path change since the last stamp: `src/app_state.rs` (`6b811f7a1`): `ge
 Re-run: `git diff 5c94c3cbd..81e711267 -- Cargo.toml src/app_state.rs`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
 
 Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..de4ee9e3a`, the last hunk whitespace-only): `src/app_state.rs` opens one more SQLite store (`shares.sqlite3`, graph shares) and no longer builds the `node_sssp` map or `ProtectedSettingsActor`; `Cargo.toml` drops the fastwebsockets/postcard/hyper networking deps of the deleted `FastWebSocketServer`. The embedded Oxigraph open and its sharing are untouched. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path change since `809a859aa`: `src/app_state.rs` (`57ba04beb`, `f284c2953`, `dffbeceba`, the shared Whelk engine) adds two in-memory fields:
+- `ontology_view_reasoner` (`:297`), the ADR-2184 Q1 per-caller view reasoner;
+- `ontology_inference_engine` (`:301`), one `WhelkInferenceEngine` shared by the sync and the ontology-agent routes.
+
+At start-up it is loaded from the Oxigraph store (`load_shared_inference`, `:573`, non-fatal on failure). Neither field is a store: both hold derived state rebuilt from Oxigraph. No database, persistence backend or `Cargo.toml` dependency changed. **Decision unaffected.** Re-run: `git diff 809a859aa..7bd25427e -- Cargo.toml src/app_state.rs`. Checked by reading that diff; no test was re-run for this stamp.

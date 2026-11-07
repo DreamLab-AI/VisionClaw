@@ -9,7 +9,7 @@ supersedes: []
 superseded_by: []
 amends: [ADR-2140]
 relates: [ADR-2141, ADR-2172]
-verified_commit: 81e71126779b0b312b93ab459058ee8977233331
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [src/utils/unified_gpu_compute/hold_overlay.rs, src/utils/unified_gpu_compute/execution.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, src/actors/gpu/hold_registry.rs, src/actors/gpu/force_compute_actor.rs, src/actors/physics_orchestrator_actor.rs, src/handlers/socket_flow_handler/position_updates.rs, src/handlers/socket_flow_handler/types.rs, src/handlers/layout_handler.rs, scripts/drag-physics-acceptance.mjs]
 owner: jjohare
 review_trigger: the first headset session after the server carrying this change is deployed (does the graph answer the hand, does it rest about two seconds after release), or any change to the FA2 integrator or the stored `globalSpeed`.
@@ -102,3 +102,12 @@ Re-stamped at the merge of `phys/integrate` and `viz/edge-tracking` (`ff849f2ba`
 Governed-path changes since the last stamp, all `6b811f7a1`: orchestrator hold ownership (`held_nodes` node-to-holder map; `holder` on `NodeInteractionMessage`, passed by `position_updates.rs`), and `drag-physics-acceptance.mjs` using ordered post-release evidence. Item 1's rule that a release counts only from the node's current owner is now true at the orchestrator as well as the GPU registry, which is what the external review note above recorded as missing. Items 2 to 10 (GPU stepping, spring overlay, gains) are untouched. **Claims otherwise unchanged; text amended above.** The repair record reports server lib 1,809 passed, 11 ignored, and three Node tests for the evidence helper; not repeated here.
 
 Re-run: `git diff ff849f2ba..81e711267 -- src/utils/unified_gpu_compute/hold_overlay.rs src/utils/unified_gpu_compute/execution.rs crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu src/actors/gpu/hold_registry.rs src/actors/gpu/force_compute_actor.rs src/actors/physics_orchestrator_actor.rs src/handlers/socket_flow_handler/position_updates.rs src/handlers/socket_flow_handler/types.rs src/handlers/layout_handler.rs scripts/drag-physics-acceptance.mjs`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path changes since `81e711267`:
+- `src/actors/gpu/force_compute_actor.rs` (`7c58d3e6e`, `ab05ee9d6`, `405edcfe1`): `GetCurrentPositions` (`:3246`) skips a GPU slot with no node id (`slot_node_id`, `:3226`) instead of labelling it with its own index, and averages KE over mapped slots only (review L2); the refusing `Handler<RunCommunityDetection>` stub is deleted (community detection is `ClusteringActor`'s). No force, kernel parameter, rank or constraint code moved.
+- `src/handlers/layout_handler.rs` (`61115d43e`): `set_layout_mode` places the caller's view only (`caller_view_for`, `:141`).
+- `src/handlers/socket_flow_handler/types.rs`: the visibility sweep (see ADR-2054's 2026-11-07 note).
+
+No hold, pin, release or settle line is in the diff; the single grep hit is the `slot_node_id` doc comment. **Decision unaffected.** Re-run: `git diff 81e711267..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.

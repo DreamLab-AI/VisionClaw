@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [src/services/data_reconciliation.rs, crates/visionclaw-adapters/src/provenance_emitter.rs, crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs, src/services/ontology_mutation_service.rs]
 owner: jjohare
 review_trigger: a GDPR/right-to-erasure obligation landing on provenance-recorded subjects, or introduction of a redaction/crypto-shred mechanism
@@ -243,3 +243,15 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 - `src/services/ontology_mutation_service.rs`: drops the never-read `whelk` field and its constructor parameter (callers updated).
 
 None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**
+
+## Amendment — 2026-11-07 (re-verified at `7bd25427e`)
+
+Governed-path change since `3b3ee7779`: `crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs`, +317/-220, from three commits:
+- `9fd0e85cc` (VisionFlow ADR-2022 corpus history): `ontology_graph_iri_triples`, the projection shared by the `:assert` rebuild and the history diff, and `axiom_iri` made public.
+- `3d1539ef7`, `57ba04beb`: the hidden-class filters (`validate_ontology_excluding`, `get_metrics_excluding`, `str_not_in`, `axiom_not_naming`) and `inference_run_id_stored`.
+
+None of these writes to `GRAPH_PROVENANCE`. No `DELETE`, `DROP` or `CLEAR` names the provenance graph anywhere in `src/` or `crates/` (grep at HEAD). The repository's `CLEAR`/`DELETE` statements target shapes, `:inferred`, `:assert`, the derived and cache graphs only.
+
+**Drift in "all emission funnels through the single `reify_activity` primitive".** Since `9fd0e85cc` the corpus-history step has written provenance through a second path. `services::corpus_history::apply_history` (`src/services/corpus_history.rs:357`) builds the activity with the same `provenance_emitter::build_activity_quads` that `reify_activity` uses (`provenance_emitter.rs:137`, `:307`). It then inserts the activity, assertion-version and closing quads in one store transaction of its own (`:364`), not through `reify_activity`/`emit_activity`. A version is closed by **adding** `dl:validTo`; nothing is deleted. `provenance_writer.rs`, the bi-temporal decision writer, also inserts directly, and it predates this record's last stamp. The Decision's substance therefore holds: the graph stays insert-only, and every activity triad is built by one function. Its wording does not: there is more than one insertion call site, and a future reviewer checking "single primitive" should look for `build_activity_quads` callers, not `reify_activity` alone. Corpus-history versions can only be removed by the redaction mechanism this record says does not exist yet. The module therefore versions public pages only (`corpus_history.rs` module doc, *Scope*).
+
+**Decision holds; wording of the single-primitive clause superseded by this note.** Re-run: `git diff 3b3ee7779..7bd25427e -- <verified_paths>`. Checked by reading that diff and grepping the tree for destructive updates on the provenance graph; no test was re-run for this stamp.

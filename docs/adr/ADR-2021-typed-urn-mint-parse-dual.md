@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [src/uri/mod.rs, crates/visionclaw-domain/src/uri.rs, src/services/github_sync_service.rs, src/adapters/oxigraph_graph_repository.rs]
 owner: jjohare
 review_trigger: any new persisted identifier namespace, or a decision to rewrite/retire the legacy urn:ngm:* scheme
@@ -125,3 +125,11 @@ Re-verified 2026-10-31 at db37a3313: governed change since 8775359e3 is the grap
 ## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
 
 `15acb9219` removes the `get_bots_graph` method from `oxigraph_graph_repository.rs`, together with its port method. That method read the deleted in-memory bots store and had no handler caller (ADR-2142 amendment 2026-11-01). The graph storage this record decides is untouched. The decision holds unchanged.
+
+## Amendment — 2026-11-07: a durable `urn:visionclaw` id minted outside `src/uri` (re-verified at `7bd25427e`)
+
+Governed-path change since `15acb9219`: `src/services/github_sync_service.rs`. It adds the corpus-history step (`9fd0e85cc`, `ab1e636ff`), the commit-history temporal keys (`464792f08`, `4b4c09c30`, `1e5b739a0`) and the shared Whelk engine (`57ba04beb`, `f284c2953`, `4375470df`, `dffbeceba`). The file mints no new identifier. The only `urn:` literals in the diff are `urn:t:*` test fixtures, and the existing `urn:ngm:*` legacy minting is unchanged.
+
+**Contradiction found, a code defect rather than a decision change.** The corpus-history step this file now calls does mint one. `services::corpus_history::corpus_sync_activity_urn` (`src/services/corpus_history.rs:113-118`, since `9fd0e85cc`) builds `urn:visionclaw:execution:corpus-sync-<YYYYMMDDTHHMMSSZ>` with `format!()` from `CORPUS_SYNC_ACTIVITY_PREFIX` (`:62`). It does not go through `uri::execution` (`src/uri/mod.rs:293`). That is the ad-hoc minting this Decision prohibits. The id also does not parse: `uri::parse` requires an execution tail to be a `sha256-12-<hex>` content address and returns `UriError::Malformed` otherwise (`src/uri/mod.rs:582-585`). Each id is written as the `prov:Activity` of every corpus sync into the append-only provenance graph (ADR-2016). There it cannot be removed, and a `parse`/`parse_dual` consumer cannot resolve it. The prefix is also matched by string (`STRSTARTS`, `corpus_history.rs:191`) to find this writer's own versions. A fix therefore has to keep the existing ids recognisable.
+
+Reported to the lead. The product code is not changed here. **Decision unaffected.** It is the code that is out of compliance. Re-run: `git diff 15acb9219..7bd25427e -- src/services/github_sync_service.rs`; the defect is outside `verified_paths` and was found by following the new call into `corpus_history.rs`. Checked by reading the source; no test was run.

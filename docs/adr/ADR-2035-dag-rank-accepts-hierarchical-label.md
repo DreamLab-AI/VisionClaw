@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: ff849f2baa4b0b47fcb1adb6c039a2ef72bbc5e6
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [src/actors/gpu/force_compute_actor.rs, crates/visionclaw-domain/src/models/edge.rs, src/services/github_sync_service.rs, src/services/inferred_edge_materialiser.rs, src/services/semantic_type_registry.rs]
 owner: jjohare
 review_trigger: a producer that writes a 'hierarchical' subclass edge without rdfs:subClassOf in owl_property_iri (it would silently stop ranking), a store path that drops vc:owlProperty, or a new producer of explicit subclass_of labels
@@ -395,3 +395,11 @@ Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (
 ## Re-verification — 2026-10-31 (`ff849f2ba`)
 
 Re-stamped at the merge of `phys/integrate` and `viz/edge-tracking` (`ff849f2ba`). The governed-path delta since `f1fa1862c` is the ADR-sprint work recorded in ADR-2169, 2172, 2173, 2174 and the 2026-11-01 consolidation commits. The delta was read from the diff, not re-run against this record's acceptance tests. Re-run: `git diff f1fa1862c..ff849f2ba -- $(verified_paths)`.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path changes since `ff849f2ba`:
+- `src/actors/gpu/force_compute_actor.rs` (`7c58d3e6e`, `ab05ee9d6`, `405edcfe1`): `GetCurrentPositions` (`:3246`) skips a GPU slot with no node id (`slot_node_id`, `:3226`) instead of labelling it with its own index, and averages KE over mapped slots only (review L2); the refusing `Handler<RunCommunityDetection>` stub is deleted (community detection is `ClusteringActor`'s). No force, kernel parameter, rank or constraint code moved. The DAG ranker still filters on `edge.asserts_subsumption()` (`force_compute_actor.rs:438`), and `compute_dag_ranks` is `:451`.
+- `src/services/github_sync_service.rs` (corpus history, commit-history stamping, shared Whelk engine; see ADR-2017's 2026-11-07 note). The domain-root spokes are untouched: `materialise_domain_roots` `:907` and `domain_membership_edge` `:2540`, still labelled `domain_member`. The only matching diff line is an `AxiomType::SubClassOf` in the corpus-history projection, not an edge label.
+
+**Decision unaffected.** Re-run: `git diff ff849f2ba..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.

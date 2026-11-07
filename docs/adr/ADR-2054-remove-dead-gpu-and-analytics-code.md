@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: aba13edc5eeaa1f325d6560113375a1a5e8300c8
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [src/gpu/mod.rs, src/actors/gpu/connected_components_actor.rs, src/handlers/socket_flow_handler/mod.rs, src/handlers/socket_flow_handler/actor_messages.rs, src/handlers/socket_flow_handler/types.rs, tests/gpu_safety_tests.rs]
 owner: jjohare
 review_trigger: Any reintroduction of a message type, module or kernel with no caller at merge time
@@ -187,3 +187,7 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-checked at b4a175412 (2026-10-19)
 
 Governed diff `6e89f6adb..b4a175412` touches `src/gpu/mod.rs`, `socket_flow_handler/{mod,actor_messages,types}.rs`; none re-adds a removed item. **Holds.** Source-read at HEAD: `src/gpu/streaming_pipeline.rs` absent; no `StreamingPipeline`, `UpdateComponentEdges` (outside comments), `VisualAnalyticsGPU`, `VisualAnalyticsEngine`, `TSNode`, `TSEdge`, `PushDirective`, `queue_directive`, `pending_directives` or `apsp_module` in `src/`, `crates/` or `tests/`; `send_pong` is never called (only the trait default and comments), the live path answers pings with `ctx.pong` (`socket_flow_handler/mod.rs:37-40`). `REMOVED (ADR-2054)` markers now at `connected_components_actor.rs:276`, `socket_flow_handler/mod.rs:16`, `actor_messages.rs:174`, `types.rs:139` and `:373`, `gpu/mod.rs:33`, `utils/unified_gpu_compute/construction.rs:321`, `tests/gpu_safety_tests.rs:9`, `:337`, `:410`. Retained by design and still present: `Handler<ComputeAPSP>` NFR-7 refusal (`shortest_path_actor.rs:348`), `ComputeShortestPaths`/`ComputeConnectedComponents` on `GPUManagerActor` (`gpu_manager_actor.rs:804`, `:827`) and `GraphAnalyticsSupervisor` (`:552`, `:611`), now the entry for `handlers/api_handler/analytics/pathfinding.rs:278`. `gpu_landmark_apsp.cu` keeps only the explanatory comment (`#if 0` at `:19` is prose). The `HeartbeatDirective` enum and `WebSocketHeartbeat::get_pending_directives` default remain in `utils/websocket_heartbeat.rs:17,40` as inert trait surface, which this record did not claim to delete. No build or test run for this note.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path change since `aba13edc5`: `src/handlers/socket_flow_handler/types.rs` (`dc7fd3858`, `5d1d841a1`, `ab05ee9d6`, the visibility sweep). The `/wss` `initialGraphLoad` replaces its inline `is_visible` closure with the shared `visible_subgraph` scrub (`:505-509`), and the state-sync counts come from `graph_access::visible_counts` (`:210`). No removed item comes back. `grep -rn "REMOVED (ADR-2054)" src/ crates/` still finds every recorded site; the two in this file are now `types.rs:158` (`queue_directive`, cited `:219`) and `:313` (`get_pending_directives` and `pending_directives`, cited `:603`). No `queue_directive` or `pending_directives` definition exists. **Decision unaffected.** Re-run: `git diff aba13edc5..7bd25427e -- <verified_paths>`. Checked by reading that diff and the grep; no test was re-run for this stamp.

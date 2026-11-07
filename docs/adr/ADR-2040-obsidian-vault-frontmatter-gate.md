@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: [ADR-2014]
 superseded_by: [ADR-2112]
-verified_commit: 974daf5d22d2d0ea709140777eae58d60ddb2c36
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [crates/visionclaw-domain/src/vault/mod.rs, crates/visionclaw-domain/src/vault/link.rs, src/services/file_service.rs, src/services/github_sync_service.rs, src/services/parsers/knowledge_graph_parser.rs, src/services/github/content_enhanced.rs, src/services/ontology_mutation_service.rs, src/services/decision_elevation.rs, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: "the first GitHub sync run after the corpus repo is converted in place, or 2026-12-01, whichever is earlier — at which point the Logseq `key:: value` tolerance is removed"
@@ -207,3 +207,13 @@ All governed paths were byte-identical between the previous verification pin and
 the pre-change baseline `5e1bd90a4`. The reviewed delta is the shared-layout change
 through `974daf5d22d2d0ea709140777eae58d60ddb2c36`. Existing activation and acceptance limits
 remain in force; this stamp does not repeat historical runtime measurements.
+
+## Amendment — 2026-11-07 (re-verified at `7bd25427e`)
+
+Governed-path changes since `974daf5d2`:
+- **D6 is now one exclusion rule** (`cc0652092`). `visionclaw_domain::vault::is_excluded_from_ingest` (`crates/visionclaw-domain/src/vault/mod.rs:446-452`) excludes three kinds of path: vault furniture at the first component (`VAULT_FURNITURE_DIRS` = `templates`, `bases`, `assets`, `journals`, `:394`), any dot component (so `.obsidian/`, `.trash/`, `.recycle/`), and `bak/` at any depth (`INGEST_EXCLUDED_DIRS`, `:434`). Every source prunes with it. `docs/VAULT-corpus-format.md` records the rule and that `_misc/` is ingested, with its visibility set by `public:`. **Drift:** D6 also lists `/logseq/`, and no reader excludes a `logseq/` folder, either now or at `974daf5d2` (the old local `SKIP_DIRS` did not name it). `journals/` is excluded only at the vault root, not at any depth.
+- **Inclusion gate unchanged.** `PageMeta` still includes a page on `public || owl_class.is_some()` (`vault/mod.rs:169`), and the single entry point is still `vault::parse` (`:338`). `d74b25143` adds lossless frontmatter rendering (`raw` mapping, typed-key table) and accepts the v2 JSON-LD context. No reader gains a line scanner: the `content_enhanced.rs` and `github_sync_service.rs` additions are commit-history GraphQL and corpus history.
+- `src/services/file_service.rs` (`d58bd29d3`): page nodes carry the temporal keys (`last_modified`, `last_commit`, `change_count`).
+- `docs/VAULT-corpus-format.md` (`dcf38bf50`, `9fa159971`, `cc0652092`): grouped `vault propose` is single-page only for event construction, `RESOURCE_IMMUTABLE` is the blocker name, and the exclusion rule above is recorded.
+
+**Decision holds, with D6's folder list superseded by the one rule.** Re-run: `git diff 974daf5d2..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.

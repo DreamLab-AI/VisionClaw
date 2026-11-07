@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: e2afd65d656977d082382e724198e86d2b8cabdf
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 relates: [ADR-2169]
 verified_paths: [src/utils/unified_gpu_compute/constraint_index.rs, src/utils/unified_gpu_compute/memory.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, src/utils/unified_gpu_compute/execution.rs, src/actors/gpu/force_compute_actor.rs]
 owner: jjohare
@@ -65,3 +65,7 @@ Comment-only change since `8f796ad86` (the commit the tests and measurements in 
 ## Re-stamp — 2026-11-01 (change-only upload and always-active constraints, `e2afd65d6`)
 
 New decision in this stamp: the owner's change-only upload and the always-active constraints above, with the ramp unification and the stability kernel's POSITION branch. `cargo test --lib`: 1794 passed, 0 failed, 11 ignored. The PTX has `force_pass_kernel` at 30 parameters, `force_pass_with_stability_kernel` 29, `integrate_pass_kernel` 24, `cluster_cohesion_kernel` 13, `c_params[212]`, `g_constraint_index`, no `blend_semantic_physics_forces`; `codescape_abi_tests`: 2 passed. With `constraint_ramp_frames` 0 the multiplier is exactly 1.0, and `the_constraint_index_changes_no_bit_of_the_result` (ramp 0) still passes, so the index equality claim stands. Behaviour that differs from before and is intended: with a ramp above 0 the stability kernel now ramps a freshly uploaded set in, where it applied it at full weight at once. Re-run: `git diff --stat 7fbcd997b e2afd65d6 -- src/actors/gpu/force_compute_actor.rs src/utils/unified_gpu_compute/memory.rs src/utils/unified_gpu_compute/execution.rs crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu`.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path change since `e2afd65d6`: `src/actors/gpu/force_compute_actor.rs` (`7c58d3e6e`, `ab05ee9d6`, `405edcfe1`): `GetCurrentPositions` (`:3246`) skips a GPU slot with no node id (`slot_node_id`, `:3226`) instead of labelling it with its own index, and averages KE over mapped slots only (review L2); the refusing `Handler<RunCommunityDetection>` stub is deleted (community detection is `ClusteringActor`'s). No force, kernel parameter, rank or constraint code moved. `sync_constraints` is `force_compute_actor.rs:1675`, unchanged. **Decision unaffected.** Re-run: `git diff e2afd65d6..7bd25427e -- src/actors/gpu/force_compute_actor.rs`. Checked by reading that diff; no test was re-run for this stamp.

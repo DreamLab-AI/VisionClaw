@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: abcf36db1460f68015133ba5196d14cdf4112e19
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [src/actors/agent_demo_director.rs, src/actors/agent_roster_feed.rs, src/actors/agent_beam_actor.rs, client/src/features/bots/agentMarkerPass.ts, client/src/store/agentTargetStore.ts, client/src/features/bots/virtualAgents.ts, tests/fixtures/agents/real-agent-frames.v1.json]
 owner: jjohare
 review_trigger: "Activation (staged → live): the demo started from one client and observed running on the other (desktop and headset) against a backend built from main. Review: any change to the demo's events or ids, to who can start it, or to what reads the agent-action rail"
@@ -100,3 +100,13 @@ Supersedes the done-run timer in decision 74 above and in the roster-feed descri
 ## Re-verification — 2026-11-01 (`abcf36db1`, branch `viz/edge-tracking`)
 
 Re-verified after the R23 fixes. The amendment above replaces the done-run timer: the feed has no timer, `apply` carries the targets, the fixture's `retired` frame is a roster departure. `agentMarkerPass.ts` changes only the `stepAgentOffset` call. Every claim in this record holds. Evidence: `cargo test` in `xr-client/rust` (623 passed), server `cargo test --lib` (1781 passed, `CUDA_VISIBLE_DEVICES=1`), client vitest (1540 passed), GUT on a fresh `.so` (553 passed, 0 failed, `gut_guard` ok). Not run: the headset.
+
+## Amendment — 2026-11-07 (re-verified at `7bd25427e`)
+
+Governed-path changes since `abcf36db1`:
+- **Frames are now encoded per client** (`ab05ee9d6`, the visibility sweep). `AgentDemoDirector` and `AgentBeamActor` stop encoding. They send `BroadcastAgentActionFrame(events)` with the raw batch (`agent_demo_director.rs:434`; `agent_beam_actor.rs`, `pending_batch`). The coordinator then encodes one `0x23` frame per client from the actions whose KG target that client may see (`ClientCoordinatorActor`'s handler, `src/actors/client_coordinator_actor.rs:1328-1361`; `ClientManager::broadcast_agent_actions` `:465`). That file is outside `verified_paths`; I read it to follow the change.
+- `agent_roster_feed.rs`, `agent_beam_actor.rs` (`bd170e81a`): formatting. With whitespace and trailing commas stripped, the roster feed is byte-identical.
+
+**Effect on this record.** The Context line "the client coordinator sends them to every client" is no longer exact: a client receives only the actions it may see. Decision 6's reason ("the frames go to every client, so a target is never a node some client may not see") no longer holds as stated. The rule it justifies still stands: the director still picks only public, non-agent nodes (`demo_graph_from`, `agent_demo_director.rs:491-508`). The per-client filter is now a second guard, so a non-public target is withheld rather than leaked. Decision 1 holds: the director is still the only demo producer and the wire is the same `0x23` frame.
+
+**Decision holds; D6's rationale is amended by this note.** Re-run: `git diff abcf36db1..7bd25427e -- <verified_paths>`. Checked by reading that diff and the coordinator handler; no test was re-run for this stamp.
