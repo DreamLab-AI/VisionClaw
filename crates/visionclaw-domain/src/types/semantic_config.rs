@@ -516,7 +516,34 @@ pub fn fields_json() -> serde_json::Value {
             row
         })
         .collect();
-    serde_json::json!({ "generatedFrom": "visionclaw_domain::types::semantic_config::FIELDS", "fields": rows })
+    sort_keys(
+        serde_json::json!({ "generatedFrom": "visionclaw_domain::types::semantic_config::FIELDS", "fields": rows }),
+    )
+}
+
+/// Rebuild `v` with every object's keys in sorted order.
+///
+/// serde_json's map is a `BTreeMap` (sorted) unless a crate anywhere in the build enables its
+/// `preserve_order` feature, which cargo then unifies into this crate too (`vault` and
+/// `vault-core` do). Inserting in sorted order gives the same document either way, so the
+/// committed copies do not depend on which crates were compiled alongside this one.
+fn sort_keys(v: serde_json::Value) -> serde_json::Value {
+    match v {
+        serde_json::Value::Object(map) => {
+            let mut entries: Vec<(String, serde_json::Value)> = map.into_iter().collect();
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+            serde_json::Value::Object(
+                entries
+                    .into_iter()
+                    .map(|(k, child)| (k, sort_keys(child)))
+                    .collect(),
+            )
+        }
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.into_iter().map(sort_keys).collect())
+        }
+        other => other,
+    }
 }
 
 #[cfg(test)]
@@ -620,6 +647,34 @@ mod tests {
                 f.path
             );
         }
+    }
+
+    /// Every object in [`fields_json`] has its keys in sorted order, whatever serde_json features
+    /// the build unified in. A workspace build that also compiles `vault` turns on serde_json's
+    /// `preserve_order`, which would otherwise emit insertion order and make the committed copies
+    /// look stale under CI's combined `cargo test -p … -p vault`.
+    #[test]
+    fn fields_json_keys_are_sorted_whatever_the_serde_json_features() {
+        fn check(v: &serde_json::Value, at: &str) {
+            match v {
+                serde_json::Value::Object(map) => {
+                    let keys: Vec<&String> = map.keys().collect();
+                    let mut sorted = keys.clone();
+                    sorted.sort();
+                    assert_eq!(keys, sorted, "keys at `{at}` are not sorted");
+                    for (k, child) in map {
+                        check(child, &format!("{at}/{k}"));
+                    }
+                }
+                serde_json::Value::Array(items) => {
+                    for (i, child) in items.iter().enumerate() {
+                        check(child, &format!("{at}/{i}"));
+                    }
+                }
+                _ => {}
+            }
+        }
+        check(&fields_json(), "");
     }
 
     /// The committed JSON copies (docs reference, web registry data, XR HUD data) must equal what
