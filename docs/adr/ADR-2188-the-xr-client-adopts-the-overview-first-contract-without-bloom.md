@@ -4,7 +4,7 @@ title: The XR client adopts the overview-first contract — sized points, screen
 date: 2026-11-06
 decision_status: accepted
 implementation_status: complete
-activation_status: active
+activation_status: live
 supersedes: []
 superseded_by: []
 verified_commit: c7c78c88d6fbeaa91d873dc80e20d8ed163faffb
@@ -14,7 +14,7 @@ owner: jjohare
 review_trigger: "A headset frame-time receipt below 90 fps with the overview path on; a Godot upgrade changing MultiMesh or shader point-size behaviour; a request to bring bloom to XR."
 repo: visionclaw
 domain: XR-client
-evidence_class: source
+evidence_class: source+test+runtime
 acceptance_boundary: "Accepted on operator instruction 2026-11-06 ('fully implement the upgrades to the visual system for desktop and XR including the menus'). XR source (xr-client/scripts/graph_scene.gd, hud.gd, radial_menu.gd, query_builder.gd) at main 4adab22f0 was not yet read in full when this record was written; headset frame rate and visuals cannot be verified from the agentbox container."
 ---
 
@@ -50,3 +50,7 @@ All satisfied (2026-11-06):
 ## Status at integration (2026-11-06)
 
 Complete in code and under headless GUT (660 tests, 0 failures) and the Rust suite. Headset receipt, 2026-11-06 on the HP (Godot 4.8-beta2, snapshot vc-809a859aa, backend main 809a859aa): OpenXR session focused, 88-90 fps (11.1 ms/frame) with all three volumes (knowledge 84 nodes, ontology 9,604, Codescape 4,817), zero script, parse, shader, heartbeat or reconnect errors over 15 minutes. Visual legibility of the rail and pages in the headset is still a human check. Activation is active.
+
+## Correction — 2026-11-07: `activation_status` vocabulary
+
+`a950f4d80` set `activation_status: active`, which is not a value the ledger accepts (`inactive | staged | live`, `scripts/adr-index-gen.js:37`). As a result `adr-index-gen.js --check` failed and docs-ci went red. The status paragraph above records the transition it meant: staged → in service after the HP headset receipt. In this vocabulary that is `live`, so the field now reads `live`. `evidence_class` becomes `source+test+runtime`: the headless GUT suites are listed under Verification, and the headset receipt is a runtime observation. That receipt was made on the HP on 2026-11-06 and was not repeated for this correction. `acceptance_boundary` stands as written, and the visual-legibility check is still a human one.

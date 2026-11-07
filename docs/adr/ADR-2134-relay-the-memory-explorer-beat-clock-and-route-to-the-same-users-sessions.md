@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 15acb92192ebb2cd2539ee227d2c6545b244ff56
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [src/handlers/socket_flow_handler/session_relay.rs, src/handlers/socket_flow_handler/message_routing.rs, src/actors/client_coordinator_actor.rs, crates/visionclaw-protocol/src/socket_flow_messages.rs, client/src/features/visualisation/memoryCloud/xrRelay.ts, xr-client/rust/src/beat.rs, xr-client/rust/src/pulse.rs, xr-client/scripts/beat_pulse.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): a desktop and headset filmed side by side with phase error below 30 ms. Review: a second consumer of beatClock or memoryRoute; any request to relay across users or rooms; a headset receipt showing desktop/headset phase error above 30 ms; a change to RECORD_AUDIO policy"
@@ -128,3 +128,11 @@ evidence above stands; ratification is a one-line owner action, listed in Vision
 ## Re-verification — 2026-11-01 at 15acb92192ebb2cd2539ee227d2c6545b244ff56
 
 `15acb9219` removes the `requestSwarmTelemetry` arm from `socket_flow_handler/message_routing.rs`. The memory explorer's beat-clock and route relay is untouched. The decision holds unchanged.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path changes since `15acb9219`:
+- `src/actors/client_coordinator_actor.rs` (`923feef34`, `30b1e8de2`, `ab05ee9d6`). The `filter_update` reply goes through the visibility gate; `ClientFilter` gains the neutral predicates and `server_remove`; `0x23` agent-action frames are encoded per client from the actions that client may see (`broadcast_agent_actions`, `:465`). No hunk touches the same-user relay. `relay_text_to_pubkey` (`:687-690` on, cited `:584-606` at the 2026-11-01 stamp; it moved down by the 106 lines added above it) and its test `relay_reaches_only_the_same_pubkeys_other_sessions` (`:1848`) are unchanged.
+- `xr-client/scripts/beat_pulse.gd` (`75c94eeda`): the beat's haptic tick honours the System › Headset haptics switch (`_scene._haptics_on`). The beat clock's visual pulse and its clock handling are unchanged.
+
+**Decision unaffected.** Re-run: `git diff 15acb9219..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.

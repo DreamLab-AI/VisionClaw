@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 81e71126779b0b312b93ab459058ee8977233331
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [docker-compose.unified.yml, crates/visionclaw-jev/src/edge.rs, src/handlers/jev_handler.rs, crates/visionclaw-jev/src/wire.rs]
 owner: operator
 review_trigger: "labelled confidence calibration setting the automatic thresholds (VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE); the System One route moving off the shared agentbox proxy; any graph write or proposal approval driven by /api/jev/edge"
@@ -106,3 +106,7 @@ advisory behaviour this record decides. Usefulness still awaits calibration (`re
 Governed-path change since the last stamp: `src/handlers/jev_handler.rs` (`6b811f7a1`): `debug_assert!(MAX_PALETTE_CANDIDATES > 0)` becomes a `const { assert!(..) }` compile-time check; behaviour is identical. `docker-compose.unified.yml` and the `visionclaw-jev` wire and edge sources are unchanged. **Decision unaffected.**
 
 Re-run: `git diff 772039bd1..81e711267 -- docker-compose.unified.yml crates/visionclaw-jev/src/edge.rs src/handlers/jev_handler.rs crates/visionclaw-jev/src/wire.rs`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path change since `81e711267`: `bd170e81a` only (`cargo fmt --all`) in `crates/visionclaw-jev/src/edge.rs`, `crates/visionclaw-jev/src/wire.rs` and `src/handlers/jev_handler.rs`. I re-ran `rustfmt --edition 2021` on each Rust file as of `bd170e81a^` and got byte-for-byte what `bd170e81a` committed, so no Rust token changed. The `low-confidence` path cited at `edge.rs:191-204` is now `:207-222`: `client.ask(Item::EdgeMeaning, …)` is at `:207-209`, and `Fallback::LowConfidence` is returned on an `unsupported` choice or a domain/range rejection at `:218-222`. **Decision unaffected.** Re-run: `git diff 81e711267..7bd25427e -- <verified_paths>`. Checked by reading that diff and re-running rustfmt; no test was re-run for this stamp.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 493148a3cffd9fc3df4e98d88d3285a38ca147ec
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml, src/middleware/rate_limit.rs, tests/memory_cloud_auth_test.rs, client/src/features/visualisation/memoryCloud/api.ts, client/src/features/visualisation/memoryCloud/MemoryExplorerPanel.tsx, client/src/features/graph/components/GraphCanvas.tsx]
 owner: jjohare
 review_trigger: "a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context; the System One rerank egress (ADR-2148) being widened"
@@ -253,3 +253,12 @@ Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The gov
 ## Re-verification — 2026-10-31 (`493148a3c`)
 
 The only governed-path change since `5c94c3cbd` is `493148a3c`: the `PROD_WS` nginx marker in `src/utils/auth.rs`'s `#[cfg(test)] mod nip98_proxy_tests` now includes `ws/presence`, matching `nginx.production.conf` after `6d412afa7`. It is a test-only change; production code and this record's decision are unchanged. `cargo test --lib` at `493148a3c` passed 1826, 0 failed. Re-run: `git diff 5c94c3cbd..493148a3c -- src/utils/auth.rs`.
+
+## Amendment — 2026-11-07 (re-verified at `7bd25427e`)
+
+Governed-path changes since `493148a3c`:
+- **The Memory explorer moved into the control centre's right-hand drawer** (`688622b6e`, `89feeca5c`, `41a1a3ea8`, ADR-2189 §3). The 2026-10-30 close-out says `MemoryExplorerPanel` is mounted by the graph canvas (`GraphCanvas.tsx:34`, `:526`); that is no longer true. It is mounted as `<MemoryExplorerPanel embedded />` in the drawer's **Memory** tab (`client/src/features/control-center/drawer/RightDrawer.tsx:301`). The tab exists, and opens, while `visualisation.embeddingCloud.enabled` is on (`:91`, `:129-136`), which is the same gating as before. The panel's six `embeddingCloud.*` controls now write through `useSettingFieldGroup`, the settings panel's write path, not a bespoke `store.set`. `GraphCanvas.tsx` still mounts the cloud itself, `<EmbeddingCloudLayer>` (`:365`). Its comment at `:34` ("Memory explorer — HTML overlay … mounted with it") is now stale; the import it described has gone.
+- `GraphCanvas.tsx` (`5d1b2d04d`): one desktop renderer, `WebGPURenderer` with its WebGL2 fallback.
+- `crates/visionclaw-memory-cloud/src/wire.rs` and `src/services/memory_cloud_service.rs`: `bd170e81a` only. I re-ran `rustfmt --edition 2021` on each Rust file as of `bd170e81a^` and got byte-for-byte what `bd170e81a` committed, so no Rust token changed.
+
+The snapshot, stratification, sidecar contract and routes are unchanged. **Decision holds; the client mount point is superseded by ADR-2189.** Re-run: `git diff 493148a3c..7bd25427e -- <verified_paths>`. Checked by reading that diff and the drawer; vitest was not re-run for this stamp.

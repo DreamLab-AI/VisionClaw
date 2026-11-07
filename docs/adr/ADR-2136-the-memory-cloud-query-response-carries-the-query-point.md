@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: c750046962749715a4efb1b6056c7f40d9865110
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [crates/visionclaw-memory-cloud/src/pca.rs, crates/visionclaw-memory-cloud/src/snapshot.rs, crates/visionclaw-memory-cloud/src/wire.rs, src/services/memory_cloud_service.rs, xr-client/rust/src/memory_query.rs, xr-client/rust/src/memory_route.rs, xr-client/scripts/onscreen_keyboard.gd, xr-client/scripts/memory_search.gd]
 owner: jjohare
 review_trigger: the snapshot projection changing from PCA; a second consumer drawing from query.position; the headset gaining its own HNSW or the vectors blob
@@ -140,3 +140,7 @@ The walk fix (470dd26ae) changed `xr-client/rust/src/memory_route.rs`. It adds a
 Not re-run: no build was permitted.
 
 Re-verified 2026-10-30 at c75004696: `crates/visionclaw-memory-cloud/src/wire.rs` gains the optional `SidecarResults.jev` note (`JevRerankNote`, absent from the JSON unless a rerank was accepted) and `memory_cloud_service.rs` gains `apply_jev`; `QueryEcho.position` and `MemoryCloudHit.position` are unchanged (`wire.rs:110`, `:127`). `xr-client/scripts/memory_search.gd` gains `set_http_base` for backend switches. The query point still travels with the response. Anchors at HEAD: `project_literal` use `memory_cloud_service.rs:685`, `query_position` `:912`; `memory_search.gd` `DEFAULT_SCOPE` `:31`, `scopes` `:152`; `hud.gd` `_build_memory_keyboard` `:836`, `set_memory_scopes` `:901`, `memory_typed:` `:930`. The statement 'the wire is unchanged' in the scope amendment is now true of the position fields only: `sidecar` may also carry `jev`. The decision holds.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path change since `c75004696`: `bd170e81a` only (`cargo fmt --all`) in `crates/visionclaw-memory-cloud/src/wire.rs` and `src/services/memory_cloud_service.rs`. I re-ran `rustfmt --edition 2021` on each Rust file as of `bd170e81a^` and got byte-for-byte what `bd170e81a` committed, so no Rust token changed. Lines moved: `query_position` is now defined at `memory_cloud_service.rs:922` and called at `:714` (cited `:685`, `:854`), and `project_literal` is at `:693`. **Decision unaffected.** Re-run: `git diff c75004696..7bd25427e -- <verified_paths>`. Checked by reading that diff and re-running rustfmt; no test was re-run for this stamp.
