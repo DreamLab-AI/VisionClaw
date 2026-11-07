@@ -976,4 +976,56 @@ mod tests {
         let g2 = shared.generation();
         assert!(g2 > g1, "a second swap of an identical closure still moves");
     }
+
+    /// Startup-load cost at the live corpus size (~9.2k classes), over a
+    /// synthetic corpus mixing every axiom shape the store holds. Run with
+    /// `cargo test -p visionclaw-adapters --release --lib startup_load_cost -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore = "timing measurement; run in release"]
+    async fn startup_load_cost_at_live_corpus_size() {
+        const CLASSES: usize = 9_200;
+        let iri = |i: usize| format!("urn:bench:C{i}");
+        let classes: Vec<OwlClass> = (0..CLASSES).map(|i| cls(&iri(i))).collect();
+        let mut axioms = Vec::new();
+        // A 4-ary tree, depth ~7, plus a second parent for every third class.
+        for i in 1..CLASSES {
+            axioms.push(sub_axiom(&iri(i), &iri((i - 1) / 4)));
+            if i % 3 == 0 && i > 8 {
+                axioms.push(sub_axiom(&iri(i), &iri(i / 7)));
+            }
+        }
+        let shaped = |axiom_type: AxiomType, a: &str, b: &str| OwlAxiom {
+            id: None,
+            axiom_type,
+            subject: a.to_string(),
+            object: b.to_string(),
+            annotations: std::collections::HashMap::new(),
+        };
+        for i in (10..CLASSES).step_by(5) {
+            axioms.push(shaped(AxiomType::EquivalentClass, &iri(i), &iri(i - 1)));
+        }
+        for i in (20..CLASSES).step_by(2) {
+            axioms.push(shaped(AxiomType::DisjointWith, &iri(i), &iri(i - 11)));
+        }
+        for i in 5..CLASSES {
+            let mut some = shaped(AxiomType::SomeValuesFrom, &iri(i), &iri(i / 3));
+            some.annotations
+                .insert("property".to_string(), format!("urn:bench:p{}", i % 12));
+            axioms.push(some);
+        }
+        let axiom_count = axioms.len();
+
+        let started = std::time::Instant::now();
+        let mut fresh = WhelkInferenceEngine::new();
+        fresh.load_ontology(classes, axioms).await.unwrap();
+        let results = fresh.infer().await.unwrap();
+        let mut shared = WhelkInferenceEngine::new();
+        shared.adopt(fresh);
+        let elapsed = started.elapsed();
+        println!(
+            "startup load: {CLASSES} classes, {axiom_count} axioms -> {} inferred in {elapsed:?}",
+            results.inferred_axioms.len()
+        );
+        assert!(shared.has_closure());
+    }
 }

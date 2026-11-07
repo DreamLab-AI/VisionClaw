@@ -571,7 +571,10 @@ impl AppState {
             // on this task so the load cannot land after (and overwrite) the
             // closure the sync computes.
             if let Err(e) = sync_service_clone.load_shared_inference().await {
-                warn!("Startup Whelk load failed (routes serve no inference until a sync): {}", e);
+                warn!(
+                    "Startup Whelk load failed (routes serve no inference until a sync): {}",
+                    e
+                );
             }
             info!("Starting sync_graphs() execution...");
 

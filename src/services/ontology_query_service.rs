@@ -363,9 +363,7 @@ impl OntologyQueryService {
     ) -> Result<MembershipCheck, String> {
         info!("Ontology check_membership: '{}' ⊑ '{}'", subject, class);
         let loaded = self.loaded_hiding(hidden, None).await?;
-        Ok(loaded
-            .index
-            .membership(subject, class, loaded.scope()))
+        Ok(loaded.index.membership(subject, class, loaded.scope()))
     }
 
     /// ADR-2127 decision 2, relation form: does `subject` stand in `property`

@@ -992,10 +992,15 @@ mod per_view_reasoning_tests {
                 let mut sorted: Vec<_> = m.iter().collect();
                 sorted.sort_by(|a, b| a.0.cmp(b.0));
                 serde_json::Value::Object(
-                    sorted.into_iter().map(|(k, x)| (k.clone(), canonical(x))).collect(),
+                    sorted
+                        .into_iter()
+                        .map(|(k, x)| (k.clone(), canonical(x)))
+                        .collect(),
                 )
             }
-            serde_json::Value::Array(a) => serde_json::Value::Array(a.iter().map(canonical).collect()),
+            serde_json::Value::Array(a) => {
+                serde_json::Value::Array(a.iter().map(canonical).collect())
+            }
             other => other.clone(),
         }
     }
@@ -1297,7 +1302,12 @@ mod shared_engine_tests {
         }
     }
 
-    async fn check(s: &OntologyQueryService, sub: &str, sup: &str, hidden: &HiddenClasses) -> Value {
+    async fn check(
+        s: &OntologyQueryService,
+        sub: &str,
+        sup: &str,
+        hidden: &HiddenClasses,
+    ) -> Value {
         let (status, body) = reply(answer_check(s, check_req(sub, sup), hidden).await, &[]).await;
         assert_eq!(status, 200, "{body}");
         body["data"]["check"].clone()
@@ -1335,7 +1345,11 @@ mod shared_engine_tests {
             serde_json::to_value(FactBasis::Inferred).unwrap(),
             "{answer}"
         );
-        assert_eq!(answer["scope"]["inference_loaded"], Value::Bool(true), "{answer}");
+        assert_eq!(
+            answer["scope"]["inference_loaded"],
+            Value::Bool(true),
+            "{answer}"
+        );
     }
 
     #[tokio::test]

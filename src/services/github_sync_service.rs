@@ -3448,8 +3448,12 @@ mod shared_inference_tests {
         for iri in ["urn:t:A", "urn:t:B", "urn:t:C"] {
             repo.add_owl_class(&class(iri)).await.expect("add class");
         }
-        repo.add_axiom(&sub("urn:t:A", "urn:t:B")).await.expect("axiom");
-        repo.add_axiom(&sub("urn:t:B", "urn:t:C")).await.expect("axiom");
+        repo.add_axiom(&sub("urn:t:A", "urn:t:B"))
+            .await
+            .expect("axiom");
+        repo.add_axiom(&sub("urn:t:B", "urn:t:C"))
+            .await
+            .expect("axiom");
         repo
     }
 
@@ -3466,7 +3470,10 @@ mod shared_inference_tests {
 
         assert_eq!(run.class_count, 3);
         let engine = routes_handle.read().await;
-        assert!(engine.has_closure(), "the routes' handle now holds a closure");
+        assert!(
+            engine.has_closure(),
+            "the routes' handle now holds a closure"
+        );
         let hierarchy = engine.get_subclass_hierarchy().await.unwrap();
         assert!(
             hierarchy.contains(&("urn:t:A".to_string(), "urn:t:C".to_string())),
