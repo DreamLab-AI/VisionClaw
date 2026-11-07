@@ -2,7 +2,7 @@ name: Ontology Federation CI/CD
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - 'ontology/**'
       - 'public/ontology/**'

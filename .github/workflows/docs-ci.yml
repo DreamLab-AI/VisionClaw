@@ -2,7 +2,7 @@ name: Documentation Quality CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - 'docs/**'
       - 'README.md'
