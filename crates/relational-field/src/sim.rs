@@ -46,7 +46,7 @@ pub const LIVE: SimCfg = SimCfg {
 /// One spring as seen from node `other`'s neighbour: stiffness, rest length, and an optional
 /// axial target `dz = z_other − z_self` with its weight.
 #[derive(Clone, Copy)]
-struct Spring { other: u32, k: f32, rest: f32, axial_w: f32, axial_dz: f32 }
+pub struct Spring { other: u32, k: f32, rest: f32, axial_w: f32, axial_dz: f32 }
 
 /// B0: one uniform spring per unordered training pair, as the live graph has one edge per pair.
 pub fn uniform_springs(n: usize, train: &[Triple], cfg: &SimCfg) -> Vec<Vec<Spring>> {
