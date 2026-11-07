@@ -80,11 +80,11 @@ fn make_db(path: &Path, tables: &[&str]) {
     );
 }
 
-/// Populate a scratch data directory with the four declared databases,
+/// Populate a scratch data directory with the five declared databases,
 /// omitting any named in `omit`.
 fn seed_data_dir(data_dir: &Path, omit: &[&str]) {
     std::fs::create_dir_all(data_dir).expect("create data dir");
-    let schemas: [(&str, &[&str]); 4] = [
+    let schemas: [(&str, &[&str]); 5] = [
         ("settings.sqlite3", &["settings", "schema_migrations"]),
         (
             "enrichment.sqlite3",
@@ -98,6 +98,9 @@ fn seed_data_dir(data_dir: &Path, omit: &[&str]) {
             "kpi.sqlite3",
             &["kpi_snapshots", "kpi_lineage", "schema_migrations"],
         ),
+        // The share store (src/adapters/sqlite_share_repository.rs), required
+        // since 238f5960d.
+        ("shares.sqlite3", &["shared_graphs", "schema_migrations"]),
         (
             "liveness.sqlite3",
             &["liveness_canaries", "canary_fires", "schema_migrations"],
@@ -172,14 +175,17 @@ fn complete_source_backs_up_every_declared_database() {
         "settings.sqlite3",
         "enrichment.sqlite3",
         "kpi.sqlite3",
+        "shares.sqlite3",
         "liveness.sqlite3",
     ] {
         assert!(dest.join(db).is_file(), "{db} was not captured");
     }
     let manifest = std::fs::read_to_string(dest.join("MANIFEST.txt")).expect("manifest");
-    assert!(manifest.contains("databases=4"), "manifest: {manifest}");
+    assert!(manifest.contains("databases=5"), "manifest: {manifest}");
     assert!(
-        manifest.contains("required_dbs=settings.sqlite3 enrichment.sqlite3 kpi.sqlite3"),
+        manifest.contains(
+            "required_dbs=settings.sqlite3 enrichment.sqlite3 kpi.sqlite3 shares.sqlite3\n"
+        ),
         "manifest must record the required membership: {manifest}"
     );
     assert!(
@@ -241,7 +247,7 @@ fn missing_optional_database_still_succeeds() {
     );
     let dest = only_backup_dir(&backups);
     let manifest = std::fs::read_to_string(dest.join("MANIFEST.txt")).expect("manifest");
-    assert!(manifest.contains("databases=3"), "manifest: {manifest}");
+    assert!(manifest.contains("databases=4"), "manifest: {manifest}");
     assert!(
         manifest.contains("missing_optional=liveness.sqlite3"),
         "manifest must record the absent optional member: {manifest}"
