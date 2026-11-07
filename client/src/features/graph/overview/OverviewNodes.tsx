@@ -67,6 +67,17 @@ function writeUniforms(u: OverviewNodeUniforms, w: number, h: number, style: Ove
 }
 
 const nextPow2 = (n: number) => 2 ** Math.ceil(Math.log2(Math.max(1, n)));
+
+/**
+ * The sprite capacity to mount for `count` nodes given the geometry actually
+ * mounted (`mounted` = its aIndex attribute count), or null when it already
+ * fits. Decided from the mounted geometry, never from React state: useFrame
+ * fires every frame while setState is batched, so a decision on the stale
+ * closure value re-queues the same grow and never reaches the fill loop.
+ */
+export function spriteCapacityToMount(count: number, mounted: number): number | null {
+  return count > mounted ? nextPow2(count) : null;
+}
 const _bg = { r: 0, g: 0, b: 0 };
 
 function useSpriteMesh(
@@ -114,9 +125,15 @@ export const OverviewNodes: React.FC<Props> = ({ positions, sourceRef, style }) 
     if (halo.mesh) halo.mesh.visible = ready;
     const src = sourceRef.current?.getOverviewSource() ?? null;
     const count = src ? src.count : 0;
-    if (count > capacity) { setCapacity(nextPow2(count)); return; }
     const l = last.current;
     const geo = sprites.geometry;
+    // Grow from the geometry actually mounted, not the closure's `capacity`.
+    // useFrame runs every frame while React batches setCapacity until the next
+    // render, so bailing on the stale closure value re-queued the same grow and
+    // returned forever: the mesh reached the right size but the fill loop below
+    // never ran and instanceCount stayed 0 (9,595 gems drawn over 0 sprites).
+    const grow = spriteCapacityToMount(count, geo.getAttribute('aIndex')?.count ?? 0);
+    if (grow !== null) { setCapacity(grow); return; }
     if (src && (src.colorVersion !== l.colorVersion || nodeEncoding.version !== l.encVersion || count !== l.count ||
       style.spriteSizePx !== l.spritePx || style.nodeSize !== l.nodeSize || geo !== l.geo)) {
       l.colorVersion = src.colorVersion; l.encVersion = nodeEncoding.version; l.count = count;
