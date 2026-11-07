@@ -639,6 +639,7 @@ export type RelationConstraint = {constraint};
 export interface AnswerScope {{
   closure: Closure;
   generation: string | null;
+  inference_loaded: boolean;
 }}
 
 export interface DisjointnessWitness {{

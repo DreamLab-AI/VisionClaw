@@ -57,6 +57,15 @@ struct LoadedOntology {
     relations: RelationIndex,
     asserted: HashSet<(String, String)>,
     generation: Option<String>,
+    /// Whether the Whelk engine held a closure when this was built.
+    inference_loaded: bool,
+}
+
+impl LoadedOntology {
+    /// The open-world scope every answer computed against this carries.
+    fn scope(&self) -> AnswerScope {
+        AnswerScope::open(self.generation.clone()).with_inference_loaded(self.inference_loaded)
+    }
 }
 
 pub struct OntologyQueryService {
@@ -169,13 +178,14 @@ impl OntologyQueryService {
 
         // Rebuild. The generation and the hierarchy are read under one guard,
         // so the key stored names exactly the closure the index was built from.
-        let (fingerprint, hierarchy) = {
+        let (fingerprint, hierarchy, inference_loaded) = {
             let whelk = self.whelk.read().await;
             let hierarchy: Vec<(String, String)> =
                 whelk.get_subclass_hierarchy().await.unwrap_or_default();
             (
                 Self::fingerprint_of(&axioms, class_iris, whelk.generation()),
                 hierarchy,
+                whelk.has_closure(),
             )
         };
 
@@ -217,6 +227,7 @@ impl OntologyQueryService {
             relations,
             asserted,
             generation,
+            inference_loaded,
         });
         *self.loaded.write().await = Some(fresh.clone());
         fresh
@@ -267,17 +278,21 @@ impl OntologyQueryService {
     /// only through a hidden class survives and a gated answer never states more than the
     /// full-access one. An engine holding no closure serves no inference to anyone, so the
     /// view is not reasoned over then. A failure of the view's reasoning is an `Err`
-    /// ([`VIEW_REASONING_UNAVAILABLE`]), never the whole-store closure.
-    async fn hierarchy_for(&self, hidden: &HiddenClasses) -> Result<Vec<(String, String)>, String> {
-        let whole = self
-            .whelk
-            .read()
-            .await
-            .get_subclass_hierarchy()
-            .await
-            .unwrap_or_default();
+    /// ([`VIEW_REASONING_UNAVAILABLE`]), never the whole-store closure. The flag says whether
+    /// the engine held a closure, read under the same guard as the pairs.
+    async fn hierarchy_for(
+        &self,
+        hidden: &HiddenClasses,
+    ) -> Result<(Vec<(String, String)>, bool), String> {
+        let (whole, inference_loaded) = {
+            let whelk = self.whelk.read().await;
+            (
+                whelk.get_subclass_hierarchy().await.unwrap_or_default(),
+                whelk.has_closure(),
+            )
+        };
         if hidden.is_empty() || whole.is_empty() {
-            return Ok(whole);
+            return Ok((whole, inference_loaded));
         }
         let view: HashSet<(String, String)> = self
             .view_reasoner
@@ -286,7 +301,10 @@ impl OntologyQueryService {
             .hierarchy()
             .into_iter()
             .collect();
-        Ok(hidden.pairs(whole.into_iter().filter(|p| view.contains(p)).collect()))
+        Ok((
+            hidden.pairs(whole.into_iter().filter(|p| view.contains(p)).collect()),
+            inference_loaded,
+        ))
     }
 
     /// The loaded ontology as `hidden`'s caller may see it. With nothing hidden this is the
@@ -314,7 +332,7 @@ impl OntologyQueryService {
                 .await
                 .map_err(|e| format!("{VIEW_REASONING_UNAVAILABLE}: {e}"))?,
         );
-        let hierarchy = self.hierarchy_for(hidden).await?;
+        let (hierarchy, inference_loaded) = self.hierarchy_for(hidden).await?;
         let (index, relations, asserted) = Self::indexes(&axioms, hierarchy);
         Ok(Arc::new(LoadedOntology {
             fingerprint: 0,
@@ -322,6 +340,7 @@ impl OntologyQueryService {
             relations,
             asserted,
             generation,
+            inference_loaded,
         }))
     }
 
@@ -329,7 +348,7 @@ impl OntologyQueryService {
     /// empty result reads as "the corpus is silent at this generation". The
     /// generation is that of the ontology currently loaded.
     pub async fn answer_scope(&self) -> AnswerScope {
-        AnswerScope::open(self.loaded().await.generation.clone())
+        self.loaded().await.scope()
     }
 
     /// ADR-2127 decision 2: is `subject` ⊑ `class`? Answers `entailed`
@@ -346,7 +365,7 @@ impl OntologyQueryService {
         let loaded = self.loaded_hiding(hidden, None).await?;
         Ok(loaded
             .index
-            .membership(subject, class, AnswerScope::open(loaded.generation.clone())))
+            .membership(subject, class, loaded.scope()))
     }
 
     /// ADR-2127 decision 2, relation form: does `subject` stand in `property`
@@ -391,7 +410,7 @@ impl OntologyQueryService {
             subject,
             property,
             object,
-            AnswerScope::open(loaded.generation.clone()),
+            loaded.scope(),
         ))
     }
 
@@ -468,7 +487,7 @@ impl OntologyQueryService {
             start_iri: start_iri.to_string(),
             nodes,
             edges,
-            scope: AnswerScope::open(loaded.generation.clone()),
+            scope: loaded.scope(),
         })
     }
 
@@ -544,7 +563,7 @@ impl OntologyQueryService {
 
         // Step 3: Whelk expansion — for top matches, include subclasses via inference.
         // A gated caller expands only along pairs their own view derives (ADR-2184 Q1).
-        let hierarchy = self.hierarchy_for(hidden).await?;
+        let (hierarchy, _) = self.hierarchy_for(hidden).await?;
 
         // Build parent->children and child->parents maps
         let mut children_of: HashMap<String, HashSet<String>> = HashMap::new();

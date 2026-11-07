@@ -77,15 +77,28 @@ pub struct AnswerScope {
     /// else `None` (the backend does not know which generation it serves).
     #[serde(default)]
     pub generation: Option<String>,
+    /// Whether the Whelk closure was loaded when the answer was computed. When
+    /// `false` the answer rests on asserted axioms alone: an inferred fact can
+    /// read `not_asserted` because the reasoner has not run yet, not because
+    /// the corpus is silent.
+    #[serde(default)]
+    pub inference_loaded: bool,
 }
 
 impl AnswerScope {
-    /// An open-world scope at `generation`.
+    /// An open-world scope at `generation`, computed without a Whelk closure.
     pub fn open(generation: Option<String>) -> Self {
         AnswerScope {
             closure: Closure::Open,
             generation,
+            inference_loaded: false,
         }
+    }
+
+    /// This scope, recording whether a Whelk closure was loaded.
+    pub fn with_inference_loaded(mut self, inference_loaded: bool) -> Self {
+        self.inference_loaded = inference_loaded;
+        self
     }
 }
 

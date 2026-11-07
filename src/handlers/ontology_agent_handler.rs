@@ -1213,3 +1213,159 @@ mod per_view_reasoning_tests {
         );
     }
 }
+
+/// The routes read the one engine the sync loads (`AppState::ontology_inference_engine`):
+/// before a load `/check` says inference is not loaded instead of passing silence off as an
+/// answer; after it an inference-only subsumption is entailed, and a gated caller is never
+/// told more than a full-access one.
+#[cfg(test)]
+mod shared_engine_tests {
+    use super::*;
+    use crate::adapters::whelk_inference_engine::WhelkInferenceEngine;
+    use crate::services::github_sync_service::GitHubSyncService;
+    use crate::services::ontology_visibility::testing::reply;
+    use crate::services::schema_service::SchemaService;
+    use crate::test_helpers::MockOntologyRepository;
+    use crate::types::ontology_tools::FactBasis;
+    use serde_json::Value;
+    use std::collections::{HashMap, HashSet};
+    use tokio::sync::RwLock;
+    use visionclaw_domain::ports::ontology_repository::{
+        AxiomType, OntologyRepository, OwlAxiom, OwlClass,
+    };
+
+    const SECRET: &str = "mv:Secret";
+    /// Every class a gated caller can name; `mv:Secret` is hidden from them.
+    const VISIBLE: &[&str] = &[
+        "mv:Agent",
+        "mv:Organization",
+        "mv:Firm",
+        "mv:Bureau",
+        "mv:Person",
+    ];
+
+    fn axiom(axiom_type: AxiomType, subject: &str, object: &str) -> OwlAxiom {
+        OwlAxiom {
+            id: None,
+            axiom_type,
+            subject: subject.to_string(),
+            object: object.to_string(),
+            annotations: HashMap::new(),
+        }
+    }
+
+    /// `Firm ≡ Organization ⊑ Agent`: `Firm ⊑ Agent` holds only through Whelk, as the
+    /// query index closes asserted `SubClassOf` chains itself but never reads equivalence.
+    /// `Bureau ≡ Secret ⊑ Organization` reaches `Organization` only through the hidden
+    /// class. `Person` is disjoint with `Organization`.
+    async fn repo() -> Arc<MockOntologyRepository> {
+        let repo = Arc::new(MockOntologyRepository::new());
+        for iri in VISIBLE.iter().chain([SECRET].iter()) {
+            repo.add_owl_class(&OwlClass {
+                iri: iri.to_string(),
+                label: Some(iri.to_string()),
+                ..OwlClass::default()
+            })
+            .await
+            .expect("class stored");
+        }
+        for a in [
+            axiom(AxiomType::SubClassOf, "mv:Organization", "mv:Agent"),
+            axiom(AxiomType::EquivalentClass, "mv:Firm", "mv:Organization"),
+            axiom(AxiomType::EquivalentClass, "mv:Bureau", SECRET),
+            axiom(AxiomType::SubClassOf, SECRET, "mv:Organization"),
+            axiom(AxiomType::DisjointWith, "mv:Person", "mv:Organization"),
+        ] {
+            repo.add_axiom(&a).await.expect("axiom stored");
+        }
+        repo
+    }
+
+    fn service(
+        repo: Arc<MockOntologyRepository>,
+        shared: Arc<RwLock<WhelkInferenceEngine>>,
+    ) -> OntologyQueryService {
+        OntologyQueryService::new(repo, shared, Arc::new(SchemaService::new()))
+            .with_generation(Some("urn:gen:shared-engine-tests".to_string()))
+    }
+
+    fn check_req(subject: &str, class: &str) -> CheckRequest {
+        CheckRequest {
+            subject: subject.to_string(),
+            class: class.to_string(),
+            property: None,
+        }
+    }
+
+    async fn check(s: &OntologyQueryService, sub: &str, sup: &str, hidden: &HiddenClasses) -> Value {
+        let (status, body) = reply(answer_check(s, check_req(sub, sup), hidden).await, &[]).await;
+        assert_eq!(status, 200, "{body}");
+        body["data"]["check"].clone()
+    }
+
+    #[tokio::test]
+    async fn before_a_load_check_reports_inference_not_loaded() {
+        let shared = Arc::new(RwLock::new(WhelkInferenceEngine::new()));
+        let s = service(repo().await, shared);
+        let answer = check(&s, "mv:Firm", "mv:Agent", &HiddenClasses::none()).await;
+        assert_eq!(answer["verdict"], "not_asserted", "{answer}");
+        assert_eq!(
+            answer["scope"]["inference_loaded"],
+            Value::Bool(false),
+            "an empty engine is reported, not passed off as silence: {answer}"
+        );
+    }
+
+    #[tokio::test]
+    async fn after_the_shared_load_an_inference_only_class_is_entailed() {
+        let repo = repo().await;
+        let shared = Arc::new(RwLock::new(WhelkInferenceEngine::new()));
+        let s = service(repo.clone(), shared.clone());
+        // Served once before the load, so a stale cached index would show here.
+        check(&s, "mv:Firm", "mv:Agent", &HiddenClasses::none()).await;
+
+        GitHubSyncService::reason_into_shared(repo.as_ref(), &shared)
+            .await
+            .expect("shared load");
+
+        let answer = check(&s, "mv:Firm", "mv:Agent", &HiddenClasses::none()).await;
+        assert_eq!(answer["verdict"], "entailed", "{answer}");
+        assert_eq!(
+            answer["basis"],
+            serde_json::to_value(FactBasis::Inferred).unwrap(),
+            "{answer}"
+        );
+        assert_eq!(answer["scope"]["inference_loaded"], Value::Bool(true), "{answer}");
+    }
+
+    #[tokio::test]
+    async fn after_the_shared_load_a_gated_answer_is_within_the_full_access_one() {
+        let repo = repo().await;
+        let shared = Arc::new(RwLock::new(WhelkInferenceEngine::new()));
+        let s = service(repo.clone(), shared.clone());
+        GitHubSyncService::reason_into_shared(repo.as_ref(), &shared)
+            .await
+            .expect("shared load");
+        let gated = HiddenClasses::from(HashSet::from([SECRET.to_string()]));
+
+        for sub in VISIBLE {
+            for sup in VISIBLE {
+                let full = check(&s, sub, sup, &HiddenClasses::none()).await;
+                let narrow = check(&s, sub, sup, &gated).await;
+                assert!(
+                    narrow["verdict"] == "not_asserted" || narrow["verdict"] == full["verdict"],
+                    "{sub} ⊑ {sup}: gated {narrow} states more than full {full}"
+                );
+                assert_eq!(narrow["scope"]["inference_loaded"], Value::Bool(true));
+            }
+        }
+        // The inference-only pair through visible classes reaches the gated caller too.
+        let firm = check(&s, "mv:Firm", "mv:Agent", &gated).await;
+        assert_eq!(firm["verdict"], "entailed", "{firm}");
+        // The pair derivable only through the hidden class does not (ADR-2184 Q1).
+        let full = check(&s, "mv:Bureau", "mv:Organization", &HiddenClasses::none()).await;
+        assert_eq!(full["verdict"], "entailed", "{full}");
+        let bureau = check(&s, "mv:Bureau", "mv:Organization", &gated).await;
+        assert_eq!(bureau["verdict"], "not_asserted", "{bureau}");
+    }
+}
