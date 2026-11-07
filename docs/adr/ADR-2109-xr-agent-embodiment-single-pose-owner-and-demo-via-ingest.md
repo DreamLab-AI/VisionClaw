@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 5c94c3cbdafad99e6985fe509162831bf18c2ec8
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs, xr-client/scripts/spatial_volume.gd]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -244,3 +244,20 @@ Re-verified again at `69b16867d`: A later commit makes the one drawn predicate s
 ## Re-verification — 2026-11-04 (`5c94c3cbd`)
 
 Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `69b16867d` are additive: `xr-client/scripts/graph_scene.gd`: the splat volume, built only when `XrPrefs.splat_scene()` is on (off by default) and kept out of VOLUME_BINDINGS, VOLUME_ORDER and GraphRoot. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff 69b16867d..5c94c3cbd -- <governed path>`.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path changes since `5c94c3cbd`, in `graph_scene.gd`, `render_store.rs`, `binary_protocol.rs` and `spatial_volume.gd`:
+- the external-audit repair `6b811f7a1` (already recorded on the records it governs);
+- the splat toggle and merged space (`ac0d68913`, `858cf136f`);
+- the ADR-2188 overview path: highlight byte, label budget and dropped-edge count (`d4e5da63d`, `415c0d6d3`);
+- the ADR-2189 HUD wiring and the headset quality filter (`5bd403f26`, `b33934535`, `75c94eeda`, `30b1e8de2`, `1351c17bb`).
+
+None of these moves agent pose ownership.
+- `AgentsRoot` and `AgentEffectsRoot` are still scene roots outside `GraphRoot` (`GraphScene.tscn:146-150`, `graph_scene.gd:1194-1196`).
+- `_reconcile_embodiment` is `graph_scene.gd:4231`.
+- `build_beam_buffer` (`binary_protocol.rs:1893`) still reads only `set_agent_anchors` (`:1902`).
+- The new filter path leaves agents alone: `render_store.rs:2564` says "Agents are never filtered", so a quality grey-out cannot dim or hide an embodiment.
+- The agent task line still wins the label (`graph_scene.gd`, label pool).
+
+**Decision unaffected.** Re-run: `git diff 5c94c3cbd..7bd25427e -- <verified_paths>`. Checked by reading that diff and grepping for agent, beam, anchor and choreography lines in it; the tests were not re-run for this stamp.

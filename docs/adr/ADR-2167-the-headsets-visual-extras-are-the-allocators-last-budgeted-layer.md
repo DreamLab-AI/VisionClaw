@@ -9,7 +9,7 @@ evidence_class: source+test
 acceptance_boundary: mono desktop and headless on HP (Godot 4.6.1 and 4.8-beta2); not stereo, headset or both-eye fill rate
 supersedes: []
 superseded_by: []
-verified_commit: 5c94c3cbdafad99e6985fe509162831bf18c2ec8
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [xr-client/rust/src/frame_budget.rs, xr-client/scripts/frame_budget_pass.gd, xr-client/scripts/eye_candy.gd, xr-client/scripts/emulated_volume.gd, xr-client/scripts/spatial_environment.gd, xr-client/perf/benchmark.gd, xr-client/perf/gpu_time_probe.gd]
 owner: jjohare
 review_trigger: A headset session that measures both eyes, or any change to the renderer, the frame budget or the comfort switches.
@@ -69,3 +69,12 @@ Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (
 ## Re-verification — 2026-11-04 (`5c94c3cbd`)
 
 Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `f1fa1862c` are additive: `xr-client/rust/src/frame_budget.rs`: the ADR-2170 splat account (`allocate_with_splats`); `allocate_with_extras` delegates with an empty splat demand and a sweep test asserts identical output; `xr-client/scripts/frame_budget_pass.gd`: `set_splat_applied`, which subtracts applied splat primitives from `other_tris` as extras already are. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff f1fa1862c..5c94c3cbd -- <governed path>`.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path change since `5c94c3cbd`: `xr-client/scripts/spatial_environment.gd` (`75c94eeda`, ADR-2189 review). The comfort pair passed to `set_visual_comfort` (`:128`), and from there to `_eye_candy.set_comfort` (`:165`), is now resolved in this order:
+1. an explicit `XR_REDUCED_MOTION` or `XR_VISUAL_QUALITY`;
+2. otherwise the operator's stored HUD choice (`XrPrefs.KEY_REDUCED_MOTION`, `KEY_LOW_COST`);
+3. otherwise reduced motion on and full visuals (`:76-87`).
+
+HUD toggles persist the choice (`:192-198`). Decision 4 still holds: `XR_VISUAL_QUALITY=low` still turns every extra off, and the defaults are unchanged. A stored low-cost choice now also turns them off when no environment value is set. The allocator, tiers and governor are untouched. **Decision unaffected; status stays `proposed`/`partial`/`staged`.** Re-run: `git diff 5c94c3cbd..7bd25427e -- xr-client/scripts/spatial_environment.gd`. Checked by reading that diff; GUT was not re-run for this stamp.

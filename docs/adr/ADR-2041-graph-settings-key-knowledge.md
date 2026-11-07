@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: 5c94c3cbdafad99e6985fe509162831bf18c2ec8
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -225,3 +225,12 @@ Re-verified again at `69b16867d`: A later commit adds only a `slots` argument to
 ## Re-verification — 2026-11-04 (`5c94c3cbd`)
 
 Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `69b16867d` are additive: `xr-client/scripts/graph_scene.gd`: the splat volume, built only when `XrPrefs.splat_scene()` is on (off by default) and kept out of VOLUME_BINDINGS, VOLUME_ORDER and GraphRoot. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff 69b16867d..5c94c3cbd -- <governed path>`.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+This record remains superseded by ADR-2115. Since `5c94c3cbd` the governed paths changed for the ADR-2180..2189 visual and menu work:
+- `client/src/features/settings/config/settings.ts`: the `graphView` namespace, an edge colour for each graph mode, and the retirement of dead settings and `labelDistanceThreshold`.
+- `crates/visionclaw-domain/src/config/visualisation.rs`: `enable_metadata_shape` was dropped, and a test checks that stored blobs still deserialise.
+- `xr-client/scripts/graph_scene.gd`: the overview path, the filter grey-out and the HUD wiring.
+
+None of these touch the key this record renamed. `GraphsSettings` is still `{ knowledge, visionclaw }` with no `logseq` alias (`crates/visionclaw-domain/src/config/visualisation.rs:509-517`, unchanged). The client settings type still keys `knowledge: GraphSettings` (`settings.ts:409`). XR physics writes still target `?graph=knowledge` (`graph_scene.gd:2921`). A grep of the diff for `logseq`, `graph_type`, `graphType`, `graphs.` and `graph=knowledge` finds only a removed doc comment. **Decision unaffected (superseded by ADR-2115).** Re-run: `git diff 5c94c3cbd..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.

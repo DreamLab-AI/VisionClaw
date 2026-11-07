@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: abcf36db1460f68015133ba5196d14cdf4112e19
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [xr-client/rust/src/memory_route.rs, crates/visionclaw-tri-layout/src, crates/visionclaw-tri-layout/fixtures, src/actors/gpu/display_projection.rs, src/handlers/memory_flash_handler.rs, client/src/features/graph/triLayout.ts, client/src/features/graph/agentDrift.ts, client/src/features/bots/agentDriftFeed.ts, client/src/features/graph/utils/agentNudge.ts, client/src/features/graph/utils/drawnPositions.ts, client/src/features/bots/agentMarkerPass.ts, client/src/features/visualisation/memoryCloud/cloudFrame.ts, client/src/features/graph/utils/sceneFitBounds.ts, client/src/features/visualisation/memoryCloud/cloudSprites.ts, xr-client/rust/src/cloud_frame.rs, xr-client/scripts/spatial_volume.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): the operator seeing the triangle live on a backend built from main. Review: a change of the default camera direction; a fourth body joining the separated layout; agent nodes leaving the GPU graph; the XR work-layer pose rules (ADR-2109) changing; the live graph's p99 radius passing LIVE_GRAPH_RADIUS (152)"
@@ -338,3 +338,13 @@ Re-verified 2026-11-01 after the inscribed-sphere edge change: `git diff df3e2ac
 ## Re-verification — 2026-11-01 (`abcf36db1`, branch `viz/edge-tracking`)
 
 Re-verified after the R23 fixes. The hold-at-the-edge amendment is recorded above. `agentNudge.ts` drops the working branch, `target` and `AGENT_NUDGE_SPEED`; `agentMarkerPass.ts` drops the `null` target argument. The done rule is unchanged. Every claim in this record holds. Evidence: `cargo test` in `xr-client/rust` (623 passed), server `cargo test --lib` (1781 passed, `CUDA_VISIBLE_DEVICES=1`), client vitest (1540 passed), GUT on a fresh `.so` (553 passed, 0 failed, `gut_guard` ok). Not run: the headset.
+
+## Amendment — 2026-11-07: the Camera clause, as ADR-2180 D5 requires (re-verified at `7bd25427e`)
+
+ADR-2180 (accepted, `complete`, 2026-11-05) said in D5 that ADR-2135's Camera clause would be amended "in the same change". The amendment was never written. The code is now ahead of this record. `3618dc33f` (2026-11-06) gives `sceneFitBounds` a `target: FitTarget` parameter (`client/src/features/graph/utils/sceneFitBounds.ts:113`). Its scopes are `'knowledge'`, the default (`DEFAULT_FIT_TARGET`, `:63`), which frames the knowledge body's robust bounds alone (`knowledgeBodyBounds`); `'graphs'`; and `'scene'`. The desktop camera fit passes the stored `visualisation.graphView.fitTarget` (`useCameraAutoFit.ts`, `requestFit`).
+
+**The Camera clause therefore reads, from ADR-2180's acceptance:** "the *Whole scene* fit scope frames the sphere enclosing all three bodies". The default fit frames the knowledge body. The rest of the clause still holds under *Whole scene*: the 900 ms settle, the old `robustBounds` fit at separation 0, and no XR camera auto-fit. The separation itself and every other clause stand. This record is amended, not superseded (ADR-2180 D5).
+
+**The Done rule holds.** The scene edge a finished agent runs to is still the whole-scene sphere. `sceneFitBounds`'s `target` defaults to `'scene'`, and `GraphManager.tsx:465` calls it with no target.
+
+Other governed changes: `xr-client/scripts/spatial_volume.gd` gains `refit()` (`:156`) for the HUD Fit button (ADR-2189 §3). It refits a volume's content to its box and is not a camera fit. Current anchors: `unoccludedRect` `sceneFitBounds.ts:186`, previously cited at `:127`; `fitPose` `:249`, previously `:190`. Re-run: `git diff abcf36db1..7bd25427e -- <verified_paths>`. Checked by reading that diff and the call sites; vitest was not re-run for this stamp.

@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158, ADR-2166]
-verified_commit: 81e71126779b0b312b93ab459058ee8977233331
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [xr-client/scripts/graph_scene.gd, xr-client/scripts/spatial_environment.gd, xr-client/scripts/backend_connection.gd, xr-client/scripts/connection_volume_source.gd, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs, xr-client/materials/edge_flow_common.gdshaderinc, xr-client/materials/edge_flow.tres]
 owner: jjohare
 review_trigger: the first headset session grabbing in the Ontology volume and inside an entered room (reach, depth feel, two-hand comfort); or the server's drag-release unpin (stream GS) merging
@@ -107,3 +107,18 @@ Re-verified 2026-11-05 at `858cf136f` for ADR-2178: `grab_volume_allowed` takes 
 Governed-path changes since the last stamp, all `6b811f7a1`: `graph_scene.gd` (topology change releases active grabs), `render_store.rs` (a test for the total 512-instance link budget; the pack itself is in `render_store_pack.rs`, outside this record's paths) and `binary_protocol.rs` (provenance fields and a type alias, no wire change). The topology item the note above called open is closed; the grab, volume and two-hand rules decided here are unchanged. **Claims otherwise unchanged; text amended above.**
 
 Re-run: `git diff 858cf136f..81e711267 -- xr-client/scripts/graph_scene.gd xr-client/scripts/spatial_environment.gd xr-client/scripts/backend_connection.gd xr-client/scripts/connection_volume_source.gd xr-client/rust/src/render_store.rs xr-client/rust/src/binary_protocol.rs xr-client/materials/edge_flow_common.gdshaderinc xr-client/materials/edge_flow.tres`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path changes since `81e711267`:
+- **ADR-2188 overview path.** `render_store.rs` and `binary_protocol.rs` gain the highlight byte, label ranking and edge-count helpers. `connection_volume_source.gd` sizes each volume's edge limit from its edge count (`OverviewLod.edge_draw_limit`) and reports dropped edges, replacing the fixed 20 000 `EDGE_CEILING`. `backend_connection.gd` gains `edge_count_for_mask` and `send_filter_update`. The headset filter only greys and never sends `server_remove`.
+- **Comfort.** `spatial_environment.gd` persists the comfort choices.
+- **HUD.** `graph_scene.gd` carries the HUD and overview wiring.
+
+The grab model is untouched:
+- `claim_blocks_drag` is `graph_scene.gd:313` and `grab_volume_allowed` is `:324`.
+- `hunt_grabs` (`binary_protocol.rs:1974`) still pins each held node.
+- `_merge_grab_candidates` is `graph_scene.gd:3764`.
+- `send_drag_end` (`backend_connection.gd:299`) still records no pin.
+
+**Decision unaffected; status stays `partial`/`inactive`.** Re-run: `git diff 81e711267..7bd25427e -- <verified_paths>`. Checked by reading that diff; GUT and the xr-client tests were not re-run for this stamp.

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 5c94c3cbdafad99e6985fe509162831bf18c2ec8
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [xr-client/scenes/GraphScene.tscn, xr-client/scenes/HUD.tscn, xr-client/scripts/spatial_environment.gd, xr-client/scripts/xr_theme.gd, xr-client/scripts/hud.gd, xr-client/scripts/radial_menu.gd, xr-client/scripts/dwell_reticle.gd, xr-client/scripts/agent_avatar.gd, xr-client/materials/spatial_floor.gdshader, xr-client/materials/edge_flow.gdshader, xr-client/tests/spatial_visual_fixture.gd, xr-client/tests/unit/test_xr_visual_accessibility.gd]
 owner: jjohare
 review_trigger: Headset acceptance, a renderer change, or a change to graph instance channels and world-radius compensation.
@@ -172,3 +172,12 @@ Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (
 ## Re-verification — 2026-11-04 (`5c94c3cbd`)
 
 Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `f1fa1862c` are additive: `xr-client/scripts/hud.gd`: a credits line shown only when a splat scene sets one, and an Enter/Leave Splat Scene button hidden until one is loaded. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff f1fa1862c..5c94c3cbd -- <governed path>`.
+
+## Amendment — 2026-11-07 (re-verified at `7bd25427e`)
+
+Governed-path changes since `5c94c3cbd`:
+- `xr-client/scripts/hud.gd` (+565/-97; `ac0d68913`, `858cf136f`, `d4e5da63d`, `5bd403f26`, `b33934535`, `75c94eeda`, `1351c17bb`) implements ADR-2189's information architecture. The Decision's "seven-tab HUD" is now a rail of seven sections over 13 pages (`TAB_ORDER` `:272`, `section_ids()` `:555`, `_show_section` `:1949`). Each section is still a styled tab button, and the panels still take the shared `XrTheme` palette. `test_xr_visual_accessibility.gd` now iterates `section_ids()` and `_show_section` and asserts the same outline and surface contrast. The palette and contrast decision stands; only the tab count is out of date. ADR-2189 owns the menu structure.
+- `xr-client/materials/edge_flow.gdshader` (`d4e5da63d`): an edge with a greyed-out end (`INSTANCE_CUSTOM.r = 1`) draws at `grey_alpha = 0.3`. This is ADR-2188 D4's grey-out, not removal. Style codes, antialiasing and pulse dephasing are unchanged.
+- `xr-client/scripts/spatial_environment.gd` (`75c94eeda`): the comfort choices persist. An explicit `XR_REDUCED_MOTION`/`XR_VISUAL_QUALITY` still wins. Otherwise the stored HUD choice applies (`XrPrefs.KEY_REDUCED_MOTION`/`KEY_LOW_COST`, `user://xr_prefs.cfg`). Otherwise the defaults apply, **reduced motion on** and full visuals (`:76-87`), and HUD toggles write the choice back (`:192-198`). The reduced-motion default holds for a fresh install.
+
+**Decision holds, with the tab count superseded by ADR-2189; status stays `partial`/`staged`** (no new headset session). Re-run: `git diff 5c94c3cbd..7bd25427e -- <verified_paths>`. Checked by reading that diff; GUT was not re-run for this stamp.

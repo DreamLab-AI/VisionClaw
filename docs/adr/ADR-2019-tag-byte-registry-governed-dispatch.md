@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 81e71126779b0b312b93ab459058ee8977233331
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs, src/protocols/binary_settings_protocol.rs, crates/visionclaw-xr-presence/src/wire.rs, crates/visionclaw-xr-presence/src/agent_presence.rs]
 owner: jjohare
 review_trigger: allocation of a new opcode/version tag on any binary socket, or a proposal to share one demultiplexer across sockets
@@ -310,3 +310,7 @@ Re-verified after the R23 fixes. `xr-client/rust/src/binary_protocol.rs` changes
 Governed-path change since the last stamp: `xr-client/rust/src/binary_protocol.rs` (`6b811f7a1`): provenance fields on `NodeMetaWire`, a `ChunkAdmission` type alias and an `as_chunks` rewrite. No tag was allocated, removed or reinterpreted, and the dispatch arms are unchanged. **Decision unaffected.**
 
 Re-run: `git diff abcf36db1..81e711267 -- src/utils/binary_protocol.rs xr-client/rust/src/binary_protocol.rs src/protocols/binary_settings_protocol.rs crates/visionclaw-xr-presence/src/wire.rs crates/visionclaw-xr-presence/src/agent_presence.rs`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path change since `81e711267`: `xr-client/rust/src/binary_protocol.rs` (`d4e5da63d`, `415c0d6d3`, ADR-2188 overview path). Its hunks sit at `:515`, `:1631`, `:2423`, `:2484` and in tests. They add the edge helpers `neighbours_in` and `edge_count_for_class_mask`, which read decoded state, and the highlight and label `#[func]`s. No tag byte, opcode constant, dispatch arm or registry entry is allocated or changed; a grep of the diff for `PROTOCOL_`, `OPCODE_`, `MSG_` and hex tag literals returns nothing. Current dispatch anchors: `decode_position_frame_with_sequence` `:646`, `OPCODE_BROADCAST_ACK` `:698`, `FreshnessGate` `:795`, `MSG_AGENT_ACTION = 0x23` `:998`. The tolerant `0x23` prefix parse `decode_agent_action_frame` (cited at `:861-900` on 2026-10-19) is now `:1107`. **Decision unaffected.** Re-run: `git diff 81e711267..7bd25427e -- <verified_paths>`. Checked by reading that diff; the tests were not re-run for this stamp.

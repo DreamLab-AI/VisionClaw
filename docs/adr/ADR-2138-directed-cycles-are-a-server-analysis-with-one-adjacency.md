@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 5c94c3cbdafad99e6985fe509162831bf18c2ec8
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [src/layout/scc.rs, src/handlers/api_handler/analytics/cycles_handlers.rs, src/settings/api/settings_routes.rs, client/src/api/layoutApi.ts, client/src/features/graph/hooks/useCyclicNodeIds.ts, xr-client/rust/src/render_store.rs, xr-client/scripts/hud.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): the XR Shapes tab first run on a headset against a live graph. Review: before any cycle datum is added to the 52-byte position frame"
@@ -117,3 +117,12 @@ Re-verified again at `69b16867d`: A later commit adds `is_drawn_in_slot` (the li
 ## Re-verification — 2026-11-04 (`5c94c3cbd`)
 
 Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `69b16867d` are additive: `xr-client/scripts/hud.gd`: a credits line shown only when a splat scene sets one, and an Enter/Leave Splat Scene button hidden until one is loaded. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff 69b16867d..5c94c3cbd -- <governed path>`.
+
+## Amendment — 2026-11-07 (re-verified at `7bd25427e`)
+
+- **Decision 2: the cycle report is caller-scoped.** `430df341d` (2026-11-06, "gate export, pathfinding and cycles") gives `get_cycles` an `OptionalAuth` caller. It now runs over `graph_access::caller_view(&g, &caller)`, not the whole graph (`src/handlers/api_handler/analytics/cycles_handlers.rs:63-66`). The route stays a public read, like `/api/graph/data`, which applies the same view (ADR-2176 note of 2026-11-06). A component that passes through a node hidden from the caller is not reported to that caller. The response shape and the default `asserts_subsumption` edge set are unchanged.
+- **Decision 5: "a ninth Shapes tab".** ADR-2189 reorganised the HUD into seven sections over 13 pages. Shapes is now one page (`TAB_ORDER`, `xr-client/scripts/hud.gd:272`; `_build_shapes_page` `:994`). It still holds the Planes, Radial Shells and Cycles groups, with `cycles_toggle` and `cycles_refresh`. The tab count is out of date; the content holds.
+- `src/settings/api/settings_routes.rs` (`0cf6e0848`, `30b1e8de2`, `f93b560dd`, `bd170e81a`): rendering settings and node-filter floors persist, graph-view patches merge, and retired settings are dropped. The layout-mode whitelist (Decision 4) and the cycle routes are untouched.
+- The XR cycle overlay is unchanged: `RenderStore::set_cycle_overlay` and `clear_cycle_overlay` are at `render_store.rs:1323-1329`, previously cited at `:1273`, and the `#[func]`s at `binary_protocol.rs:2550-2557`.
+
+**Decision holds, with D2 narrowed to the caller's view.** Re-run: `git diff 5c94c3cbd..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.

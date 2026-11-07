@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158]
-verified_commit: 81e71126779b0b312b93ab459058ee8977233331
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [xr-client/scripts/space_portals.gd, xr-client/scripts/spatial_volume.gd, xr-client/scripts/emulated_volume.gd, xr-client/scripts/volume_arrangement.gd, xr-client/scripts/graph_scene.gd, xr-client/scripts/hud.gd, xr-client/scripts/xr_prefs.gd, xr-client/materials/portal_membrane.gdshader]
 owner: jjohare
 review_trigger: the first headset session with Enter used (stereo membranes, 90 Hz with an entered 6 m room, comfort of the dim); or XE merging FrameBudgetPass.set_volume_weights
@@ -113,3 +113,18 @@ Re-verified 2026-11-05 at `858cf136f` for ADR-2178: ADR-2178 adds a second enter
 Governed-path changes since the last stamp, both `6b811f7a1`: `space_portals.gd` (`distance_to_box` returns world metres, rearm margin arrangement-scaled) and `graph_scene.gd` (topology generation change releases active grabs). The first resolves the open rearm-scale finding in the note above; the second does not touch portal layout, state or refusal logic. **Claims otherwise unchanged; text amended above.** Headless only; no stereo or headset evidence.
 
 Re-run: `git diff 858cf136f..81e711267 -- xr-client/scripts/space_portals.gd xr-client/scripts/spatial_volume.gd xr-client/scripts/emulated_volume.gd xr-client/scripts/volume_arrangement.gd xr-client/scripts/graph_scene.gd xr-client/scripts/hud.gd xr-client/scripts/xr_prefs.gd xr-client/materials/portal_membrane.gdshader`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path changes since `81e711267`:
+- `graph_scene.gd` and `hud.gd`: the ADR-2188 overview path, the ADR-2189 seven-section HUD, and the headset quality filter.
+- `spatial_volume.gd`: `refit()` (`:156`) for the HUD Fit button.
+- `xr_prefs.gd` (+72): numeric and flag keys for the label budget, text scale, dwell, haptics, comfort and colour mode.
+
+The portal mechanics are untouched.
+- The HUD **Enter**/**Leave** button is still on the Session page and still emits `volume_enter:<id>` / `volume_leave` (`hud.gd:1625-1636`, page `_build_session_page` `:1565`).
+- The scene dispatches those actions at `graph_scene.gd:2305-2307`.
+- The budget hook still calls `set_volume_weights(_portals.budget_weights())` behind `has_method` (`graph_scene.gd:1590-1591`), and `OTHER_WEIGHT := 0.15` is unchanged (`space_portals.gd:75`).
+- `xr.portal_walkthrough` is still `KEY_WALKTHROUGH` (`xr_prefs.gd:25`, getter `:102`).
+
+**Decision unaffected; status stays `partial`/`inactive`.** Re-run: `git diff 81e711267..7bd25427e -- <verified_paths>`. Checked by reading that diff; GUT was not re-run for this stamp.

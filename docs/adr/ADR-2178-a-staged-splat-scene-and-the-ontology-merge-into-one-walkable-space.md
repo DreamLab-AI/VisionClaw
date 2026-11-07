@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 81e71126779b0b312b93ab459058ee8977233331
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [crates/visionclaw-splat/src/manifest.rs, xr-client/rust/src/splat_loader.rs, xr-client/scripts/space_portals.gd, xr-client/scripts/splat_volume.gd, xr-client/scripts/graph_scene.gd, xr-client/scripts/hud.gd, xr-client/scripts/xr_prefs.gd]
 owner: jjohare
 review_trigger: The first headset session in the merged space, a second staged asset, or any change to ADR-2170's placement or budget rules.
@@ -53,3 +53,11 @@ ADR-2170 enters a splat scene as a 6 × 3 × 6 m room (ADR-2166) and reserves a 
 Governed-path changes since the last stamp (`6b811f7a1`): `space_portals.gd` (`distance_to_box` returns world metres; the rearm margin is arrangement-scaled) and `graph_scene.gd` (a topology generation change releases active grabs). The splat manifest, loader, `splat_volume.gd`, `hud.gd` and `xr_prefs.gd` are unchanged, and the walk-through entry and splat-room rules this record decides do not depend on the rearm unit. **Decision unaffected.**
 
 Re-run: `git diff 858cf136f..81e711267 -- crates/visionclaw-splat/src/manifest.rs xr-client/rust/src/splat_loader.rs xr-client/scripts/space_portals.gd xr-client/scripts/splat_volume.gd xr-client/scripts/graph_scene.gd xr-client/scripts/hud.gd xr-client/scripts/xr_prefs.gd`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path changes since `81e711267`:
+- `crates/visionclaw-splat/src/manifest.rs` (`bd170e81a`, `cargo fmt --all`): wrapping only. `Stage { metres_per_unit, focus }` and its validation are unchanged.
+- `graph_scene.gd`, `hud.gd` and `xr_prefs.gd`: the ADR-2188 overview path, the ADR-2189 HUD, and new preference keys.
+
+The merged space is still reached from the Layout page's Splat Scene group. **Merge with Ontology** is `hud.gd:887-891` (in `_build_layout_page`, `:833`) and emits `splat_merge`. Its label shows the multiplier (`:2504`). The viewer-scale multiplier is still stored as `xr.merged_splat_scale` (`KEY_MERGED_SCALE`, `xr_prefs.gd:31`; getter and setter `:137-146`). **Decision unaffected; status stays `proposed`/`partial`/`staged`.** Re-run: `git diff 81e711267..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.
