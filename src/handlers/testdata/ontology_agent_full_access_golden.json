@@ -28,17 +28,6 @@
         "count": 3,
         "results": [
           {
-            "basis": "inferred",
-            "definition_summary": "Ant described",
-            "domain": "",
-            "iri": "mv:Ant",
-            "preferred_term": "Ant",
-            "quality_score": 0.0,
-            "relationships": [],
-            "relevance_score": 0.3500000238418579,
-            "whelk_inferred": true
-          },
-          {
             "basis": "asserted",
             "definition_summary": "Bee described",
             "domain": "",
@@ -48,6 +37,17 @@
             "relationships": [],
             "relevance_score": 0.7500000596046448,
             "whelk_inferred": false
+          },
+          {
+            "basis": "inferred",
+            "definition_summary": "Ant described",
+            "domain": "",
+            "iri": "mv:Ant",
+            "preferred_term": "Ant",
+            "quality_score": 0.0,
+            "relationships": [],
+            "relevance_score": 0.3500000238418579,
+            "whelk_inferred": true
           },
           {
             "basis": "inferred",
@@ -95,25 +95,32 @@
           "preferred_term": "Ant",
           "related_notes": [
             {
-              "basis": "inferred",
-              "direction": "outgoing",
-              "iri": "mv:Bee",
-              "preferred_term": "Bee",
-              "relationship_type": "SubClassOf",
-              "summary": "- Bee"
-            },
-            {
               "basis": "asserted",
               "direction": "outgoing",
               "iri": "mv:Hive",
               "preferred_term": "Hive",
               "relationship_type": "SubClassOf",
               "summary": "- Hive"
+            },
+            {
+              "basis": "inferred",
+              "direction": "outgoing",
+              "iri": "mv:Bee",
+              "preferred_term": "Bee",
+              "relationship_type": "SubClassOf",
+              "summary": "- Bee"
             }
           ],
           "schema_context": "# Graph Schema\n\nTotal Nodes: 0\nTotal Edges: 0\n\n## Node Types\n\n## Edge Types\n\n## Available Node Properties\n\n## Sample Cypher Queries\n```cypher\n// Find all nodes of a specific type\nMATCH (n:GraphNode {node_type: 'person'}) RETURN n\n\n// Find relationships of a specific type\nMATCH (a)-[r:EDGE {relation_type: 'dependency'}]->(b) RETURN a, r, b\n\n// Find paths between nodes\nMATCH path = (a:GraphNode)-[*1..3]->(b:GraphNode) WHERE a.label = 'Start' AND b.label = 'End' RETURN path\n```\n",
           "term_id": "",
           "whelk_axioms": [
+            {
+              "axiom_type": "SubClassOf",
+              "basis": "asserted",
+              "is_inferred": false,
+              "object": "mv:Hive",
+              "subject": "mv:Ant"
+            },
             {
               "axiom_type": "SubClassOf",
               "basis": "inferred",
@@ -126,13 +133,6 @@
               "basis": "inferred",
               "is_inferred": true,
               "object": "mv:Bee",
-              "subject": "mv:Ant"
-            },
-            {
-              "axiom_type": "SubClassOf",
-              "basis": "asserted",
-              "is_inferred": false,
-              "object": "mv:Hive",
               "subject": "mv:Ant"
             }
           ]

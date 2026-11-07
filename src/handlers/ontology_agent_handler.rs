@@ -989,11 +989,21 @@ mod per_view_reasoning_tests {
     async fn full_access_replies_are_unchanged_and_never_reason_over_a_view() {
         let reasoner = Arc::new(ViewReasoner::with_reasoner(failing));
         let s = service(true).await.with_view_reasoner(reasoner.clone());
+        let actual = full_access_replies(&s).await;
+        // Re-capture with UPDATE_GOLDEN=1 after a deliberate reply change; never to
+        // paper over a regression. The diff is then reviewed in git.
+        if std::env::var_os("UPDATE_GOLDEN").is_some() {
+            let path = concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/handlers/testdata/ontology_agent_full_access_golden.json"
+            );
+            std::fs::write(path, serde_json::to_string_pretty(&actual).unwrap()).unwrap();
+        }
         let golden: serde_json::Value = serde_json::from_str(include_str!(
             "testdata/ontology_agent_full_access_golden.json"
         ))
         .expect("golden parses");
-        assert_eq!(full_access_replies(&s).await, golden);
+        assert_eq!(actual, golden);
         assert_eq!(reasoner.runs(), 0);
     }
 

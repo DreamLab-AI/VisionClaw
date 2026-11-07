@@ -590,7 +590,13 @@ impl OntologyQueryService {
         }
 
         // Step 4: Sort by score descending, dedup, limit
-        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        // Score descending, then IRI ascending so equal scores rank deterministically
+        // rather than in whatever order the store emitted the classes.
+        scored.sort_by(|a, b| {
+            b.0.partial_cmp(&a.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.1.iri.cmp(&b.1.iri))
+        });
 
         let mut seen = HashSet::new();
         let results: Vec<DiscoveryResult> = scored
