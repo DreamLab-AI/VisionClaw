@@ -28,7 +28,7 @@ const EXPECTED_GROUP_COUNTS: Record<string, number> = {
   system: 17, // Auth Enabled / Auth Required removed (dead)
   agents: 26,
   provenance: 4,
-  graphView: 21,
+  graphView: 22,
 };
 
 /** Fields per SECTION (ADR-2189): what the rail, the dock and hotkeys 1..7 open. */
@@ -37,7 +37,7 @@ const EXPECTED_SECTION_COUNTS: Record<string, number> = {
   explore: 28,
   encode: 18, // Label Draw Distance retired (ADR-2186); edge width, opacity and the three mode colours moved to Look › Edges
   layout: 80,
-  look: 49,
+  look: 50,
   agents: 30,
   system: 24,
 };
@@ -120,7 +120,7 @@ const SEMANTIC_PATHS: string[] = (semanticDoc as { fields: { path: string }[] })
 const GRAPH_VIEW_PATHS: string[] = [
   'fitTarget',
   'overviewEdges.enabled', 'overviewEdges.widthPx', 'overviewEdges.maxWidthPx', 'overviewEdges.fadeNearPx',
-  'overviewEdges.fadeFarPx', 'overviewEdges.minOpacity', 'overviewEdges.glassAtCloseZoom',
+  'overviewEdges.fadeFarPx', 'overviewEdges.minOpacity', 'overviewEdges.glassAtCloseZoom', 'overviewEdges.capacity',
   'nodes.spriteSizePx', 'nodes.gemLodDistance', 'nodes.bloomScope',
   'explore.colorBy', 'explore.sizeBy', 'explore.showLegend', 'explore.hideFiltered', 'explore.greyoutOpacity', 'explore.greyoutMix',
   'labels.budget', 'labels.dynamicBudget', 'labels.selectedBudget', 'labels.fontPx',

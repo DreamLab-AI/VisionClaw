@@ -1,7 +1,7 @@
 {
   "version": "2.0",
   "generatedFrom": "settingsRegistry.ts",
-  "count": 243,
+  "count": 244,
   "groups": [
     {
       "id": "layers",
@@ -36,7 +36,7 @@
       "label": "Look",
       "testid": "group-look",
       "hotkey": "5",
-      "fieldCount": 49
+      "fieldCount": 50
     },
     {
       "id": "agents",
@@ -2474,6 +2474,19 @@
       "subgroup": "Edges",
       "scope": "server",
       "label": "Glass Edges Up Close",
+      "clientOnly": false,
+      "server": "visual"
+    },
+    {
+      "key": "overviewEdgeBudget",
+      "path": "visualisation.graphView.overviewEdges.capacity",
+      "testid": "setting-visualisation.graphView.overviewEdges.capacity",
+      "control": "select",
+      "group": "look",
+      "sourceGroup": "graphView",
+      "subgroup": "Edges",
+      "scope": "server",
+      "label": "Edge Budget",
       "clientOnly": false,
       "server": "visual"
     },

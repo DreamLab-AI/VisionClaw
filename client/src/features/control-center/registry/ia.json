@@ -1353,6 +1353,13 @@
               "path": "visualisation.graphView.overviewEdges.glassAtCloseZoom",
               "control": "toggle",
               "scope": "server"
+            },
+            {
+              "key": "overviewEdgeBudget",
+              "label": "Edge Budget",
+              "path": "visualisation.graphView.overviewEdges.capacity",
+              "control": "select",
+              "scope": "server"
             }
           ],
           "panels": []

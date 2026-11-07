@@ -7,9 +7,9 @@
  * grey-out, and the label budget. Every path routes to the opaque `visual` bucket
  * (serverBucketFor → 'visual'); there is no Rust type.
  *
- * `overviewEdges.capacity` ('auto' | number) is deliberately NOT a control here:
- * no registry control writes a number-or-'auto' (a select writes strings), so it
- * stays a stored setting read through `resolveOverviewEdgeCapacity`.
+ * `overviewEdges.capacity` ('auto' | number) is a select of named budgets. A
+ * select writes strings, and `normaliseEdgeCapacity` accepts a numeric string and
+ * reads any other string as 'auto', so the stored value stays 'auto' | number.
  *
  * Option lists mirror `features/graph/explore/tableSchema.ts` (not imported, to
  * keep this module dependency-free for the ts-node manifest emitter).
@@ -42,6 +42,9 @@ const fields: RegistryField[] = [
   { key: 'overviewEdgeFadeFar', subgroup: 'Overview Edges', label: 'Fade End (px)', type: 'slider', min: 0, max: 600, step: 5, path: `${G}overviewEdges.fadeFarPx`, description: 'Edges longer than this on screen fade to the minimum opacity' },
   { key: 'overviewEdgeMinOpacity', subgroup: 'Overview Edges', label: 'Long-Edge Fade Floor', type: 'slider', min: 0, max: 1, step: 0.05, path: `${G}overviewEdges.minOpacity`, description: 'How far the longest on-screen edges fade, as a fraction of Edge Opacity (1 = no fade; edges between Fade Start and Fade End ramp down to it). It does not change short edges: use Edge Opacity for that.' },
   { key: 'glassAtCloseZoom', subgroup: 'Overview Edges', label: 'Glass Edges Up Close', type: 'toggle', path: `${G}overviewEdges.glassAtCloseZoom`, description: 'Draw glass tubes for selected, hovered and close-up edges' },
+  // ADR-2181 D4. The desktop twin of the headset's per-volume edge limit (Edges ±): when
+  // the budget is short the heaviest edges are kept and the canvas shows "N of M drawn".
+  { key: 'overviewEdgeBudget', subgroup: 'Overview Edges', label: 'Edge Budget', type: 'select', options: ['auto', '5000', '10000', '20000', '40000', '80000'], optionLabels: { auto: 'All edges', '5000': '5,000', '10000': '10,000', '20000': '20,000 (headset)', '40000': '40,000', '80000': '80,000' }, path: `${G}overviewEdges.capacity`, description: 'How many overview edges to draw at most. Below the total, the heaviest edges are kept and the canvas shows how many were dropped. 20,000 matches the headset.' },
 
   // ADR-2182
   { key: 'spriteSize', subgroup: 'Overview Nodes', label: 'Node Dot Size (px)', type: 'slider', min: 1, max: 16, step: 0.5, path: `${G}nodes.spriteSizePx`, description: 'On-screen size of a node dot at overview zoom' },
