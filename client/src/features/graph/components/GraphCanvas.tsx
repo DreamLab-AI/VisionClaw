@@ -31,7 +31,8 @@ import { HeadTrackedParallaxController } from '../../visualisation/components/He
 import WasmSceneEffects from '../../visualisation/components/WasmSceneEffects';
 // Embedding cloud layer (live RuVector memory cloud + query trajectory)
 import EmbeddingCloudLayer from '../../visualisation/components/EmbeddingCloudLayer';
-// Memory explorer — HTML overlay for querying the cloud, mounted with it
+// (The Memory explorer is not mounted here: it is a tab of the control
+// centre's right-hand drawer, RightDrawer.tsx, ADR-2189 §3.)
 // Echo Pulse — commit-time expanding ring wash (control-center signature flourish)
 import EchoPulseLayer from '../../control-center/echo/EchoPulseLayer';
 

@@ -544,8 +544,9 @@ impl Default for PhysicsSettings {
             // "physics" key is absent (app_state.rs). centerGravityK is the
             // dominant scale control: it sets the equilibrium radius against
             // repelK and reins in disconnected nodes springs can't reach.
-            // Measured: 90% of nodes within ~45u of their cluster centroid, the
-            // whole graph sitting well inside the ~400u soft-cube bounds.
+            // Measured under the earlier 400u bounds: 90% of nodes within ~45u
+            // of their cluster centroid. The soft cube is now 1600u
+            // (`bounds_size` below), so a 10k-node graph is not crushed into it.
             bounds_size: 1600.0,
             separation_radius: 2.1155233,
             damping: 0.9,
