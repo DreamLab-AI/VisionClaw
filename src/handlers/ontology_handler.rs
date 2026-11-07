@@ -9,10 +9,11 @@
 use crate::adapters::oxigraph_ontology_repository::{axiom_iri, OxigraphOntologyRepository};
 use crate::handlers::graph_access::caller_hidden_classes;
 use crate::handlers::utils::execute_in_thread;
+use crate::services::ontology_view_reasoner::{ViewReasoner, VIEW_REASONING_UNAVAILABLE};
 use crate::services::ontology_visibility::HiddenClasses;
 use crate::settings::OptionalAuth;
 use crate::AppState;
-use crate::{error_json, not_found, ok_json};
+use crate::{error_json, not_found, ok_json, service_unavailable};
 use actix_web::{web, HttpResponse};
 use log::{error, info};
 use serde::Deserialize;
@@ -664,21 +665,88 @@ pub async fn get_inference_results(
     caller: OptionalAuth,
 ) -> Result<HttpResponse, actix_web::Error> {
     let hidden = caller_hidden_classes(&state.graph_service_addr, &caller).await?;
-    answer_get_inference_results(&state.ontology_repository, &hidden).await
+    answer_get_inference_results(
+        &state.ontology_repository,
+        &state.ontology_view_reasoner,
+        &hidden,
+    )
+    .await
 }
 
-/// [`get_inference_results`] for a caller from whom `hidden` is hidden.
+fn unavailable(e: impl std::fmt::Display) -> String {
+    format!("{VIEW_REASONING_UNAVAILABLE}: {e}")
+}
+
+/// The stored whole-store run as `hidden`'s caller may be served it (ADR-2184 Q1): only the
+/// inferred axioms their own view also derives ([`ViewReasoner::closure`]), so none reached
+/// only through a hidden class survives. The run's time is the view's reasoning time; its
+/// timestamp and reasoner version are the stored run's. `None` when no run is stored.
+/// Computed once per view and stored run. An unreadable store or a failed view reasoning is
+/// an `Err`, never the stored run.
+async fn view_inference_results(
+    repo: &Arc<OxigraphOntologyRepository>,
+    reasoner: &ViewReasoner,
+    hidden: &HiddenClasses,
+) -> Result<Arc<Option<InferenceResults>>, String> {
+    let view = reasoner.closure(repo.as_ref(), hidden).await?;
+    let run_id = repo.inference_run_id_stored().await.map_err(unavailable)?;
+    reasoner
+        .derived()
+        .inference_results(&view, run_id.as_deref(), || async {
+            let Some(stored) = repo.get_inference_results().await.map_err(unavailable)? else {
+                return Ok(None);
+            };
+            let key = |a: &OwlAxiom| {
+                (
+                    format!("{:?}", a.axiom_type),
+                    a.subject.clone(),
+                    a.object.clone(),
+                )
+            };
+            let derivable: std::collections::HashSet<_> =
+                view.inferred_axioms.iter().map(key).collect();
+            Ok(Some(InferenceResults {
+                timestamp: stored.timestamp,
+                inferred_axioms: hidden.axioms(
+                    stored
+                        .inferred_axioms
+                        .into_iter()
+                        .filter(|a| derivable.contains(&key(a)))
+                        .collect(),
+                ),
+                inference_time_ms: view.inference_time_ms,
+                reasoner_version: stored.reasoner_version,
+            }))
+        })
+        .await
+}
+
+/// [`get_inference_results`] for a caller from whom `hidden` is hidden. A gated caller is
+/// served [`view_inference_results`]; a full-access caller the stored run, as before.
 pub async fn answer_get_inference_results(
     repo: &Arc<OxigraphOntologyRepository>,
+    reasoner: &ViewReasoner,
     hidden: &HiddenClasses,
 ) -> Result<HttpResponse, actix_web::Error> {
+    if !hidden.is_empty() {
+        return match view_inference_results(repo, reasoner, hidden)
+            .await
+            .as_deref()
+        {
+            Ok(Some(results)) => ok_json!(results),
+            Ok(None) => not_found!("No inference results available"),
+            Err(e) => {
+                error!("Per-view inference results failed: {}", e);
+                service_unavailable!(VIEW_REASONING_UNAVAILABLE)
+            }
+        };
+    }
     info!("Getting inference results via CQRS query");
 
     let handler = GetInferenceResultsHandler::new(repo.clone());
 
-    let result = execute_in_thread(move || handler.handle(GetInferenceResults).map_err(Box::new))
-        .await
-        .map(|r| r.map(|results| hidden.inference_results(results)));
+    let result =
+        execute_in_thread(move || handler.handle(GetInferenceResults).map_err(Box::new)).await;
 
     match result {
         Ok(Ok(Some(results))) => {
@@ -1079,16 +1147,62 @@ pub async fn get_inferred_graph(
     caller: OptionalAuth,
 ) -> Result<HttpResponse, actix_web::Error> {
     let hidden = caller_hidden_classes(&state.graph_service_addr, &caller).await?;
-    answer_get_inferred_graph(&state.ontology_repository, &hidden).await
+    answer_get_inferred_graph(
+        &state.ontology_repository,
+        &state.ontology_view_reasoner,
+        &hidden,
+    )
+    .await
 }
 
-/// [`get_inferred_graph`] for a caller from whom `hidden` is hidden.
+/// The inferred graph of [`view_inference_results`]: that run materialised into a scratch
+/// in-memory store by the same writer the post-sync reasoner uses, then read back, so the
+/// shape is the stored graph's. Its run id and run activity are content-addressed over the
+/// view's run, so the whole-store run (whose id counts every stored inference) is never
+/// named. No stored run reads as the empty graph, as it does with full access. The render
+/// costs seconds on a live-sized corpus, so it is computed once per view and stored run.
+async fn view_inferred_graph(
+    repo: &Arc<OxigraphOntologyRepository>,
+    reasoner: &ViewReasoner,
+    hidden: &HiddenClasses,
+) -> Result<Arc<serde_json::Value>, String> {
+    let view = reasoner.closure(repo.as_ref(), hidden).await?;
+    let run_id = repo.inference_run_id_stored().await.map_err(unavailable)?;
+    reasoner
+        .derived()
+        .inferred_graph(&view, run_id.as_deref(), || async {
+            let results = view_inference_results(repo, reasoner, hidden).await?;
+            let store = oxigraph::store::Store::new().map_err(unavailable)?;
+            let scratch = OxigraphOntologyRepository::from_store(Arc::new(store));
+            if let Some(results) = results.as_ref() {
+                scratch
+                    .store_inference_results(results)
+                    .await
+                    .map_err(unavailable)?;
+            }
+            scratch.read_inferred_graph().await.map_err(unavailable)
+        })
+        .await
+}
+
+/// [`get_inferred_graph`] for a caller from whom `hidden` is hidden. A gated caller is served
+/// [`view_inferred_graph`]; a full-access caller the stored graph, as before.
 pub async fn answer_get_inferred_graph(
     repo: &Arc<OxigraphOntologyRepository>,
+    reasoner: &ViewReasoner,
     hidden: &HiddenClasses,
 ) -> Result<HttpResponse, actix_web::Error> {
+    if !hidden.is_empty() {
+        return match view_inferred_graph(repo, reasoner, hidden).await {
+            Ok(json) => ok_json!(hidden.triples_json(json.as_ref().clone())),
+            Err(e) => {
+                error!("Per-view inferred graph failed: {}", e);
+                service_unavailable!(VIEW_REASONING_UNAVAILABLE)
+            }
+        };
+    }
     match repo.read_inferred_graph().await {
-        Ok(json) => ok_json!(hidden.triples_json(json)),
+        Ok(json) => ok_json!(json),
         Err(e) => {
             error!("Failed to read inferred graph: {}", e);
             error_json!("Failed to read inferred graph", e.to_string())
@@ -1550,11 +1664,10 @@ pub(crate) mod hidden_class_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn inference_results_drop_axioms_naming_the_hidden_class() {
-        let (got, never) =
-            hidden_and_never_stored(
-                |r, h| async move { answer_get_inference_results(&r, &h).await },
-            )
-            .await;
+        let (got, never) = hidden_and_never_stored(|r, h| async move {
+            answer_get_inference_results(&r, &ViewReasoner::new(), &h).await
+        })
+        .await;
         assert!(!mentions(&got.1, HIDDEN), "{}", got.1);
         assert!(mentions(&got.1, &iri("Org")));
         assert_eq!(
@@ -1566,12 +1679,12 @@ pub(crate) mod hidden_class_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn inferred_graph_drops_triples_and_axiom_records_naming_the_hidden_class() {
         let got = reply(
-            answer_get_inferred_graph(&repo(true).await, &hidden()).await,
+            answer_get_inferred_graph(&repo(true).await, &ViewReasoner::new(), &hidden()).await,
             &[],
         )
         .await;
         let never = reply(
-            answer_get_inferred_graph(&repo(false).await, &none()).await,
+            answer_get_inferred_graph(&repo(false).await, &ViewReasoner::new(), &none()).await,
             &[],
         )
         .await;
@@ -1662,5 +1775,388 @@ pub(crate) mod hidden_class_tests {
         )
         .await;
         assert!(mentions(&rows.1, HIDDEN));
+    }
+}
+
+/// ADR-2184 Q1 residual on the stored inference reads: `Ant ⊑ Hive ⊑ Bee` with `Hive` hidden.
+/// The stored run is the real whole-store Whelk closure (as the post-sync reasoner writes
+/// it), so it holds `Ant ⊑ Bee`, which a gated caller must not see.
+#[cfg(test)]
+pub(crate) mod per_view_reasoning_tests {
+    use super::*;
+    use crate::adapters::whelk_inference_engine::WhelkInferenceEngine;
+    use crate::services::github_sync_service::GitHubSyncService;
+    use crate::services::ontology_visibility::testing::{mentions, reply};
+    use oxigraph::store::Store;
+    use serde_json::Value;
+    use std::collections::HashSet;
+    use visionclaw_domain::ports::inference_engine::InferenceEngine;
+    use visionclaw_domain::ports::ontology_repository::AxiomType;
+
+    pub(crate) const ANT: &str = "http://example.org/onto#Ant";
+    pub(crate) const HIVE: &str = "http://example.org/onto#Hive";
+    pub(crate) const BEE: &str = "http://example.org/onto#Bee";
+    const SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
+    const TIME_MS: &str = "https://narrativegoldmine.com/ns/v1#inferenceTimeMs";
+
+    fn class(iri: &str) -> OwlClass {
+        OwlClass {
+            iri: iri.to_string(),
+            label: Some(iri.rsplit('#').next().unwrap_or(iri).to_string()),
+            ..OwlClass::default()
+        }
+    }
+
+    fn sub(subject: &str, object: &str) -> OwlAxiom {
+        OwlAxiom {
+            id: None,
+            axiom_type: AxiomType::SubClassOf,
+            subject: subject.to_string(),
+            object: object.to_string(),
+            annotations: Default::default(),
+        }
+    }
+
+    /// The chain store, with or without `Hive`, holding the Whelk closure of its own content.
+    pub(crate) async fn repo(with_hidden: bool) -> Arc<OxigraphOntologyRepository> {
+        let store = Store::new().expect("in-memory store");
+        let repo = Arc::new(OxigraphOntologyRepository::from_store(Arc::new(store)));
+        let (classes, axioms) = if with_hidden {
+            (
+                vec![class(ANT), class(HIVE), class(BEE)],
+                vec![sub(ANT, HIVE), sub(HIVE, BEE)],
+            )
+        } else {
+            (vec![class(ANT), class(BEE)], Vec::new())
+        };
+        for c in &classes {
+            repo.add_owl_class(c).await.expect("class stored");
+        }
+        for a in &axioms {
+            repo.add_axiom(a).await.expect("axiom stored");
+        }
+        let mut input = axioms.clone();
+        input.extend(GitHubSyncService::ngm_property_hierarchy_axioms());
+        let mut engine = WhelkInferenceEngine::new();
+        engine.load_ontology(classes, input).await.expect("loads");
+        let mut results = engine.infer().await.expect("classifies");
+        results.timestamp = chrono::DateTime::from_timestamp(1_700_000_000, 0).expect("valid time");
+        repo.store_inference_results(&results)
+            .await
+            .expect("inference stored");
+        repo
+    }
+
+    pub(crate) fn hidden() -> HiddenClasses {
+        HiddenClasses::from(HashSet::from([HIVE.to_string()]))
+    }
+
+    /// The stored whole-store run id.
+    async fn whole_store_run_id(repo: &OxigraphOntologyRepository) -> String {
+        repo.read_inferred_graph().await.expect("reads")["runId"]
+            .as_str()
+            .expect("a run id")
+            .to_string()
+    }
+
+    /// `body` without its timing triple, which is the reasoner's measured time.
+    fn untimed(mut body: Value) -> Value {
+        if let Some(t) = body
+            .pointer_mut("/data/triples")
+            .and_then(Value::as_array_mut)
+        {
+            t.retain(|t| t["p"] != TIME_MS);
+            t.sort_by_key(|a| a.to_string());
+        }
+        body
+    }
+
+    fn states(body: &Value, s: &str, p: &str, o: &str) -> bool {
+        body["data"]["triples"]
+            .as_array()
+            .expect("triples")
+            .iter()
+            .any(|t| t["s"] == s && t["p"] == p && t["o"] == o)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn inferred_graph_omits_inferences_through_a_hidden_class_and_the_whole_run_id() {
+        let whole = repo(true).await;
+        let run_id = whole_store_run_id(&whole).await;
+        let gated = reply(
+            answer_get_inferred_graph(&whole, &ViewReasoner::new(), &hidden()).await,
+            &[],
+        )
+        .await;
+        let never = reply(
+            answer_get_inferred_graph(
+                &repo(false).await,
+                &ViewReasoner::new(),
+                &HiddenClasses::none(),
+            )
+            .await,
+            &[],
+        )
+        .await;
+        assert_eq!(gated.0, 200);
+        assert!(!states(&gated.1, ANT, SUBCLASS_OF, BEE), "{}", gated.1);
+        assert!(
+            !mentions(&gated.1, &run_id),
+            "whole-store run {run_id}: {}",
+            gated.1
+        );
+        assert_eq!(untimed(gated.1), untimed(never.1));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn inferred_graph_with_full_access_still_states_the_whole_closure() {
+        let whole = repo(true).await;
+        let full = reply(
+            answer_get_inferred_graph(&whole, &ViewReasoner::new(), &HiddenClasses::none()).await,
+            &[],
+        )
+        .await;
+        assert!(states(&full.1, ANT, SUBCLASS_OF, BEE), "{}", full.1);
+        assert!(mentions(&full.1, &whole_store_run_id(&whole).await));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn inference_results_omit_inferences_through_a_hidden_class() {
+        let gated = reply(
+            answer_get_inference_results(&repo(true).await, &ViewReasoner::new(), &hidden()).await,
+            &[],
+        )
+        .await;
+        let never = reply(
+            answer_get_inference_results(
+                &repo(false).await,
+                &ViewReasoner::new(),
+                &HiddenClasses::none(),
+            )
+            .await,
+            &[],
+        )
+        .await;
+        let pairs = |body: &Value| {
+            let mut p: Vec<String> = body["data"]["inferred_axioms"]
+                .as_array()
+                .expect("axioms")
+                .iter()
+                .map(|a| format!("{} {} {}", a["axiom_type"], a["subject"], a["object"]))
+                .collect();
+            p.sort();
+            p
+        };
+        assert_eq!(gated.0, 200);
+        assert!(
+            !pairs(&gated.1)
+                .iter()
+                .any(|p| p.contains(ANT) && p.contains(BEE)),
+            "{:?}",
+            pairs(&gated.1)
+        );
+        assert_eq!(pairs(&gated.1), pairs(&never.1));
+    }
+
+    fn failing(_: Vec<OwlClass>, _: Vec<OwlAxiom>) -> Result<Vec<OwlAxiom>, String> {
+        Err("reasoner down".to_string())
+    }
+
+    /// Full access is served the stored run and graph exactly as stored, and never reasons
+    /// over a view (the reasoner here always fails, so any use would show).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn full_access_inference_reads_are_the_stored_run_byte_for_byte() {
+        let whole = repo(true).await;
+        let reasoner = ViewReasoner::with_reasoner(failing);
+        let graph = reply(
+            answer_get_inferred_graph(&whole, &reasoner, &HiddenClasses::none()).await,
+            &[],
+        )
+        .await;
+        let stored_graph = reply(
+            ok_json!(whole.read_inferred_graph().await.expect("reads")),
+            &[],
+        )
+        .await;
+        assert_eq!(graph, stored_graph);
+        let results = reply(
+            answer_get_inference_results(&whole, &reasoner, &HiddenClasses::none()).await,
+            &[],
+        )
+        .await;
+        let stored_results = reply(
+            ok_json!(whole
+                .get_inference_results()
+                .await
+                .expect("reads")
+                .expect("a run")),
+            &[],
+        )
+        .await;
+        assert_eq!(results, stored_results);
+        assert_eq!(reasoner.runs(), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_failed_view_reasoning_is_503_on_both_inference_reads() {
+        let whole = repo(true).await;
+        let run_id = whole_store_run_id(&whole).await;
+        let reasoner = ViewReasoner::with_reasoner(failing);
+        for got in [
+            reply(
+                answer_get_inferred_graph(&whole, &reasoner, &hidden()).await,
+                &[],
+            )
+            .await,
+            reply(
+                answer_get_inference_results(&whole, &reasoner, &hidden()).await,
+                &[],
+            )
+            .await,
+        ] {
+            assert_eq!(got.0, 503, "{}", got.1);
+            assert!(
+                !mentions(&got.1, &run_id) && !mentions(&got.1, ANT),
+                "{}",
+                got.1
+            );
+        }
+    }
+
+    /// With nothing hidden the per-view input is the post-sync reasoner's own, so its closure
+    /// is the stored whole-store closure.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_view_closure_of_the_whole_store_is_the_stored_closure() {
+        let whole = repo(true).await;
+        let pairs = |axioms: &[OwlAxiom]| -> HashSet<(String, String, String)> {
+            axioms
+                .iter()
+                .map(|a| {
+                    (
+                        format!("{:?}", a.axiom_type),
+                        a.subject.clone(),
+                        a.object.clone(),
+                    )
+                })
+                .collect()
+        };
+        let view = ViewReasoner::new()
+            .closure(whole.as_ref(), &HiddenClasses::none())
+            .await
+            .expect("reasons");
+        let stored = whole
+            .get_inference_results()
+            .await
+            .expect("reads")
+            .expect("a run");
+        assert!(!stored.inferred_axioms.is_empty());
+        assert_eq!(pairs(&view.inferred_axioms), pairs(&stored.inferred_axioms));
+    }
+
+    /// The cost of per-view reasoning on a corpus shaped like the live one (9,244 classes, a
+    /// tree of branching ~4.8 and depth up to 16, so ~9.2k `SubClassOf` axioms, plus 1,000
+    /// second parents), with 5% of the classes hidden. Prints the cold closure, the cached
+    /// closure and the `/inferred` render. Run with
+    /// `cargo test --lib per_view_reasoning_cost -- --ignored --nocapture`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "measurement, not a check: builds a 9k-class store"]
+    async fn per_view_reasoning_cost() {
+        use std::time::Instant;
+        const CLASSES: usize = 9_244;
+        let iri = |i: usize| format!("http://example.org/onto#C{i}");
+        let store = Store::new().expect("in-memory store");
+        let whole = Arc::new(OxigraphOntologyRepository::from_store(Arc::new(store)));
+        let mut classes = Vec::with_capacity(CLASSES);
+        let mut axioms = Vec::with_capacity(CLASSES + 1_000);
+        // Parent of i is (i - 1) / 5 for a branching of ~5 (depth ~6); every 577th class
+        // instead hangs off a deep spine so the deepest chain reaches 16.
+        for i in 0..CLASSES {
+            classes.push(class(&iri(i)));
+            if i == 0 {
+                continue;
+            }
+            let parent = if i < 16 { i - 1 } else { (i - 1) / 5 };
+            axioms.push(sub(&iri(i), &iri(parent)));
+        }
+        for k in 0..1_000 {
+            let i = 100 + k * 9;
+            axioms.push(sub(&iri(i), &iri((i * 7) % 90 + 1)));
+        }
+        let started = Instant::now();
+        for c in &classes {
+            whole.add_owl_class(c).await.expect("class stored");
+        }
+        for a in &axioms {
+            whole.add_axiom(a).await.expect("axiom stored");
+        }
+        let build = started.elapsed();
+        let mut input = axioms.clone();
+        input.extend(GitHubSyncService::ngm_property_hierarchy_axioms());
+        let started = Instant::now();
+        let mut engine = WhelkInferenceEngine::new();
+        engine.load_ontology(classes, input).await.expect("loads");
+        let results = engine.infer().await.expect("classifies");
+        let whole_infer = started.elapsed();
+        whole
+            .store_inference_results(&results)
+            .await
+            .expect("stored");
+        let hidden = HiddenClasses::from((0..CLASSES).step_by(20).map(iri).collect::<HashSet<_>>());
+        let reasoner = ViewReasoner::new();
+        let started = Instant::now();
+        let view = reasoner
+            .closure(whole.as_ref(), &hidden)
+            .await
+            .expect("reasons");
+        let cold = started.elapsed();
+        let started = Instant::now();
+        reasoner
+            .closure(whole.as_ref(), &hidden)
+            .await
+            .expect("reasons");
+        let warm = started.elapsed();
+        let started = Instant::now();
+        let results_reply = answer_get_inference_results(&whole, &reasoner, &hidden).await;
+        let results_time = started.elapsed();
+        let started = Instant::now();
+        let graph_reply = answer_get_inferred_graph(&whole, &reasoner, &hidden).await;
+        let render = started.elapsed();
+        let started = Instant::now();
+        answer_get_inference_results(&whole, &reasoner, &hidden)
+            .await
+            .expect("reply");
+        let results_warm = started.elapsed();
+        let started = Instant::now();
+        answer_get_inferred_graph(&whole, &reasoner, &hidden)
+            .await
+            .expect("reply");
+        let render_warm = started.elapsed();
+        let started = Instant::now();
+        answer_get_inference_results(&whole, &reasoner, &HiddenClasses::none())
+            .await
+            .expect("reply");
+        let full_results = started.elapsed();
+        let started = Instant::now();
+        let full_reply = answer_get_inferred_graph(&whole, &reasoner, &HiddenClasses::none()).await;
+        let full = started.elapsed();
+        assert_eq!(results_reply.expect("reply").status(), 200);
+        assert_eq!(graph_reply.expect("reply").status(), 200);
+        assert_eq!(full_reply.expect("reply").status(), 200);
+        println!(
+            "corpus: {CLASSES} classes, {} axioms (store built in {build:?})\n\
+             whole-store load+infer: {whole_infer:?}, {} inferred axioms\n\
+             per-view closure, cold (repo reads + digest + whelk): {cold:?}, {} inferred axioms, \
+             whelk {} ms\n\
+             per-view closure, cached: {warm:?}\n\
+             gated /inference/results, first (cached closure): {results_time:?}, \
+             then cached: {results_warm:?}\n\
+             gated /inferred, first (cached results + scratch render): {render:?}, \
+             then cached: {render_warm:?}\n\
+             full-access /inference/results: {full_results:?}, /inferred: {full:?}",
+            axioms.len(),
+            results.inferred_axioms.len(),
+            view.inferred_axioms.len(),
+            view.inference_time_ms,
+        );
     }
 }

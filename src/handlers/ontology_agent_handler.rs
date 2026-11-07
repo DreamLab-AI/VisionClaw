@@ -27,10 +27,13 @@
 use crate::actors::graph_service_supervisor::GraphServiceSupervisor;
 use crate::handlers::graph_access::caller_hidden_classes;
 use crate::services::ontology_query_service::OntologyQueryService;
+use crate::services::ontology_view_reasoner::{
+    is_view_reasoning_unavailable, VIEW_REASONING_UNAVAILABLE,
+};
 use crate::services::ontology_visibility::HiddenClasses;
 use crate::settings::OptionalAuth;
 use crate::types::ontology_tools::*;
-use crate::{error_json, ok_json};
+use crate::{error_json, ok_json, service_unavailable};
 use actix::Addr;
 use actix_web::{web, Error, HttpResponse};
 use log::{error, info};
@@ -111,6 +114,17 @@ pub struct StatusResponse {
 
 // ---------- Handlers ----------
 
+/// The reply to a failed read: 503 when the caller's view could not be reasoned over (fail
+/// closed, ADR-2184 Q1: never the whole-store closure instead), otherwise a 500 naming
+/// `context`.
+fn failed(context: &str, e: String) -> Result<HttpResponse, Error> {
+    error!("ontology-agent: {context}: {e}");
+    if is_view_reasoning_unavailable(&e) {
+        return service_unavailable!(VIEW_REASONING_UNAVAILABLE);
+    }
+    error_json!(context, e)
+}
+
 /// POST /ontology-agent/discover — Semantic discovery via class hierarchy + Whelk
 pub async fn discover(
     query_service: web::Data<Arc<OntologyQueryService>>,
@@ -142,10 +156,7 @@ pub async fn answer_discover(
                 "scope": query_service.answer_scope().await
             }))
         }
-        Err(e) => {
-            error!("ontology-agent/discover failed: {}", e);
-            error_json!("Discovery failed", e)
-        }
+        Err(e) => failed("Discovery failed", e),
     }
 }
 
@@ -175,10 +186,7 @@ pub async fn answer_read_note(
                 "note": note
             }))
         }
-        Err(e) => {
-            error!("ontology-agent/read failed: {}", e);
-            error_json!("Read note failed", e)
-        }
+        Err(e) => failed("Read note failed", e),
     }
 }
 
@@ -262,10 +270,7 @@ pub async fn answer_traverse(
                 "traversal": traversal
             }))
         }
-        Err(e) => {
-            error!("ontology-agent/traverse failed: {}", e);
-            error_json!("Traversal failed", e)
-        }
+        Err(e) => failed("Traversal failed", e),
     }
 }
 
@@ -404,10 +409,7 @@ pub async fn answer_check(
                     "check": check
                 }))
             }
-            Err(e) => {
-                error!("ontology-agent/check (relation) failed: {}", e);
-                error_json!("Relation check failed", e)
-            }
+            Err(e) => failed("Relation check failed", e),
         };
     }
     info!(
@@ -425,10 +427,7 @@ pub async fn answer_check(
                 "check": check
             }))
         }
-        Err(e) => {
-            error!("ontology-agent/check failed: {}", e);
-            error_json!("Membership check failed", e)
-        }
+        Err(e) => failed("Membership check failed", e),
     }
 }
 
@@ -840,5 +839,340 @@ mod hidden_class_tests {
         )
         .await;
         assert!(mentions(&found.1, HIDDEN));
+    }
+}
+
+/// ADR-2184 Q1 residual: an inference that passes through a hidden class is not served to a
+/// caller who cannot see it. `Ant ⊑ Hive ⊑ Bee` with `Hive` hidden: `Ant ⊑ Bee` is derivable
+/// only through `Hive`, so a gated caller answers exactly as over a store that never held
+/// `Hive` (where `Ant` and `Bee` are unrelated).
+#[cfg(test)]
+mod per_view_reasoning_tests {
+    use super::*;
+    use crate::adapters::whelk_inference_engine::WhelkInferenceEngine;
+    use crate::services::ontology_view_reasoner::{Reasoner, ViewReasoner};
+    use crate::services::ontology_visibility::testing::{mentions, reply, sorted};
+    use crate::services::schema_service::SchemaService;
+    use crate::test_helpers::MockOntologyRepository;
+    use std::collections::{HashMap, HashSet};
+    use tokio::sync::RwLock;
+    use visionclaw_domain::ports::inference_engine::InferenceEngine;
+    use visionclaw_domain::ports::ontology_repository::{
+        AxiomType, OntologyRepository, OwlAxiom, OwlClass,
+    };
+
+    const ANT: &str = "mv:Ant";
+    const HIVE: &str = "mv:Hive";
+    const BEE: &str = "mv:Bee";
+
+    fn class(iri: &str, term: &str, parents: &[&str]) -> OwlClass {
+        OwlClass {
+            iri: iri.to_string(),
+            label: Some(term.to_string()),
+            preferred_term: Some(term.to_string()),
+            description: Some(format!("{term} described")),
+            parent_classes: parents.iter().map(|p| p.to_string()).collect(),
+            markdown_content: Some(format!("- {term}")),
+            ..OwlClass::default()
+        }
+    }
+
+    fn sub(subject: &str, object: &str) -> OwlAxiom {
+        OwlAxiom {
+            id: None,
+            axiom_type: AxiomType::SubClassOf,
+            subject: subject.to_string(),
+            object: object.to_string(),
+            annotations: HashMap::new(),
+        }
+    }
+
+    /// The classes and axioms of the chain, with or without `Hive`.
+    fn corpus(with_hidden: bool) -> (Vec<OwlClass>, Vec<OwlAxiom>) {
+        if with_hidden {
+            (
+                vec![
+                    class(ANT, "Ant", &[HIVE]),
+                    class(HIVE, "Hive", &[BEE]),
+                    class(BEE, "Bee", &[]),
+                ],
+                vec![sub(ANT, HIVE), sub(HIVE, BEE)],
+            )
+        } else {
+            (
+                vec![class(ANT, "Ant", &[]), class(BEE, "Bee", &[])],
+                Vec::new(),
+            )
+        }
+    }
+
+    /// The query service over the chain, its shared Whelk engine classified over the whole
+    /// store as the post-sync reasoner does.
+    async fn service(with_hidden: bool) -> OntologyQueryService {
+        let repo = Arc::new(MockOntologyRepository::new());
+        let (classes, axioms) = corpus(with_hidden);
+        for c in &classes {
+            repo.add_owl_class(c).await.expect("class stored");
+        }
+        for a in &axioms {
+            repo.add_axiom(a).await.expect("axiom stored");
+        }
+        let mut engine = WhelkInferenceEngine::new();
+        engine
+            .load_ontology(classes, axioms)
+            .await
+            .expect("whelk loads");
+        engine.infer().await.expect("whelk classifies");
+        OntologyQueryService::new(
+            repo,
+            Arc::new(RwLock::new(engine)),
+            Arc::new(SchemaService::new()),
+        )
+        .with_generation(Some("urn:gen:per-view-tests".to_string()))
+    }
+
+    fn hidden() -> HiddenClasses {
+        HiddenClasses::from(HashSet::from([HIVE.to_string()]))
+    }
+
+    fn check_req(subject: &str, class: &str) -> CheckRequest {
+        CheckRequest {
+            subject: subject.to_string(),
+            class: class.to_string(),
+            property: None,
+        }
+    }
+
+    fn discover_req(query: &str) -> DiscoverRequest {
+        DiscoverRequest {
+            query: query.to_string(),
+            limit: 20,
+            domain: None,
+        }
+    }
+
+    fn failing(_: Vec<OwlClass>, _: Vec<OwlAxiom>) -> Result<Vec<OwlAxiom>, String> {
+        Err("reasoner down".to_string())
+    }
+
+    fn panicking(_: Vec<OwlClass>, _: Vec<OwlAxiom>) -> Result<Vec<OwlAxiom>, String> {
+        panic!("reasoner panicked")
+    }
+
+    /// The full-access check, discover and read replies over the chain, order-normalised.
+    async fn full_access_replies(s: &OntologyQueryService) -> serde_json::Value {
+        let none = HiddenClasses::none();
+        let check = reply(answer_check(s, check_req(ANT, BEE), &none).await, &[]).await;
+        let disc = reply(answer_discover(s, discover_req("Bee"), &none).await, &[]).await;
+        let read = reply(
+            answer_read_note(
+                s,
+                ReadNoteRequest {
+                    iri: ANT.to_string(),
+                },
+                &none,
+            )
+            .await,
+            &[],
+        )
+        .await;
+        serde_json::json!({
+            "check": [check.0, sorted(check.1)],
+            "discover": [disc.0, sorted(disc.1)],
+            "read": [read.0, sorted(read.1)],
+        })
+    }
+
+    /// The golden was captured from the code before per-view reasoning existed. The view
+    /// reasoner here always fails, so any use of it on the full-access path would show.
+    #[tokio::test]
+    async fn full_access_replies_are_unchanged_and_never_reason_over_a_view() {
+        let reasoner = Arc::new(ViewReasoner::with_reasoner(failing));
+        let s = service(true).await.with_view_reasoner(reasoner.clone());
+        let golden: serde_json::Value = serde_json::from_str(include_str!(
+            "testdata/ontology_agent_full_access_golden.json"
+        ))
+        .expect("golden parses");
+        assert_eq!(full_access_replies(&s).await, golden);
+        assert_eq!(reasoner.runs(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_failed_view_reasoning_is_503_and_never_the_whole_store_answer() {
+        for reasoner in [failing as Reasoner, panicking] {
+            let s = service(true)
+                .await
+                .with_view_reasoner(Arc::new(ViewReasoner::with_reasoner(reasoner)));
+            let traverse = TraverseRequest {
+                start_iri: ANT.to_string(),
+                depth: 3,
+                relationship_types: None,
+            };
+            let read = ReadNoteRequest {
+                iri: ANT.to_string(),
+            };
+            let relation = CheckRequest {
+                property: Some("mv:near".to_string()),
+                ..check_req(ANT, BEE)
+            };
+            for got in [
+                reply(answer_check(&s, check_req(ANT, BEE), &hidden()).await, &[]).await,
+                reply(answer_check(&s, relation, &hidden()).await, &[]).await,
+                reply(
+                    answer_discover(&s, discover_req("Bee"), &hidden()).await,
+                    &[],
+                )
+                .await,
+                reply(answer_read_note(&s, read, &hidden()).await, &[]).await,
+                reply(answer_traverse(&s, traverse, &hidden()).await, &[]).await,
+            ] {
+                assert_eq!(got.0, 503, "{}", got.1);
+                assert!(
+                    !mentions(&got.1, ANT) && !mentions(&got.1, BEE),
+                    "{}",
+                    got.1
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_view_is_reasoned_over_once_per_store_state_and_again_after_a_change() {
+        let reasoner = Arc::new(ViewReasoner::new());
+        let repo = Arc::new(MockOntologyRepository::new());
+        let (classes, axioms) = corpus(true);
+        for c in &classes {
+            repo.add_owl_class(c).await.expect("class stored");
+        }
+        for a in &axioms {
+            repo.add_axiom(a).await.expect("axiom stored");
+        }
+        let mut engine = WhelkInferenceEngine::new();
+        engine.load_ontology(classes, axioms).await.expect("loads");
+        engine.infer().await.expect("classifies");
+        let s = OntologyQueryService::new(
+            repo.clone(),
+            Arc::new(RwLock::new(engine)),
+            Arc::new(SchemaService::new()),
+        )
+        .with_view_reasoner(reasoner.clone());
+        answer_check(&s, check_req(ANT, BEE), &hidden())
+            .await
+            .expect("reply");
+        answer_discover(&s, discover_req("Bee"), &hidden())
+            .await
+            .expect("reply");
+        assert_eq!(reasoner.runs(), 1, "one view, one store state");
+        repo.add_axiom(&sub(ANT, "mv:Wasp"))
+            .await
+            .expect("axiom stored");
+        answer_check(&s, check_req(ANT, BEE), &hidden())
+            .await
+            .expect("reply");
+        assert_eq!(reasoner.runs(), 2, "a store change re-keys the view");
+        let other = HiddenClasses::from(HashSet::from([HIVE.to_string(), "mv:Wasp".to_string()]));
+        answer_check(&s, check_req(ANT, BEE), &other)
+            .await
+            .expect("reply");
+        assert_eq!(reasoner.runs(), 3, "another deny-list is another view");
+    }
+
+    #[tokio::test]
+    async fn check_through_a_hidden_class_is_not_asserted_for_a_gated_caller() {
+        let gated = reply(
+            answer_check(&service(true).await, check_req(ANT, BEE), &hidden()).await,
+            &[],
+        )
+        .await;
+        let never_stored = reply(
+            answer_check(
+                &service(false).await,
+                check_req(ANT, BEE),
+                &HiddenClasses::none(),
+            )
+            .await,
+            &[],
+        )
+        .await;
+        assert_eq!(
+            never_stored.1["data"]["check"]["verdict"], "not_asserted",
+            "{}",
+            never_stored.1
+        );
+        assert_eq!(gated, never_stored);
+    }
+
+    #[tokio::test]
+    async fn check_through_a_hidden_class_is_entailed_with_full_access() {
+        let full = reply(
+            answer_check(
+                &service(true).await,
+                check_req(ANT, BEE),
+                &HiddenClasses::none(),
+            )
+            .await,
+            &[],
+        )
+        .await;
+        assert_eq!(full.0, 200);
+        assert_eq!(full.1["data"]["check"]["verdict"], "entailed", "{}", full.1);
+    }
+
+    #[tokio::test]
+    async fn discover_lists_no_edge_derivable_only_through_a_hidden_class() {
+        let gated = reply(
+            answer_discover(&service(true).await, discover_req("Bee"), &hidden()).await,
+            &[],
+        )
+        .await;
+        let never_stored = reply(
+            answer_discover(
+                &service(false).await,
+                discover_req("Bee"),
+                &HiddenClasses::none(),
+            )
+            .await,
+            &[],
+        )
+        .await;
+        assert!(!mentions(&gated.1, ANT), "{}", gated.1);
+        assert_eq!(gated, never_stored);
+        let full = reply(
+            answer_discover(
+                &service(true).await,
+                discover_req("Bee"),
+                &HiddenClasses::none(),
+            )
+            .await,
+            &[],
+        )
+        .await;
+        assert!(
+            mentions(&full.1, ANT),
+            "full access expands into Ant: {}",
+            full.1
+        );
+    }
+
+    #[tokio::test]
+    async fn read_lists_no_inference_derivable_only_through_a_hidden_class() {
+        let read = |iri: &str| ReadNoteRequest {
+            iri: iri.to_string(),
+        };
+        let gated = reply(
+            answer_read_note(&service(true).await, read(ANT), &hidden()).await,
+            &[],
+        )
+        .await;
+        let never_stored = reply(
+            answer_read_note(&service(false).await, read(ANT), &HiddenClasses::none()).await,
+            &[],
+        )
+        .await;
+        assert!(!mentions(&gated.1, BEE), "{}", gated.1);
+        assert_eq!(
+            (gated.0, sorted(gated.1)),
+            (never_stored.0, sorted(never_stored.1))
+        );
     }
 }
