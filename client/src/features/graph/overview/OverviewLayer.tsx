@@ -50,11 +50,12 @@ interface Props {
   plan: EdgePlan | null;
   nodePositionsRef: React.MutableRefObject<Float32Array | null>;
   nodeCount: number;
-  knowledgeGemRef: React.RefObject<GemNodesHandle | null>;
+  /** The population drawn as sprites: the largest at knowledge-graph size (gemLod.spritePopulation). */
+  spriteGemRef: React.RefObject<GemNodesHandle | null>;
   children?: React.ReactNode;
 }
 
-export const OverviewLayer: React.FC<Props> = ({ plan, nodePositionsRef, nodeCount, knowledgeGemRef, children }) => {
+export const OverviewLayer: React.FC<Props> = ({ plan, nodePositionsRef, nodeCount, spriteGemRef, children }) => {
   const stored = useSettingsStore((s) => s.get<GraphViewSettings>('visualisation.graphView'));
   const gv = useMemo(() => resolveGraphView(stored), [stored]);
   const nodeSize = useSettingsStore((s) => s.get<number>('visualisation.graphs.knowledge.nodes.nodeSize')) ?? 1.0;
@@ -117,7 +118,7 @@ export const OverviewLayer: React.FC<Props> = ({ plan, nodePositionsRef, nodeCou
   return (
     <OverviewTextureContext.Provider value={positions}>
       <OverviewEdgeLines positions={positions} data={edgeData} style={edgeStyle} visible={oe.enabled} publishLive />
-      <OverviewNodes positions={positions} sourceRef={knowledgeGemRef} style={nodeStyle} />
+      <OverviewNodes positions={positions} sourceRef={spriteGemRef} style={nodeStyle} />
       {children}
     </OverviewTextureContext.Provider>
   );

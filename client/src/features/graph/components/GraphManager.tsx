@@ -39,6 +39,7 @@ import { OverviewLayer, resolveGraphView } from '../overview/OverviewLayer'
 import { useNodeEncodingSync } from '../overview/useNodeEncodingSync'
 import { useOverviewLive } from '../overview/overviewLive'
 import { resolveTubeLod, type GlassTubeLod } from '../overview/tubeSelect'
+import { spritePopulation, type OverviewPopulationMode } from '../overview/gemLod'
 import { setHoveredNodeEmphasis } from '../explore/filterRegistry'
 import type { GraphViewSettings } from '../../settings/config/settings'
 
@@ -659,6 +660,12 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
     { ref: ontologyGemRef,  nodes: ontologyNodes,  mode: 'ontology',        base: ontologyBase },
     { ref: agentGemRef,     nodes: agentNodes,     mode: 'agent',           base: agentBase },
   ]
+  // ADR-2182: the overview sprites and the gem LOD follow the largest population
+  // at knowledge-graph size, not a fixed name. Live 2026-11-07 the ontology
+  // population is 9,595 and knowledge 84; before this the 9,595 ontology gems
+  // never handed off and the overview was a solid disc.
+  const spriteMode = spritePopulation(populationMeshes.map(p => ({ mode: p.mode as OverviewPopulationMode, count: p.nodes.length })))
+  const spriteGemRef = populationMeshes.find(p => p.mode === spriteMode)?.ref ?? knowledgeGemRef
 
   return (
     <>
@@ -669,6 +676,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
             ref={ref}
             nodes={nodes}
             forceMode={mode}
+            spriteMode={spriteMode}
             instanceIdBase={base}
             edges={graphData.edges}
             graphMode={graphMode}
@@ -722,7 +730,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
         plan={edgePlan}
         nodePositionsRef={nodePositionsRef}
         nodeCount={graphData.nodes.length}
-        knowledgeGemRef={knowledgeGemRef}
+        spriteGemRef={spriteGemRef}
       >
         <InferredEdges nodeIdToIndexMap={nodeIdToIndexMap} />
       </OverviewLayer>

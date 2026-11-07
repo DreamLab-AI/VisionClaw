@@ -11,6 +11,35 @@
 /** Gems drawn at most, besides forced ones. */
 export const GEM_BUDGET = 4096;
 
+/**
+ * A population at or above this many nodes is "knowledge-graph size": it is
+ * drawn as overview sprites with gems as the close LOD (ADR-2182 D1/D2). Below
+ * it a population keeps full gems at every zoom, because it is small and its
+ * gem shape carries type meaning the sprites do not. ADR-2182's note said
+ * "only the knowledge population" and "revisit if either grows to
+ * knowledge-graph size"; the live 2026-11-07 scene is ontology 9,595 /
+ * knowledge 84, so the choice follows size, not the population's name.
+ */
+export const SPRITE_POPULATION_MIN = 1000;
+
+export type OverviewPopulationMode = 'knowledge_graph' | 'ontology' | 'agent';
+
+/**
+ * Which population the overview sprites and the gem LOD apply to: the largest
+ * one at or above SPRITE_POPULATION_MIN, or null when none is (every gem stays
+ * drawn). Ties go to the first listed, so a knowledge-dominant scene behaves
+ * exactly as before.
+ */
+export function spritePopulation(
+  counts: ReadonlyArray<{ mode: OverviewPopulationMode; count: number }>,
+): OverviewPopulationMode | null {
+  let best: { mode: OverviewPopulationMode; count: number } | null = null;
+  for (const p of counts) {
+    if (p.count >= SPRITE_POPULATION_MIN && (!best || p.count > best.count)) best = p;
+  }
+  return best ? best.mode : null;
+}
+
 /** Reusable scratch; grow-only. */
 export interface GemLodScratch {
   idx: Uint32Array;

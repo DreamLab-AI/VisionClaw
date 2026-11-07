@@ -67,6 +67,12 @@ export interface GemNodesProps {
    */
   forceMode?: GraphVisualMode;
   /**
+   * The population drawn as overview sprites with gems as the close LOD, chosen
+   * by size in GraphManager (gemLod.spritePopulation). Null: every gem stays
+   * drawn. Only the mesh whose `dominant` equals this runs the gem LOD.
+   */
+  spriteMode?: GraphVisualMode | null;
+  /**
    * Added to each reported instanceId so the parent's shared pointer handler
    * resolves the correct GLOBAL node when this mesh renders a CONTIGUOUS slice
    * of the parent's displayNodes (per-population multi-mesh). Default 0.
@@ -869,7 +875,7 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
         // Knowledge size is the encoding's (ADR-2184 D4: computeNodeScale × nodeSize
         // by default, or the explore lane's sizeBy column); other populations
         // keep their own sizing scheme.
-        const encoded = mode === 'knowledge_graph' && ri < encSizes.length ? encSizes[ri] : 0;
+        const encoded = mode === props.spriteMode && ri < encSizes.length ? encSizes[ri] : 0;
         const base = encoded > 0
           ? encoded
           : computeNodeScale(node, connectionCountMap, mode, hierarchyMap, graphTypeVisuals) * baseScale;
@@ -936,7 +942,9 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
     // every LOD_EVERY frames.
     // Only while the overview sprites are live (mounted, material built): until
     // then, or if they fail to build, every gem stays drawn.
-    const lodMesh = dominant === 'knowledge_graph' && isOverviewLive('nodes');
+    // The sprite population is chosen by size (gemLod.spritePopulation), so an
+    // ontology-dominant scene hands off exactly as a knowledge-dominant one.
+    const lodMesh = dominant === props.spriteMode && isOverviewLive('nodes');
     if (lodMesh !== lodActiveRef.current) { lodActiveRef.current = lodMesh; lodDirtyRef.current = true; lodVersionRef.current++; }
     if (lodMesh) {
       let flags = lodFlagsRef.current;
