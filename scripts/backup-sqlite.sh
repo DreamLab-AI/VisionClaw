@@ -99,6 +99,7 @@ expected_tables_for() {
     settings.sqlite3)   echo "settings schema_migrations" ;;
     enrichment.sqlite3) echo "enrichment_proposals enrichment_decisions schema_migrations" ;;
     kpi.sqlite3)        echo "kpi_snapshots kpi_lineage schema_migrations" ;;
+    shares.sqlite3)     echo "shared_graphs schema_migrations" ;;
     liveness.sqlite3)   echo "liveness_canaries canary_fires schema_migrations" ;;
     *)                  echo "" ;;
   esac

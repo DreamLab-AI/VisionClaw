@@ -396,6 +396,37 @@ fn restore_check_reports_application_row_counts() {
     );
 }
 
+/// Every declared database has a declared restore schema: a backup that copies
+/// a file the restore check never opens has not shown it can be restored.
+/// shares.sqlite3 joined REQUIRED_DBS in 238f5960d without one and was skipped.
+#[test]
+fn every_declared_database_is_restore_checked() {
+    require_tools!();
+    let scratch = Scratch::new("restore-all");
+    let data = scratch.path().join("data");
+    let backups = scratch.path().join("backups");
+    seed_data_dir(&data, &[]);
+
+    let insert = Command::new("sqlite3")
+        .arg(data.join("shares.sqlite3"))
+        .arg("INSERT INTO shared_graphs (id) VALUES (1),(2);")
+        .output()
+        .expect("seed rows");
+    assert!(insert.status.success());
+
+    let out = run_backup(&data, &backups, &[]);
+    let err = stderr(&out);
+    assert!(out.status.success(), "run failed:\n{err}");
+    assert!(
+        !err.contains("no declared schema, skipped"),
+        "a declared database skipped its restore check:\n{err}"
+    );
+    assert!(
+        err.contains("restore-check shares.sqlite3: shared_graphs rows=2"),
+        "expected the share store's restored row count, got:\n{err}"
+    );
+}
+
 /// The restore check is opt-out for the rare case where sqlite3 is unavailable
 /// on the backup host; opting out is recorded in the manifest.
 #[test]
