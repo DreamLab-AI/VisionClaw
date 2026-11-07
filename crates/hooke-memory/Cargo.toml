@@ -26,7 +26,7 @@ tokenizers = { version = "0.21", default-features = false, features = ["fancy-re
 opt-level = 3
 debug = false
 
-# candle-core 0.11.1 with one change in src/backprop.rs (matmul backward skips untracked
-# operands); see PORTING.md.
+# candle-core 0.11.1 with two changes in src/backprop.rs (matmul backward skips untracked operands;
+# backward returns only variable gradients); see PORTING.md.
 [patch.crates-io]
 candle-core = { path = "vendor/candle-core" }

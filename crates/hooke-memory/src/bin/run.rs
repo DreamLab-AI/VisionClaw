@@ -24,6 +24,10 @@ use std::path::{Path, PathBuf};
 
 const ENCODER: &str = "qwen3-embedding-4b";
 const BATCH: usize = 8;
+/// Rows per micro-batch (`HOOKE_MICRO`, default 4); the effective batch stays `BATCH`.
+fn micro() -> usize {
+    std::env::var("HOOKE_MICRO").ok().and_then(|v| v.parse().ok()).unwrap_or(4)
+}
 const EVAL_BATCH: usize = 16;
 const WARMUP: usize = 100;
 const GEOMETRY_LR: f64 = 1e-3;
@@ -72,6 +76,19 @@ fn load_into(varmap: &VarMap, path: &Path, dev: &Device) -> Result<usize> {
         }
     }
     Ok(n)
+}
+
+/// GPU memory in use (GiB), logged per phase when `HOOKE_MEMLOG` is set.
+fn memlog(dev: &Device, tag: &str) {
+    if std::env::var_os("HOOKE_MEMLOG").is_none() {
+        return;
+    }
+    if let Device::Cuda(d) = dev {
+        let _ = dev.synchronize();
+        if let Ok((free, total)) = d.cuda_stream().context().mem_get_info() {
+            eprintln!("mem {tag}: {:.2} GiB used", (total - free) as f64 / (1u64 << 30) as f64);
+        }
+    }
 }
 
 fn normalise(s: &str) -> String {
@@ -169,7 +186,8 @@ fn evaluate(
     for chunk in idx.chunks(EVAL_BATCH) {
         let items: Vec<(usize, &Row)> = chunk.iter().map(|&i| (i, &rows[i])).collect();
         let b = batch(&items, store, m.field.as_ref(), rel, &mut scramble, dev)?;
-        let mem = memory_tokens(m, &b, false)?.to_dtype(DType::BF16)?;
+        // Detached: evaluation must not keep the autograd graph alive through decoding.
+        let mem = memory_tokens(m, &b, false)?.detach().to_dtype(DType::BF16)?;
         if let (Some(f), Some(t)) = (m.field.as_ref(), b.triples.as_ref()) {
             let geo = |s: &Tensor| f.bias(s, t).map_err(|e| candle_core::Error::Msg(e.to_string()));
             let (with, without) = m.memory.first_layer_probs(&b.docs, Some(&b.mask), &b.question, &geo)?;
@@ -243,30 +261,62 @@ fn main() -> Result<()> {
                     p.shuffle(&mut rng);
                     p
                 };
-                let b = batch(&items, &mut store, model.field.as_ref(), &rel, &mut scramble, &dev)?;
-                let mem = memory_tokens(&model, &b, true)?.to_dtype(DType::BF16)?;
-                let (mut ids, mut targets, mut spans) = (Vec::new(), Vec::new(), Vec::new());
-                for (_, r) in &items {
-                    let mut p = tok.encode(&prompt::render(prompt::PERSONA_PROMPT, &r.question, 16))?;
-                    let mut a = tok.encode(r.answer.trim())?;
-                    a.push(IM_END);
-                    spans.push((p.len(), a.len()));
-                    targets.extend_from_slice(&a);
-                    p.extend_from_slice(&a);
-                    ids.push(p);
+                // Gradients of the token-mean loss over the whole batch, accumulated over
+                // micro-batches so the decoder's activations fit in memory.
+                let mut grads: Option<candle_core::backprop::GradStore> = None;
+                let total_tokens: usize = items.iter().map(|(_, r)| tok.encode(r.answer.trim()).map(|a| a.len() + 1)).sum::<Result<usize>>()?;
+                let mut loss_sum = 0f64;
+                for micro in items.chunks(micro()) {
+                    memlog(&dev, &format!("step {step} micro start"));
+                    let b = batch(micro, &mut store, model.field.as_ref(), &rel, &mut scramble, &dev)?;
+                    let mem = memory_tokens(&model, &b, true)?.to_dtype(DType::BF16)?;
+                    let (mut ids, mut targets, mut spans) = (Vec::new(), Vec::new(), Vec::new());
+                    for (_, r) in micro {
+                        let mut p = tok.encode(&prompt::render(prompt::PERSONA_PROMPT, &r.question, 16))?;
+                        let mut a = tok.encode(r.answer.trim())?;
+                        a.push(IM_END);
+                        spans.push((p.len(), a.len()));
+                        targets.extend_from_slice(&a);
+                        p.extend_from_slice(&a);
+                        ids.push(p);
+                    }
+                    let (embeds, mask) = prompt::splice(&dec, &ids, &mem, tok.memory_id, &dev)?;
+                    let len = embeds.dim(1)?;
+                    memlog(&dev, "memory tokens + splice");
+                    let hidden = dec.forward_embeds(&embeds, &mask)?;
+                    memlog(&dev, "decoder forward");
+                    let mut pick = Vec::new();
+                    for (r, (row_ids, &(p_len, a_len))) in ids.iter().zip(&spans).enumerate() {
+                        let pad = len - row_ids.len();
+                        pick.extend((0..a_len).map(|j| (r * len + pad + p_len - 1 + j) as u32));
+                    }
+                    let flat = hidden.reshape((ids.len() * len, hidden.dim(2)?))?;
+                    let h = flat.index_select(&Tensor::new(pick.as_slice(), &dev)?, 0)?;
+                    let logp = candle_nn::ops::log_softmax(&dec.logits(&h)?, candle_core::D::Minus1)?;
+                    let nll = logp.gather(&Tensor::new(targets.as_slice(), &dev)?.unsqueeze(1)?, 1)?.sum_all()?.neg()?;
+                    let micro_loss = (nll / total_tokens as f64)?;
+                    loss_sum += micro_loss.to_scalar::<f32>()? as f64;
+                    let g = micro_loss.backward()?;
+                    memlog(&dev, "backward");
+                    grads = Some(match grads {
+                        None => g,
+                        Some(mut acc) => {
+                            for var in model.varmap.all_vars() {
+                                if let Some(add) = g.get(var.as_tensor()) {
+                                    let sum = match acc.get(var.as_tensor()) {
+                                        Some(prev) => (prev + add)?,
+                                        None => add.clone(),
+                                    };
+                                    acc.insert(var.as_tensor(), sum);
+                                }
+                            }
+                            acc
+                        }
+                    });
                 }
-                let (embeds, mask) = prompt::splice(&dec, &ids, &mem, tok.memory_id, &dev)?;
-                let len = embeds.dim(1)?;
-                let hidden = dec.forward_embeds(&embeds, &mask)?;
-                let mut pick = Vec::new();
-                for (r, (row_ids, &(p_len, a_len))) in ids.iter().zip(&spans).enumerate() {
-                    let pad = len - row_ids.len();
-                    pick.extend((0..a_len).map(|j| (r * len + pad + p_len - 1 + j) as u32));
-                }
-                let flat = hidden.reshape((ids.len() * len, hidden.dim(2)?))?;
-                let h = flat.index_select(&Tensor::new(pick.as_slice(), &dev)?, 0)?;
-                let loss = candle_nn::loss::cross_entropy(&dec.logits(&h)?, &Tensor::new(targets.as_slice(), &dev)?)?;
-                let grads = loss.backward()?;
+                let grads = grads.context("empty batch")?;
+                memlog(&dev, "accumulated");
+                let loss = Tensor::new(loss_sum as f32, &dev)?;
                 opt_mem.step(&grads)?;
                 if let Some(o) = opt_geo.as_mut() {
                     o.step(&grads)?;

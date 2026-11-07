@@ -38,10 +38,12 @@ New, not in Memorilla: `field` (the Hooke field) and the geometry hook on
   ops (the fused kernels lack a backward pass); SiLU keeps candle's built-in op, whose
   backward stays finite where `x / (1 + exp(-x))` overflows. No KV cache: generation
   recomputes the sequence, which is fine for 8-token answers.
-- **candle-core is vendored** (`vendor/candle-core`, 0.11.1) with one change in
+- **candle-core is vendored** (`vendor/candle-core`, 0.11.1) with two changes in
   `src/backprop.rs`: matmul backward skips operands that carry no gradient. Upstream computes
   both operands' gradients, allocating a weight-sized buffer per frozen matmul; back-propagating
-  through the 8B decoder then ran out of 48 GB.
+  through the 8B decoder then ran out of 48 GB. A second change makes `backward()` return
+  only the variables' gradients: upstream also returns those computed for untracked inputs,
+  about 12 GB per decoder pass that nothing reads, which broke gradient accumulation.
 - **Scoring:** Memorilla's choice scorer embeds the generation and picks the most similar
   choice. Here a prediction must equal a choice after lower-casing, removing punctuation and
   trimming; anything else is wrong. Applied identically to every arm (preregistration P1).

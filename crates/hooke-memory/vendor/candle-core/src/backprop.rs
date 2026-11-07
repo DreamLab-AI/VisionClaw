@@ -733,6 +733,12 @@ impl Tensor {
                 };
             }
         }
+        // hooke-memory patch: return only the variables' gradients. Upstream also keeps the
+        // gradients it computed for untracked inputs, which nothing reads; through a frozen
+        // 8B decoder they hold about 12 GB until the store is dropped.
+        let keep: std::collections::HashSet<TensorId> =
+            sorted_nodes.iter().filter(|n| n.is_variable()).map(|n| n.id()).collect();
+        grads.0.retain(|id, _| keep.contains(id));
         Ok(grads)
     }
 }
