@@ -7,7 +7,32 @@
 //! without it the module is Memorilla's.
 
 use candle_core::{DType, Result, Tensor, D};
-use candle_nn::{LayerNorm, Linear, Module, VarBuilder};
+use candle_nn::{Linear, Module, VarBuilder};
+
+/// Layer norm built from differentiable ops. `candle_nn::LayerNorm` takes a fused path on
+/// contiguous input that records no backward op, so gradients silently stop at its output.
+#[derive(Clone, Debug)]
+pub struct LayerNorm {
+    weight: Tensor,
+    bias: Tensor,
+    eps: f64,
+}
+
+impl LayerNorm {
+    pub fn new(weight: Tensor, bias: Tensor, eps: f64) -> Self {
+        Self { weight, bias, eps }
+    }
+}
+
+impl Module for LayerNorm {
+    fn forward(&self, x: &Tensor) -> candle_core::Result<Tensor> {
+        let mean = x.mean_keepdim(D::Minus1)?;
+        let centred = x.broadcast_sub(&mean)?;
+        let var = centred.sqr()?.mean_keepdim(D::Minus1)?;
+        let normed = centred.broadcast_div(&(var + self.eps)?.sqrt()?)?;
+        normed.broadcast_mul(&self.weight)?.broadcast_add(&self.bias)
+    }
+}
 
 /// Architecture of the released Stage 3 checkpoint.
 #[derive(Debug, Clone, Copy)]

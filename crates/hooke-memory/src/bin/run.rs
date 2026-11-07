@@ -31,7 +31,11 @@ fn micro() -> usize {
 const EVAL_BATCH: usize = 16;
 const WARMUP: usize = 100;
 const GEOMETRY_LR: f64 = 1e-3;
-const TRAIN_SHARDS: i64 = 3;
+/// Embedding shards drawn from. The shards are sorted by label (0-3 are 93% False, 7-10 all
+/// True), so the training rows are a label-stratified sample across them (deviation D1).
+const TRAIN_SHARDS: &[i64] = &[0, 1, 2, 3, 7, 8];
+/// Training rows: half True, half False; the same rows for every arm and seed.
+const TRAIN_ROWS: usize = 25_438;
 const VALIDATION_ROWS: usize = 2000;
 const VALIDATION_SEED: u64 = 7;
 const SCRAMBLE_EVAL_SEED: u64 = 11;
@@ -158,7 +162,7 @@ fn memory_tokens(m: &Model, b: &Batch, train: bool) -> Result<Tensor> {
 fn validation_rows(rows: &[Row]) -> Vec<usize> {
     let mut idx: Vec<usize> = (0..rows.len()).collect();
     idx.shuffle(&mut StdRng::seed_from_u64(VALIDATION_SEED));
-    idx.truncate(VALIDATION_ROWS);
+    idx.truncate(std::env::var("HOOKE_VAL_ROWS").ok().and_then(|v| v.parse().ok()).unwrap_or(VALIDATION_ROWS));
     idx
 }
 
@@ -232,9 +236,27 @@ fn main() -> Result<()> {
             let set = load_into(&model.varmap, &e.stage3, &dev)?;
             ensure!(set == 37, "loaded {set} Stage 3 tensors, expected 37");
             let mut store = EmbeddingStore::open(&e.data, ENCODER, "factkg", "train")?;
-            let mut order: Vec<usize> =
-                (0..train_rows.len()).filter(|&i| store.shard(train_rows[i].collection_id).is_some_and(|s| s <= TRAIN_SHARDS)).collect();
-            eprintln!("training rows in shards 0-{TRAIN_SHARDS}: {}", order.len());
+            let (mut yes, mut no): (Vec<usize>, Vec<usize>) = (Vec::new(), Vec::new());
+            for i in 0..train_rows.len() {
+                if store.shard(train_rows[i].collection_id).is_some_and(|s| TRAIN_SHARDS.contains(&s)) {
+                    match train_rows[i].answer.trim() {
+                        "True" => yes.push(i),
+                        "False" => no.push(i),
+                        other => bail!("unexpected FactKG answer {other:?}"),
+                    }
+                }
+            }
+            let half = TRAIN_ROWS / 2;
+            ensure!(yes.len() >= half && no.len() >= half, "shards {TRAIN_SHARDS:?} hold {} True and {} False rows, need {half} each", yes.len(), no.len());
+            let mut pick = StdRng::seed_from_u64(1000);
+            yes.shuffle(&mut pick);
+            no.shuffle(&mut pick);
+            let mut order: Vec<usize> = yes[..half].iter().chain(&no[..half]).copied().collect();
+            order.sort_unstable();
+            eprintln!("training rows: {} stratified from shards {TRAIN_SHARDS:?}", order.len());
+            let mut balance = std::collections::BTreeMap::new();
+            for &i in &order { *balance.entry(train_rows[i].answer.trim().to_string()).or_insert(0usize) += 1; }
+            eprintln!("training answers: {balance:?}");
             order.shuffle(&mut StdRng::seed_from_u64(1000 + seed));
             if let Some(m) = max_rows {
                 order.truncate(m);
@@ -297,6 +319,15 @@ fn main() -> Result<()> {
                     let micro_loss = (nll / total_tokens as f64)?;
                     loss_sum += micro_loss.to_scalar::<f32>()? as f64;
                     let g = micro_loss.backward()?;
+                    if std::env::var_os("HOOKE_GRADDIAG").is_some() {
+                        for (name, var) in model.varmap.data().lock().unwrap().iter() {
+                            match g.get(var.as_tensor()) {
+                                Some(t) => eprintln!("grad {name}: {:.3e}", t.sqr()?.sum_all()?.sqrt()?.to_scalar::<f32>()?),
+                                None => eprintln!("grad {name}: NONE"),
+                            }
+                        }
+                        std::process::exit(0);
+                    }
                     memlog(&dev, "backward");
                     grads = Some(match grads {
                         None => g,
