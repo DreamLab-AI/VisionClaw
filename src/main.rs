@@ -491,6 +491,7 @@ async fn main() -> std::io::Result<()> {
             >,
         app_state.ontology_repository.clone(),
         app_state.sqlite_settings_repository.clone(),
+        app_state.ontology_inference_engine.clone(),
     ));
     // PRD-018 WS-3 / ADR-098 D1: this is the instance registered as web::Data and
     // used by POST /api/admin/sync. Wire it to the GPUManagerActor so a manual
@@ -529,9 +530,8 @@ async fn main() -> std::io::Result<()> {
 
     // Initialize Ontology Agent Services (query + mutation + GitHub PR)
     info!("[main] Initializing Ontology Agent Services...");
-    let whelk_engine = Arc::new(tokio::sync::RwLock::new(
-        visionclaw_server::adapters::whelk_inference_engine::WhelkInferenceEngine::new(),
-    ));
+    // The engine the background sync loads at startup and after every sync.
+    let whelk_engine = app_state.ontology_inference_engine.clone();
     let github_pr_service =
         Arc::new(visionclaw_server::services::github_pr_service::GitHubPRService::new());
     let ontology_query_service = Arc::new(

@@ -201,6 +201,18 @@ fn build_node_from_entity(
     node
 }
 
+/// What one [`GitHubSyncService::reason_into_shared`] run produced, for the
+/// post-sync tail that persists it and materialises edges.
+pub struct SharedReasoning {
+    /// Classes in the store when it was read.
+    pub class_count: usize,
+    /// The asserted axioms reasoned over, NarrativeGoldmine property hierarchy
+    /// included.
+    pub asserted_axioms: Vec<OwlAxiom>,
+    /// The inferred closure now served by the shared engine.
+    pub results: visionclaw_domain::ports::owl_types::InferenceResults,
+}
+
 pub struct GitHubSyncService {
     source: Arc<dyn CorpusSource>,
     kg_parser: Arc<KnowledgeGraphParser>,
@@ -222,18 +234,17 @@ impl GitHubSyncService {
         kg_repo: Arc<dyn KnowledgeGraphRepository>,
         onto_repo: Arc<OxigraphOntologyRepository>,
         sync_db: Arc<SqliteSettingsRepository>,
+        inference_engine: Arc<RwLock<WhelkInferenceEngine>>,
     ) -> Self {
-        // The ontology enrichment service is no longer wired into the
-        // per-file ingest pass (ADR-090 Phase B replaced its filename-hash
-        // node mutations with canonical-entity construction). The reasoner
-        // is still used by `run_post_sync_reasoning`, hence the
-        // `inference_engine` retention here.
+        // `inference_engine` is the engine the ontology-agent routes read
+        // (`OntologyQueryService`); `run_post_sync_reasoning` swaps each new
+        // closure into it, so callers pass the shared handle, not a fresh one.
         Self {
             source,
             kg_parser: Arc::new(KnowledgeGraphParser::new()),
             kg_repo,
             onto_repo,
-            inference_engine: Arc::new(RwLock::new(WhelkInferenceEngine::new())),
+            inference_engine,
             sync_db,
             gpu_manager_addr: OnceLock::new(),
         }
@@ -1270,34 +1281,34 @@ impl GitHubSyncService {
         }
     }
 
-    /// Run Whelk EL++ reasoning after all files have been synced.
-    /// Loads OWL classes + axioms from Oxigraph, adds the NarrativeGoldmine
-    /// property hierarchy, runs inference, stores results, and creates
-    /// inferred edges in the knowledge graph.
-    async fn run_post_sync_reasoning(&self, stats: &mut SyncStatistics) -> Result<usize, String> {
-        let reasoning_start = Instant::now();
-
-        let classes = self
-            .onto_repo
+    /// Reason over the ontology store and swap the closure into `shared`, the
+    /// one engine the ontology-agent routes read. The startup load and the
+    /// post-sync step both come here, so the routes serve exactly the closure
+    /// the sync computed.
+    ///
+    /// The reasoning runs in a fresh engine on the blocking pool; `shared` is
+    /// write-locked only for the swap ([`WhelkInferenceEngine::adopt`]), so routes keep answering
+    /// from the previous closure while a sync reasons. An empty store is still
+    /// reasoned (over the NarrativeGoldmine property hierarchy alone), so the
+    /// engine reports a closure that entails nothing rather than none at all.
+    pub async fn reason_into_shared(
+        onto_repo: &dyn OntologyRepository,
+        shared: &RwLock<WhelkInferenceEngine>,
+    ) -> Result<SharedReasoning, String> {
+        let classes = onto_repo
             .get_classes()
             .await
             .map_err(|e| format!("Failed to load OWL classes: {}", e))?;
-        let mut axioms = self
-            .onto_repo
+        let mut axioms = onto_repo
             .get_axioms()
             .await
             .map_err(|e| format!("Failed to load OWL axioms: {}", e))?;
-
-        if classes.is_empty() {
-            info!("No OWL classes in store — skipping reasoning");
-            return Ok(0);
-        }
-
         axioms.extend(Self::ngm_property_hierarchy_axioms());
+        let class_count = classes.len();
 
         info!(
             "Loading {} classes and {} axioms into Whelk",
-            classes.len(),
+            class_count,
             axioms.len()
         );
 
@@ -1307,16 +1318,68 @@ impl GitHubSyncService {
         // dispatch can map them alongside the inferred closure (ADR-098 D1).
         let asserted_axioms = axioms.clone();
 
-        let mut engine = self.inference_engine.write().await;
-        engine
-            .load_ontology(classes, axioms)
-            .await
-            .map_err(|e| format!("Whelk load_ontology: {}", e))?;
+        // Whelk is CPU-bound with no await point, and `main` runs on actix's
+        // current-thread runtime: reason on the blocking pool, not the runtime thread.
+        let (fresh, results) = tokio::task::spawn_blocking(move || {
+            tokio::runtime::Handle::current().block_on(async move {
+                let mut fresh = WhelkInferenceEngine::new();
+                fresh
+                    .load_ontology(classes, axioms)
+                    .await
+                    .map_err(|e| format!("Whelk load_ontology: {}", e))?;
+                let results = fresh
+                    .infer()
+                    .await
+                    .map_err(|e| format!("Whelk infer: {}", e))?;
+                Ok::<_, String>((fresh, results))
+            })
+        })
+        .await
+        .map_err(|e| format!("Whelk reasoning task: {}", e))??;
 
-        let results = engine
-            .infer()
-            .await
-            .map_err(|e| format!("Whelk infer: {}", e))?;
+        // The previous closure is dropped after the guard is released.
+        let previous = shared.write().await.adopt(fresh);
+        drop(previous);
+
+        Ok(SharedReasoning {
+            class_count,
+            asserted_axioms,
+            results,
+        })
+    }
+
+    /// Load the shared engine from the store as it stands, so the routes serve
+    /// inference before the first sync completes. Run ahead of the boot sync on
+    /// the same task, so it can never overwrite the closure that sync computes.
+    pub async fn load_shared_inference(&self) -> Result<usize, String> {
+        let started = Instant::now();
+        let run = Self::reason_into_shared(self.onto_repo.as_ref(), &self.inference_engine).await?;
+        info!(
+            "Startup Whelk load: {} classes, {} inferred axioms in {:?}",
+            run.class_count,
+            run.results.inferred_axioms.len(),
+            started.elapsed()
+        );
+        Ok(run.results.inferred_axioms.len())
+    }
+
+    /// Run Whelk EL++ reasoning after all files have been synced.
+    /// Loads OWL classes + axioms from Oxigraph, adds the NarrativeGoldmine
+    /// property hierarchy, runs inference, stores results, and creates
+    /// inferred edges in the knowledge graph.
+    async fn run_post_sync_reasoning(&self, stats: &mut SyncStatistics) -> Result<usize, String> {
+        let reasoning_start = Instant::now();
+
+        let SharedReasoning {
+            class_count,
+            asserted_axioms,
+            results,
+        } = Self::reason_into_shared(self.onto_repo.as_ref(), &self.inference_engine).await?;
+
+        if class_count == 0 {
+            info!("No OWL classes in store — skipping inference persistence and edges");
+            return Ok(0);
+        }
 
         info!(
             "Whelk produced {} inferred axioms in {}ms",
@@ -3358,6 +3421,157 @@ mod sovereign_corpus_scope_tests {
         assert_eq!(
             declared_ontology_type("knowledge/Plain.md", "---\npublic: true\n---\n\n# Plain\n"),
             None
+        );
+    }
+}
+
+/// The ontology-agent routes read the closure the sync computes: one shared
+/// engine, populated by [`GitHubSyncService::reason_into_shared`] at startup
+/// and after every sync.
+#[cfg(test)]
+mod shared_inference_tests {
+    use super::*;
+    use std::collections::HashMap;
+    use visionclaw_domain::ports::ontology_repository::OwlClass;
+
+    fn class(iri: &str) -> OwlClass {
+        OwlClass {
+            iri: iri.to_string(),
+            label: Some(iri.to_string()),
+            ..Default::default()
+        }
+    }
+
+    fn sub(a: &str, b: &str) -> OwlAxiom {
+        OwlAxiom {
+            id: None,
+            axiom_type: AxiomType::SubClassOf,
+            subject: a.to_string(),
+            object: b.to_string(),
+            annotations: HashMap::new(),
+        }
+    }
+
+    /// An in-memory Oxigraph store holding `A ⊑ B ⊑ C`, asserted only.
+    async fn chain_repo() -> OxigraphOntologyRepository {
+        let store = oxigraph::store::Store::new().expect("in-memory store");
+        let repo = OxigraphOntologyRepository::from_store(Arc::new(store));
+        for iri in ["urn:t:A", "urn:t:B", "urn:t:C"] {
+            repo.add_owl_class(&class(iri)).await.expect("add class");
+        }
+        repo.add_axiom(&sub("urn:t:A", "urn:t:B"))
+            .await
+            .expect("axiom");
+        repo.add_axiom(&sub("urn:t:B", "urn:t:C"))
+            .await
+            .expect("axiom");
+        repo
+    }
+
+    #[tokio::test]
+    async fn reasoning_populates_the_shared_engine_the_routes_hold() {
+        let repo = chain_repo().await;
+        let shared = Arc::new(RwLock::new(WhelkInferenceEngine::new()));
+        let routes_handle = shared.clone();
+        assert!(!routes_handle.read().await.has_closure());
+
+        let run = GitHubSyncService::reason_into_shared(&repo, &shared)
+            .await
+            .expect("reasoning succeeds");
+
+        assert_eq!(run.class_count, 3);
+        let engine = routes_handle.read().await;
+        assert!(
+            engine.has_closure(),
+            "the routes' handle now holds a closure"
+        );
+        let hierarchy = engine.get_subclass_hierarchy().await.unwrap();
+        assert!(
+            hierarchy.contains(&("urn:t:A".to_string(), "urn:t:C".to_string())),
+            "the inferred A ⊑ C reaches the routes: {hierarchy:?}"
+        );
+        assert!(
+            run.asserted_axioms.len() > 2,
+            "the asserted copy carries the NarrativeGoldmine property hierarchy too"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_second_run_moves_the_shared_generation_forward() {
+        let repo = chain_repo().await;
+        let shared = Arc::new(RwLock::new(WhelkInferenceEngine::new()));
+        GitHubSyncService::reason_into_shared(&repo, &shared)
+            .await
+            .unwrap();
+        let first = shared.read().await.generation();
+        GitHubSyncService::reason_into_shared(&repo, &shared)
+            .await
+            .unwrap();
+        assert!(shared.read().await.generation() > first);
+    }
+
+    /// `main` runs on actix's current-thread runtime: reasoning done on that thread would
+    /// stall boot and every route for the whole run. The run must leave the thread free.
+    #[tokio::test(flavor = "current_thread")]
+    async fn reasoning_leaves_the_runtime_thread_free() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let repo = crate::test_helpers::MockOntologyRepository::new();
+        const N: usize = 6_000;
+        for i in 0..N {
+            repo.add_owl_class(&class(&format!("urn:t:C{i}")))
+                .await
+                .unwrap();
+            if i > 0 {
+                repo.add_axiom(&sub(
+                    &format!("urn:t:C{i}"),
+                    &format!("urn:t:C{}", (i - 1) / 3),
+                ))
+                .await
+                .unwrap();
+            }
+        }
+        let shared = Arc::new(RwLock::new(WhelkInferenceEngine::new()));
+        let done = Arc::new(AtomicBool::new(false));
+        let ticker = {
+            let done = done.clone();
+            tokio::spawn(async move {
+                let mut last = Instant::now();
+                let mut max_gap = std::time::Duration::ZERO;
+                while !done.load(Ordering::Relaxed) {
+                    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                    max_gap = max_gap.max(last.elapsed());
+                    last = Instant::now();
+                }
+                max_gap
+            })
+        };
+        tokio::task::yield_now().await;
+        let started = Instant::now();
+        GitHubSyncService::reason_into_shared(&repo, &shared)
+            .await
+            .unwrap();
+        let took = started.elapsed();
+        done.store(true, Ordering::Relaxed);
+        let max_gap = ticker.await.unwrap();
+        assert!(shared.read().await.has_closure());
+        assert!(
+            max_gap < took / 3,
+            "the runtime thread stalled {max_gap:?} of a {took:?} reasoning run"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_empty_store_is_reasoned_and_served_as_entailing_nothing() {
+        let store = oxigraph::store::Store::new().expect("in-memory store");
+        let repo = OxigraphOntologyRepository::from_store(Arc::new(store));
+        let shared = Arc::new(RwLock::new(WhelkInferenceEngine::new()));
+        let run = GitHubSyncService::reason_into_shared(&repo, &shared)
+            .await
+            .unwrap();
+        assert_eq!(run.class_count, 0);
+        assert!(
+            shared.read().await.has_closure(),
+            "an empty corpus is loaded, not 'not loaded'"
         );
     }
 }

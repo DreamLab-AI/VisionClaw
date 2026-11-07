@@ -13,7 +13,8 @@
           "witness": null,
           "scope": {
             "closure": "open",
-            "generation": "urn:gen:per-view-tests"
+            "generation": "urn:gen:per-view-tests",
+            "inference_loaded": true
           }
         }
       },
@@ -65,7 +66,8 @@
         "count": 3,
         "scope": {
           "closure": "open",
-          "generation": "urn:gen:per-view-tests"
+          "generation": "urn:gen:per-view-tests",
+          "inference_loaded": true
         }
       },
       "error": null,

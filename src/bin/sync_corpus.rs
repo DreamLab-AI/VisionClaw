@@ -76,6 +76,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             >,
         onto_repo,
         sqlite_settings_repo,
+        // The CLI has no routes to serve; its engine lives for this sync only.
+        Arc::new(tokio::sync::RwLock::new(
+            visionclaw_server::adapters::whelk_inference_engine::WhelkInferenceEngine::new(),
+        )),
     );
 
     log::info!("Starting sync...");

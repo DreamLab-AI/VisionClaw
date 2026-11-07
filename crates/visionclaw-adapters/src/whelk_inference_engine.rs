@@ -80,6 +80,26 @@ impl WhelkInferenceEngine {
         self.generation
     }
 
+    /// Whether the engine holds a reasoned closure to serve. A loaded corpus
+    /// may entail nothing, so an empty hierarchy cannot tell "not reasoned
+    /// yet" from "reasoned, nothing entailed"; this can.
+    pub fn has_closure(&self) -> bool {
+        self.cached_subsumptions.is_some()
+    }
+
+    /// Replace this engine's state with `fresh`, an engine reasoned off to the
+    /// side, so a shared engine is held for the swap only and not for the
+    /// reasoning run. The generation moves strictly forward even though every
+    /// fresh engine counts from zero, so a cache keyed on
+    /// [`Self::generation`] never sees two closures under one value. Returns
+    /// the replaced engine, so a caller holding a lock can drop the old closure
+    /// after releasing it.
+    #[must_use = "drop the replaced engine outside any lock you hold"]
+    pub fn adopt(&mut self, mut fresh: Self) -> Self {
+        fresh.generation = self.generation.max(fresh.generation) + 1;
+        std::mem::replace(self, fresh)
+    }
+
     pub fn new() -> Self {
         info!("Initializing WhelkInferenceEngine");
         Self {
@@ -902,5 +922,113 @@ mod tests {
         engine.load_ontology(classes, axioms).await.unwrap();
         let second = engine.infer().await.unwrap();
         assert_eq!(first.inferred_axioms.len(), second.inferred_axioms.len());
+    }
+
+    /// A reasoned chain `a ⊑ b ⊑ c`, as the sync and the startup load build it.
+    async fn reasoned_chain() -> WhelkInferenceEngine {
+        let mut engine = WhelkInferenceEngine::new();
+        engine
+            .load_ontology(
+                vec![cls("urn:test:A"), cls("urn:test:B"), cls("urn:test:C")],
+                vec![
+                    sub_axiom("urn:test:A", "urn:test:B"),
+                    sub_axiom("urn:test:B", "urn:test:C"),
+                ],
+            )
+            .await
+            .unwrap();
+        engine.infer().await.unwrap();
+        engine
+    }
+
+    /// `has_closure` reports whether there is a closure to serve, which an empty
+    /// hierarchy cannot: a loaded corpus may entail nothing.
+    #[tokio::test]
+    async fn has_closure_only_after_inference() {
+        let mut engine = WhelkInferenceEngine::new();
+        assert!(!engine.has_closure(), "a new engine holds no closure");
+        engine
+            .load_ontology(vec![cls("urn:test:A")], vec![])
+            .await
+            .unwrap();
+        assert!(!engine.has_closure(), "loaded but not yet reasoned");
+        engine.infer().await.unwrap();
+        assert!(engine.has_closure(), "reasoned, even over one class");
+    }
+
+    /// Adopting a freshly reasoned engine serves its closure and moves the
+    /// generation strictly forward on every swap, although each fresh engine
+    /// counts from zero; a cache keyed on the generation must never see two
+    /// closures under one value.
+    #[tokio::test]
+    async fn adopt_serves_the_fresh_closure_and_moves_the_generation_forward() {
+        let mut shared = WhelkInferenceEngine::new();
+        let g0 = shared.generation();
+
+        let _previous = shared.adopt(reasoned_chain().await);
+        let g1 = shared.generation();
+        assert!(g1 > g0);
+        assert!(shared.has_closure());
+        let hierarchy = shared.get_subclass_hierarchy().await.unwrap();
+        assert!(
+            hierarchy.contains(&("urn:test:A".to_string(), "urn:test:C".to_string())),
+            "the adopted closure carries the inferred pair: {hierarchy:?}"
+        );
+
+        let _previous = shared.adopt(reasoned_chain().await);
+        let g2 = shared.generation();
+        assert!(g2 > g1, "a second swap of an identical closure still moves");
+    }
+
+    /// Startup-load cost at the live corpus size (~9.2k classes), over a
+    /// synthetic corpus mixing every axiom shape the store holds. Run with
+    /// `cargo test -p visionclaw-adapters --release --lib startup_load_cost -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore = "timing measurement; run in release"]
+    async fn startup_load_cost_at_live_corpus_size() {
+        const CLASSES: usize = 9_200;
+        let iri = |i: usize| format!("urn:bench:C{i}");
+        let classes: Vec<OwlClass> = (0..CLASSES).map(|i| cls(&iri(i))).collect();
+        let mut axioms = Vec::new();
+        // A 4-ary tree, depth ~7, plus a second parent for every third class.
+        for i in 1..CLASSES {
+            axioms.push(sub_axiom(&iri(i), &iri((i - 1) / 4)));
+            if i % 3 == 0 && i > 8 {
+                axioms.push(sub_axiom(&iri(i), &iri(i / 7)));
+            }
+        }
+        let shaped = |axiom_type: AxiomType, a: &str, b: &str| OwlAxiom {
+            id: None,
+            axiom_type,
+            subject: a.to_string(),
+            object: b.to_string(),
+            annotations: std::collections::HashMap::new(),
+        };
+        for i in (10..CLASSES).step_by(5) {
+            axioms.push(shaped(AxiomType::EquivalentClass, &iri(i), &iri(i - 1)));
+        }
+        for i in (20..CLASSES).step_by(2) {
+            axioms.push(shaped(AxiomType::DisjointWith, &iri(i), &iri(i - 11)));
+        }
+        for i in 5..CLASSES {
+            let mut some = shaped(AxiomType::SomeValuesFrom, &iri(i), &iri(i / 3));
+            some.annotations
+                .insert("property".to_string(), format!("urn:bench:p{}", i % 12));
+            axioms.push(some);
+        }
+        let axiom_count = axioms.len();
+
+        let started = std::time::Instant::now();
+        let mut fresh = WhelkInferenceEngine::new();
+        fresh.load_ontology(classes, axioms).await.unwrap();
+        let results = fresh.infer().await.unwrap();
+        let mut shared = WhelkInferenceEngine::new();
+        let _previous = shared.adopt(fresh);
+        let elapsed = started.elapsed();
+        println!(
+            "startup load: {CLASSES} classes, {axiom_count} axioms -> {} inferred in {elapsed:?}",
+            results.inferred_axioms.len()
+        );
+        assert!(shared.has_closure());
     }
 }
