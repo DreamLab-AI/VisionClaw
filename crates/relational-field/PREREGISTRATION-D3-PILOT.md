@@ -43,3 +43,16 @@ The pilot **supports proceeding** only if all hold:
 3. no relation type with at least 30 cases has an RF − B0 majority win rate below −0.05.
 
 Otherwise the verdict is **not supported**, reported as such, with every arm. RF-sim − B0 and B1 are descriptive. A supported pilot is preliminary evidence on pre-cut history only; it is not H1 and carries no readiness claim.
+
+## Result (appended 7 November 2026, after the run; nothing above was changed)
+
+**Not supported.** Run at the commit that froze this record; raw per-case margins and the summary are in `results/pilot-d3/`, recomputed independently from the JSONL.
+
+| Arm | Pilot AUC, mean ± sd over 5 seeds |
+|---|---|
+| B0 uniform springs | 0.596 ± 0.018 |
+| RF learned law | 0.578 ± 0.024 |
+| RF-sim (reported) | 0.604 ± 0.018 |
+| B1 untyped embedding (reported) | 0.556 ± 0.022 |
+
+RF − B0 = −0.018; majority-outcome McNemar 236 gains, 286 losses, p = 0.032 against RF. Relation regressions beyond −0.05 with at least 30 cases: `related-to` (−0.089; no training triples at the pilot cut) and `requires` (−0.068). On the 761 cases whose relation type is present in training, RF and B0 tie (0.611 and 0.609). RF's best validation epoch was 3–5 of 60 in every seed. Every keep-rule condition failed. This is pre-cut history only and is not H1; H1, D2 and their gates are unchanged.
