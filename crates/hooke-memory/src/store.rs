@@ -87,6 +87,11 @@ impl EmbeddingStore {
         Ok((v, n, w))
     }
 
+    /// The embedding shard holding a collection, if it is indexed.
+    pub fn shard(&self, collection_id: i64) -> Option<i64> {
+        self.position.get(&collection_id).map(|&p| self.shard[p])
+    }
+
     /// The question embedding of one row of the split.
     pub fn question(&self, row: usize) -> Result<Vec<f32>> {
         Ok(rows(&self.questions, row, 1)?.0)

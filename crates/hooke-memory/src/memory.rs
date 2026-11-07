@@ -3,8 +3,8 @@
 //! Learned slots are conditioned on the question, then refined by pre-norm cross-attention to
 //! the documents and a GELU feed-forward block, and projected into the decoder's embedding
 //! space. Parameter names match the PyTorch state dict, so a converted `memory.pt` loads
-//! directly. The optional `bias` on cross-attention is where slot geometry enters (see
-//! `field`); without it the module is Memorilla's.
+//! directly. The optional `geometry` closure is where slot geometry enters (see `field`);
+//! without it the module is Memorilla's.
 
 use candle_core::{DType, Result, Tensor, D};
 use candle_nn::{LayerNorm, Linear, Module, VarBuilder};
@@ -72,6 +72,20 @@ impl MultiheadAttention {
             .reshape((b, l, self.heads, hd))?
             .transpose(1, 2)?
             .contiguous()
+    }
+
+    fn probs(&self, query: &Tensor, kv: &Tensor, key_mask: Option<&Tensor>, bias: Option<&Tensor>) -> Result<Tensor> {
+        let lk = kv.dim(1)?;
+        let b = kv.dim(0)?;
+        let (q, k) = (self.project(query, 0)?, self.project(kv, 1)?);
+        let mut logits = (q.matmul(&k.t()?)? * (1.0 / ((self.dim / self.heads) as f64).sqrt()))?;
+        if let Some(bias) = bias {
+            logits = logits.broadcast_add(bias)?;
+        }
+        if let Some(mask) = key_mask {
+            logits = logits.broadcast_add(&((mask.to_dtype(logits.dtype())? - 1.0)? * 1e9)?.reshape((b, 1, 1, lk))?)?;
+        }
+        candle_nn::ops::softmax(&logits, D::Minus1)
     }
 
     /// `query` `[b, lq, d]`, `kv` `[b, lk, d]`; `key_mask` `[b, lk]` is 1 for real keys;
@@ -161,14 +175,15 @@ impl MemoryModule {
     /// Memory tokens `[b, num_memories, output_dim]`.
     ///
     /// `docs` `[b, n, d]`, `doc_mask` `[b, n]` (1 for real documents), `question` `[b, d]`.
-    /// `doc_bias` broadcasts to `[b, heads, num_memories, n]` and is added to every
-    /// cross-attention layer's logits.
+    /// `geometry`, given the question-conditioned slots `[b, num_memories, d]`, returns a bias
+    /// broadcasting to `[b, heads, num_memories, n]` that is added to every cross-attention
+    /// layer's logits.
     pub fn forward(
         &self,
         docs: &Tensor,
         doc_mask: Option<&Tensor>,
         question: &Tensor,
-        doc_bias: Option<&Tensor>,
+        geometry: Option<&dyn Fn(&Tensor) -> Result<Tensor>>,
         train: bool,
     ) -> Result<Tensor> {
         let b = docs.dim(0)?;
@@ -177,6 +192,8 @@ impl MemoryModule {
         let slots = self.queries.broadcast_as((b, self.config.num_memories, self.config.embedding_dim))?.contiguous()?;
         let cond = self.query_cond_attn.forward(&slots, &q, None, None, p, train)?;
         let mut slots = self.query_cond_norm.forward(&(slots + cond)?)?;
+        let doc_bias = geometry.map(|g| g(&slots)).transpose()?;
+        let doc_bias = doc_bias.as_ref();
         let docs = self.doc_norm.forward(docs)?;
         for i in 0..self.config.num_cross_attn_layers {
             let attended = self.cross_attn[i].forward(&self.cross_norms[i].forward(&slots)?, &docs, doc_mask, doc_bias, p, train)?;
@@ -186,6 +203,27 @@ impl MemoryModule {
             slots = (slots + dropout(&h, p, train)?)?;
         }
         self.projection.forward(&self.final_norm.forward(&slots)?)
+    }
+
+    /// First cross-attention layer's attention probabilities `[b, heads, slots, n]` in
+    /// evaluation mode, with and without geometry: the engagement diagnostic of P1.
+    pub fn first_layer_probs(
+        &self,
+        docs: &Tensor,
+        doc_mask: Option<&Tensor>,
+        question: &Tensor,
+        geometry: &dyn Fn(&Tensor) -> Result<Tensor>,
+    ) -> Result<(Tensor, Tensor)> {
+        let b = docs.dim(0)?;
+        let slots = self.queries.broadcast_as((b, self.config.num_memories, self.config.embedding_dim))?.contiguous()?;
+        let cond = self.query_cond_attn.forward(&slots, &question.unsqueeze(1)?, None, None, 0.0, false)?;
+        let slots = self.query_cond_norm.forward(&(slots + cond)?)?;
+        let bias = geometry(&slots)?;
+        let docs = self.doc_norm.forward(docs)?;
+        let q = self.cross_norms[0].forward(&slots)?;
+        let with = self.cross_attn[0].probs(&q, &docs, doc_mask, Some(&bias))?;
+        let without = self.cross_attn[0].probs(&q, &docs, doc_mask, None)?;
+        Ok((with, without))
     }
 
     /// Cast-free helper: the dtype the module's parameters were loaded in.

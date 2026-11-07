@@ -6,6 +6,7 @@
 
 pub mod data;
 pub mod decoder;
+pub mod field;
 pub mod memory;
 pub mod prompt;
 pub mod store;
