@@ -91,10 +91,13 @@ impl WhelkInferenceEngine {
     /// side, so a shared engine is held for the swap only and not for the
     /// reasoning run. The generation moves strictly forward even though every
     /// fresh engine counts from zero, so a cache keyed on
-    /// [`Self::generation`] never sees two closures under one value.
-    pub fn adopt(&mut self, mut fresh: Self) {
+    /// [`Self::generation`] never sees two closures under one value. Returns
+    /// the replaced engine, so a caller holding a lock can drop the old closure
+    /// after releasing it.
+    #[must_use = "drop the replaced engine outside any lock you hold"]
+    pub fn adopt(&mut self, mut fresh: Self) -> Self {
         fresh.generation = self.generation.max(fresh.generation) + 1;
-        *self = fresh;
+        std::mem::replace(self, fresh)
     }
 
     pub fn new() -> Self {
@@ -962,7 +965,7 @@ mod tests {
         let mut shared = WhelkInferenceEngine::new();
         let g0 = shared.generation();
 
-        shared.adopt(reasoned_chain().await);
+        let _previous = shared.adopt(reasoned_chain().await);
         let g1 = shared.generation();
         assert!(g1 > g0);
         assert!(shared.has_closure());
@@ -972,7 +975,7 @@ mod tests {
             "the adopted closure carries the inferred pair: {hierarchy:?}"
         );
 
-        shared.adopt(reasoned_chain().await);
+        let _previous = shared.adopt(reasoned_chain().await);
         let g2 = shared.generation();
         assert!(g2 > g1, "a second swap of an identical closure still moves");
     }
@@ -1020,7 +1023,7 @@ mod tests {
         fresh.load_ontology(classes, axioms).await.unwrap();
         let results = fresh.infer().await.unwrap();
         let mut shared = WhelkInferenceEngine::new();
-        shared.adopt(fresh);
+        let _previous = shared.adopt(fresh);
         let elapsed = started.elapsed();
         println!(
             "startup load: {CLASSES} classes, {axiom_count} axioms -> {} inferred in {elapsed:?}",

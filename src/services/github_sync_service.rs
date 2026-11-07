@@ -1286,8 +1286,8 @@ impl GitHubSyncService {
     /// post-sync step both come here, so the routes serve exactly the closure
     /// the sync computed.
     ///
-    /// The reasoning runs in a fresh engine; `shared` is write-locked only for
-    /// the swap ([`WhelkInferenceEngine::adopt`]), so routes keep answering
+    /// The reasoning runs in a fresh engine on the blocking pool; `shared` is
+    /// write-locked only for the swap ([`WhelkInferenceEngine::adopt`]), so routes keep answering
     /// from the previous closure while a sync reasons. An empty store is still
     /// reasoned (over the NarrativeGoldmine property hierarchy alone), so the
     /// engine reports a closure that entails nothing rather than none at all.
@@ -1318,17 +1318,28 @@ impl GitHubSyncService {
         // dispatch can map them alongside the inferred closure (ADR-098 D1).
         let asserted_axioms = axioms.clone();
 
-        let mut fresh = WhelkInferenceEngine::new();
-        fresh
-            .load_ontology(classes, axioms)
-            .await
-            .map_err(|e| format!("Whelk load_ontology: {}", e))?;
-        let results = fresh
-            .infer()
-            .await
-            .map_err(|e| format!("Whelk infer: {}", e))?;
+        // Whelk is CPU-bound with no await point, and `main` runs on actix's
+        // current-thread runtime: reason on the blocking pool, not the runtime thread.
+        let (fresh, results) = tokio::task::spawn_blocking(move || {
+            tokio::runtime::Handle::current().block_on(async move {
+                let mut fresh = WhelkInferenceEngine::new();
+                fresh
+                    .load_ontology(classes, axioms)
+                    .await
+                    .map_err(|e| format!("Whelk load_ontology: {}", e))?;
+                let results = fresh
+                    .infer()
+                    .await
+                    .map_err(|e| format!("Whelk infer: {}", e))?;
+                Ok::<_, String>((fresh, results))
+            })
+        })
+        .await
+        .map_err(|e| format!("Whelk reasoning task: {}", e))??;
 
-        shared.write().await.adopt(fresh);
+        // The previous closure is dropped after the guard is released.
+        let previous = shared.write().await.adopt(fresh);
+        drop(previous);
 
         Ok(SharedReasoning {
             class_count,
@@ -3497,6 +3508,56 @@ mod shared_inference_tests {
             .await
             .unwrap();
         assert!(shared.read().await.generation() > first);
+    }
+
+    /// `main` runs on actix's current-thread runtime: reasoning done on that thread would
+    /// stall boot and every route for the whole run. The run must leave the thread free.
+    #[tokio::test(flavor = "current_thread")]
+    async fn reasoning_leaves_the_runtime_thread_free() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let repo = crate::test_helpers::MockOntologyRepository::new();
+        const N: usize = 6_000;
+        for i in 0..N {
+            repo.add_owl_class(&class(&format!("urn:t:C{i}")))
+                .await
+                .unwrap();
+            if i > 0 {
+                repo.add_axiom(&sub(
+                    &format!("urn:t:C{i}"),
+                    &format!("urn:t:C{}", (i - 1) / 3),
+                ))
+                .await
+                .unwrap();
+            }
+        }
+        let shared = Arc::new(RwLock::new(WhelkInferenceEngine::new()));
+        let done = Arc::new(AtomicBool::new(false));
+        let ticker = {
+            let done = done.clone();
+            tokio::spawn(async move {
+                let mut last = Instant::now();
+                let mut max_gap = std::time::Duration::ZERO;
+                while !done.load(Ordering::Relaxed) {
+                    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                    max_gap = max_gap.max(last.elapsed());
+                    last = Instant::now();
+                }
+                max_gap
+            })
+        };
+        tokio::task::yield_now().await;
+        let started = Instant::now();
+        GitHubSyncService::reason_into_shared(&repo, &shared)
+            .await
+            .unwrap();
+        let took = started.elapsed();
+        done.store(true, Ordering::Relaxed);
+        let max_gap = ticker.await.unwrap();
+        assert!(shared.read().await.has_closure());
+        assert!(
+            max_gap < took / 3,
+            "the runtime thread stalled {max_gap:?} of a {took:?} reasoning run"
+        );
     }
 
     #[tokio::test]
