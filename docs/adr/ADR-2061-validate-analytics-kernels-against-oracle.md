@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 8f796ad8645a6dca5303150273b36de677e1ab70
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [crates/visionclaw-gpu/src/cuda_sources/gpu_clustering_kernels.cu, crates/visionclaw-gpu/tests/analytics_oracle_conformance.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: Before any claim that Louvain, PageRank or DBSCAN output is trustworthy, or before a release that surfaces community/centrality/cluster values to users; activates when a rebuilt running backend serves Louvain/PageRank/DBSCAN output that is checked against the CPU oracle
@@ -288,3 +288,7 @@ Re-verified at `d184e89fb` after ADR-2173 added a section and an invariant to `d
 ## Re-stamp — 2026-11-01 (integration of `phys/tick-rate` and `phys/hold-springs`, `8f796ad86`)
 
 `GPU-wire-abi.md` gained the constraint-index and hold-overlay documentation; the analytics-trust table this record cites is untouched. `cargo test -p visionclaw-gpu --test analytics_oracle_conformance -- --ignored` on an RTX 6000 Ada (sm_89, GPU 1): 4 passed (LOF, DBSCAN, Louvain, PageRank). Re-run: `git diff --stat 531df5ef7 8f796ad86 -- crates/visionclaw-gpu/src/cuda_sources/gpu_clustering_kernels.cu crates/visionclaw-gpu/tests/analytics_oracle_conformance.rs docs/GPU-wire-abi.md` → `1 file changed, 32 insertions(+), 1 deletion(-)`.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path change since `8f796ad86`: `docs/GPU-wire-abi.md` gains two preamble paragraphs (`:35-40`; `221d8b559`, `8c6b9541c`). The 2026-11-02 external-review reconciliation qualifies the numerical oracle results as **fixture conformance**, and a 2026-11-05 line records hold ownership at the orchestrator. Neither repeats a GPU test. That qualification matches this record: a kernel counts as trusted only on its fixture conformance test. The "Analytics kernel trust status" table (`:196` on), the kernels and `analytics_oracle_conformance.rs` are unchanged. **Decision unaffected.** Re-run: `git diff 8f796ad86..7bd25427e -- <verified_paths>`. Checked by reading that diff; the GPU suite was not re-run for this stamp (last run: the 2026-11-01 stamp above).

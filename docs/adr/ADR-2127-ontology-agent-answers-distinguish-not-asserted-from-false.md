@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 93302275ecab90dfa73284405d331d56a3cd9840
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [src/bin/generate_types.rs, crates/visionclaw-ontology/src/open_world.rs, crates/visionclaw-ontology/src/lib.rs, crates/visionclaw-ontology/src/types/ontology_tools.rs, src/services/ontology_query_service.rs, src/handlers/ontology_agent_handler.rs, tests/ontology_agent_integration_test.rs]
 owner: jjohare
 review_trigger: the first entailed-false result (ADR-2125 disjointness landing); a change to the ontology-agent response types; an agent decision traced to an empty ontology result
@@ -86,3 +86,12 @@ Re-verified at the W3/W4 integration merge. The only governed-path delta since `
 ## Re-stamp — 2026-10-31 (ADR-2140 item 1)
 
 **Governed change:** `generate_types.rs` gains one `layout_mode` line in the hand-written settings interface (ADR-2140 item 1). It still emits only the settings interfaces and the ontology-agent types it emitted; nothing this record decides changed. **Decision unaffected.** Re-run: `git diff --stat 75b72416b 93302275e -- src/bin/generate_types.rs`. Checked by reading that diff against this record's claims; server `cargo test --lib` 1721 passed, 0 failed, 9 ignored, `cargo test -p visionclaw-domain` 317 passed at `93302275e`.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path changes since `93302275e`:
+- **Decision 3 is extended, not changed** (`e913673e7`). `AnswerScope` gains `inference_loaded: bool` (`crates/visionclaw-ontology/src/types/ontology_tools.rs:85`, serde default `false`; `with_inference_loaded` `:99`). The query service fills it from the engine it reasons with (`src/services/ontology_query_service.rs:67`). A `not_asserted` answer computed before any Whelk closure is loaded can therefore be told apart from one computed with the closure loaded. `closure: "open"` and `generation` are unchanged. Decision 4 holds: the generator emits the field (`src/bin/generate_types.rs:642`, into `client/src/types/generated/ontology-agent.ts`, `:769`), and `PROTOCOL-registry.md` 0.1.23 records it.
+- **Per-caller answers** (`3d1539ef7`, `57ba04beb`, `1a6dd031f`). A class hidden from the caller is answered as one never stored. For a caller whose view hides classes, inferred facts are re-derived over that view (`with_view_reasoner`, `ontology_query_service.rs:115`). If that is not possible the handler answers 503 rather than serving the whole-store closure (see ADR-2116's 2026-11-07 note). A hidden class therefore reads `not_asserted`, never `entailed_false`, which is consistent with Decision 2.
+- `2dc83e43a`, `abf32e984`, `dffbeceba`: deterministic discover ranking, canonicalised golden comparison, a release-timed load test; `ontology_agent_integration_test.rs` follows. `f93b560dd` touches `generate_types.rs` for a settings field only.
+
+**Decision unaffected.** Re-run: `git diff 93302275e..7bd25427e -- <verified_paths>`. Checked by reading that diff; the integration tests were not re-run for this stamp.

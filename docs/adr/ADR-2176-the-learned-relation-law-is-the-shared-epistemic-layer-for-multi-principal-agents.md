@@ -7,7 +7,7 @@ implementation_status: none
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 809a859aae9e3d96d4d6b99690378018e48e3ad8
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 relates: [ADR-2174, ADR-2139, ADR-2157, ADR-2160, ADR-2170, ADR-2022, ADR-2115]
 verified_paths: [crates/relational-field/Cargo.toml, crates/relational-field/PREREGISTRATION.md, crates/relational-field/PREREGISTRATION-D2.md, src/services/semantic_type_registry.rs, crates/visionclaw-domain/src/utils/visibility_filter.rs, src/handlers/api_handler/graph/mod.rs, docs/DATA-authority-erasure.md]
 owner: jjohare
@@ -74,3 +74,11 @@ Two statements here no longer hold at `809a859aa`: the Context fact "the REST gr
 Only M2's "every read path, REST included, filters server-side" clause has progressed, and only on the handlers named above; this note does not claim every read path. The rest of M2 is still open: outside test fixtures, nothing writes node `owner_pubkey` at creation, edges carry no owner, and highlights and settings are not session-scoped. `docs/DATA-authority-erasure.md` gained the graph-share store row in the same range; no claim of this record rests on it. M1, M3, M4 and I1–I5 are unchanged. **Decision unaffected.**
 
 Re-run: `git diff 309c03ae2..809a859aa -- <verified_paths>`. I checked this by reading that diff and the handlers cited; no tests were re-run for this stamp.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path changes since `809a859aa`:
+- `crates/visionclaw-domain/src/utils/visibility_filter.rs` (`42498d4c0`, `bd170e81a`). The definition scrub also removes Markdown links to hidden pages (`scrub_md_links`, `:336`): `[text](Page)` and `[text](Page.md#h)`. Links to visible pages survive, and external URLs are kept. `visible_subgraph` (`:171`) is otherwise unchanged. This narrows what a caller sees; it never widens it.
+- `docs/DATA-authority-erasure.md` (`2ea01f6d8`, `42498d4c0`): the share-store citation is refreshed. The "share is the creator's frozen view" row is closed as accepted (`graph_export_handler.rs:111`, `:217-260`). **Citation drift, reported, not fixed here:** the doc cites `src/app_state.rs:475-482` for the share store. `57ba04beb` added the shared-engine fields after that edit, so the store is now built at `app_state.rs:483-489`.
+
+Nothing in the diff touches the learned relation law, its crates or its integration requirements. **Decision unaffected.** Re-run: `git diff 809a859aa..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.

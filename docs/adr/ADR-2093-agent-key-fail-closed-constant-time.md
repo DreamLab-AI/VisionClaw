@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: c750046962749715a4efb1b6056c7f40d9865110
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [src/utils/agent_key.rs, src/handlers/image_gen_handler.rs, src/handlers/liveness_harness_handler.rs, src/handlers/enrichment_proposals_handler.rs]
 owner: jjohare
 review_trigger: any new route that authenticates with VISIONCLAW_AGENT_KEY, or a change to the dev-auth build profile
@@ -129,3 +129,7 @@ the decision route, and `agent_key_tests` still run in the root `cargo test` of 
 `4024ac777`.
 
 Re-verified 2026-10-30 at c75004696: `src/handlers/liveness_harness_handler.rs` gains the opt-in Jev health triage on `GET /api/canary/status` (`status_body`, `jev_triage` key only when degraded and accepted). The key check is untouched: `check_agent_key` still delegates to `crate::utils::agent_key::check_agent_key` (`:44`), fail-closed and constant-time, and `register`/`observe` keep it. The decision holds.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path change since `c75004696`: `src/handlers/liveness_harness_handler.rs`, `bd170e81a` only (`cargo fmt --all`). `git diff -w` shows import reordering and rewrapped expressions; no token changes. `canary_write_authorised` (release `:40`, dev stub `:54`) and `unauthorised_body` (`:58`) are unchanged. **Decision unaffected.** Re-run: `git diff -w c75004696..7bd25427e -- src/handlers/liveness_harness_handler.rs`. Checked by reading that diff; no test was re-run for this stamp.

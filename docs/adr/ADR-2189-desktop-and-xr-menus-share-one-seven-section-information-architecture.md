@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 809a859aae9e3d96d4d6b99690378018e48e3ad8
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [client/src/features/control-center/registry/placement.ts, client/src/features/control-center/registry/manifest.ts, client/src/features/control-center/registry/ia.json, xr-client/data/ia.json, client/src/store/settings/retiredPaths.ts, client/src/features/control-center/state/settingWrites.ts, client/src/features/control-center/integrationSlots.ts, client/src/features/control-center/drawer/RightDrawer.tsx, client/src/features/control-center/hooks/useExclusiveSidePanels.ts, client/src/features/control-center/macros/MacroBar.tsx]
 relates: [ADR-2179, ADR-2180, ADR-2181, ADR-2182, ADR-2183, ADR-2184, ADR-2185, ADR-2186, ADR-2187, ADR-2188]
 owner: jjohare
@@ -382,3 +382,11 @@ Desktop built on `feat/gv-menus` (rebased onto the integration branch; final wir
 **Unchanged.** `visualisation.graphView.explore.hideFiltered` sits in Explore › Filters (`placement.ts:191`), as recorded above. The seven sections, their hotkeys and the generated-from-registry rule (the Decision) hold.
 
 Re-run: `git diff c7c78c88d..809a859aa -- <verified_paths>`. I checked this by reading that diff and the XR scripts cited; Vitest and GUT were not re-run for this stamp.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path changes since `809a859aa`:
+- `2e804b86d` retires `labelDistanceThreshold`. ADR-2186 labels are a fixed, priority-ranked budget with no distance cull. The field leaves both `ia.json` copies, and `visualisation.graphs.<graph>.labels.labelDistanceThreshold` joins `client/src/store/settings/retiredPaths.ts`.
+- `ce5bf3f6b` adds **Edge Budget** (`overviewEdgeBudget`, path `visualisation.graphView.overviewEdges.capacity`, a `select`, server scope) to both copies, as the desktop counterpart of the headset Edges limit (ADR-2181 D4).
+
+The two copies are still byte-identical: `client/src/features/control-center/registry/ia.json` and `xr-client/data/ia.json` have the same SHA-256. The seven sections are unchanged. **Decision unaffected.** Re-run: `git diff 809a859aa..7bd25427e -- <verified_paths>`. Checked by reading that diff and hashing both files; the registry and `test_hud_ia` tests were not re-run for this stamp.

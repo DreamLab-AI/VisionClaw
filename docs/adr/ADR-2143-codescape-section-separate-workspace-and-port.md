@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: ff849f2baa4b0b47fcb1adb6c039a2ef72bbc5e6
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [codescape, docs/PROTOCOL-registry.md]
 owner: jjohare
 review_trigger: a graphicle rev bump; any change to the V3 record, the V5 envelope or 0x23; Codescape gaining a compose service, a published port or a new egress target; a proposal to merge the workspace into the root
@@ -407,3 +407,7 @@ Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (
 ## Re-verification — 2026-10-31 (`ff849f2ba`)
 
 Re-stamped at the merge of `phys/integrate` and `viz/edge-tracking` (`ff849f2ba`). The governed-path delta since `f1fa1862c` is the ADR-sprint work recorded in ADR-2169, 2172, 2173, 2174 and the 2026-11-01 consolidation commits. The delta was read from the diff, not re-run against this record's acceptance tests. Re-run: `git diff f1fa1862c..ff849f2ba -- $(verified_paths)`.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path change since `ff849f2ba`: `docs/PROTOCOL-registry.md` 0.1.14 → 0.1.23. It adds changelog rows 0.1.15–0.1.23 (visibility sweep, gated analytics shapes, temporal keys, ontology per-caller reads and `inference_loaded`) and two sections, "Settings wire removals (ADR-2189)" and "Desktop node table: no new read path (ADR-2184)". The Codescape section ("Second producer: Codescape (`:4100`, ADR-2143)", `:221` on) is untouched. No tag byte or flag bit is allocated in the diff. **Decision unaffected.** Re-run: `git diff ff849f2ba..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.
