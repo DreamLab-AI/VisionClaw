@@ -1,5 +1,10 @@
 //! `vault propose --json` through the real binary: stdout must be exactly one
 //! JSON document, and a grouped proposal names itself as its subject.
+//!
+//! Grouped signing is refused until the ontology consumer applies multi-page
+//! proposals atomically (`nostr::action_request`), so a grouped `--dry-run`
+//! is how the group is inspected: it emits the unsigned proposal and needs no
+//! key. A single-page proposal still needs its key, dry run or not.
 
 use std::path::Path;
 use std::process::Command;
@@ -29,38 +34,57 @@ fn write(path: &Path, text: &str) {
     std::fs::write(path, text).unwrap();
 }
 
-#[test]
-fn grouped_propose_json_stdout_is_one_document() {
-    let dir = tempfile::tempdir().unwrap();
-    let repo = dir.path().join("repo");
+/// A three-page grouped proposal: the repo pages at quality 0.35, the manifest
+/// raising each to 0.55.
+fn grouped_fixture(dir: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
+    let repo = dir.join("repo");
     write(&repo.join("ontology/vocabulary.yaml"), VOCABULARY);
-    let manifest = dir.path().join("manifest");
+    let manifest = dir.join("manifest");
     for id in ["Alpha", "Beta", "Gamma"] {
         write(&repo.join(format!("knowledge/{id}.md")), &class(id, "0.35"));
         write(&manifest.join(format!("{id}.md")), &class(id, "0.55"));
     }
+    (repo, manifest)
+}
 
-    let output = Command::new(env!("CARGO_BIN_EXE_vault"))
-        .arg("--repo")
-        .arg(&repo)
-        .arg("--json")
-        .args(["propose", "--dry-run", "--level", "schema"])
+/// Run `vault --json propose` at schema level against `diff` (a manifest
+/// directory for a grouped proposal, a page file for a single one).
+fn propose(
+    repo: &Path,
+    diff: &Path,
+    dry_run: bool,
+    secret: Option<&str>,
+) -> (std::process::ExitStatus, String, String) {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_vault"));
+    cmd.arg("--repo").arg(repo).arg("--json").arg("propose");
+    if dry_run {
+        cmd.arg("--dry-run");
+    } else {
+        // Never a real relay: every non-dry-run here must be refused first.
+        cmd.args(["--relay", "ws://127.0.0.1:9"]);
+    }
+    cmd.args(["--level", "schema"])
         .arg("--diff")
-        .arg(&manifest)
+        .arg(diff)
         .args(["--title", "Raise the quality floor", "--hypothesis", "h"])
         .arg("Alpha")
-        .env("VAULT_NOSTR_SECRET", SECRET)
-        .output()
-        .expect("the vault binary runs");
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        output.status.success(),
-        "stderr: {stderr}\nstdout: {stdout}"
-    );
+        .env_remove("VAULT_NOSTR_SECRET");
+    if let Some(secret) = secret {
+        cmd.env("VAULT_NOSTR_SECRET", secret);
+    }
+    let output = cmd.output().expect("the vault binary runs");
+    (
+        output.status,
+        String::from_utf8(output.stdout).unwrap(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
 
+/// The proposal half of a grouped dry run, checked the same way whether or not
+/// a key was supplied.
+fn assert_unsigned_group(stdout: &str) {
     // Exactly one JSON document: serde_json rejects trailing or leading prose.
-    let value: serde_json::Value = serde_json::from_str(&stdout)
+    let value: serde_json::Value = serde_json::from_str(stdout)
         .unwrap_or_else(|e| panic!("stdout is not one JSON document ({e}):\n{stdout}"));
     let proposal = &value["proposal"];
     assert_eq!(
@@ -73,13 +97,49 @@ fn grouped_propose_json_stdout_is_one_document() {
         serde_json::json!(["Alpha", "Beta", "Gamma"])
     );
     assert_eq!(proposal["blockers"], serde_json::json!([]));
-    let context = value["event"]["tags"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|t| t[0] == "context_url")
-        .expect("a context_url tag");
-    assert_eq!(context[1], "urn:ngm:proposal:raise-the-quality-floor");
+    assert_eq!(value["signed"], serde_json::json!(false), "{value}");
+    assert!(
+        value.get("event").is_none(),
+        "a grouped proposal is never signed: {value}"
+    );
+}
+
+#[test]
+fn grouped_propose_json_stdout_is_one_document() {
+    let dir = tempfile::tempdir().unwrap();
+    let (repo, manifest) = grouped_fixture(dir.path());
+    let (status, stdout, stderr) = propose(&repo, &manifest, true, Some(SECRET));
+    assert!(status.success(), "stderr: {stderr}\nstdout: {stdout}");
+    assert_unsigned_group(&stdout);
     // The progress note went to stderr, not stdout.
     assert!(stderr.contains("grouped proposal: 3 pages"), "{stderr}");
+}
+
+#[test]
+fn grouped_dry_run_needs_no_key_and_emits_the_unsigned_group() {
+    let dir = tempfile::tempdir().unwrap();
+    let (repo, manifest) = grouped_fixture(dir.path());
+    let (status, stdout, stderr) = propose(&repo, &manifest, true, None);
+    assert!(status.success(), "stderr: {stderr}\nstdout: {stdout}");
+    assert_unsigned_group(&stdout);
+}
+
+#[test]
+fn grouped_propose_without_dry_run_is_still_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let (repo, manifest) = grouped_fixture(dir.path());
+    let (status, stdout, stderr) = propose(&repo, &manifest, false, Some(SECRET));
+    assert!(!status.success(), "stdout: {stdout}");
+    assert!(stderr.contains("atomic multi-page"), "{stderr}");
+}
+
+#[test]
+fn a_single_page_dry_run_still_needs_its_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let (repo, _manifest) = grouped_fixture(dir.path());
+    let page = dir.path().join("Alpha.md");
+    write(&page, &class("Alpha", "0.55"));
+    let (status, stdout, stderr) = propose(&repo, &page, true, None);
+    assert!(!status.success(), "stdout: {stdout}");
+    assert!(stderr.contains("a signing key is required"), "{stderr}");
 }

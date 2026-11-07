@@ -436,20 +436,29 @@ fn run() -> anyhow::Result<ExitCode> {
         }
 
         Command::Propose(args) => {
+            const KEY_REQUIRED: &str = "a signing key is required: --secret or VAULT_NOSTR_SECRET";
             let level: Level = args.level.parse().map_err(anyhow::Error::msg)?;
             // The signing key FIRST, before the vault is even loaded.
             //
-            // The signed event IS the artefact, so a proposal without a key
-            // cannot be produced at any level — `--dry-run` included. Resolving
-            // it last meant a whole batch paid for the corpus load, the conflict
-            // detector and Whelk and *then* failed on a missing environment
-            // variable. The cheapest check that can refuse the command belongs
-            // at the front of it.
-            let secret = args
-                .secret
-                .clone()
-                .context("a signing key is required: --secret or VAULT_NOSTR_SECRET")?;
-            let key = nostr::signing_key_from_hex(&secret).map_err(anyhow::Error::msg)?;
+            // The signed event IS the artefact, so a postable proposal without a
+            // key cannot be produced at any level. Resolving it last meant a
+            // whole batch paid for the corpus load, the conflict detector and
+            // Whelk and *then* failed on a missing environment variable. The
+            // cheapest check that can refuse the command belongs at the front.
+            //
+            // The one exception is a `--dry-run`: a grouped proposal is never
+            // signed (`nostr::action_request` refuses it until the consumer
+            // applies multi-page proposals atomically), and its dry run is how
+            // the unsigned group is inspected, so it must not demand a key.
+            // Whether the proposal is grouped is only known once it is built,
+            // so a keyless single-page dry run is refused after the build.
+            let key = match &args.secret {
+                Some(secret) => {
+                    Some(nostr::signing_key_from_hex(secret).map_err(anyhow::Error::msg)?)
+                }
+                None if args.dry_run => None,
+                None => anyhow::bail!(KEY_REQUIRED),
+            };
             let vault = load(&root, &[VaultKind::Knowledge])?
                 .into_iter()
                 .next()
@@ -508,6 +517,22 @@ fn run() -> anyhow::Result<ExitCode> {
                 return Ok(ExitCode::from(1));
             }
 
+            // A grouped dry run emits the unsigned group: the inspection the
+            // grouped-signing refusal points at. `signed: false` and no `event`
+            // say plainly that nothing here could be posted.
+            if args.dry_run && proposal.is_grouped() {
+                let value = json!({ "proposal": proposal, "signed": false });
+                emit(cli.json, &value, || {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&proposal).unwrap_or_default()
+                    );
+                    println!("UNSIGNED — grouped proposals are not signed or posted");
+                })?;
+                return Ok(ExitCode::SUCCESS);
+            }
+
+            let key = key.context(KEY_REQUIRED)?;
             let pubkey = nostr::public_key_hex(&key);
             let created_at =
                 u64::try_from(time::OffsetDateTime::now_utc().unix_timestamp()).unwrap_or_default();
