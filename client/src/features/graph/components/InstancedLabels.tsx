@@ -15,7 +15,7 @@ import { getDomainColor } from '../utils/domainColors';
 import { useSettingsStore } from '../../../store/settingsStore';
 import type { GraphViewSettings } from '../../settings/config/settings';
 import { DEFAULT_GRAPH_VIEW } from '../../../api/settings/defaults';
-import { LabelBudgetRunner, worldPerPx } from '../overview/labelRunner';
+import { LabelBudgetRunner, worldPerPx, labelMaxWidth } from '../overview/labelRunner';
 import { clusterLabelText } from '../overview/clusterLabels';
 import { glyphCapacityFor, type LabelBudgets } from '../overview/labelBudget';
 
@@ -580,7 +580,7 @@ const InstancedLabelsGlyph: React.FC<GlyphProps> = ({
       // Zero-alloc layout: write glyphs directly into attribute buffers
       const glyphStart = glyphIdx;
       const glyphCount = layoutTextInline(
-        lines, atlas, maxWidth,
+        lines, atlas, labelMaxWidth(maxWidth, fontSize),
         localOffArr, scaleArr, uvRectArr, colorArr, opacityArr, labelPosArr,
         px, py + labelOffsetY, pz,
         opacity, glyphIdx, glyphCap,
@@ -610,7 +610,7 @@ const InstancedLabelsGlyph: React.FC<GlyphProps> = ({
       const fs = budgets.fontPx * worldPerPx(camera, _tempVec3.distanceTo(camera.position), size.height);
       const glyphStart = glyphIdx;
       const glyphCount = layoutTextInline(
-        [{ ...line, fontSize: line.fontSize * fs }], atlas, maxWidth,
+        [{ ...line, fontSize: line.fontSize * fs }], atlas, labelMaxWidth(maxWidth, line.fontSize * fs),
         localOffArr, scaleArr, uvRectArr, colorArr, opacityArr, labelPosArr,
         cx, cy, cz, 1, glyphIdx, glyphCap,
         _tempColor as unknown as { r: number; g: number; b: number; set(c: string): void },

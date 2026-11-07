@@ -163,3 +163,20 @@ export function worldPerPx(camera: THREE.Camera, distance: number, viewHeightPx:
   if (!p.isPerspectiveCamera || !(viewHeightPx > 0)) return 0.01;
   return (2 * Math.tan((p.fov * Math.PI) / 360) * Math.max(distance, 1e-3)) / viewHeightPx;
 }
+
+/**
+ * The world-unit font size `labels.maxLabelWidth` was calibrated against
+ * before ADR-2186 sized labels in px (`desktopFontSize` default 0.4): the
+ * stored width is in units of 1/0.4 em, so the default 5.0 ≈ 12.5 em.
+ */
+const LEGACY_LABEL_FONT_SIZE = 0.4;
+
+/**
+ * Glyph-layout wrap width (world units) for a line of `fontSize` world units.
+ * Scales with the font, so a label truncates at the same number of ems near
+ * or far; a fixed world width (the pre-ADR-2186 behaviour) is narrower than
+ * one glyph once labels are px-sized at overview distance, and no label draws.
+ */
+export function labelMaxWidth(maxLabelWidth: number, fontSize: number): number {
+  return (maxLabelWidth / LEGACY_LABEL_FONT_SIZE) * fontSize;
+}
