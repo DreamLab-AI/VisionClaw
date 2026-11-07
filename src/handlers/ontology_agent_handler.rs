@@ -1063,6 +1063,13 @@ mod per_view_reasoning_tests {
             .await
             .expect("reply");
         assert_eq!(reasoner.runs(), 1, "one view, one store state");
+        let first = Arc::downgrade(
+            &reasoner
+                .closure(repo.as_ref(), &hidden())
+                .await
+                .expect("reasons"),
+        );
+        assert_eq!(reasoner.runs(), 1);
         repo.add_axiom(&sub(ANT, "mv:Wasp"))
             .await
             .expect("axiom stored");
@@ -1070,6 +1077,7 @@ mod per_view_reasoning_tests {
             .await
             .expect("reply");
         assert_eq!(reasoner.runs(), 2, "a store change re-keys the view");
+        assert!(first.upgrade().is_none(), "the stale closure is not kept");
         let other = HiddenClasses::from(HashSet::from([HIVE.to_string(), "mv:Wasp".to_string()]));
         answer_check(&s, check_req(ANT, BEE), &other)
             .await

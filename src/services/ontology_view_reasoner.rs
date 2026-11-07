@@ -9,13 +9,14 @@
 //!
 //! The per-view input is built exactly as the post-sync reasoner builds the whole-store one
 //! (class declarations, asserted axioms, the NarrativeGoldmine property hierarchy), minus every
-//! hidden class and every axiom naming one. Its closure is cached per view, keyed by a SHA-256
-//! digest over the hidden set and the visible input, so a store change or a different deny-list
-//! is a different key and a stale closure is never served. Callers intersect it with the
+//! hidden class and every axiom naming one. Its closure is cached per view: one slot per
+//! deny-list (a SHA-256 of the hidden set), holding the closure of one store state (a SHA-256
+//! over the visible input). A store change replaces the view's slot, so a stale closure is
+//! neither served nor kept. Callers intersect it with the
 //! whole-store closure a full-access caller is served, so a gated answer never states more than
 //! the full-access one. Replies derived from a view and the stored reasoner run (the gated
-//! `/api/ontology/inference/results` and `/inferred` reads) are cached the same way, keyed by
-//! the view digest and the run id ([`ViewReasoner::derived`]).
+//! `/api/ontology/inference/results` and `/inferred` reads) are cached the same way, their
+//! state being the view's and the stored run id ([`ViewReasoner::derived`]).
 //!
 //! Every failure (an unreadable store, a reasoner error or panic) is an `Err` whose message
 //! starts with [`VIEW_REASONING_UNAVAILABLE`]; routes answer it with 503 and never fall back to
@@ -53,15 +54,17 @@ fn unavailable(detail: impl std::fmt::Display) -> String {
 /// on a blocking thread, so it may be synchronous and slow.
 pub type Reasoner = fn(Vec<OwlClass>, Vec<OwlAxiom>) -> Result<Vec<OwlAxiom>, String>;
 
-/// How many entries each per-view cache keeps. Views are few (anonymous, plus one per distinct
-/// deny-list), and every store change re-keys them all, so the oldest is simply dropped.
+/// How many views each cache keeps, one entry per view (the oldest view is dropped). Views are
+/// few: anonymous, plus one per distinct deny-list.
 const CACHE_CAPACITY: usize = 32;
 
 /// One view's closure.
 #[derive(Debug, Clone)]
 pub struct ViewClosure {
-    /// The view's digest: the hidden set and the visible input it was reasoned over.
-    pub key: [u8; 32],
+    /// The view's identity: a digest of its hidden set.
+    pub view: [u8; 32],
+    /// The store state it was reasoned over: a digest of the hidden set and the visible input.
+    pub state: [u8; 32],
     /// The inferred axioms (the reasoner's output over the visible input).
     pub inferred_axioms: Vec<OwlAxiom>,
     /// How long the reasoner took on this view, in milliseconds.
@@ -82,37 +85,64 @@ impl ViewClosure {
 
 type Slot<T> = Arc<OnceCell<Arc<T>>>;
 
-/// A bounded cache of computed-once slots, oldest evicted first.
-struct SlotCache<T>(Mutex<VecDeque<([u8; 32], Slot<T>)>>);
+/// One computed-once slot per view, holding the value for one state of that view. A request
+/// for a view in another state replaces its slot, so a superseded value is dropped as soon as
+/// no request still holds it. Views beyond [`CACHE_CAPACITY`] evict the oldest.
+struct SlotCache<T>(Mutex<VecDeque<SlotEntry<T>>>);
+
+struct SlotEntry<T> {
+    view: [u8; 32],
+    state: [u8; 32],
+    slot: Slot<T>,
+}
 
 impl<T> SlotCache<T> {
     fn new() -> Self {
         Self(Mutex::new(VecDeque::new()))
     }
 
-    /// The slot for `key`, created (and the oldest evicted) on a miss. A failed computation
-    /// leaves its slot empty, so the next request retries.
-    fn slot(&self, key: [u8; 32]) -> Slot<T> {
+    /// The slot for `view` in `state`. A failed computation leaves its slot empty, so the next
+    /// request retries.
+    fn slot(&self, view: [u8; 32], state: [u8; 32]) -> Slot<T> {
         let mut cache = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((_, slot)) = cache.iter().find(|(k, _)| *k == key) {
-            return slot.clone();
+        if let Some(entry) = cache.iter_mut().find(|e| e.view == view) {
+            if entry.state != state {
+                entry.state = state;
+                entry.slot = Slot::default();
+            }
+            return entry.slot.clone();
         }
         if cache.len() >= CACHE_CAPACITY {
             cache.pop_front();
         }
         let slot = Slot::default();
-        cache.push_back((key, slot.clone()));
+        cache.push_back(SlotEntry {
+            view,
+            state,
+            slot: slot.clone(),
+        });
         slot
     }
 
-    /// The value for `key`, computed by `compute` on a miss. Concurrent misses on one key
-    /// compute once.
-    async fn get_or_compute<F, Fut>(&self, key: [u8; 32], compute: F) -> Result<Arc<T>, String>
+    /// How many views are cached.
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
+
+    /// The value for `view` in `state`, computed by `compute` on a miss. Concurrent misses on
+    /// one view and state compute once.
+    async fn get_or_compute<F, Fut>(
+        &self,
+        view: [u8; 32],
+        state: [u8; 32],
+        compute: F,
+    ) -> Result<Arc<T>, String>
     where
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<T, String>>,
     {
-        let slot = self.slot(key);
+        let slot = self.slot(view, state);
         let value = slot
             .get_or_try_init(|| async { compute().await.map(Arc::new) })
             .await?;
@@ -178,9 +208,10 @@ impl ViewReasoner {
         let mut class_iris = repo.class_iris().await.map_err(unavailable)?;
         class_iris.retain(|iri| !hidden.contains(iri));
         let axioms = hidden.axioms(repo.get_axioms().await.map_err(unavailable)?);
-        let key = view_digest(hidden, &class_iris, &axioms);
+        let view = view_identity(hidden);
+        let state = view_digest(view, &class_iris, &axioms);
         self.closures
-            .get_or_compute(key, || async {
+            .get_or_compute(view, state, || async {
                 self.runs.fetch_add(1, Ordering::Relaxed);
                 let classes: Vec<OwlClass> = class_iris
                     .into_iter()
@@ -203,7 +234,8 @@ impl ViewReasoner {
                     inferred_axioms.len()
                 );
                 Ok(ViewClosure {
-                    key,
+                    view,
+                    state,
                     inferred_axioms,
                     inference_time_ms,
                 })
@@ -218,8 +250,8 @@ impl ViewReasoner {
 }
 
 /// Replies derived from one view's closure and the stored whole-store run, each computed once
-/// per `(view, run id)` pair ([`ViewReasoner::derived`]). The run id is content-addressed over
-/// the stored run, so a new run is a new key.
+/// per view state and run id ([`ViewReasoner::derived`]) and replaced when either moves. The
+/// run id is content-addressed over the stored run, so a new run is a new state.
 pub struct Derived<'a>(&'a ViewReasoner);
 
 impl Derived<'_> {
@@ -236,7 +268,7 @@ impl Derived<'_> {
     {
         self.0
             .results
-            .get_or_compute(derived_key(view, run_id), compute)
+            .get_or_compute(view.view, derived_state(view, run_id), compute)
             .await
     }
 
@@ -253,15 +285,15 @@ impl Derived<'_> {
     {
         self.0
             .graphs
-            .get_or_compute(derived_key(view, run_id), compute)
+            .get_or_compute(view.view, derived_state(view, run_id), compute)
             .await
     }
 }
 
-/// SHA-256 over a view's digest and a stored run id (absent and empty kept apart).
-fn derived_key(view: &ViewClosure, run_id: Option<&str>) -> [u8; 32] {
+/// SHA-256 over a view's state and a stored run id (absent and empty kept apart).
+fn derived_state(view: &ViewClosure, run_id: Option<&str>) -> [u8; 32] {
     let mut h = Sha256::new();
-    h.update(view.key);
+    h.update(view.state);
     match run_id {
         Some(id) => {
             h.update([1]);
@@ -294,18 +326,27 @@ pub fn whelk_closure(
     })
 }
 
-/// SHA-256 over the hidden set and the visible input, each field length-prefixed and each
-/// set sorted, so two views share a key only when they would reason over the same input.
-fn view_digest(hidden: &HiddenClasses, class_iris: &[String], axioms: &[OwlAxiom]) -> [u8; 32] {
-    fn field(h: &mut Sha256, s: &str) {
-        h.update((s.len() as u64).to_le_bytes());
-        h.update(s.as_bytes());
-    }
+/// `s` length-prefixed into `h`, so field boundaries cannot be shifted.
+fn field(h: &mut Sha256, s: &str) {
+    h.update((s.len() as u64).to_le_bytes());
+    h.update(s.as_bytes());
+}
+
+/// SHA-256 over the sorted hidden set: which view this is.
+fn view_identity(hidden: &HiddenClasses) -> [u8; 32] {
     let mut h = Sha256::new();
     let mut hidden: Vec<&String> = hidden.as_set().iter().collect();
     hidden.sort();
     h.update((hidden.len() as u64).to_le_bytes());
     hidden.iter().for_each(|iri| field(&mut h, iri));
+    h.finalize().into()
+}
+
+/// SHA-256 over a view's identity and its visible input, each field length-prefixed and each
+/// set sorted, so two states agree only when they would reason over the same input.
+fn view_digest(view: [u8; 32], class_iris: &[String], axioms: &[OwlAxiom]) -> [u8; 32] {
+    let mut h = Sha256::new();
+    h.update(view);
     let mut iris: Vec<&String> = class_iris.iter().collect();
     iris.sort();
     h.update((iris.len() as u64).to_le_bytes());
@@ -355,17 +396,55 @@ mod tests {
     fn the_digest_separates_views_and_store_states_and_ignores_order() {
         let iris = vec!["a".to_string(), "b".to_string()];
         let axioms = vec![sub("a", "b"), sub("b", "c")];
-        let base = view_digest(&hiding(&["h"]), &iris, &axioms);
+        let base = view_digest(view_identity(&hiding(&["h"])), &iris, &axioms);
         let reordered: Vec<OwlAxiom> = axioms.iter().rev().cloned().collect();
         let iris_rev: Vec<String> = iris.iter().rev().cloned().collect();
-        assert_eq!(base, view_digest(&hiding(&["h"]), &iris_rev, &reordered));
-        assert_ne!(base, view_digest(&hiding(&["g"]), &iris, &axioms));
-        assert_ne!(base, view_digest(&hiding(&["h"]), &iris, &axioms[..1]));
-        assert_ne!(base, view_digest(&hiding(&["h"]), &iris[..1], &axioms));
+        assert_eq!(
+            base,
+            view_digest(view_identity(&hiding(&["h"])), &iris_rev, &reordered)
+        );
+        assert_ne!(
+            base,
+            view_digest(view_identity(&hiding(&["g"])), &iris, &axioms)
+        );
+        assert_ne!(
+            base,
+            view_digest(view_identity(&hiding(&["h"])), &iris, &axioms[..1])
+        );
+        assert_ne!(
+            base,
+            view_digest(view_identity(&hiding(&["h"])), &iris[..1], &axioms)
+        );
         // Field boundaries are length-prefixed: ("ab","c") is not ("a","bc").
         assert_ne!(
-            view_digest(&hiding(&[]), &[], &[sub("ab", "c")]),
-            view_digest(&hiding(&[]), &[], &[sub("a", "bc")])
+            view_digest(view_identity(&hiding(&[])), &[], &[sub("ab", "c")]),
+            view_digest(view_identity(&hiding(&[])), &[], &[sub("a", "bc")])
+        );
+    }
+
+    #[test]
+    fn a_new_state_replaces_the_view_slot_and_a_new_view_adds_one() {
+        let cache: SlotCache<u8> = SlotCache::new();
+        let (a, b) = ([1; 32], [2; 32]);
+        let first = cache.slot(a, [10; 32]);
+        assert!(
+            Arc::ptr_eq(&first, &cache.slot(a, [10; 32])),
+            "same state, same slot"
+        );
+        let weak = Arc::downgrade(&first);
+        drop(first);
+        let second = cache.slot(a, [11; 32]);
+        assert!(weak.upgrade().is_none(), "the superseded state is dropped");
+        assert_eq!(cache.len(), 1, "one view, one entry");
+        cache.slot(b, [10; 32]);
+        assert_eq!(cache.len(), 2);
+        for i in 0..CACHE_CAPACITY as u8 {
+            cache.slot([100 + i; 32], [0; 32]);
+        }
+        assert_eq!(cache.len(), CACHE_CAPACITY, "bounded");
+        assert!(
+            !Arc::ptr_eq(&second, &cache.slot(a, [11; 32])),
+            "oldest view evicted"
         );
     }
 
