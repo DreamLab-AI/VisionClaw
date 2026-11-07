@@ -80,6 +80,23 @@ impl WhelkInferenceEngine {
         self.generation
     }
 
+    /// Whether the engine holds a reasoned closure to serve. A loaded corpus
+    /// may entail nothing, so an empty hierarchy cannot tell "not reasoned
+    /// yet" from "reasoned, nothing entailed"; this can.
+    pub fn has_closure(&self) -> bool {
+        self.cached_subsumptions.is_some()
+    }
+
+    /// Replace this engine's state with `fresh`, an engine reasoned off to the
+    /// side, so a shared engine is held for the swap only and not for the
+    /// reasoning run. The generation moves strictly forward even though every
+    /// fresh engine counts from zero, so a cache keyed on
+    /// [`Self::generation`] never sees two closures under one value.
+    pub fn adopt(&mut self, mut fresh: Self) {
+        fresh.generation = self.generation.max(fresh.generation) + 1;
+        *self = fresh;
+    }
+
     pub fn new() -> Self {
         info!("Initializing WhelkInferenceEngine");
         Self {
@@ -902,5 +919,61 @@ mod tests {
         engine.load_ontology(classes, axioms).await.unwrap();
         let second = engine.infer().await.unwrap();
         assert_eq!(first.inferred_axioms.len(), second.inferred_axioms.len());
+    }
+
+    /// A reasoned chain `a ⊑ b ⊑ c`, as the sync and the startup load build it.
+    async fn reasoned_chain() -> WhelkInferenceEngine {
+        let mut engine = WhelkInferenceEngine::new();
+        engine
+            .load_ontology(
+                vec![cls("urn:test:A"), cls("urn:test:B"), cls("urn:test:C")],
+                vec![
+                    sub_axiom("urn:test:A", "urn:test:B"),
+                    sub_axiom("urn:test:B", "urn:test:C"),
+                ],
+            )
+            .await
+            .unwrap();
+        engine.infer().await.unwrap();
+        engine
+    }
+
+    /// `has_closure` reports whether there is a closure to serve, which an empty
+    /// hierarchy cannot: a loaded corpus may entail nothing.
+    #[tokio::test]
+    async fn has_closure_only_after_inference() {
+        let mut engine = WhelkInferenceEngine::new();
+        assert!(!engine.has_closure(), "a new engine holds no closure");
+        engine
+            .load_ontology(vec![cls("urn:test:A")], vec![])
+            .await
+            .unwrap();
+        assert!(!engine.has_closure(), "loaded but not yet reasoned");
+        engine.infer().await.unwrap();
+        assert!(engine.has_closure(), "reasoned, even over one class");
+    }
+
+    /// Adopting a freshly reasoned engine serves its closure and moves the
+    /// generation strictly forward on every swap, although each fresh engine
+    /// counts from zero; a cache keyed on the generation must never see two
+    /// closures under one value.
+    #[tokio::test]
+    async fn adopt_serves_the_fresh_closure_and_moves_the_generation_forward() {
+        let mut shared = WhelkInferenceEngine::new();
+        let g0 = shared.generation();
+
+        shared.adopt(reasoned_chain().await);
+        let g1 = shared.generation();
+        assert!(g1 > g0);
+        assert!(shared.has_closure());
+        let hierarchy = shared.get_subclass_hierarchy().await.unwrap();
+        assert!(
+            hierarchy.contains(&("urn:test:A".to_string(), "urn:test:C".to_string())),
+            "the adopted closure carries the inferred pair: {hierarchy:?}"
+        );
+
+        shared.adopt(reasoned_chain().await);
+        let g2 = shared.generation();
+        assert!(g2 > g1, "a second swap of an identical closure still moves");
     }
 }
