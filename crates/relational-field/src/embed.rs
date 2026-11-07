@@ -120,8 +120,14 @@ fn loss(cfg: &FieldCfg, pos: &Pos, rels: &[RelParams], ts: &[Triple], seed: u64)
 
 /// Train RF (or B1 with `B1`). Returns the positions and parameters at the best validation epoch.
 pub fn train_field(cfg: FieldCfg, n: usize, n_rel: usize, train: &[Triple], val: &[Triple], seed: u64) -> Field {
+    train_field_from(cfg, None, n, n_rel, train, val, seed)
+}
+
+/// As `train_field`, optionally starting from given positions instead of a random draw.
+pub fn train_field_from(cfg: FieldCfg, init: Option<Pos>, n: usize, n_rel: usize, train: &[Triple], val: &[Triple], seed: u64) -> Field {
     let mut rng = StdRng::seed_from_u64(seed.wrapping_add(101));
-    let mut pos = init_pos(n, &mut rng, 1.0);
+    let drawn = init_pos(n, &mut rng, 1.0); // always drawn, so the RNG stream is unchanged
+    let mut pos = init.unwrap_or(drawn);
     let n_rel = if cfg.typed { n_rel } else { 1 };
     let mut rels = vec![RelParams { k_raw: 0.0, l_log: 0.0, h: 0.0, m_raw: -3.0, b: 3.0 }; n_rel];
     let mut order: Vec<usize> = (0..train.len()).collect();

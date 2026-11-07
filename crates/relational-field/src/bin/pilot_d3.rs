@@ -149,7 +149,23 @@ fn main() -> std::io::Result<()> {
             .collect();
 
         let b0 = sim::simulate(&sim::uniform_springs(n, &train, &sim::LIVE), &sim::LIVE, seed);
-        let rf = embed::train_field(embed::RF, n, rel_names.len(), &train, &val, seed);
+        // Exploratory overrides (not part of the frozen D3 rule); absent flags give embed::RF.
+        let num = |k: &str| arg(k).map(|v| v.parse::<f32>().expect(k));
+        let rf_cfg = embed::FieldCfg {
+            lr_pos: num("--rf-lr-pos").unwrap_or(embed::RF.lr_pos),
+            lr_par: num("--rf-lr-par").unwrap_or(embed::RF.lr_par),
+            negatives: num("--rf-neg").map_or(embed::RF.negatives, |v| v as usize),
+            epochs: num("--rf-epochs").map_or(embed::RF.epochs, |v| v as usize),
+            ..embed::RF
+        };
+        let init = std::env::args().any(|a| a == "--rf-init-b0").then(|| {
+            // Start from B0's layout, rescaled so the median training edge has length 1.
+            let mut d: Vec<f32> = train.iter().map(|t| dist(&b0, t.head, t.tail)).collect();
+            d.sort_by(|a, b| a.total_cmp(b));
+            let m = d[d.len() / 2].max(1e-6);
+            b0.iter().map(|p| [p[0] / m, p[1] / m, p[2] / m]).collect::<Pos>()
+        });
+        let rf = embed::train_field_from(rf_cfg, init, n, rel_names.len(), &train, &val, seed);
         let names: Vec<String> = rel_names.iter().map(|s| s.to_string()).collect();
         let (adj, mapping) = sim::learned_springs(n, &train, &rf.rels, &names, &sim::LIVE);
         let rf_sim = sim::simulate(&adj, &sim::LIVE, seed);
@@ -237,6 +253,7 @@ fn main() -> std::io::Result<()> {
         "per_relation": per_rel, "relation_regressions": regressions,
         "keep_rule": {"delta_ge_0_05": delta >= 0.05, "p_lt_0_01": p < 0.01, "favours_rf": favours_rf, "no_regression": regressions.is_empty()},
         "verdict": if proceed { "PROCEED" } else { "NOT SUPPORTED" },
+        "exploratory_overrides": std::env::args().skip(1).filter(|a| a.starts_with("--rf-")).collect::<Vec<_>>(),
     });
     std::fs::write(out.join("summary.json"), serde_json::to_string_pretty(&summary)?)?;
     println!("{}", serde_json::to_string_pretty(&summary)?);

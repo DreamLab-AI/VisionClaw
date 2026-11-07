@@ -56,3 +56,7 @@ Otherwise the verdict is **not supported**, reported as such, with every arm. RF
 | B1 untyped embedding (reported) | 0.556 ± 0.022 |
 
 RF − B0 = −0.018; majority-outcome McNemar 236 gains, 286 losses, p = 0.032 against RF. Relation regressions beyond −0.05 with at least 30 cases: `related-to` (−0.089; no training triples at the pilot cut) and `requires` (−0.068). On the 761 cases whose relation type is present in training, RF and B0 tie (0.611 and 0.609). RF's best validation epoch was 3–5 of 60 in every seed. Every keep-rule condition failed. This is pre-cut history only and is not H1; H1, D2 and their gates are unchanged.
+
+## Exploratory recipe sweep (appended 7 November 2026; not part of the keep rule)
+
+To separate the mechanism from its training recipe, RF was rerun on the same window with `--rf-*` overrides (summaries in `results/pilot-d3-explore/`; the unmodified run reproduced the result above exactly). RF − B0: lr_pos 0.01, −0.042; lr_pos 0.01 with lr_par 0.002, −0.017; 20 negatives, −0.008; started from B0's layout, +0.007 (p 0.84; best validation epoch 0 in every seed, so training never improved on the physics layout); B0 start with lr_pos 0.01, +0.003. The best RF-sim was +0.023. No variant approaches the +0.05 effect size. On this window the per-relation law adds no forecasting signal beyond the uniform layout, and all arms sit near 0.6, so the later typed links are only weakly predictable from structure. Any change to H1 prompted by this is recorded as a further deviation before G1.
