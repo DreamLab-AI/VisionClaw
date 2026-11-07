@@ -316,7 +316,6 @@ export const DEFAULT_EDGES_SETTINGS = {
 
 export const DEFAULT_LABELS_SETTINGS = {
   enableLabels: true,
-  labelDistanceThreshold: 1200,
   textColor: '#676565',
   textResolution: 32,
   textPadding: 0.3,

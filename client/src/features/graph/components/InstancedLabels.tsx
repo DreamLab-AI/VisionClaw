@@ -55,6 +55,13 @@ function forEachClusterLabel(
   }
 }
 
+/**
+ * Metadata lines (domain, links, depth…) only under this camera distance; the
+ * title is never distance-gated (ADR-2186). 720 = the retired draw distance's
+ * default 1200 × 0.6, the gate's previous value.
+ */
+const METADATA_DISTANCE_THRESHOLD = 720;
+
 /** Font size factor of the title line relative to the metadata lines' base. */
 const META_SCALE = 0.8;
 
@@ -515,8 +522,6 @@ const InstancedLabelsGlyph: React.FC<GlyphProps> = ({
 
     const nodeSettingsObj = (settings as any)?.visualisation?.graphs?.knowledge?.nodes ?? (settings as any)?.visualisation?.nodes;
     const nodeSize = nodeSettingsObj?.nodeSize ?? 0.5;
-    const LABEL_DISTANCE_THRESHOLD = labelSettings?.labelDistanceThreshold ?? 1200;
-    const METADATA_DISTANCE_THRESHOLD = LABEL_DISTANCE_THRESHOLD * 0.6;
     const metadataEnabled = labelSettings?.showMetadata !== false;
     const textColor = labelSettings.textColor || '#ffffff';
     const textPadding = labelSettings.textPadding ?? 0.3;

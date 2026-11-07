@@ -78,6 +78,9 @@ export const REPLACED_PATHS: readonly string[] = [
   `${K}labels.desktopFontSize`,
   `${K}edges.colorByType`,
   `${K}edges.widthByWeight`,
+  // ADR-2186: labels are a priority-ranked fixed budget (visualisation.graphView.labels),
+  // never culled by distance; InstancedLabels no longer reads the draw distance
+  `${K}labels.labelDistanceThreshold`,
   // settings audit 2026-11-06: the legacy bloom group had no control, defaulted to enabled
   // and overrode the Emphasis glow controls (visualisation.glow.*), which replace it
   'visualisation.bloom.enabled',

@@ -238,7 +238,6 @@ export interface AnimationSettings {
 // Label settings
 export interface LabelSettings {
   enableLabels: boolean;
-  labelDistanceThreshold?: number; // Max camera distance for visible labels (default 500)
   textColor: string;
   textResolution: number;
   textPadding: number;

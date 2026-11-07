@@ -1,7 +1,7 @@
 {
   "version": "2.0",
   "generatedFrom": "settingsRegistry.ts",
-  "count": 244,
+  "count": 243,
   "groups": [
     {
       "id": "layers",
@@ -22,7 +22,7 @@
       "label": "Encode",
       "testid": "group-encode",
       "hotkey": "3",
-      "fieldCount": 19
+      "fieldCount": 18
     },
     {
       "id": "layout",
@@ -787,22 +787,6 @@
       "min": -1,
       "max": 3,
       "step": 0.05
-    },
-    {
-      "key": "labelDistanceThreshold",
-      "path": "visualisation.graphs.knowledge.labels.labelDistanceThreshold",
-      "testid": "setting-visualisation.graphs.knowledge.labels.labelDistanceThreshold",
-      "control": "slider",
-      "group": "encode",
-      "sourceGroup": "labels",
-      "subgroup": "Labels",
-      "scope": "server",
-      "label": "Label Draw Distance",
-      "clientOnly": false,
-      "server": "visual",
-      "min": 0,
-      "max": 2000,
-      "step": 25
     },
     {
       "key": "maxLabelWidth",

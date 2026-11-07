@@ -21,7 +21,7 @@ const { resolve } = getBuiltin('path') as typeof import('path');
 const EXPECTED_GROUP_COUNTS: Record<string, number> = {
   motion: 84,
   look: 23,
-  labels: 7,
+  labels: 6, // Label Draw Distance retired (ADR-2186: no distance cull)
   quality: 28, // RuVector Integration removed (dead, settings audit 2026-11-06)
   atmosphere: 32,
   ai: 2,
@@ -35,7 +35,7 @@ const EXPECTED_GROUP_COUNTS: Record<string, number> = {
 const EXPECTED_SECTION_COUNTS: Record<string, number> = {
   layers: 14,
   explore: 28,
-  encode: 19, // edge width, opacity and the three mode colours moved to Look › Edges
+  encode: 18, // Label Draw Distance retired (ADR-2186); edge width, opacity and the three mode colours moved to Look › Edges
   layout: 80,
   look: 49,
   agents: 30,
@@ -288,11 +288,12 @@ describe('control-center settings registry', () => {
     // sizeScheme, edges.colorByType, edges.widthByWeight, and labels.desktopFontSize
     // (replaced by graphView.labels.fontPx when the render lane landed ADR-2186)
     // + the five legacy visualisation.bloom.* paths (replaced by visualisation.glow.*, settings audit 2026-11-06)
-    expect(REPLACED_PATHS).toHaveLength(9);
+    // + labels.labelDistanceThreshold (replaced by the ADR-2186 label budget; no distance cull)
+    expect(REPLACED_PATHS).toHaveLength(10);
     // generic knowledge edges.color (→ agent mode's edge colour), Show Clusters,
     // Show Communities (→ colour scheme = Cluster / Community)
     expect(MERGED_PATHS).toHaveLength(3);
-    expect(new Set(ADR_2189_REMOVED_PATHS).size).toBe(53);
+    expect(new Set(ADR_2189_REMOVED_PATHS).size).toBe(54);
     for (const [from, to] of Object.entries(RENAMED_PATHS)) {
       expect(ADR_2189_REMOVED_PATHS).toContain(from);
       expect(ALL_PATHS, to).toContain(to);

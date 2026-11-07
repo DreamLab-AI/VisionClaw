@@ -449,13 +449,6 @@
               "scope": "server"
             },
             {
-              "key": "labelDistanceThreshold",
-              "label": "Label Draw Distance",
-              "path": "visualisation.graphs.knowledge.labels.labelDistanceThreshold",
-              "control": "slider",
-              "scope": "server"
-            },
-            {
               "key": "maxLabelWidth",
               "label": "Max Label Width",
               "path": "visualisation.graphs.knowledge.labels.maxLabelWidth",
