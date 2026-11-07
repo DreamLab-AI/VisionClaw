@@ -6,12 +6,17 @@ on:
     paths:
       - 'ontology/**'
       - 'public/ontology/**'
+      - 'crates/vault/**'
+      - 'crates/vault-core/**'
       - '.github/workflows/ontology-publish.yml'
   pull_request:
     branches: [main]
     paths:
       - 'ontology/**'
       - 'public/ontology/**'
+      - 'crates/vault/**'
+      - 'crates/vault-core/**'
+      - '.github/workflows/ontology-publish.yml'
   repository_dispatch:
     types: [corpus-sync]
   workflow_dispatch:
@@ -25,6 +30,13 @@ on:
         required: false
         default: 'false'
         type: boolean
+
+# Only PR runs cancel in progress: a push/dispatch/corpus-sync run moves the
+# ontology-latest release tag, and cancelling it half-way would leave the tag
+# and its assets out of step. Those runs queue behind each other instead.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   ONTOLOGY_SOURCE_REPO: ${{ github.event.inputs.source_repo || github.event.client_payload.source_repo || 'jjohare/visionGraph' }}
@@ -44,6 +56,7 @@ jobs:
   validate-source:
     name: Validate Ontology Source
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       has_changes: ${{ steps.detect.outputs.has_changes }}
       source_sha: ${{ steps.detect.outputs.source_sha }}
@@ -133,6 +146,7 @@ jobs:
   build-ontology:
     name: Build ontology (vault pipeline)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs: validate-source
     if: needs.validate-source.outputs.has_changes == 'true'
     outputs:
@@ -286,6 +300,7 @@ jobs:
   publish-release:
     name: Publish ontology-latest release
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [validate-source, build-ontology]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     permissions:
@@ -356,6 +371,7 @@ jobs:
   deploy-jss:
     name: Deploy to JSS
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build-ontology
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.SOLID_POD_URL != ''
     environment: production
@@ -466,6 +482,7 @@ jobs:
   notify-websocket:
     name: Send WebSocket Notification
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: deploy-jss
     if: needs.deploy-jss.outputs.deployment_status == 'success'
 
@@ -545,6 +562,7 @@ jobs:
   pr-preview:
     name: PR Preview (Dry Run)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: build-ontology
     if: github.event_name == 'pull_request'
 
@@ -599,6 +617,7 @@ jobs:
   deploy-target-missing:
     name: Push deploy skipped (pull model in effect)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [build-ontology, publish-release]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.SOLID_POD_URL == ''
     steps:

@@ -8,10 +8,8 @@ on:
       - 'README.md'
       - 'CHANGELOG.md'
       - 'AGENTS.md'
-      - 'scripts/adr-index-gen.js'
-      - 'scripts/adr-ratchet.sh'
-      - 'scripts/tests/adr-ratchet-evidence.test.sh'
-      - 'scripts/tests/adr-evidence-class.test.sh'
+      - 'scripts/adr*'
+      - 'scripts/tests/adr-*'
       - '.github/workflows/docs-ci.yml'
   pull_request:
     branches: [main]
@@ -20,15 +18,20 @@ on:
       - 'README.md'
       - 'CHANGELOG.md'
       - 'AGENTS.md'
-      - 'scripts/adr-index-gen.js'
-      - 'scripts/adr-ratchet.sh'
-      - 'scripts/tests/adr-ratchet-evidence.test.sh'
-      - 'scripts/tests/adr-evidence-class.test.sh'
+      - 'scripts/adr*'
+      - 'scripts/tests/adr-*'
+      - '.github/workflows/docs-ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate-adr-ledger:
     name: Validate ADR ledger (frontmatter, reciprocity, staleness)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout repository (full history — staleness gate diffs old commits)
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -36,10 +39,10 @@ jobs:
           fetch-depth: 0
       - name: Validate ADR frontmatter, supersession reciprocity, verified_commit staleness
         run: node scripts/adr-index-gen.js docs/adr --check
-      - name: adr-ratchet evidence gate self-test (VisionFlow ADR-2007: closing transitions need evidence_class and acceptance_boundary)
+      - name: "adr-ratchet evidence gate self-test (VisionFlow ADR-2007: closing transitions need evidence_class and acceptance_boundary)"
         run: bash scripts/tests/adr-ratchet-evidence.test.sh
 
-      - name: adr evidence_class value check (VisionFlow ADR-2007: enum, '+'-joined)
+      - name: "adr evidence_class value check (VisionFlow ADR-2007: enum, '+'-joined)"
         run: bash scripts/tests/adr-evidence-class.test.sh
 
       - name: adr-ratchet (planning cycle 2026-09-21 — a new proposal must close a proposed one)
@@ -50,6 +53,7 @@ jobs:
   validate-documentation:
     name: Validate Documentation Quality
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository

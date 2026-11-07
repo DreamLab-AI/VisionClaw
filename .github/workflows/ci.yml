@@ -41,12 +41,44 @@ name: CI
 on:
   push:
     branches: [main]
+    paths:
+      - 'src/**'
+      - 'crates/**'
+      - 'tests/**'
+      - 'client/**'
+      - 'scripts/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'build.rs'
+      - 'rust-toolchain*'
+      - 'rustfmt.toml'
+      - '.cargo/**'
+      - 'Dockerfile.production'
+      - 'Dockerfile.unified'
+      - 'docker-compose*.yml'
+      - '.github/workflows/ci.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'src/**'
+      - 'crates/**'
+      - 'tests/**'
+      - 'client/**'
+      - 'scripts/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'build.rs'
+      - 'rust-toolchain*'
+      - 'rustfmt.toml'
+      - '.cargo/**'
+      - 'Dockerfile.production'
+      - 'Dockerfile.unified'
+      - 'docker-compose*.yml'
+      - '.github/workflows/ci.yml'
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -61,6 +93,7 @@ jobs:
   rust-fmt:
     name: Rust format (blocking)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Install Rust toolchain (rustfmt)
@@ -75,6 +108,7 @@ jobs:
   rust-cpu:
     name: Rust CPU crates — build, clippy, test (blocking)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       # The CUDA-free workspace crates. The gpu crate and the root
       # visionclaw-server crate link libcuda and are covered by rust-gpu below.
@@ -122,6 +156,7 @@ jobs:
   client:
     name: Client Vitest (blocking)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: client
@@ -143,6 +178,7 @@ jobs:
   dev-auth-release-gate:
     name: ADR-2037 dev-auth excluded from release builds (blocking)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     # Hermetic: no cargo, no docker, no network — pure text assertion over the
     # committed Dockerfiles/entrypoints, so this runs in seconds. ADR-2037
     # decided that production/release images must never carry the `dev-auth`
@@ -234,6 +270,7 @@ jobs:
   client-quality:
     name: Client lint + typecheck (advisory)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # Advisory only: the client tree has not yet been audited lint/type clean.
     # Promote to a blocking gate (remove continue-on-error, fold into `client`)
     # once eslint and `tsc --noEmit` both pass.
@@ -269,6 +306,7 @@ jobs:
     # set TEST_BASE_URL to point at the live stack. Optional: not a merge gate.
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     continue-on-error: true
     defaults:
       run:
