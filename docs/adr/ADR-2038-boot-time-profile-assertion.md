@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [src/config/security_profile.rs, src/main.rs]
 owner: jjohare
 review_trigger: adoption of a production deployment, or any change to the profile env vars (RBAC_PUBLIC_READS, PUBKEY_VISIBILITY_FILTER, RBAC_DEFAULT_ROLE)
@@ -325,3 +325,7 @@ Re-verified 2026-10-30 at c75004696: `src/main.rs` only gains the Jev client (`v
 Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `c75004696` are additive: `src/main.rs`: the splat store opened once at boot (fails open, test-covered) plus its `app_data` and `/api/splats` routes; no auth, RBAC, profile or env-hygiene code changed. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff c75004696..5c94c3cbd -- <governed path>`.
 
 Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `src/main.rs` builds the `/api/graph-export` handler once before `HttpServer::new` and sweeps expired shares at start-up. The security-profile boot checks are untouched. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path change since `b5200feb4`: `src/main.rs` (`57ba04beb`, `f284c2953`, both 2026-11-07, Whelk merge `67de9bd98`): the background sync is handed `app_state.ontology_inference_engine` (`:494`), the ontology-agent services reuse that engine instead of building a fresh `WhelkInferenceEngine` (`:534`), and the query service gains `.with_view_reasoner(app_state.ontology_view_reasoner)` (`:543`, ADR-2184 Q1). Net +1 line after `:543`; nothing before it moves. The boot assertion is untouched; current anchors: `assert_effective_profile_or_exit` imported `src/main.rs:959`, called `:962`, before `HttpServer::new` (`:1005`) and `.bind()` (`:1303`); boot receipt `:968-972`. `security_profile.rs` is unchanged. **Decision and `partial` status unaffected.** Re-run: `git diff b5200feb4..7bd25427e -- src/config/security_profile.rs src/main.rs`. Checked by reading that diff and the anchors at HEAD; no test was re-run for this stamp.

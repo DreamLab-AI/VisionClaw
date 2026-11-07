@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 974daf5d22d2d0ea709140777eae58d60ddb2c36
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [crates/vault/src/main.rs, crates/vault-core/Cargo.toml]
 owner: jjohare
 review_trigger: "any reintroduction of a corpus-format converter, a JSON-LD fence reader or migration mapping types; a second supported authored format"
@@ -70,3 +70,7 @@ All governed paths were byte-identical between the previous verification pin and
 the pre-change baseline `5e1bd90a4`. The reviewed delta is the shared-layout change
 through `974daf5d22d2d0ea709140777eae58d60ddb2c36`. Existing activation and acceptance limits
 remain in force; this stamp does not repeat historical runtime measurements.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path change since `974daf5d2`: `crates/vault/src/main.rs` (`a5a265dd4`) lets a grouped `vault propose --dry-run` run without a signing key (`:455-461`, `:520-535`). No subcommand was added or removed. The close-out cites the retired-command test at `crates/vault/src/main.rs:895`; it is now `retired_migration_command_is_rejected` at `:941-942`, and `parse(&["migrate", "--fences-to-properties"])` must still fail. **Decision unaffected.** Re-run: `git diff 974daf5d2..7bd25427e -- crates/vault/src/main.rs`. Checked by reading that diff and the test at HEAD; the test was not re-run for this stamp.

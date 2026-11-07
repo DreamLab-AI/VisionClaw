@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 809a859aae9e3d96d4d6b99690378018e48e3ad8
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [src/handlers/ontology_agent_handler.rs, tests/rec1_route_guard.rs, crates/vault/src/main.rs, crates/vault/src/propose.rs]
 owner: jjohare
 review_trigger: "the first caller reported still POSTing to /api/ontology-agent/propose; any change to the 410 body, or any new HTTP ontology write route"
@@ -100,3 +100,11 @@ Governed-path change since the last stamp (server consolidation, 2026-11-06, `92
 - **`/propose` is unchanged.** It still answers 410 Gone with `route_retired` (`:301-303`, route `:482`), and `ontology_propose` is still absent from the status list (`:445`).
 
 **Decision unaffected.** Re-run: `git diff b5200feb4..809a859aa -- <verified_paths>`. I checked this by reading that diff; `rec1_route_guard` was not re-run for this stamp.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path changes since `809a859aa`:
+- `crates/vault/src/main.rs` (`a5a265dd4`): `vault propose --dry-run` no longer demands a signing key up front. A grouped dry run emits `{"proposal": …, "signed": false}` and no event (`:520-533`). A non-dry run is still refused before the vault loads (`:455-461`), and a keyless single-page dry run is refused after the build (`:535`). Nothing unsigned can be posted, so the forum-request model holds.
+- `src/handlers/ontology_agent_handler.rs` (`57ba04beb`, `1a6dd031f`, `2dc83e43a`, `e913673e7` and their tests): read failures go through `failed()` (`:117-126`). It answers **503** when the caller's view could not be reasoned over, because ADR-2184 Q1 fails closed rather than falling back to the whole-store closure. Most of the +562 lines are the `per_view_reasoning_tests` module (`:849` on). The scope is still six read POSTs plus `GET /status` (`:470-477`), with no auth or rate-limit middleware. `/propose` still answers 410 `route_retired` (`:305-316`, route `:481`). `ontology_propose` is still absent from the status list (`:444-446`).
+
+**Decision unaffected.** Re-run: `git diff 809a859aa..7bd25427e -- <verified_paths>`. Checked by reading that diff; `rec1_route_guard` and `propose_cli` were not re-run for this stamp.

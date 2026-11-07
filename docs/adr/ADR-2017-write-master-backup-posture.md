@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 8775359e37a394d1558bb8b5317d37a92973288e
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [src/services/data_reconciliation.rs, src/services/github_sync_service.rs, scripts/backup-sqlite.sh, scripts/backup-secrets.sh]
 owner: jjohare
 review_trigger: an Oxigraph/RocksDB PITR or backup requirement, a cross-store consistency incident, or wiring RuVector delete-propagation
@@ -259,3 +259,16 @@ Re-verified 2026-10-30 at c75004696: `src/services/github_sync_service.rs` gains
 ## Re-verified 2026-10-31 at 8775359e3
 
 `github_sync_service.rs` changed only in how legacy `urn:ngm:*` IRIs are minted (ADR-2021); backup posture is untouched. Decision holds; no re-run of this record's own tests.
+
+## Amendment — 2026-11-07 (re-verified at `7bd25427e`)
+
+**Backup membership grew to five databases.** The Decision says the backup script targets "the four SQLite DBs". The 2026-09 note cites `REQUIRED_DBS="settings.sqlite3 enrichment.sqlite3 kpi.sqlite3"` at `:75-76`. Both statements were true when written, and neither is now. `238f5960d` (2026-11-06) added the graph-share store, so the default is now `REQUIRED_DBS="settings.sqlite3 enrichment.sqlite3 kpi.sqlite3 shares.sqlite3"` (`scripts/backup-sqlite.sh:75`), and `OPTIONAL_DBS` is still `liveness.sqlite3` (`:76`). `7bd25427e` gives `shares.sqlite3` its restore check: expected tables `shared_graphs schema_migrations` (`:102`). `backup_posture.rs` seeds and checks it (`463e6f537`, `7bd25427e`). This extends the decision's membership rule and does not change it: one online-backup script, required members fail the run. Read "four" in the Decision as "the required SQLite set", which is now four required plus one optional.
+
+**`github_sync_service.rs` since `8775359e3`** (`9fd0e85cc`, `ab1e636ff`, `464792f08`, `4b4c09c30`, `1e5b739a0`, `57ba04beb`, `f284c2953`, `4375470df`, `dffbeceba`):
+- Sync reads per-page commit history (`CorpusSource::page_history`) for temporal node keys.
+- After the rebuild, sync records corpus history as assertion versions in the append-only provenance graph (`verify_and_record_corpus_history`, `services::corpus_history`, VisionFlow ADR-2022).
+- Whelk reasons on the blocking pool into the shared engine (`reason_into_shared`).
+
+The full-sync gate is unchanged: `force_full_sync` (`:389`), `clear_graph()` (`:439-442`) and the `:assert` CLEAR+INSERT (`:654-658`). The Consequence "re-sync … reconstructs `:assert` but not derived/provenance graphs" now covers more data. Corpus history takes its valid and recorded time from the sync instant, not from commits (`corpus_history.rs` module doc, *Clocks*). Losing Oxigraph therefore loses that history, and no re-sync can rebuild it. That follows from this decision and is not a new defect. It does make an Oxigraph backup worth more if the review trigger is reached.
+
+**Decision holds; status stays `partial`.** Re-run: `git diff 8775359e3..7bd25427e -- <verified_paths>`. Checked by reading that diff; `backup_posture` was not re-run for this stamp.

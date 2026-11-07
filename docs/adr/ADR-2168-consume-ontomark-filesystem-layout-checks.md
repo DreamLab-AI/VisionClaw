@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 809a859aae9e3d96d4d6b99690378018e48e3ad8
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [Cargo.toml, Cargo.lock, crates/vault/Cargo.toml, crates/vault/src/main.rs, crates/vault/tests/shared_layout.rs, src/services/corpus_source/local.rs]
 owner: jjohare
 review_trigger: a layout or discovery change, Ontomark dependency upgrade, or producer cutover
@@ -76,3 +76,7 @@ library compile check pass; prior runtime and activation limits remain.
 Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `efbd7f6f0` are additive: `Cargo.lock`: the `visionclaw-splat` entry only; `Cargo.toml`: a workspace member and path dependency for `crates/visionclaw-splat`; no profile, feature or other dependency changed. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff efbd7f6f0..5c94c3cbd -- <governed path>`.
 
 Governed-path change (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `Cargo.toml`/`Cargo.lock` drop the networking deps of the deleted `FastWebSocketServer`, and `corpus_source/local.rs` prunes with the shared `is_excluded_from_ingest` rule (ADR-2114 amendment). The shared-layout root checks are untouched. Not re-stamped: `local.rs` already changed before this branch. **Decision unaffected.**
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path change since `809a859aa`: `crates/vault/src/main.rs` (`a5a265dd4`) lets a grouped `vault propose --dry-run` run without a signing key (`:455-461`, `:520-535`). The shared-layout code is untouched: the `LayoutError` refusal still exits 2 (`crates/vault/src/main.rs:323-329`), and `Layout::default().validate(&root)` (`:364-365`) is unchanged. **Decision unaffected.** Re-run: `git diff 809a859aa..7bd25427e -- <verified_paths>`. Checked by reading that diff; `shared_layout` was not re-run for this stamp.

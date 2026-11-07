@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -378,3 +378,7 @@ Governed-path change since the last stamp: `src/handlers/socket_flow_handler/pos
 Re-run: `git diff 5c94c3cbd..81e711267 -- src/config/security_profile.rs src/middleware/rbac_gate.rs src/main.rs src/services/role_store.rs src/handlers/socket_flow_handler/position_updates.rs docker-compose.unified.yml`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
 
 Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `src/main.rs` builds the `/api/graph-export` handler once before `HttpServer::new` and sweeps expired shares at start-up. Security-profile selection and the RBAC gate are untouched. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path change since `b5200feb4`: `src/main.rs` (`57ba04beb`, `f284c2953`, both 2026-11-07, Whelk merge `67de9bd98`): the background sync is handed `app_state.ontology_inference_engine` (`:494`), the ontology-agent services reuse that engine instead of building a fresh `WhelkInferenceEngine` (`:534`), and the query service gains `.with_view_reasoner(app_state.ontology_view_reasoner)` (`:543`, ADR-2184 Q1). Net +1 line after `:543`; nothing before it moves. No profile table, flag, RBAC gate or compose default is touched. Current anchors: owner-less refusal `src/main.rs:793-822`; `assert_effective_profile_or_exit` called at `:962`, ahead of `HttpServer::new` (`:1005`) and `.bind()` (`:1303`), boot receipt logged at `:968-972`. **Decision and `partial` status unaffected.** Re-run: `git diff b5200feb4..7bd25427e -- <verified_paths>`. Checked by reading that diff and the anchors at HEAD; no test was re-run for this stamp.

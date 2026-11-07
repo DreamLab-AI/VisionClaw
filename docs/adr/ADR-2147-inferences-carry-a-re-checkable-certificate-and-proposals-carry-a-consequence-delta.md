@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [crates/vault/Cargo.toml, crates/vault-core/Cargo.toml, crates/vault/src/certificate.rs, crates/vault/src/propose.rs, crates/vault/src/main.rs, crates/vault-core/src/proposal.rs, crates/vault/tests/certificate_oo_cert.rs, crates/visionclaw-ontology/shapes/ontology-class.shacl.ttl, crates/visionclaw-ontology/src/services/jsonld_validator/shacl.rs]
 owner: jjohare
 review_trigger: "Activation (staged → live): the `vault certify` step of ontology-publish.yml exiting 0 on a published generation. Review: the emitter putting a restriction or an equivalence on the subclass side of rdfs:subClassOf (Whelk parity would no longer be structural), a new release of the oo-cert checker changing the oo-cert/1 grammar, or `vault certify` exiting 1 on a published generation"
@@ -71,3 +71,11 @@ Governed-path change since the last stamp: `crates/vault/src/propose.rs` (`6b811
 Re-run: `git diff efbd7f6f0..81e711267 -- crates/vault/Cargo.toml crates/vault-core/Cargo.toml crates/vault/src/certificate.rs crates/vault/src/propose.rs crates/vault/src/main.rs crates/vault-core/src/proposal.rs crates/vault/tests/certificate_oo_cert.rs crates/visionclaw-ontology/shapes/ontology-class.shacl.ttl crates/visionclaw-ontology/src/services/jsonld_validator/shacl.rs`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
 
 Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `crates/vault/src/propose.rs` names the `RESOURCE_IMMUTABLE` blocker through a constant; the emitted code is byte-identical. Certificate and consequence-delta construction are untouched. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path changes since `b5200feb4`:
+- `crates/vault/src/certificate.rs` (`bd170e81a`, `cargo fmt --all`): import order, and one expression in a test rewrapped. No logic change.
+- `crates/vault/src/main.rs` (`a5a265dd4`): a grouped `vault propose --dry-run` emits the unsigned group with no key (`:520-533`). Certificates and `consequences` are still built (`propose::build_with_certificates`, `:486`) before that early return. A grouped dry run therefore still carries its consequence delta and still writes `--certificate-dir`. The single-page dry-run example under Verification still needs `--secret` or `VAULT_NOSTR_SECRET` (`:535`).
+
+**Decision and `complete`/`staged` status unaffected.** Re-run: `git diff b5200feb4..7bd25427e -- <verified_paths>`. Checked by reading that diff; the vault tests were not re-run for this stamp.

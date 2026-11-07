@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 809a859aae9e3d96d4d6b99690378018e48e3ad8
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -408,3 +408,12 @@ Other governed changes since `81e711267`, all inside the root actor layer, none 
 - the removal of `SetNodeSSSP` from both message modules and of the networking dependencies from `Cargo.toml`.
 
 No `crates/*/Cargo.toml` changed. **Decision and `partial` status hold.** The remaining extraction work is the actor move, reconciling `voice_commands.rs`, and build timing. Re-run: `git diff --stat 81e711267..809a859aa -- <verified_paths>`. I checked this by reading that diff; `layer_direction` was not re-run for this stamp.
+
+## Re-verification — 2026-11-07 (`7bd25427e`)
+
+Governed-path changes since `809a859aa`:
+- `crates/visionclaw-integration-tests/tests/layer_direction.rs` (`c405f13b0`): `("visionclaw-splat", &[])` joins `ALLOWED` (`:35`). The splat crate, already a workspace member (`Cargo.toml:20`), is declared a leaf with no workspace dependencies.
+- `src/actors/agent_roster_feed.rs` (`bd170e81a`, `cargo fmt --all`): line wrapping only. With whitespace and trailing commas stripped, the file is byte-identical at both commits.
+- `.github/workflows/ci.yml` (`9f2e75fa3`): `push` and `pull_request` gain a `paths:` filter, and every job gains `timeout-minutes`. The filter includes `crates/**` and `Cargo.toml`, so any change that could move a crate boundary still triggers `rust-cpu`. That job runs `layer_direction` (`:154`).
+
+No actor moved between crates. **Decision and `partial` status hold.** Re-run: `git diff 809a859aa..7bd25427e -- <verified_paths>`. Checked by reading that diff; `layer_direction` was not re-run for this stamp.
