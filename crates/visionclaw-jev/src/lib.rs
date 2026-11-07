@@ -143,7 +143,10 @@ pub fn slot_order(keys: &[Option<f64>]) -> Vec<usize> {
 pub fn apply_order<T>(items: Vec<T>, order: &[usize]) -> Vec<T> {
     assert_eq!(items.len(), order.len(), "order must cover every item");
     let mut slots: Vec<Option<T>> = items.into_iter().map(Some).collect();
-    order.iter().map(|&i| slots[i].take().expect("order is a permutation")).collect()
+    order
+        .iter()
+        .map(|&i| slots[i].take().expect("order is a permutation"))
+        .collect()
 }
 
 /// Truncate to at most `max` characters (not bytes), appending `…` if cut.
@@ -172,7 +175,10 @@ mod lib_tests {
 
     #[test]
     fn apply_order_permutes() {
-        assert_eq!(apply_order(vec!["a", "b", "c"], &[2, 1, 0]), vec!["c", "b", "a"]);
+        assert_eq!(
+            apply_order(vec!["a", "b", "c"], &[2, 1, 0]),
+            vec!["c", "b", "a"]
+        );
     }
 
     #[test]

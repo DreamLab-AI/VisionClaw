@@ -201,14 +201,18 @@ impl std::fmt::Debug for Resolved {
 
 fn truthy(v: Option<String>) -> bool {
     matches!(
-        v.as_deref().map(|s| s.trim().to_ascii_lowercase()).as_deref(),
+        v.as_deref()
+            .map(|s| s.trim().to_ascii_lowercase())
+            .as_deref(),
         Some("1" | "true" | "yes" | "on")
     )
 }
 
 fn explicit_off(v: Option<String>) -> bool {
     matches!(
-        v.as_deref().map(|s| s.trim().to_ascii_lowercase()).as_deref(),
+        v.as_deref()
+            .map(|s| s.trim().to_ascii_lowercase())
+            .as_deref(),
         Some("0" | "false" | "no" | "off")
     )
 }
@@ -236,7 +240,11 @@ pub fn enabled(item: Item, lookup: &dyn Fn(&str) -> Option<String>) -> bool {
 /// Acceptance threshold for annotate / suggest decisions
 /// (`VISIONCLAW_JEV_MIN_CONFIDENCE`, default [`DEFAULT_MIN_CONFIDENCE`]).
 pub fn min_confidence(lookup: &dyn Fn(&str) -> Option<String>) -> f64 {
-    threshold(lookup, "VISIONCLAW_JEV_MIN_CONFIDENCE", DEFAULT_MIN_CONFIDENCE)
+    threshold(
+        lookup,
+        "VISIONCLAW_JEV_MIN_CONFIDENCE",
+        DEFAULT_MIN_CONFIDENCE,
+    )
 }
 
 /// Acceptance threshold for decisions that change an outcome
@@ -279,7 +287,12 @@ pub fn threshold(lookup: &dyn Fn(&str) -> Option<String>, var: &str, default: f6
 }
 
 /// Read an unsigned count from `var`, clamped to `1..=max`, or `default`.
-pub fn count(lookup: &dyn Fn(&str) -> Option<String>, var: &str, default: usize, max: usize) -> usize {
+pub fn count(
+    lookup: &dyn Fn(&str) -> Option<String>,
+    var: &str,
+    default: usize,
+    max: usize,
+) -> usize {
     non_empty(lookup(var))
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(default)
@@ -317,7 +330,8 @@ pub fn resolve(item: Item, lookup: &dyn Fn(&str) -> Option<String>) -> Result<Re
         };
         return Ok(Resolved {
             url: systemone_url(&endpoint),
-            model: non_empty(lookup("VISIONCLAW_JEV_MODEL")).unwrap_or_else(|| DEFAULT_MODEL.into()),
+            model: non_empty(lookup("VISIONCLAW_JEV_MODEL"))
+                .unwrap_or_else(|| DEFAULT_MODEL.into()),
             bearer,
             source: Source::Config,
             timeout,
@@ -362,8 +376,10 @@ mod tests {
     use std::collections::HashMap;
 
     fn env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
-        let m: HashMap<String, String> =
-            pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let m: HashMap<String, String> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
         move |k| m.get(k).cloned()
     }
 
@@ -408,7 +424,11 @@ mod tests {
                 if let Some(o) = own {
                     pairs.push((item.flag_var(), o));
                 }
-                assert_eq!(enabled(item, &env(&pairs)), *want, "{item:?} master={master:?} own={own:?}");
+                assert_eq!(
+                    enabled(item, &env(&pairs)),
+                    *want,
+                    "{item:?} master={master:?} own={own:?}"
+                );
             }
         }
         // one item's opt-out never affects another
@@ -462,10 +482,19 @@ mod tests {
 
     #[test]
     fn only_the_private_content_items_are_local_only() {
-        let local: Vec<Item> = Item::ALL.iter().copied().filter(|i| i.local_only()).collect();
+        let local: Vec<Item> = Item::ALL
+            .iter()
+            .copied()
+            .filter(|i| i.local_only())
+            .collect();
         assert_eq!(
             local,
-            vec![Item::MemoryRerank, Item::PatchRank, Item::IngestSuggest, Item::ProposalTriage]
+            vec![
+                Item::MemoryRerank,
+                Item::PatchRank,
+                Item::IngestSuggest,
+                Item::ProposalTriage
+            ]
         );
         // A vendor key alone serves the others when the master flag is on, and
         // never serves a local-only item.
@@ -485,7 +514,10 @@ mod tests {
         let e = env(&[
             ("VISIONCLAW_JEV_HEALTH_TRIAGE", "1"),
             ("AGENTBOX_SYSTEM_ONE_PROXY", "1"),
-            ("AGENTBOX_SKILL_ROUTE_API", "http://127.0.0.1:8097/v1/systemone"),
+            (
+                "AGENTBOX_SKILL_ROUTE_API",
+                "http://127.0.0.1:8097/v1/systemone",
+            ),
             ("AGENTBOX_SKILL_ROUTE_MODEL", "jev-latest"),
         ]);
         let r = resolve(Item::HealthTriage, &e).unwrap();
@@ -496,10 +528,19 @@ mod tests {
     #[test]
     fn confidence_thresholds_default_and_auto_accepts_nothing() {
         assert_eq!(min_confidence(&env(&[])), 0.5);
-        assert_eq!(min_confidence(&env(&[("VISIONCLAW_JEV_MIN_CONFIDENCE", "0.8")])), 0.8);
+        assert_eq!(
+            min_confidence(&env(&[("VISIONCLAW_JEV_MIN_CONFIDENCE", "0.8")])),
+            0.8
+        );
         assert_eq!(auto_min_confidence(&env(&[])), None);
-        assert_eq!(auto_min_confidence(&env(&[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "x")])), None);
-        assert_eq!(auto_min_confidence(&env(&[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")])), Some(0.9));
+        assert_eq!(
+            auto_min_confidence(&env(&[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "x")])),
+            None
+        );
+        assert_eq!(
+            auto_min_confidence(&env(&[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")])),
+            Some(0.9)
+        );
     }
 
     #[test]
@@ -534,7 +575,10 @@ mod tests {
         let e = env(&[
             ("VISIONCLAW_JEV_PROPOSAL_TRIAGE", "1"),
             ("AGENTBOX_SYSTEM_ONE_PROXY", "1"),
-            ("AGENTBOX_SYSTEM_ONE_ENDPOINT", "http://127.0.0.1:8097/v1/systemone"),
+            (
+                "AGENTBOX_SYSTEM_ONE_ENDPOINT",
+                "http://127.0.0.1:8097/v1/systemone",
+            ),
             ("AGENTBOX_SYSTEM_ONE_MODEL", "jev-latest"),
             ("AGENTBOX_SYSTEM_ONE_BACKEND_LOCAL", "1"),
             ("TYPESAFE_API_KEY", "k"),
@@ -562,7 +606,10 @@ mod tests {
 
     #[test]
     fn typesafe_needs_a_key_and_uses_bearer() {
-        let e = env(&[("VISIONCLAW_JEV_HEALTH_TRIAGE", "1"), ("TYPESAFE_API_KEY", "tk")]);
+        let e = env(&[
+            ("VISIONCLAW_JEV_HEALTH_TRIAGE", "1"),
+            ("TYPESAFE_API_KEY", "tk"),
+        ]);
         let r = resolve(Item::HealthTriage, &e).unwrap();
         assert_eq!(r.url, DEFAULT_ENDPOINT);
         assert_eq!(r.model, DEFAULT_MODEL);
@@ -571,7 +618,12 @@ mod tests {
 
     #[test]
     fn local_only_items_refuse_proxy_and_typesafe_unless_declared_local() {
-        for item in [Item::MemoryRerank, Item::PatchRank, Item::IngestSuggest, Item::ProposalTriage] {
+        for item in [
+            Item::MemoryRerank,
+            Item::PatchRank,
+            Item::IngestSuggest,
+            Item::ProposalTriage,
+        ] {
             let flag = item.flag_var();
             let e = env(&[
                 (flag, "1"),
@@ -594,18 +646,37 @@ mod tests {
 
     #[test]
     fn allow_cloud_is_the_explicit_override_for_local_only_items() {
-        let e = env(&[("VISIONCLAW_JEV_PATCH_RANK", "1"), ("TYPESAFE_API_KEY", "tk")]);
+        let e = env(&[
+            ("VISIONCLAW_JEV_PATCH_RANK", "1"),
+            ("TYPESAFE_API_KEY", "tk"),
+        ]);
         assert_eq!(resolve(Item::PatchRank, &e), Err(Fallback::NoEndpoint));
-        let e = env(&[("VISIONCLAW_JEV_PATCH_RANK", "1"), ("TYPESAFE_API_KEY", "tk"), ("VISIONCLAW_JEV_ALLOW_CLOUD", "1")]);
-        assert_eq!(resolve(Item::PatchRank, &e).unwrap().source, Source::TypeSafe);
+        let e = env(&[
+            ("VISIONCLAW_JEV_PATCH_RANK", "1"),
+            ("TYPESAFE_API_KEY", "tk"),
+            ("VISIONCLAW_JEV_ALLOW_CLOUD", "1"),
+        ]);
+        assert_eq!(
+            resolve(Item::PatchRank, &e).unwrap().source,
+            Source::TypeSafe
+        );
     }
 
     #[test]
     fn timeout_is_clamped_to_the_interactive_budget() {
         assert_eq!(timeout(&env(&[])), Duration::from_millis(3_000));
-        assert_eq!(timeout(&env(&[("VISIONCLAW_JEV_TIMEOUT_MS", "60000")])), Duration::from_millis(4_000));
-        assert_eq!(timeout(&env(&[("VISIONCLAW_JEV_TIMEOUT_MS", "1")])), Duration::from_millis(100));
-        assert_eq!(timeout(&env(&[("VISIONCLAW_JEV_TIMEOUT_MS", "abc")])), Duration::from_millis(3_000));
+        assert_eq!(
+            timeout(&env(&[("VISIONCLAW_JEV_TIMEOUT_MS", "60000")])),
+            Duration::from_millis(4_000)
+        );
+        assert_eq!(
+            timeout(&env(&[("VISIONCLAW_JEV_TIMEOUT_MS", "1")])),
+            Duration::from_millis(100)
+        );
+        assert_eq!(
+            timeout(&env(&[("VISIONCLAW_JEV_TIMEOUT_MS", "abc")])),
+            Duration::from_millis(3_000)
+        );
     }
 
     #[test]

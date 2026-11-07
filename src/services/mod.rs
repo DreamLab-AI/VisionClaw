@@ -9,8 +9,6 @@ pub mod chain_payments;
 pub mod corpus_history;
 pub mod corpus_source;
 // ADR-2022 P1 — conformance to the estate temporal contract (ontomark vectors).
-#[cfg(test)]
-mod temporal_contract_tests;
 pub mod file_service;
 pub mod github;
 pub mod github_sync_service;
@@ -20,6 +18,8 @@ pub mod mcp_relay_manager;
 pub mod multi_mcp_agent_discovery;
 pub mod natural_language_query_service;
 pub mod nostr_service;
+#[cfg(test)]
+mod temporal_contract_tests;
 // ADR-2064: wired into `src/bin/load_ontology.rs` so the real corpus ingest
 // path runs horned-owl extraction over classes' `markdown_content` after
 // `OntologyParser`/`save_ontology` persist them — this module previously

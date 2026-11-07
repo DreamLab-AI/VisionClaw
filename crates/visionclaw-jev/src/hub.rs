@@ -43,7 +43,11 @@ impl JevHub {
     /// A hub reading the live process environment, over the real transport
     /// (built on first use so a missing HTTP stack can never stop a boot).
     pub fn from_env() -> Self {
-        Self { lookup: Arc::new(|k| std::env::var(k).ok()), transport: None, http: Arc::default() }
+        Self {
+            lookup: Arc::new(|k| std::env::var(k).ok()),
+            transport: None,
+            http: Arc::default(),
+        }
     }
 
     /// A hub over a supplied lookup and transport (tests, and hosts that own
@@ -52,12 +56,20 @@ impl JevHub {
         lookup: impl Fn(&str) -> Option<String> + Send + Sync + 'static,
         transport: Arc<dyn Transport>,
     ) -> Self {
-        Self { lookup: Arc::new(lookup), transport: Some(transport), http: Arc::default() }
+        Self {
+            lookup: Arc::new(lookup),
+            transport: Some(transport),
+            http: Arc::default(),
+        }
     }
 
     /// A hub with everything off.
     pub fn disabled() -> Self {
-        Self { lookup: Arc::new(|_| None), transport: None, http: Arc::default() }
+        Self {
+            lookup: Arc::new(|_| None),
+            transport: None,
+            http: Arc::default(),
+        }
     }
 
     /// Whether `item` is on (flag model in [`crate::config`]). Says nothing
@@ -157,7 +169,12 @@ impl JevHub {
                 return Err(Fallback::Malformed);
             }
         }
-        jev.ask(&Request { model: jev.model().to_string(), state, questions: map }).await
+        jev.ask(&Request {
+            model: jev.model().to_string(),
+            state,
+            questions: map,
+        })
+        .await
     }
 }
 
@@ -189,7 +206,10 @@ pub mod testing {
 
     /// A hub built from exactly these variables (nothing added).
     pub fn hub_with(vars: &[(&str, &str)], transport: Arc<dyn Transport>) -> JevHub {
-        let m: HashMap<String, String> = vars.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let m: HashMap<String, String> = vars
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
         JevHub::with_transport(move |k| m.get(k).cloned(), transport)
     }
 }
@@ -204,7 +224,12 @@ mod tests {
     use serde_json::json;
 
     fn q() -> Vec<(String, Question)> {
-        vec![("q".into(), Question::Noul { instructions: "x".into() })]
+        vec![(
+            "q".into(),
+            Question::Noul {
+                instructions: "x".into(),
+            },
+        )]
     }
 
     fn noul_body(p: f64) -> String {
@@ -215,10 +240,22 @@ mod tests {
     async fn flag_off_builds_no_request() {
         let t = MockTransport::new(Script::Reply(200, "{}".into()));
         let hub = hub_with(&[("VISIONCLAW_JEV_ENDPOINT", "http://x")], t.clone());
-        assert_eq!(hub.ask(Item::CommandIntent, "v1", json!({}), q()).await.unwrap_err(), Fallback::FlagOff);
-        assert_eq!(t.calls(), 0, "nothing may leave the process with the flag off");
         assert_eq!(
-            JevHub::disabled().ask(Item::CommandIntent, "v1", json!({}), q()).await.unwrap_err(),
+            hub.ask(Item::CommandIntent, "v1", json!({}), q())
+                .await
+                .unwrap_err(),
+            Fallback::FlagOff
+        );
+        assert_eq!(
+            t.calls(),
+            0,
+            "nothing may leave the process with the flag off"
+        );
+        assert_eq!(
+            JevHub::disabled()
+                .ask(Item::CommandIntent, "v1", json!({}), q())
+                .await
+                .unwrap_err(),
             Fallback::FlagOff
         );
     }
@@ -227,7 +264,12 @@ mod tests {
     async fn no_endpoint_builds_no_request() {
         let t = MockTransport::new(Script::Reply(200, "{}".into()));
         let hub = hub_with(&[(config::MASTER_FLAG, "1")], t.clone());
-        assert_eq!(hub.ask(Item::CommandIntent, "v1", json!({}), q()).await.unwrap_err(), Fallback::NoEndpoint);
+        assert_eq!(
+            hub.ask(Item::CommandIntent, "v1", json!({}), q())
+                .await
+                .unwrap_err(),
+            Fallback::NoEndpoint
+        );
         assert_eq!(t.calls(), 0);
     }
 
@@ -245,7 +287,12 @@ mod tests {
         for (script, want) in cases {
             let t = MockTransport::new(script);
             let hub = enabled_hub(&[], t.clone());
-            assert_eq!(hub.ask(Item::CommandIntent, "v1", json!({}), q()).await.unwrap_err(), want);
+            assert_eq!(
+                hub.ask(Item::CommandIntent, "v1", json!({}), q())
+                    .await
+                    .unwrap_err(),
+                want
+            );
             assert_eq!(t.calls(), 1);
         }
     }
@@ -257,13 +304,19 @@ mod tests {
             &[
                 (config::MASTER_FLAG, "1"),
                 ("AGENTBOX_SYSTEM_ONE_PROXY", "1"),
-                ("AGENTBOX_SYSTEM_ONE_ENDPOINT", "http://127.0.0.1:9/v1/systemone"),
+                (
+                    "AGENTBOX_SYSTEM_ONE_ENDPOINT",
+                    "http://127.0.0.1:9/v1/systemone",
+                ),
                 ("AGENTBOX_SYSTEM_ONE_MODEL", "jev-test"),
                 ("TYPESAFE_API_KEY", "must-not-be-sent"),
             ],
             t.clone(),
         );
-        let a = hub.ask(Item::CommandIntent, "v1", json!({"command": "x"}), q()).await.unwrap();
+        let a = hub
+            .ask(Item::CommandIntent, "v1", json!({"command": "x"}), q())
+            .await
+            .unwrap();
         assert!((a.noul("q").unwrap() - 0.9).abs() < 1e-9);
         assert_eq!(t.bearers.lock().unwrap()[0], None);
         let body = t.seen.lock().unwrap()[0].clone();
@@ -281,12 +334,19 @@ mod tests {
                 "pick".to_string(),
                 Question::Choice {
                     instructions: "Which?".into(),
-                    criteria: [("a".to_string(), "is a".to_string()), ("none".into(), "neither".into())].into(),
+                    criteria: [
+                        ("a".to_string(), "is a".to_string()),
+                        ("none".into(), "neither".into()),
+                    ]
+                    .into(),
                 },
             ),
             (
                 "rate".to_string(),
-                Question::Score { instructions: "How good?".into(), criteria: vec!["bad".into(), "good".into()] },
+                Question::Score {
+                    instructions: "How good?".into(),
+                    criteria: vec!["bad".into(), "good".into()],
+                },
             ),
         ];
         let _ = hub.ask(Item::PaletteSearch, "v1", json!({}), qs).await;
@@ -301,14 +361,32 @@ mod tests {
     async fn invalid_or_duplicate_questions_never_leave_the_process() {
         let t = MockTransport::new(Script::Reply(200, "{}".into()));
         let hub = enabled_hub(&[], t.clone());
-        assert_eq!(hub.ask(Item::CommandIntent, "v1", json!({}), vec![]).await.unwrap_err(), Fallback::Malformed);
+        assert_eq!(
+            hub.ask(Item::CommandIntent, "v1", json!({}), vec![])
+                .await
+                .unwrap_err(),
+            Fallback::Malformed
+        );
         let dup = vec![q().remove(0), q().remove(0)];
-        assert_eq!(hub.ask(Item::CommandIntent, "v1", json!({}), dup).await.unwrap_err(), Fallback::Malformed);
+        assert_eq!(
+            hub.ask(Item::CommandIntent, "v1", json!({}), dup)
+                .await
+                .unwrap_err(),
+            Fallback::Malformed
+        );
         let too_many = vec![(
             "q".to_string(),
-            Question::Score { instructions: "x".into(), criteria: (0..11).map(|i| i.to_string()).collect() },
+            Question::Score {
+                instructions: "x".into(),
+                criteria: (0..11).map(|i| i.to_string()).collect(),
+            },
         )];
-        assert_eq!(hub.ask(Item::CommandIntent, "v1", json!({}), too_many).await.unwrap_err(), Fallback::Malformed);
+        assert_eq!(
+            hub.ask(Item::CommandIntent, "v1", json!({}), too_many)
+                .await
+                .unwrap_err(),
+            Fallback::Malformed
+        );
         assert_eq!(t.calls(), 0);
     }
 
@@ -320,7 +398,10 @@ mod tests {
             .ask(Item::CommandIntent, "v1", json!({}), q())
             .await
             .unwrap();
-        assert_eq!(a.choice("q", &["a", "none"]).unwrap_err(), Fallback::Malformed);
+        assert_eq!(
+            a.choice("q", &["a", "none"]).unwrap_err(),
+            Fallback::Malformed
+        );
         assert!(a.choice("q", &["zzz"]).is_ok());
     }
 
@@ -332,7 +413,11 @@ mod tests {
         let no_endpoint = hub_with(&[(config::MASTER_FLAG, "1")], t);
         assert!(no_endpoint.enabled(Item::NlqPlan));
         assert!(!no_endpoint.available(Item::NlqPlan));
-        assert!(!format!("{:?}", enabled_hub(&[], MockTransport::new(Script::Reply(200, "{}".into())))).contains("jev.test"));
+        assert!(!format!(
+            "{:?}",
+            enabled_hub(&[], MockTransport::new(Script::Reply(200, "{}".into())))
+        )
+        .contains("jev.test"));
     }
 
     #[test]
@@ -341,7 +426,11 @@ mod tests {
         let hub = enabled_hub(&[], t.clone());
         assert!(hub.accept_suggestion(0.5).is_ok());
         assert_eq!(hub.accept_suggestion(0.49), Err(Fallback::LowConfidence));
-        assert_eq!(hub.accept_outcome(1.0), Err(Fallback::LowConfidence), "no threshold: accept nothing");
+        assert_eq!(
+            hub.accept_outcome(1.0),
+            Err(Fallback::LowConfidence),
+            "no threshold: accept nothing"
+        );
         let hub = enabled_hub(&[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")], t);
         assert!(hub.accept_outcome(0.95).is_ok());
         assert_eq!(hub.accept_outcome(0.89), Err(Fallback::LowConfidence));

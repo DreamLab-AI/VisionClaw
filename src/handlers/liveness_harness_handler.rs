@@ -15,12 +15,14 @@
 use actix_web::{web, HttpRequest, HttpResponse, Result};
 use serde::Deserialize;
 
-use crate::adapters::sqlite_canary_repository::{CanaryRegistration, CanaryStatus, CanaryStoreError};
+use crate::adapters::sqlite_canary_repository::{
+    CanaryRegistration, CanaryStatus, CanaryStoreError,
+};
+use crate::ok_json;
+use crate::services::liveness_harness::{current_sha, LivenessHarness};
 use std::sync::OnceLock;
 use visionclaw_jev::health_triage::{self, CanaryFact, HealthFacts};
 use visionclaw_jev::{Item as JevItem, Jev};
-use crate::ok_json;
-use crate::services::liveness_harness::{current_sha, LivenessHarness};
 
 /// HTTP header carrying the service credential for the write routes (#2).
 #[cfg(not(any(debug_assertions, feature = "dev-auth")))]
@@ -173,9 +175,11 @@ static JEV_HEALTH: OnceLock<Option<JevHealth>> = OnceLock::new();
 fn jev_health() -> Option<&'static JevHealth> {
     JEV_HEALTH
         .get_or_init(|| {
-            Jev::from_env_logged(JevItem::HealthTriage, health_triage::QSET_VERSION).map(|jev| JevHealth {
-                jev,
-                params: health_triage::Params::from_lookup(&|k| std::env::var(k).ok()),
+            Jev::from_env_logged(JevItem::HealthTriage, health_triage::QSET_VERSION).map(|jev| {
+                JevHealth {
+                    jev,
+                    params: health_triage::Params::from_lookup(&|k| std::env::var(k).ok()),
+                }
             })
         })
         .as_ref()
@@ -213,7 +217,14 @@ async fn status_body(
     triage: Option<&JevHealth>,
 ) -> serde_json::Value {
     let hypothesis = match triage {
-        Some(t) => health_triage::triage(Some(&t.jev), &health_facts(kg_backend_up, &sha, &canaries), &t.params).await,
+        Some(t) => {
+            health_triage::triage(
+                Some(&t.jev),
+                &health_facts(kg_backend_up, &sha, &canaries),
+                &t.params,
+            )
+            .await
+        }
         None => None,
     };
     let mut body = serde_json::json!({
@@ -233,7 +244,15 @@ async fn status_body(
 pub async fn status(harness: web::Data<LivenessHarness>) -> Result<HttpResponse> {
     match harness.status().await {
         Ok(canaries) => {
-            ok_json!(status_body(harness.kg_backend_up(), current_sha(), canaries, jev_health()).await)
+            ok_json!(
+                status_body(
+                    harness.kg_backend_up(),
+                    current_sha(),
+                    canaries,
+                    jev_health()
+                )
+                .await
+            )
         }
         Err(e) => Ok(HttpResponse::InternalServerError().json(store_error_body(&e))),
     }
@@ -324,7 +343,10 @@ mod jev_tests {
     }
 
     fn health(script: Script) -> JevHealth {
-        JevHealth { jev: test_jev(JevItem::HealthTriage, MockTransport::new(script)), params: health_triage::Params::default() }
+        JevHealth {
+            jev: test_jev(JevItem::HealthTriage, MockTransport::new(script)),
+            params: health_triage::Params::default(),
+        }
     }
 
     fn degraded() -> Vec<CanaryStatus> {
@@ -337,10 +359,16 @@ mod jev_tests {
 
     fn triage_body(class: &str, conf: f64) -> String {
         let mut answers = serde_json::Map::new();
-        answers.insert("class".into(), serde_json::json!({"type":"choice","choice":class,"confidence":conf}));
+        answers.insert(
+            "class".into(),
+            serde_json::json!({"type":"choice","choice":class,"confidence":conf}),
+        );
         for s in health_triage::RUNBOOK {
             let score = if s.id == "replay-journey" { 2.0 } else { 0.0 };
-            answers.insert(format!("step_{}", s.id), serde_json::json!({"type":"score","score":score,"confidence":0.9}));
+            answers.insert(
+                format!("step_{}", s.id),
+                serde_json::json!({"type":"score","score":score,"confidence":0.9}),
+            );
         }
         serde_json::json!({"model":"m","usage":{"input_tokens":1,"output_tokens":1},"answers":answers}).to_string()
     }
@@ -348,10 +376,16 @@ mod jev_tests {
     #[tokio::test]
     async fn off_or_healthy_is_the_pre_change_body() {
         let c = degraded();
-        assert_eq!(status_body(Some(false), "sha1".into(), c.clone(), None).await, baseline(Some(false), &c));
+        assert_eq!(
+            status_body(Some(false), "sha1".into(), c.clone(), None).await,
+            baseline(Some(false), &c)
+        );
         let healthy = vec![canary("c", true, true)];
         let t = health(Script::Reply(200, triage_body("no-fault-evident", 0.9)));
-        assert_eq!(status_body(Some(true), "sha1".into(), healthy.clone(), Some(&t)).await, baseline(Some(true), &healthy));
+        assert_eq!(
+            status_body(Some(true), "sha1".into(), healthy.clone(), Some(&t)).await,
+            baseline(Some(true), &healthy)
+        );
     }
 
     #[tokio::test]
@@ -368,7 +402,10 @@ mod jev_tests {
             Script::Hang,
         ] {
             let t = health(script);
-            assert_eq!(status_body(Some(false), "sha1".into(), c.clone(), Some(&t)).await, baseline(Some(false), &c));
+            assert_eq!(
+                status_body(Some(false), "sha1".into(), c.clone(), Some(&t)).await,
+                baseline(Some(false), &c)
+            );
         }
     }
 
@@ -378,8 +415,16 @@ mod jev_tests {
         let t = health(Script::Reply(200, triage_body("canary-never-fired", 0.9)));
         let body = status_body(Some(false), "sha1".into(), c.clone(), Some(&t)).await;
         let mut without = body.clone();
-        let tri = without.as_object_mut().unwrap().remove("jev_triage").expect("triage present");
-        assert_eq!(without, baseline(Some(false), &c), "probe fields exactly as before");
+        let tri = without
+            .as_object_mut()
+            .unwrap()
+            .remove("jev_triage")
+            .expect("triage present");
+        assert_eq!(
+            without,
+            baseline(Some(false), &c),
+            "probe fields exactly as before"
+        );
         assert_eq!(tri["class"], "canary-never-fired");
         assert_eq!(tri["kind"], "hypothesis");
         assert_eq!(tri["steps"][0]["id"], "replay-journey");

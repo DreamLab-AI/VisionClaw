@@ -65,7 +65,11 @@ pub struct Params {
 
 impl Default for Params {
     fn default() -> Self {
-        Self { min_confidence: 0.5, max_relations: 8, max_pages: 25 }
+        Self {
+            min_confidence: 0.5,
+            max_relations: 8,
+            max_pages: 25,
+        }
     }
 }
 
@@ -75,9 +79,23 @@ impl Params {
     pub fn from_lookup(lookup: &dyn Fn(&str) -> Option<String>) -> Self {
         let d = Self::default();
         Self {
-            min_confidence: crate::config::threshold(lookup, "VISIONCLAW_JEV_INGEST_MIN_CONFIDENCE", d.min_confidence),
-            max_relations: crate::config::count(lookup, "VISIONCLAW_JEV_INGEST_MAX_RELATIONS", d.max_relations, 20),
-            max_pages: crate::config::count(lookup, "VISIONCLAW_JEV_INGEST_MAX_PAGES", d.max_pages, 10_000),
+            min_confidence: crate::config::threshold(
+                lookup,
+                "VISIONCLAW_JEV_INGEST_MIN_CONFIDENCE",
+                d.min_confidence,
+            ),
+            max_relations: crate::config::count(
+                lookup,
+                "VISIONCLAW_JEV_INGEST_MAX_RELATIONS",
+                d.max_relations,
+                20,
+            ),
+            max_pages: crate::config::count(
+                lookup,
+                "VISIONCLAW_JEV_INGEST_MAX_PAGES",
+                d.max_pages,
+                10_000,
+            ),
         }
     }
 }
@@ -155,7 +173,11 @@ pub fn build_request(model: &str, f: &PageFacts, max_relations: usize) -> Reques
             },
         );
     }
-    Request { model: model.into(), state, questions }
+    Request {
+        model: model.into(),
+        state,
+        questions,
+    }
 }
 
 /// Interpret the answers.
@@ -164,14 +186,26 @@ pub fn build_request(model: &str, f: &PageFacts, max_relations: usize) -> Reques
 ///
 /// [`Fallback::Malformed`] for missing/out-of-set answers;
 /// [`Fallback::LowConfidence`] if the type Choice is under the threshold.
-pub fn interpret(answers: &Answers, f: &PageFacts, params: &Params) -> Result<Suggestion, Fallback> {
-    let mut offered: Vec<&str> =
-        f.type_candidates.iter().map(|(n, _)| n.as_str()).filter(|n| *n != UNKNOWN).collect();
+pub fn interpret(
+    answers: &Answers,
+    f: &PageFacts,
+    params: &Params,
+) -> Result<Suggestion, Fallback> {
+    let mut offered: Vec<&str> = f
+        .type_candidates
+        .iter()
+        .map(|(n, _)| n.as_str())
+        .filter(|n| *n != UNKNOWN)
+        .collect();
     offered.push(UNKNOWN);
     let t = answers.choice("type", &offered)?;
     let mut relations = Vec::new();
     for (i, r) in f.relations.iter().take(params.max_relations).enumerate() {
-        relations.push(RelationSupport { key: r.key.clone(), target: r.target.clone(), support: answers.noul(&relation_id(i))? });
+        relations.push(RelationSupport {
+            key: r.key.clone(),
+            target: r.target.clone(),
+            support: answers.noul(&relation_id(i))?,
+        });
     }
     if t.confidence < params.min_confidence {
         return Err(Fallback::LowConfidence);
@@ -194,7 +228,9 @@ pub async fn suggest(jev: &Jev, f: &PageFacts, params: &Params) -> Result<Sugges
     if f.type_candidates.is_empty() {
         return Err(Fallback::Malformed);
     }
-    let answers = jev.ask(&build_request(jev.model(), f, params.max_relations)).await?;
+    let answers = jev
+        .ask(&build_request(jev.model(), f, params.max_relations))
+        .await?;
     interpret(&answers, f, params)
 }
 
@@ -212,13 +248,20 @@ impl Suggester {
     pub fn from_env() -> Option<Self> {
         let jev = Jev::from_env_logged(Item::IngestSuggest, QSET_VERSION)?;
         let lookup = |k: &str| std::env::var(k).ok();
-        let sink = lookup("VISIONCLAW_JEV_INGEST_DRAFTS").filter(|s| !s.trim().is_empty()).map(PathBuf::from);
+        let sink = lookup("VISIONCLAW_JEV_INGEST_DRAFTS")
+            .filter(|s| !s.trim().is_empty())
+            .map(PathBuf::from);
         Some(Self::new(jev, Params::from_lookup(&lookup), sink))
     }
 
     /// Build from parts (tests, or a host with its own transport).
     pub fn new(jev: Jev, params: Params, sink: Option<PathBuf>) -> Self {
-        Self { jev, params, used: AtomicUsize::new(0), sink }
+        Self {
+            jev,
+            params,
+            used: AtomicUsize::new(0),
+            sink,
+        }
     }
 
     /// Suggest for one admitted page. Returns the draft (also recorded) or
@@ -279,13 +322,22 @@ mod tests {
             path: "knowledge/Foo.md".into(),
             excerpt: "Foo is a kind of Bar used for baz.".into(),
             frontmatter: "public: true".into(),
-            type_candidates: vec![("Class".into(), "owl:Class".into()), ("Individual".into(), "owl:NamedIndividual".into())],
-            relations: vec![RelationClaim { key: "is-subclass-of".into(), target: "Bar".into() }],
+            type_candidates: vec![
+                ("Class".into(), "owl:Class".into()),
+                ("Individual".into(), "owl:NamedIndividual".into()),
+            ],
+            relations: vec![RelationClaim {
+                key: "is-subclass-of".into(),
+                target: "Bar".into(),
+            }],
         }
     }
 
     fn body(choice: &str, conf: f64, rel: f64) -> String {
-        mock::body(vec![("type".into(), mock::choice(choice, conf)), ("rel_0".into(), mock::noul(rel))])
+        mock::body(vec![
+            ("type".into(), mock::choice(choice, conf)),
+            ("rel_0".into(), mock::noul(rel)),
+        ])
     }
 
     #[test]
@@ -294,7 +346,11 @@ mod tests {
         r.validate().unwrap();
         let v = serde_json::to_value(&r).unwrap();
         let crit = v["questions"]["type"]["criteria"].as_object().unwrap();
-        assert!(crit.contains_key("Class") && crit.contains_key("Individual") && crit.contains_key("unknown"));
+        assert!(
+            crit.contains_key("Class")
+                && crit.contains_key("Individual")
+                && crit.contains_key("unknown")
+        );
         assert_eq!(v["questions"]["rel_0"]["type"], "noul");
         assert_eq!(v["state"]["relation_claims"][0]["id"], "rel_0");
     }
@@ -303,7 +359,10 @@ mod tests {
     async fn accept_path_returns_a_draft_and_records_it() {
         let dir = std::env::temp_dir().join(format!("jev-ingest-{}", std::process::id()));
         let _ = std::fs::remove_file(&dir);
-        let j = jev(Item::IngestSuggest, MockTransport::new(Script::Reply(200, body("Class", 0.9, 0.8))));
+        let j = jev(
+            Item::IngestSuggest,
+            MockTransport::new(Script::Reply(200, body("Class", 0.9, 0.8))),
+        );
         let s = Suggester::new(j, Params::default(), Some(dir.clone()));
         let d = s.suggest(&facts()).await.unwrap();
         assert_eq!(d.suggested_type.as_deref(), Some("Class"));
@@ -315,7 +374,10 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_is_an_abstention() {
-        let j = jev(Item::IngestSuggest, MockTransport::new(Script::Reply(200, body("unknown", 0.9, 0.1))));
+        let j = jev(
+            Item::IngestSuggest,
+            MockTransport::new(Script::Reply(200, body("unknown", 0.9, 0.1))),
+        );
         let d = suggest(&j, &facts(), &Params::default()).await.unwrap();
         assert_eq!(d.suggested_type, None);
     }
@@ -336,7 +398,11 @@ mod tests {
             Script::Fail(TransportError::Timeout),
             Script::Hang,
         ] {
-            let sg = Suggester::new(jev(Item::IngestSuggest, MockTransport::new(s)), Params::default(), None);
+            let sg = Suggester::new(
+                jev(Item::IngestSuggest, MockTransport::new(s)),
+                Params::default(),
+                None,
+            );
             assert_eq!(sg.suggest(&facts()).await, None);
         }
     }
@@ -344,7 +410,14 @@ mod tests {
     #[tokio::test]
     async fn budget_stops_further_requests() {
         let t = MockTransport::new(Script::Reply(200, body("Class", 0.9, 0.8)));
-        let sg = Suggester::new(jev(Item::IngestSuggest, t.clone()), Params { max_pages: 1, ..Params::default() }, None);
+        let sg = Suggester::new(
+            jev(Item::IngestSuggest, t.clone()),
+            Params {
+                max_pages: 1,
+                ..Params::default()
+            },
+            None,
+        );
         assert!(sg.suggest(&facts()).await.is_some());
         assert!(sg.suggest(&facts()).await.is_none());
         assert_eq!(t.calls(), 1);

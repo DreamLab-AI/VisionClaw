@@ -354,9 +354,18 @@ category: engineer
         // Attached but flag off / erroring / unthresholded: identical edges.
         let variants = vec![
             JevHub::disabled(),
-            enabled_hub(&[], MockTransport::new(Script::Reply(200, jev_resp("mv:worksAt")))),
-            enabled_hub(&[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")], MockTransport::new(Script::Reply(500, "".into()))),
-            enabled_hub(&[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")], MockTransport::new(Script::Reply(200, "junk".into()))),
+            enabled_hub(
+                &[],
+                MockTransport::new(Script::Reply(200, jev_resp("mv:worksAt"))),
+            ),
+            enabled_hub(
+                &[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")],
+                MockTransport::new(Script::Reply(500, "".into())),
+            ),
+            enabled_hub(
+                &[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")],
+                MockTransport::new(Script::Reply(200, "junk".into())),
+            ),
         ];
         for v in variants {
             let svc = crate::test_helpers::create_test_enrichment_service().with_jev(v);
@@ -385,7 +394,10 @@ category: engineer
         let before = crate::test_helpers::create_test_enrichment_service();
         let mut g3 = g2.clone();
         before.enrich_edges(&mut g3, GAP_CONTENT).await.unwrap();
-        assert_eq!(g3.edges[0].owl_property_iri, None, "deterministic leaves the gap");
+        assert_eq!(
+            g3.edges[0].owl_property_iri, None,
+            "deterministic leaves the gap"
+        );
         svc.enrich_edges(&mut g2, GAP_CONTENT).await.unwrap();
         // Domain/range gate: worksAt needs Person→Company, so a Place pair is refused.
         assert_eq!(g2.edges[0].owl_property_iri, None);
@@ -398,10 +410,27 @@ category: engineer
         let src = include_str!("edge_classifier.rs");
         let vocab = visionclaw_jev::edge::vocabulary_iris();
         for iri in &vocab {
-            assert!(src.contains(&format!("\"{iri}\"")), "{iri} not emitted by classifier");
+            assert!(
+                src.contains(&format!("\"{iri}\"")),
+                "{iri} not emitted by classifier"
+            );
         }
-        for iri in ["mv:worksAt", "mv:hasCEO", "mv:hasCTO", "mv:hasFounder", "mv:contributesTo", "mv:sponsors", "mv:usesProject", "mv:usesTechnology", "mv:subConceptOf", "mv:relatedTo"] {
-            assert!(vocab.contains(&iri), "{iri} missing from the Jev vocabulary");
+        for iri in [
+            "mv:worksAt",
+            "mv:hasCEO",
+            "mv:hasCTO",
+            "mv:hasFounder",
+            "mv:contributesTo",
+            "mv:sponsors",
+            "mv:usesProject",
+            "mv:usesTechnology",
+            "mv:subConceptOf",
+            "mv:relatedTo",
+        ] {
+            assert!(
+                vocab.contains(&iri),
+                "{iri} missing from the Jev vocabulary"
+            );
         }
     }
 
@@ -420,14 +449,35 @@ category: engineer
             evidence: "Ada is employed by Acme.",
         };
         let classifier = crate::services::edge_classifier::EdgeClassifier::new();
-        let before = classifier.classify_edge("Ada", "Acme", Some("mv:Person"), Some("mv:Company"), "Ada works at Acme");
+        let before = classifier.classify_edge(
+            "Ada",
+            "Acme",
+            Some("mv:Person"),
+            Some("mv:Company"),
+            "Ada works at Acme",
+        );
         let _ = jev_gap_fill(Some(&visionclaw_jev::JevHub::disabled()), &ev).await;
-        let after = classifier.classify_edge("Ada", "Acme", Some("mv:Person"), Some("mv:Company"), "Ada works at Acme");
+        let after = classifier.classify_edge(
+            "Ada",
+            "Acme",
+            Some("mv:Person"),
+            Some("mv:Company"),
+            "Ada works at Acme",
+        );
         assert_eq!(before, after);
-        let junk = enabled_hub(&[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")], MockTransport::new(Script::Reply(200, "junk".into())));
+        let junk = enabled_hub(
+            &[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")],
+            MockTransport::new(Script::Reply(200, "junk".into())),
+        );
         assert!(jev_gap_fill(Some(&junk), &ev).await.is_none());
         assert!(jev_gap_fill(None, &ev).await.is_none());
-        let ok = enabled_hub(&[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")], MockTransport::new(Script::Reply(200, jev_resp("mv:worksAt"))));
-        assert_eq!(jev_gap_fill(Some(&ok), &ev).await.as_deref(), Some("mv:worksAt"));
+        let ok = enabled_hub(
+            &[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")],
+            MockTransport::new(Script::Reply(200, jev_resp("mv:worksAt"))),
+        );
+        assert_eq!(
+            jev_gap_fill(Some(&ok), &ev).await.as_deref(),
+            Some("mv:worksAt")
+        );
     }
 }

@@ -84,19 +84,29 @@ pub struct EntityCandidate {
 
 fn safe_iri(s: &str) -> bool {
     s.strip_prefix("urn:ngm:class:")
-        .map(|r| !r.is_empty() && r.len() <= 80 && r.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.')))
+        .map(|r| {
+            !r.is_empty()
+                && r.len() <= 80
+                && r.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        })
         .unwrap_or(false)
 }
 
 fn safe_domain(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 40 && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, ' ' | '-' | '_'))
+    !s.is_empty()
+        && s.len() <= 40
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, ' ' | '-' | '_'))
 }
 
 /// Extract grounded entity candidates: `urn:ngm:class:…` IRIs and quoted
 /// strings (as domains). Nothing here is model-generated.
 pub fn extract_entities(question: &str) -> Vec<EntityCandidate> {
     let mut out: Vec<(String, &'static str)> = Vec::new();
-    for tok in question.split(|c: char| c.is_whitespace() || matches!(c, '<' | '>' | ',' | ';' | '(' | ')')) {
+    for tok in question
+        .split(|c: char| c.is_whitespace() || matches!(c, '<' | '>' | ',' | ';' | '(' | ')'))
+    {
         let tok = tok.trim_matches(|c: char| matches!(c, '"' | '\'' | '.' | '?'));
         if safe_iri(tok) && !out.iter().any(|(v, _)| v == tok) {
             out.push((tok.to_string(), "class_iri"));
@@ -113,12 +123,21 @@ pub fn extract_entities(question: &str) -> Vec<EntityCandidate> {
         }
     }
     out.truncate(MAX_ENTITIES);
-    out.into_iter().enumerate().map(|(i, (value, kind))| EntityCandidate { id: format!("e{i}"), value, kind }).collect()
+    out.into_iter()
+        .enumerate()
+        .map(|(i, (value, kind))| EntityCandidate {
+            id: format!("e{i}"),
+            value,
+            kind,
+        })
+        .collect()
 }
 
 fn template_question() -> Question {
-    let mut criteria: std::collections::BTreeMap<String, String> =
-        TEMPLATES.iter().map(|t| (t.id.to_string(), t.description.to_string())).collect();
+    let mut criteria: std::collections::BTreeMap<String, String> = TEMPLATES
+        .iter()
+        .map(|t| (t.id.to_string(), t.description.to_string()))
+        .collect();
     criteria.insert(GENERATE.into(), "No listed template answers the question exactly: it asks for something else, combines several things, or needs filtering the templates cannot express.".into());
     Question::Choice {
         instructions: "Which read-only graph query template answers `question` exactly? Choose a template only if running it returns what the question asks for. Choose `generate` otherwise.".into(),
@@ -129,9 +148,21 @@ fn template_question() -> Question {
 fn entity_question(cands: &[EntityCandidate]) -> Question {
     let mut criteria: std::collections::BTreeMap<String, String> = cands
         .iter()
-        .map(|c| (c.id.clone(), format!("The {} `{}` named in the question.", c.kind.replace('_', " "), c.value)))
+        .map(|c| {
+            (
+                c.id.clone(),
+                format!(
+                    "The {} `{}` named in the question.",
+                    c.kind.replace('_', " "),
+                    c.value
+                ),
+            )
+        })
         .collect();
-    criteria.insert(NO_ENTITY.into(), "None of the listed entities is the one the question is about.".into());
+    criteria.insert(
+        NO_ENTITY.into(),
+        "None of the listed entities is the one the question is about.".into(),
+    );
     Question::Choice {
         instructions: "Which entity listed in `entities` is the subject the question in `question` asks about? Choose `none` if the question is not about exactly one of them.".into(),
         criteria,
@@ -165,7 +196,9 @@ pub async fn plan_query(client: &JevHub, question: &str) -> Result<QueryTranslat
     if !entities.is_empty() {
         qs.push(("entity".to_string(), entity_question(&entities)));
     }
-    let answers = client.ask(Item::NlqPlan, NLQ_QUESTION_SET, state, qs).await?;
+    let answers = client
+        .ask(Item::NlqPlan, NLQ_QUESTION_SET, state, qs)
+        .await?;
     let mut offered: Vec<&str> = TEMPLATES.iter().map(|t| t.id).collect();
     offered.push(GENERATE);
     let pick = answers.choice("template", &offered)?;
@@ -183,7 +216,10 @@ pub async fn plan_query(client: &JevHub, question: &str) -> Result<QueryTranslat
     if client.accept_outcome(answerable).is_err() {
         return fail(Fallback::LowConfidence);
     }
-    let tpl = TEMPLATES.iter().find(|t| t.id == pick.choice).ok_or(Fallback::Malformed)?;
+    let tpl = TEMPLATES
+        .iter()
+        .find(|t| t.id == pick.choice)
+        .ok_or(Fallback::Malformed)?;
     let slot_value = match tpl.slot {
         Slot::None => String::new(),
         slot => {
@@ -196,8 +232,15 @@ pub async fn plan_query(client: &JevHub, question: &str) -> Result<QueryTranslat
             if e.choice == NO_ENTITY || client.accept_outcome(e.confidence).is_err() {
                 return fail(Fallback::LowConfidence);
             }
-            let ent = entities.iter().find(|c| c.id == e.choice).ok_or(Fallback::Malformed)?;
-            let want = if slot == Slot::ClassIri { "class_iri" } else { "domain" };
+            let ent = entities
+                .iter()
+                .find(|c| c.id == e.choice)
+                .ok_or(Fallback::Malformed)?;
+            let want = if slot == Slot::ClassIri {
+                "class_iri"
+            } else {
+                "domain"
+            };
             if ent.kind != want {
                 return fail(Fallback::LowConfidence);
             }
@@ -237,40 +280,71 @@ mod tests {
     }
     fn client(script: Script, auto: Option<&str>) -> (JevHub, std::sync::Arc<MockTransport>) {
         let t = MockTransport::new(script);
-        let extra: Vec<(&str, &str)> = auto.map(|a| vec![("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", a)]).unwrap_or_default();
+        let extra: Vec<(&str, &str)> = auto
+            .map(|a| vec![("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", a)])
+            .unwrap_or_default();
         (enabled_hub(&extra, t.clone()), t)
     }
 
     #[test]
     fn templates_are_read_only_and_valid() {
         for t in TEMPLATES {
-            let q = (t.build)(match t.slot { Slot::ClassIri => "urn:ngm:class:x", Slot::Domain => "physics", Slot::None => "" });
-            assert!(crate::handlers::ontology_handler::validate_read_only_sparql(&q).is_ok(), "{}", t.id);
+            let q = (t.build)(match t.slot {
+                Slot::ClassIri => "urn:ngm:class:x",
+                Slot::Domain => "physics",
+                Slot::None => "",
+            });
+            assert!(
+                crate::handlers::ontology_handler::validate_read_only_sparql(&q).is_ok(),
+                "{}",
+                t.id
+            );
         }
     }
 
     #[test]
     fn entity_extraction_is_injection_safe() {
-        let e = extract_entities("subclasses of <urn:ngm:class:Physics> and \"physics\" and urn:ngm:class:x> } DROP");
-        assert!(e.iter().any(|c| c.value == "urn:ngm:class:Physics" && c.kind == "class_iri"));
+        let e = extract_entities(
+            "subclasses of <urn:ngm:class:Physics> and \"physics\" and urn:ngm:class:x> } DROP",
+        );
+        assert!(e
+            .iter()
+            .any(|c| c.value == "urn:ngm:class:Physics" && c.kind == "class_iri"));
         assert!(e.iter().any(|c| c.value == "physics" && c.kind == "domain"));
-        assert!(e.iter().all(|c| !c.value.contains('}') && !c.value.contains(' ') || c.kind == "domain"));
-        assert!(extract_entities("\"a\"; DROP GRAPH <x>\" ").iter().all(|c| safe_domain(&c.value) || safe_iri(&c.value)));
+        assert!(e
+            .iter()
+            .all(|c| !c.value.contains('}') && !c.value.contains(' ') || c.kind == "domain"));
+        assert!(extract_entities("\"a\"; DROP GRAPH <x>\" ")
+            .iter()
+            .all(|c| safe_domain(&c.value) || safe_iri(&c.value)));
         assert!(extract_entities("show \"Bad\\\" } value\"").is_empty());
     }
 
     #[tokio::test]
     async fn accept_path_instantiates_and_validates() {
-        let (c, t) = client(Script::Reply(200, body("subclasses_of_class", 0.95, 0.96, Some(("e0", 0.97)))), Some("0.9"));
-        let r = plan_query(&c, "What are the subclasses of urn:ngm:class:Physics?").await.unwrap();
+        let (c, t) = client(
+            Script::Reply(
+                200,
+                body("subclasses_of_class", 0.95, 0.96, Some(("e0", 0.97))),
+            ),
+            Some("0.9"),
+        );
+        let r = plan_query(&c, "What are the subclasses of urn:ngm:class:Physics?")
+            .await
+            .unwrap();
         assert!(r.sparql_query.contains("<urn:ngm:class:Physics>"));
         assert!(r.sparql_query.contains("rdfs:subClassOf"));
         let b = t.last_body().unwrap();
         assert!(b["questions"]["template"]["criteria"].is_object());
-        assert!(b["questions"]["template"]["criteria"].get(GENERATE).is_some());
+        assert!(b["questions"]["template"]["criteria"]
+            .get(GENERATE)
+            .is_some());
         assert!(b["questions"]["entity"]["criteria"].get("none").is_some());
         assert_eq!(b["state"]["entities"][0]["ref"], "e0");
-        let (c, _) = client(Script::Reply(200, body("list_knowledge_nodes", 0.95, 0.96, None)), Some("0.9"));
+        let (c, _) = client(
+            Script::Reply(200, body("list_knowledge_nodes", 0.95, 0.96, None)),
+            Some("0.9"),
+        );
         let r = plan_query(&c, "Show me all nodes").await.unwrap();
         assert!(r.sparql_query.contains("vc:KnowledgeNode"));
     }
@@ -282,28 +356,68 @@ mod tests {
         let off = JevHub::with_transport(|_| None, t.clone());
         assert_eq!(plan_query(&off, q).await.unwrap_err(), Fallback::FlagOff);
         assert_eq!(t.calls(), 0);
-        let (c, _) = client(Script::Reply(200, body("describe_class", 1.0, 1.0, Some(("e0", 1.0)))), None);
-        assert_eq!(plan_query(&c, q).await.unwrap_err(), Fallback::LowConfidence, "default accepts nothing");
+        let (c, _) = client(
+            Script::Reply(200, body("describe_class", 1.0, 1.0, Some(("e0", 1.0)))),
+            None,
+        );
+        assert_eq!(
+            plan_query(&c, q).await.unwrap_err(),
+            Fallback::LowConfidence,
+            "default accepts nothing"
+        );
         let cases: Vec<(Script, Fallback)> = vec![
             (Script::Fail(TransportError::Timeout), Fallback::Timeout),
             (Script::Reply(503, "".into()), Fallback::Http(503)),
             (Script::Reply(200, "junk".into()), Fallback::Malformed),
-            (Script::Reply(200, body("drop_everything", 0.99, 0.99, None)), Fallback::Malformed),
-            (Script::Reply(200, body("describe_class", 0.99, 0.99, Some(("e9", 0.99)))), Fallback::Malformed),
-            (Script::Reply(200, body(GENERATE, 0.99, 0.99, None)), Fallback::LowConfidence),
-            (Script::Reply(200, body("describe_class", 0.5, 0.99, Some(("e0", 0.99)))), Fallback::LowConfidence),
-            (Script::Reply(200, body("describe_class", 0.99, 0.4, Some(("e0", 0.99)))), Fallback::LowConfidence),
-            (Script::Reply(200, body("describe_class", 0.99, 0.99, Some(("none", 0.99)))), Fallback::LowConfidence),
+            (
+                Script::Reply(200, body("drop_everything", 0.99, 0.99, None)),
+                Fallback::Malformed,
+            ),
+            (
+                Script::Reply(200, body("describe_class", 0.99, 0.99, Some(("e9", 0.99)))),
+                Fallback::Malformed,
+            ),
+            (
+                Script::Reply(200, body(GENERATE, 0.99, 0.99, None)),
+                Fallback::LowConfidence,
+            ),
+            (
+                Script::Reply(200, body("describe_class", 0.5, 0.99, Some(("e0", 0.99)))),
+                Fallback::LowConfidence,
+            ),
+            (
+                Script::Reply(200, body("describe_class", 0.99, 0.4, Some(("e0", 0.99)))),
+                Fallback::LowConfidence,
+            ),
+            (
+                Script::Reply(
+                    200,
+                    body("describe_class", 0.99, 0.99, Some(("none", 0.99))),
+                ),
+                Fallback::LowConfidence,
+            ),
         ];
         for (s, want) in cases {
             let (c, _) = client(s, Some("0.9"));
             assert_eq!(plan_query(&c, q).await.unwrap_err(), want);
         }
         // Slot template with no grounded entity falls back.
-        let (c, _) = client(Script::Reply(200, body("describe_class", 0.99, 0.99, None)), Some("0.9"));
-        assert_eq!(plan_query(&c, "describe the thing").await.unwrap_err(), Fallback::LowConfidence);
+        let (c, _) = client(
+            Script::Reply(200, body("describe_class", 0.99, 0.99, None)),
+            Some("0.9"),
+        );
+        assert_eq!(
+            plan_query(&c, "describe the thing").await.unwrap_err(),
+            Fallback::LowConfidence
+        );
         // A domain entity cannot fill a class-IRI slot.
-        let (c, _) = client(Script::Reply(200, body("describe_class", 0.99, 0.99, Some(("e0", 0.99)))), Some("0.9"));
-        assert_eq!(plan_query(&c, "describe \"physics\"").await.unwrap_err(), Fallback::LowConfidence);
+        let (c, _) = client(
+            Script::Reply(200, body("describe_class", 0.99, 0.99, Some(("e0", 0.99)))),
+            Some("0.9"),
+        );
+        assert_eq!(
+            plan_query(&c, "describe \"physics\"").await.unwrap_err(),
+            Fallback::LowConfidence
+        );
     }
 }

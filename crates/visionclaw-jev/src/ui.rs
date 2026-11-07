@@ -36,11 +36,21 @@ pub const MAX_TEXT_CHARS: usize = 500;
 const MAX_FIELD_CHARS: usize = 200;
 
 /// Typed command-bar intents (VC-34-S1-01). Typed IDs, never endpoints.
-pub const INTENTS: [&str; 6] =
-    ["settings_change", "graph_search", "view_save_load", "analytics", "help", "none"];
+pub const INTENTS: [&str; 6] = [
+    "settings_change",
+    "graph_search",
+    "view_save_load",
+    "analytics",
+    "help",
+    "none",
+];
 /// Action classes (VC-06-S1-02).
-pub const ACTION_CLASSES: [&str; 4] =
-    ["persistent_setting", "temporary_physics_action", "saved_view_action", "clarify"];
+pub const ACTION_CLASSES: [&str; 4] = [
+    "persistent_setting",
+    "temporary_physics_action",
+    "saved_view_action",
+    "clarify",
+];
 /// The key offered when no candidate setting fits.
 pub const NO_SETTING: &str = "none";
 
@@ -158,15 +168,32 @@ fn clip(s: &str, max: usize) -> String {
 /// credentials, identity and auth material. Matching is by path segment text.
 pub fn is_protected_path(path: &str) -> bool {
     let p = path.to_ascii_lowercase();
-    ["secret", "token", "password", "passwd", "apikey", "api_key", "credential", "privatekey", "private_key", "nsec", "auth", "nostr", "pubkey", "session"]
-        .iter()
-        .any(|w| p.contains(w))
+    [
+        "secret",
+        "token",
+        "password",
+        "passwd",
+        "apikey",
+        "api_key",
+        "credential",
+        "privatekey",
+        "private_key",
+        "nsec",
+        "auth",
+        "nostr",
+        "pubkey",
+        "session",
+    ]
+    .iter()
+    .any(|w| p.contains(w))
 }
 
 fn valid_path(path: &str) -> bool {
     !path.is_empty()
         && path.len() <= 120
-        && path.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '[' | ']'))
+        && path
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '[' | ']'))
 }
 
 /// Keep only well-formed, non-protected, de-duplicated candidates within the
@@ -230,11 +257,21 @@ fn setting_question(cands: &[SettingCandidate]) -> Question {
                 (Some(a), Some(b)) => format!(" Range {a}..{b}."),
                 _ => String::new(),
             };
-            let desc = if c.description.is_empty() { String::new() } else { format!(" {}", c.description) };
-            (c.path.clone(), format!("{} ({}).{}{}", c.label, c.kind, range, desc))
+            let desc = if c.description.is_empty() {
+                String::new()
+            } else {
+                format!(" {}", c.description)
+            };
+            (
+                c.path.clone(),
+                format!("{} ({}).{}{}", c.label, c.kind, range, desc),
+            )
         })
         .collect();
-    criteria.insert(NO_SETTING.into(), "None of the listed settings is what the user wants to change.".into());
+    criteria.insert(
+        NO_SETTING.into(),
+        "None of the listed settings is what the user wants to change.".into(),
+    );
     Question::Choice {
         instructions: "Which listed setting does `command` ask to change? Choose the one setting the text names or clearly implies. Choose `none` when no listed setting fits, when the text only asks a question, or when it does not ask for a change.".into(),
         criteria,
@@ -269,7 +306,11 @@ pub async fn understand_command(
     if command.is_empty() {
         return Err(Fallback::Malformed);
     }
-    let cands = if want_setting { sanitise_candidates(&req.candidates) } else { Vec::new() };
+    let cands = if want_setting {
+        sanitise_candidates(&req.candidates)
+    } else {
+        Vec::new()
+    };
     let want_setting = want_setting && !cands.is_empty();
 
     let mut qs: Vec<(String, Question)> = Vec::new();
@@ -287,7 +328,12 @@ pub async fn understand_command(
         return Err(Fallback::FlagOff);
     }
     let answers = client
-        .ask(lead, COMMAND_QUESTION_SET, json!({ "command": command }), qs)
+        .ask(
+            lead,
+            COMMAND_QUESTION_SET,
+            json!({ "command": command }),
+            qs,
+        )
         .await?;
 
     let mut out = CommandUnderstanding::default();
@@ -296,7 +342,10 @@ pub async fn understand_command(
     if want_intent {
         if let Ok(c) = answers.choice("intent", &INTENTS) {
             if c.choice != "none" && suggest(&c) {
-                out.intent = Some(Suggestion { id: c.choice, confidence: c.confidence });
+                out.intent = Some(Suggestion {
+                    id: c.choice,
+                    confidence: c.confidence,
+                });
                 any = true;
             }
         }
@@ -304,7 +353,10 @@ pub async fn understand_command(
     if want_class {
         if let Ok(c) = answers.choice("action_class", &ACTION_CLASSES) {
             if suggest(&c) {
-                out.action_class = Some(Suggestion { id: c.choice, confidence: c.confidence });
+                out.action_class = Some(Suggestion {
+                    id: c.choice,
+                    confidence: c.confidence,
+                });
                 any = true;
             }
         }
@@ -314,7 +366,10 @@ pub async fn understand_command(
         offered.push(NO_SETTING);
         if let Ok(c) = answers.choice("setting", &offered) {
             if c.choice != NO_SETTING && suggest(&c) {
-                out.setting = Some(Suggestion { id: c.choice, confidence: c.confidence });
+                out.setting = Some(Suggestion {
+                    id: c.choice,
+                    confidence: c.confidence,
+                });
                 out.value_missing = answers.noul("value_missing").ok();
                 any = true;
             }
@@ -372,23 +427,40 @@ pub async fn rank_palette(
     qs.push((
         "any".into(),
         Question::Noul {
-            instructions: "At least one command listed in `commands` accomplishes what `query` asks for.".into(),
+            instructions:
+                "At least one command listed in `commands` accomplishes what `query` asks for."
+                    .into(),
         },
     ));
-    let answers = client.ask(Item::PaletteSearch, PALETTE_QUESTION_SET, state, qs).await?;
+    let answers = client
+        .ask(Item::PaletteSearch, PALETTE_QUESTION_SET, state, qs)
+        .await?;
     let any = answers.noul("any")?;
     let mut ranked = Vec::new();
     for (i, e) in entries.iter().enumerate() {
         let s = answers.score(&format!("c{i}"), 3)?;
         if client.accept_suggestion(s.confidence).is_ok() && s.score >= 1.5 {
-            ranked.push(RankedCommand { id: e.id.clone(), score: s.score });
+            ranked.push(RankedCommand {
+                id: e.id.clone(),
+                score: s.score,
+            });
         }
     }
     if any < 0.5 || ranked.is_empty() {
-        return Ok(PaletteRanking { ranked: Vec::new(), no_match: true });
+        return Ok(PaletteRanking {
+            ranked: Vec::new(),
+            no_match: true,
+        });
     }
-    ranked.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
-    Ok(PaletteRanking { ranked, no_match: false })
+    ranked.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Ok(PaletteRanking {
+        ranked,
+        no_match: false,
+    })
 }
 
 #[cfg(test)]
@@ -401,14 +473,39 @@ mod tests {
 
     fn cands() -> Vec<SettingCandidate> {
         vec![
-            SettingCandidate { path: "visualisation.graphs.knowledge.physics.repelK".into(), label: "Repulsion".into(), kind: "slider".into(), min: Some(0.0), max: Some(1000.0), current: Some(json!(100)), description: "Node repulsion force".into() },
-            SettingCandidate { path: "visualisation.nodes.size".into(), label: "Node size".into(), kind: "slider".into(), min: Some(0.1), max: Some(10.0), current: Some(json!(1)), description: "".into() },
-            SettingCandidate { path: "auth.nostr.privateKey".into(), label: "Key".into(), kind: "text".into(), min: None, max: None, current: None, description: "".into() },
+            SettingCandidate {
+                path: "visualisation.graphs.knowledge.physics.repelK".into(),
+                label: "Repulsion".into(),
+                kind: "slider".into(),
+                min: Some(0.0),
+                max: Some(1000.0),
+                current: Some(json!(100)),
+                description: "Node repulsion force".into(),
+            },
+            SettingCandidate {
+                path: "visualisation.nodes.size".into(),
+                label: "Node size".into(),
+                kind: "slider".into(),
+                min: Some(0.1),
+                max: Some(10.0),
+                current: Some(json!(1)),
+                description: "".into(),
+            },
+            SettingCandidate {
+                path: "auth.nostr.privateKey".into(),
+                label: "Key".into(),
+                kind: "text".into(),
+                min: None,
+                max: None,
+                current: None,
+                description: "".into(),
+            },
         ]
     }
 
     fn resp(items: Value) -> String {
-        json!({"model":"m","answers":items,"usage":{"input_tokens":1,"output_tokens":1}}).to_string()
+        json!({"model":"m","answers":items,"usage":{"input_tokens":1,"output_tokens":1}})
+            .to_string()
     }
     fn ch(c: &str, conf: f64) -> Value {
         json!({"type":"choice","choice":c,"confidence":conf,"probabilities":{c:1.0}})
@@ -420,7 +517,10 @@ mod tests {
     }
 
     fn req() -> CommandRequest {
-        CommandRequest { command: "make the nodes bigger".into(), candidates: cands() }
+        CommandRequest {
+            command: "make the nodes bigger".into(),
+            candidates: cands(),
+        }
     }
 
     #[test]
@@ -428,18 +528,27 @@ mod tests {
         let s = sanitise_candidates(&cands());
         assert_eq!(s.len(), 2);
         assert!(s.iter().all(|c| !c.path.contains("auth")));
-        let bad = vec![SettingCandidate { path: "a b".into(), ..cands()[0].clone() }];
+        let bad = vec![SettingCandidate {
+            path: "a b".into(),
+            ..cands()[0].clone()
+        }];
         assert!(sanitise_candidates(&bad).is_empty());
     }
 
     #[tokio::test]
     async fn wire_shape_fan_out() {
-        let (c, t) = client(Script::Reply(200, resp(json!({
-            "intent": ch("settings_change", 0.9),
-            "action_class": ch("persistent_setting", 0.9),
-            "setting": ch("visualisation.nodes.size", 0.8),
-            "value_missing": {"type":"noul","noul":0.1}
-        }))), &[]);
+        let (c, t) = client(
+            Script::Reply(
+                200,
+                resp(json!({
+                    "intent": ch("settings_change", 0.9),
+                    "action_class": ch("persistent_setting", 0.9),
+                    "setting": ch("visualisation.nodes.size", 0.8),
+                    "value_missing": {"type":"noul","noul":0.1}
+                })),
+            ),
+            &[],
+        );
         let u = understand_command(&c, &req()).await.unwrap();
         let body = t.last_body().unwrap();
         let qs = &body["questions"];
@@ -449,7 +558,9 @@ mod tests {
         assert_eq!(qs["value_missing"]["type"], "noul");
         // `none` is offered, protected path is not.
         assert!(qs["setting"]["criteria"].get("none").is_some());
-        assert!(qs["setting"]["criteria"].get("auth.nostr.privateKey").is_none());
+        assert!(qs["setting"]["criteria"]
+            .get("auth.nostr.privateKey")
+            .is_none());
         assert!(qs["intent"]["criteria"].get("none").is_some());
         assert_eq!(body["state"]["command"], "make the nodes bigger");
         // Accept path.
@@ -463,7 +574,10 @@ mod tests {
     async fn only_enabled_items_are_asked() {
         let (c, t) = client(
             Script::Reply(200, resp(json!({"intent": ch("help", 0.9)}))),
-            &[("VISIONCLAW_JEV_ACTION_CLASS", "0"), ("VISIONCLAW_JEV_SETTINGS_PATCH", "0")],
+            &[
+                ("VISIONCLAW_JEV_ACTION_CLASS", "0"),
+                ("VISIONCLAW_JEV_SETTINGS_PATCH", "0"),
+            ],
         );
         let u = understand_command(&c, &req()).await.unwrap();
         let body = t.last_body().unwrap();
@@ -475,25 +589,47 @@ mod tests {
 
     #[tokio::test]
     async fn command_fallbacks_are_all_errors() {
-        let ok = resp(json!({"intent": ch("help", 0.9), "action_class": ch("clarify", 0.9), "setting": ch("none", 0.9), "value_missing": {"type":"noul","noul":0.5}}));
+        let ok = resp(
+            json!({"intent": ch("help", 0.9), "action_class": ch("clarify", 0.9), "setting": ch("none", 0.9), "value_missing": {"type":"noul","noul":0.5}}),
+        );
         // flag off: nothing sent
         let t = MockTransport::new(Script::Reply(200, ok.clone()));
         let off = JevHub::with_transport(|_| None, t.clone());
-        assert_eq!(understand_command(&off, &req()).await.unwrap_err(), Fallback::FlagOff);
+        assert_eq!(
+            understand_command(&off, &req()).await.unwrap_err(),
+            Fallback::FlagOff
+        );
         assert_eq!(t.calls(), 0);
         // no endpoint
         let t = MockTransport::new(Script::Reply(200, ok.clone()));
-        let c = JevHub::with_transport(|k| (k == "VISIONCLAW_JEV").then(|| "1".to_string()), t.clone());
-        assert_eq!(understand_command(&c, &req()).await.unwrap_err(), Fallback::NoEndpoint);
+        let c = JevHub::with_transport(
+            |k| (k == "VISIONCLAW_JEV").then(|| "1".to_string()),
+            t.clone(),
+        );
+        assert_eq!(
+            understand_command(&c, &req()).await.unwrap_err(),
+            Fallback::NoEndpoint
+        );
         assert_eq!(t.calls(), 0);
         for (script, want) in [
             (Script::Fail(TransportError::Timeout), Fallback::Timeout),
             (Script::Reply(503, "{}".into()), Fallback::Http(503)),
             (Script::Reply(200, "nope".into()), Fallback::Malformed),
             // foreign choice keys parse as malformed per question → nothing usable
-            (Script::Reply(200, resp(json!({"intent": ch("rm_rf", 0.99)}))), Fallback::LowConfidence),
+            (
+                Script::Reply(200, resp(json!({"intent": ch("rm_rf", 0.99)}))),
+                Fallback::LowConfidence,
+            ),
             // low confidence everywhere
-            (Script::Reply(200, resp(json!({"intent": ch("help", 0.1), "action_class": ch("persistent_setting", 0.2), "setting": ch("visualisation.nodes.size", 0.3), "value_missing": {"type":"noul","noul":0.5}}))), Fallback::LowConfidence),
+            (
+                Script::Reply(
+                    200,
+                    resp(
+                        json!({"intent": ch("help", 0.1), "action_class": ch("persistent_setting", 0.2), "setting": ch("visualisation.nodes.size", 0.3), "value_missing": {"type":"noul","noul":0.5}}),
+                    ),
+                ),
+                Fallback::LowConfidence,
+            ),
         ] {
             let (c, _) = client(script, &[]);
             assert_eq!(understand_command(&c, &req()).await.unwrap_err(), want);
@@ -502,7 +638,15 @@ mod tests {
 
     #[tokio::test]
     async fn none_choices_are_not_suggestions() {
-        let (c, _) = client(Script::Reply(200, resp(json!({"intent": ch("none", 0.99), "action_class": ch("clarify", 0.9), "setting": ch("none", 0.99), "value_missing": {"type":"noul","noul":0.5}}))), &[]);
+        let (c, _) = client(
+            Script::Reply(
+                200,
+                resp(
+                    json!({"intent": ch("none", 0.99), "action_class": ch("clarify", 0.9), "setting": ch("none", 0.99), "value_missing": {"type":"noul","noul":0.5}}),
+                ),
+            ),
+            &[],
+        );
         let u = understand_command(&c, &req()).await.unwrap();
         assert!(u.intent.is_none() && u.setting.is_none());
         assert_eq!(u.action_class.unwrap().id, "clarify");
@@ -512,31 +656,63 @@ mod tests {
         PaletteRequest {
             query: "undo my last change".into(),
             commands: vec![
-                PaletteEntry { id: "settings.undo".into(), title: "Undo".into(), description: "Revert settings".into(), category: "settings".into() },
-                PaletteEntry { id: "view.theme.toggle".into(), title: "Toggle theme".into(), description: "".into(), category: "view".into() },
+                PaletteEntry {
+                    id: "settings.undo".into(),
+                    title: "Undo".into(),
+                    description: "Revert settings".into(),
+                    category: "settings".into(),
+                },
+                PaletteEntry {
+                    id: "view.theme.toggle".into(),
+                    title: "Toggle theme".into(),
+                    description: "".into(),
+                    category: "view".into(),
+                },
             ],
         }
     }
-    fn sc(s: f64, c: f64) -> Value { json!({"type":"score","score":s,"confidence":c,"legend":{}}) }
+    fn sc(s: f64, c: f64) -> Value {
+        json!({"type":"score","score":s,"confidence":c,"legend":{}})
+    }
 
     #[tokio::test]
     async fn palette_wire_and_accept() {
-        let (c, t) = client(Script::Reply(200, resp(json!({
-            "c0": sc(1.9, 0.9), "c1": sc(0.2, 0.9), "any": {"type":"noul","noul":0.95}
-        }))), &[]);
+        let (c, t) = client(
+            Script::Reply(
+                200,
+                resp(json!({
+                    "c0": sc(1.9, 0.9), "c1": sc(0.2, 0.9), "any": {"type":"noul","noul":0.95}
+                })),
+            ),
+            &[],
+        );
         let r = rank_palette(&c, &pal()).await.unwrap();
         assert_eq!(r.ranked.len(), 1);
         assert_eq!(r.ranked[0].id, "settings.undo");
         let body = t.last_body().unwrap();
         assert!(body["questions"]["c0"]["criteria"].is_array());
-        assert_eq!(body["questions"]["c0"]["criteria"].as_array().unwrap().len(), 3);
+        assert_eq!(
+            body["questions"]["c0"]["criteria"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
         assert_eq!(body["questions"]["any"]["type"], "noul");
         assert_eq!(body["state"]["commands"][0]["ref"], "c0");
     }
 
     #[tokio::test]
     async fn palette_no_match_and_fallbacks() {
-        let (c, _) = client(Script::Reply(200, resp(json!({"c0": sc(1.9, 0.9), "c1": sc(1.9, 0.9), "any": {"type":"noul","noul":0.05}}))), &[]);
+        let (c, _) = client(
+            Script::Reply(
+                200,
+                resp(
+                    json!({"c0": sc(1.9, 0.9), "c1": sc(1.9, 0.9), "any": {"type":"noul","noul":0.05}}),
+                ),
+            ),
+            &[],
+        );
         let r = rank_palette(&c, &pal()).await.unwrap();
         assert!(r.no_match && r.ranked.is_empty());
         for (script, want) in [
@@ -544,20 +720,39 @@ mod tests {
             (Script::Reply(429, "{}".into()), Fallback::Http(429)),
             (Script::Reply(200, "x".into()), Fallback::Malformed),
             // out-of-range score is malformed
-            (Script::Reply(200, resp(json!({"c0": sc(5.0, 0.9), "c1": sc(0.0, 0.9), "any": {"type":"noul","noul":0.9}}))), Fallback::Malformed),
+            (
+                Script::Reply(
+                    200,
+                    resp(
+                        json!({"c0": sc(5.0, 0.9), "c1": sc(0.0, 0.9), "any": {"type":"noul","noul":0.9}}),
+                    ),
+                ),
+                Fallback::Malformed,
+            ),
         ] {
             let (c, _) = client(script, &[]);
             assert_eq!(rank_palette(&c, &pal()).await.unwrap_err(), want);
         }
         let t = MockTransport::new(Script::Reply(200, "{}".into()));
         let off = JevHub::with_transport(|_| None, t.clone());
-        assert_eq!(rank_palette(&off, &pal()).await.unwrap_err(), Fallback::FlagOff);
+        assert_eq!(
+            rank_palette(&off, &pal()).await.unwrap_err(),
+            Fallback::FlagOff
+        );
         assert_eq!(t.calls(), 0);
     }
 
     #[tokio::test]
     async fn palette_low_confidence_scores_are_dropped() {
-        let (c, _) = client(Script::Reply(200, resp(json!({"c0": sc(1.9, 0.1), "c1": sc(1.9, 0.1), "any": {"type":"noul","noul":0.9}}))), &[]);
+        let (c, _) = client(
+            Script::Reply(
+                200,
+                resp(
+                    json!({"c0": sc(1.9, 0.1), "c1": sc(1.9, 0.1), "any": {"type":"noul","noul":0.9}}),
+                ),
+            ),
+            &[],
+        );
         let r = rank_palette(&c, &pal()).await.unwrap();
         assert!(r.ranked.is_empty() && r.no_match);
     }

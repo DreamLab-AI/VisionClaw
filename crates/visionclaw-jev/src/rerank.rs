@@ -51,7 +51,10 @@ pub struct Params {
 
 impl Default for Params {
     fn default() -> Self {
-        Self { max_candidates: 10, min_confidence: 0.2 }
+        Self {
+            max_candidates: 10,
+            min_confidence: 0.2,
+        }
     }
 }
 
@@ -61,8 +64,17 @@ impl Params {
     pub fn from_lookup(lookup: &dyn Fn(&str) -> Option<String>) -> Self {
         let d = Self::default();
         Self {
-            max_candidates: crate::config::count(lookup, "VISIONCLAW_JEV_RERANK_MAX", d.max_candidates, 20),
-            min_confidence: crate::config::threshold(lookup, "VISIONCLAW_JEV_RERANK_MIN_CONFIDENCE", d.min_confidence),
+            max_candidates: crate::config::count(
+                lookup,
+                "VISIONCLAW_JEV_RERANK_MAX",
+                d.max_candidates,
+                20,
+            ),
+            min_confidence: crate::config::threshold(
+                lookup,
+                "VISIONCLAW_JEV_RERANK_MIN_CONFIDENCE",
+                d.min_confidence,
+            ),
         }
     }
 }
@@ -95,7 +107,9 @@ pub fn build_request(model: &str, query: &str, cands: &[Candidate]) -> Request {
     let state_cands: Vec<_> = cands
         .iter()
         .enumerate()
-        .map(|(i, c)| json!({"id": format!("m{i}"), "namespace": c.namespace, "snippet": c.snippet}))
+        .map(
+            |(i, c)| json!({"id": format!("m{i}"), "namespace": c.namespace, "snippet": c.snippet}),
+        )
         .collect();
     let mut questions = BTreeMap::new();
     for i in 0..cands.len() {
@@ -124,7 +138,11 @@ pub fn build_request(model: &str, query: &str, cands: &[Candidate]) -> Request {
             instructions: "None of the candidates in `candidates` contains enough information to answer `query`.".into(),
         },
     );
-    Request { model: model.into(), state: json!({"query": query, "candidates": state_cands}), questions }
+    Request {
+        model: model.into(),
+        state: json!({"query": query, "candidates": state_cands}),
+        questions,
+    }
 }
 
 /// Interpret answers for `n` candidates.
@@ -162,7 +180,11 @@ pub fn interpret(answers: &Answers, n: usize, params: &Params) -> Result<Reranke
     for (slot, cand) in slots.into_iter().zip(ranked) {
         order[slot] = cand;
     }
-    Ok(Reranked { order, no_candidate_suffices: none, judged })
+    Ok(Reranked {
+        order,
+        no_candidate_suffices: none,
+        judged,
+    })
 }
 
 /// Ask Jev and interpret.
@@ -170,7 +192,12 @@ pub fn interpret(answers: &Answers, n: usize, params: &Params) -> Result<Reranke
 /// # Errors
 ///
 /// Any [`Fallback`].
-pub async fn rerank(jev: &Jev, query: &str, cands: &[Candidate], params: &Params) -> Result<Reranked, Fallback> {
+pub async fn rerank(
+    jev: &Jev,
+    query: &str,
+    cands: &[Candidate],
+    params: &Params,
+) -> Result<Reranked, Fallback> {
     if cands.is_empty() || query.trim().is_empty() {
         return Err(Fallback::Malformed);
     }
@@ -212,8 +239,18 @@ pub async fn rerank_or_original<T>(
                 perm[eligible[local_pos].0] = eligible[local_src].0;
             }
             let mut slots: Vec<Option<T>> = items.into_iter().map(Some).collect();
-            let out = perm.into_iter().map(|src| slots[src].take().expect("permutation")).collect();
-            (out, Some(Note { no_candidate_suffices: r.no_candidate_suffices, judged: r.judged, question_set: QSET_VERSION }))
+            let out = perm
+                .into_iter()
+                .map(|src| slots[src].take().expect("permutation"))
+                .collect();
+            (
+                out,
+                Some(Note {
+                    no_candidate_suffices: r.no_candidate_suffices,
+                    judged: r.judged,
+                    question_set: QSET_VERSION,
+                }),
+            )
         }
         Err(reason) => {
             crate::log_fallback(jev.item(), QSET_VERSION, &reason);
@@ -231,7 +268,12 @@ mod tests {
     use crate::wire::mock;
 
     fn cands(n: usize) -> Vec<Candidate> {
-        (0..n).map(|i| Candidate { namespace: "ns".into(), snippet: format!("snippet {i}") }).collect()
+        (0..n)
+            .map(|i| Candidate {
+                namespace: "ns".into(),
+                snippet: format!("snippet {i}"),
+            })
+            .collect()
     }
 
     fn body_for(scores: &[(f64, f64, f64)], none: f64) -> String {
@@ -251,19 +293,43 @@ mod tests {
         let v = serde_json::to_value(&r).unwrap();
         assert_eq!(v["questions"].as_object().unwrap().len(), 5);
         assert!(v["questions"]["rel_0"]["criteria"].is_array());
-        assert_eq!(v["questions"]["rel_1"]["criteria"].as_array().unwrap().len(), 3);
+        assert_eq!(
+            v["questions"]["rel_1"]["criteria"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
         assert_eq!(v["questions"]["none"]["type"], "noul");
         assert_eq!(v["state"]["candidates"][1]["id"], "m1");
-        assert!(v["questions"]["rel_1"]["instructions"].as_str().unwrap().contains("\"m1\""));
+        assert!(v["questions"]["rel_1"]["instructions"]
+            .as_str()
+            .unwrap()
+            .contains("\"m1\""));
     }
 
     #[tokio::test]
     async fn accept_path_moves_the_best_candidate_to_the_front() {
         // candidate 2 is directly answering, 0 unrelated, 1 related
-        let t = MockTransport::new(Script::Reply(200, body_for(&[(0.1, 0.9, 0.05), (1.0, 0.9, 0.3), (2.0, 0.9, 0.95)], 0.1)));
+        let t = MockTransport::new(Script::Reply(
+            200,
+            body_for(&[(0.1, 0.9, 0.05), (1.0, 0.9, 0.3), (2.0, 0.9, 0.95)], 0.1),
+        ));
         let j = jev(Item::MemoryRerank, t);
         let items = vec!["a", "b", "c"];
-        let (out, note) = rerank_or_original(Some(&j), "q", items, |s| Some(Candidate { namespace: "n".into(), snippet: s.to_string() }), &Params::default()).await;
+        let (out, note) = rerank_or_original(
+            Some(&j),
+            "q",
+            items,
+            |s| {
+                Some(Candidate {
+                    namespace: "n".into(),
+                    snippet: s.to_string(),
+                })
+            },
+            &Params::default(),
+        )
+        .await;
         assert_eq!(out, vec!["c", "b", "a"]);
         let note = note.unwrap();
         assert_eq!(note.judged, 3);
@@ -273,39 +339,82 @@ mod tests {
     #[tokio::test]
     async fn unjudged_candidates_keep_their_slot() {
         // b has low confidence: stays at index 1; a and c swap.
-        let t = MockTransport::new(Script::Reply(200, body_for(&[(0.0, 0.9, 0.0), (2.0, 0.01, 1.0), (2.0, 0.9, 1.0)], 0.0)));
+        let t = MockTransport::new(Script::Reply(
+            200,
+            body_for(&[(0.0, 0.9, 0.0), (2.0, 0.01, 1.0), (2.0, 0.9, 1.0)], 0.0),
+        ));
         let j = jev(Item::MemoryRerank, t);
-        let (out, _) = rerank_or_original(Some(&j), "q", vec!["a", "b", "c"], |s| Some(Candidate { namespace: "n".into(), snippet: s.to_string() }), &Params::default()).await;
+        let (out, _) = rerank_or_original(
+            Some(&j),
+            "q",
+            vec!["a", "b", "c"],
+            |s| {
+                Some(Candidate {
+                    namespace: "n".into(),
+                    snippet: s.to_string(),
+                })
+            },
+            &Params::default(),
+        )
+        .await;
         assert_eq!(out, vec!["c", "b", "a"]);
     }
 
     #[tokio::test]
     async fn ineligible_items_are_never_sent_and_keep_their_place() {
-        let t = MockTransport::new(Script::Reply(200, body_for(&[(0.0, 0.9, 0.0), (2.0, 0.9, 1.0)], 0.0)));
+        let t = MockTransport::new(Script::Reply(
+            200,
+            body_for(&[(0.0, 0.9, 0.0), (2.0, 0.9, 1.0)], 0.0),
+        ));
         let j = jev(Item::MemoryRerank, t.clone());
         let items = vec![("secret", "personal-context"), ("x", "ok"), ("y", "ok")];
         let (out, _) = rerank_or_original(
             Some(&j),
             "q",
             items,
-            |(s, ns)| (*ns != "personal-context").then(|| Candidate { namespace: ns.to_string(), snippet: s.to_string() }),
+            |(s, ns)| {
+                (*ns != "personal-context").then(|| Candidate {
+                    namespace: ns.to_string(),
+                    snippet: s.to_string(),
+                })
+            },
             &Params::default(),
         )
         .await;
-        assert_eq!(out.iter().map(|x| x.0).collect::<Vec<_>>(), vec!["secret", "y", "x"]);
+        assert_eq!(
+            out.iter().map(|x| x.0).collect::<Vec<_>>(),
+            vec!["secret", "y", "x"]
+        );
         let sent = serde_json::to_string(&t.seen.lock().unwrap()[0]).unwrap();
-        assert!(!sent.contains("secret"), "excluded content must not be sent");
+        assert!(
+            !sent.contains("secret"),
+            "excluded content must not be sent"
+        );
     }
 
     #[tokio::test]
     async fn every_fallback_returns_the_original_order() {
         let original = vec!["a", "b", "c", "d"];
-        let cand = |s: &&str| Some(Candidate { namespace: "n".into(), snippet: s.to_string() });
+        let cand = |s: &&str| {
+            Some(Candidate {
+                namespace: "n".into(),
+                snippet: s.to_string(),
+            })
+        };
         // no client at all (flag off / no endpoint)
-        let (out, note) = rerank_or_original(None, "q", original.clone(), cand, &Params::default()).await;
+        let (out, note) =
+            rerank_or_original(None, "q", original.clone(), cand, &Params::default()).await;
         assert_eq!((out, note), (original.clone(), None));
 
-        let all_low = body_for(&[(2.0, 0.0, 1.0), (1.0, 0.0, 1.0), (0.0, 0.0, 0.0), (2.0, 0.0, 1.0)], 0.5);
+        let all_low = body_for(
+            &[
+                (2.0, 0.0, 1.0),
+                (1.0, 0.0, 1.0),
+                (0.0, 0.0, 0.0),
+                (2.0, 0.0, 1.0),
+            ],
+            0.5,
+        );
         let missing_none = {
             let mut a = vec![];
             for i in 0..4 {
@@ -326,7 +435,8 @@ mod tests {
         ];
         for s in scripts {
             let j = jev(Item::MemoryRerank, MockTransport::new(s));
-            let (out, note) = rerank_or_original(Some(&j), "q", original.clone(), cand, &Params::default()).await;
+            let (out, note) =
+                rerank_or_original(Some(&j), "q", original.clone(), cand, &Params::default()).await;
             assert_eq!(out, original);
             assert!(note.is_none());
         }
@@ -334,11 +444,35 @@ mod tests {
 
     #[tokio::test]
     async fn only_the_leading_max_candidates_are_judged() {
-        let t = MockTransport::new(Script::Reply(200, body_for(&[(0.0, 0.9, 0.0), (2.0, 0.9, 1.0)], 0.0)));
+        let t = MockTransport::new(Script::Reply(
+            200,
+            body_for(&[(0.0, 0.9, 0.0), (2.0, 0.9, 1.0)], 0.0),
+        ));
         let j = jev(Item::MemoryRerank, t.clone());
-        let p = Params { max_candidates: 2, ..Params::default() };
-        let (out, _) = rerank_or_original(Some(&j), "q", vec!["a", "b", "c", "d"], |s| Some(Candidate { namespace: "n".into(), snippet: s.to_string() }), &p).await;
+        let p = Params {
+            max_candidates: 2,
+            ..Params::default()
+        };
+        let (out, _) = rerank_or_original(
+            Some(&j),
+            "q",
+            vec!["a", "b", "c", "d"],
+            |s| {
+                Some(Candidate {
+                    namespace: "n".into(),
+                    snippet: s.to_string(),
+                })
+            },
+            &p,
+        )
+        .await;
         assert_eq!(out, vec!["b", "a", "c", "d"]);
-        assert_eq!(t.seen.lock().unwrap()[0]["state"]["candidates"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            t.seen.lock().unwrap()[0]["state"]["candidates"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
     }
 }

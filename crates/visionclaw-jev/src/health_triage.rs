@@ -47,12 +47,30 @@ pub struct RunbookStep {
 
 /// The fixed runbook. Code owns the steps; Jev only ranks their relevance.
 pub const RUNBOOK: [RunbookStep; 6] = [
-    RunbookStep { id: "check-kg-backend", text: "Check the knowledge-graph backend and its watchdog self-poll." },
-    RunbookStep { id: "compare-build-sha", text: "Compare the running build SHA with the canaries' registration SHAs." },
-    RunbookStep { id: "replay-journey", text: "Replay the user journey that the silent canary covers and observe it." },
-    RunbookStep { id: "check-upstreams", text: "Check relay, pod, model and embedder reachability." },
-    RunbookStep { id: "check-sync-logs", text: "Read the corpus sync and reasoning logs for the last run." },
-    RunbookStep { id: "check-canary-registry", text: "Verify the canary registrations and arming are correct." },
+    RunbookStep {
+        id: "check-kg-backend",
+        text: "Check the knowledge-graph backend and its watchdog self-poll.",
+    },
+    RunbookStep {
+        id: "compare-build-sha",
+        text: "Compare the running build SHA with the canaries' registration SHAs.",
+    },
+    RunbookStep {
+        id: "replay-journey",
+        text: "Replay the user journey that the silent canary covers and observe it.",
+    },
+    RunbookStep {
+        id: "check-upstreams",
+        text: "Check relay, pod, model and embedder reachability.",
+    },
+    RunbookStep {
+        id: "check-sync-logs",
+        text: "Read the corpus sync and reasoning logs for the last run.",
+    },
+    RunbookStep {
+        id: "check-canary-registry",
+        text: "Verify the canary registrations and arming are correct.",
+    },
 ];
 
 /// One canary's sanitised facts.
@@ -102,7 +120,10 @@ pub struct Params {
 
 impl Default for Params {
     fn default() -> Self {
-        Self { min_class_confidence: 0.3, min_step_confidence: 0.2 }
+        Self {
+            min_class_confidence: 0.3,
+            min_step_confidence: 0.2,
+        }
     }
 }
 
@@ -112,8 +133,16 @@ impl Params {
     pub fn from_lookup(lookup: &dyn Fn(&str) -> Option<String>) -> Self {
         let d = Self::default();
         Self {
-            min_class_confidence: crate::config::threshold(lookup, "VISIONCLAW_JEV_HEALTH_MIN_CONFIDENCE", d.min_class_confidence),
-            min_step_confidence: crate::config::threshold(lookup, "VISIONCLAW_JEV_HEALTH_MIN_STEP_CONFIDENCE", d.min_step_confidence),
+            min_class_confidence: crate::config::threshold(
+                lookup,
+                "VISIONCLAW_JEV_HEALTH_MIN_CONFIDENCE",
+                d.min_class_confidence,
+            ),
+            min_step_confidence: crate::config::threshold(
+                lookup,
+                "VISIONCLAW_JEV_HEALTH_MIN_STEP_CONFIDENCE",
+                d.min_step_confidence,
+            ),
         }
     }
 }
@@ -188,7 +217,11 @@ pub fn build_request(model: &str, f: &HealthFacts) -> Request {
             },
         );
     }
-    Request { model: model.into(), state, questions }
+    Request {
+        model: model.into(),
+        state,
+        questions,
+    }
 }
 
 /// Interpret the answers.
@@ -204,15 +237,29 @@ pub fn interpret(answers: &Answers, params: &Params) -> Result<Triage, Fallback>
     for step in RUNBOOK {
         let s = answers.score(&format!("step_{}", step.id), 3)?;
         if s.confidence >= params.min_step_confidence {
-            steps.push(RankedStep { id: step.id, text: step.text, relevance: s.score / 2.0 });
+            steps.push(RankedStep {
+                id: step.id,
+                text: step.text,
+                relevance: s.score / 2.0,
+            });
         }
     }
     if class.confidence < params.min_class_confidence {
         return Err(Fallback::LowConfidence);
     }
     // Stable: ties keep runbook order.
-    steps.sort_by(|a, b| b.relevance.partial_cmp(&a.relevance).unwrap_or(std::cmp::Ordering::Equal));
-    Ok(Triage { class: class.choice, class_confidence: class.confidence, steps, kind: "hypothesis", question_set: QSET_VERSION })
+    steps.sort_by(|a, b| {
+        b.relevance
+            .partial_cmp(&a.relevance)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Ok(Triage {
+        class: class.choice,
+        class_confidence: class.confidence,
+        steps,
+        kind: "hypothesis",
+        question_set: QSET_VERSION,
+    })
 }
 
 /// Triage a degraded state, or return `None`.
@@ -249,18 +296,37 @@ mod tests {
         HealthFacts {
             sha: "abc123".into(),
             kg_backend_up: Some(false),
-            canaries: vec![CanaryFact { id: "c1".into(), description: "journey".into(), kind: "http".into(), armed: true, fired: false, observation_count: 0, sha_at_registration: "old".into() }],
+            canaries: vec![CanaryFact {
+                id: "c1".into(),
+                description: "journey".into(),
+                kind: "http".into(),
+                armed: true,
+                fired: false,
+                observation_count: 0,
+                sha_at_registration: "old".into(),
+            }],
         }
     }
 
     fn healthy() -> HealthFacts {
-        HealthFacts { kg_backend_up: Some(true), canaries: vec![CanaryFact { armed: true, fired: true, ..Default::default() }], ..Default::default() }
+        HealthFacts {
+            kg_backend_up: Some(true),
+            canaries: vec![CanaryFact {
+                armed: true,
+                fired: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
     }
 
     fn body(class: &str, conf: f64, step_conf: f64) -> String {
         let mut a = vec![("class".to_string(), mock::choice(class, conf))];
         for (i, s) in RUNBOOK.iter().enumerate() {
-            a.push((format!("step_{}", s.id), mock::score(if i == 2 { 2.0 } else { 0.0 }, step_conf)));
+            a.push((
+                format!("step_{}", s.id),
+                mock::score(if i == 2 { 2.0 } else { 0.0 }, step_conf),
+            ));
         }
         mock::body(a)
     }
@@ -271,7 +337,13 @@ mod tests {
         r.validate().unwrap();
         let v = serde_json::to_value(&r).unwrap();
         assert!(v["questions"]["class"]["criteria"].is_object());
-        assert_eq!(v["questions"]["class"]["criteria"].as_object().unwrap().len(), FAULT_CLASSES.len());
+        assert_eq!(
+            v["questions"]["class"]["criteria"]
+                .as_object()
+                .unwrap()
+                .len(),
+            FAULT_CLASSES.len()
+        );
         assert_eq!(v["questions"].as_object().unwrap().len(), 1 + RUNBOOK.len());
         assert!(v["questions"]["step_replay-journey"]["criteria"].is_array());
         assert_eq!(v["state"]["kg_backend_up"], false);
@@ -282,13 +354,21 @@ mod tests {
         assert!(is_degraded(&degraded()));
         assert!(!is_degraded(&healthy()));
         assert!(!is_degraded(&HealthFacts::default()));
-        assert!(is_degraded(&HealthFacts { kg_backend_up: Some(false), ..Default::default() }));
+        assert!(is_degraded(&HealthFacts {
+            kg_backend_up: Some(false),
+            ..Default::default()
+        }));
     }
 
     #[tokio::test]
     async fn accept_path_ranks_steps_and_labels_a_hypothesis() {
-        let j = jev(Item::HealthTriage, MockTransport::new(Script::Reply(200, body("canary-never-fired", 0.9, 0.9))));
-        let t = triage(Some(&j), &degraded(), &Params::default()).await.unwrap();
+        let j = jev(
+            Item::HealthTriage,
+            MockTransport::new(Script::Reply(200, body("canary-never-fired", 0.9, 0.9))),
+        );
+        let t = triage(Some(&j), &degraded(), &Params::default())
+            .await
+            .unwrap();
         assert_eq!(t.class, "canary-never-fired");
         assert_eq!(t.steps[0].id, "replay-journey");
         assert_eq!(t.kind, "hypothesis");
@@ -321,14 +401,22 @@ mod tests {
             Script::Hang,
         ] {
             let j = jev(Item::HealthTriage, MockTransport::new(s));
-            assert_eq!(triage(Some(&j), &degraded(), &Params::default()).await, None);
+            assert_eq!(
+                triage(Some(&j), &degraded(), &Params::default()).await,
+                None
+            );
         }
     }
 
     #[tokio::test]
     async fn low_confidence_steps_are_dropped_not_fabricated() {
-        let j = jev(Item::HealthTriage, MockTransport::new(Script::Reply(200, body("kg-backend-down", 0.9, 0.0))));
-        let t = triage(Some(&j), &degraded(), &Params::default()).await.unwrap();
+        let j = jev(
+            Item::HealthTriage,
+            MockTransport::new(Script::Reply(200, body("kg-backend-down", 0.9, 0.0))),
+        );
+        let t = triage(Some(&j), &degraded(), &Params::default())
+            .await
+            .unwrap();
         assert!(t.steps.is_empty());
     }
 }

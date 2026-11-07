@@ -24,7 +24,10 @@ pub fn facts_of(p: &PatchProposal) -> PatchFacts {
         kind: format!("{:?}", p.kind),
         hypothesis: p.hypothesis.clone(),
         diff: p.diff.clone(),
-        consequences: p.consequences.as_ref().and_then(|c| serde_json::to_string(c).ok()),
+        consequences: p
+            .consequences
+            .as_ref()
+            .and_then(|c| serde_json::to_string(c).ok()),
         blockers: p.blockers.iter().map(ToString::to_string).collect(),
     }
 }
@@ -40,8 +43,10 @@ pub async fn rank(
 }
 
 fn read(path: &Path) -> anyhow::Result<PatchProposal> {
-    let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    serde_json::from_str(&text).with_context(|| format!("{} is not a PatchProposal", path.display()))
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    serde_json::from_str(&text)
+        .with_context(|| format!("{} is not a PatchProposal", path.display()))
 }
 
 /// The `vault rank` entry point.
@@ -57,7 +62,9 @@ pub fn run(files: &[PathBuf], json: bool) -> anyhow::Result<ExitCode> {
         .collect::<anyhow::Result<Vec<_>>>()?;
     let jev = Jev::from_env_logged(Item::PatchRank, patch_rank::QSET_VERSION);
     let params = patch_rank::Params::from_lookup(&|k| std::env::var(k).ok());
-    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
     let (ordered, ann) = rt.block_on(rank(jev.as_ref(), items, &params));
     if json {
         let rows: Vec<_> = ordered
@@ -77,8 +84,16 @@ pub fn run(files: &[PathBuf], json: bool) -> anyhow::Result<ExitCode> {
                     a.priority,
                     path.display(),
                     p.iri,
-                    if a.contradiction_flag { "  [possible contradiction]" } else { "" },
-                    if a.unsupported_flag { "  [unsupported claims]" } else { "" }
+                    if a.contradiction_flag {
+                        "  [possible contradiction]"
+                    } else {
+                        ""
+                    },
+                    if a.unsupported_flag {
+                        "  [unsupported claims]"
+                    } else {
+                        ""
+                    }
                 ),
                 None => println!("  --  {}  {}", path.display(), p.iri),
             }
@@ -114,7 +129,10 @@ mod tests {
     }
 
     fn items() -> Vec<(PathBuf, PatchProposal)> {
-        ["weak", "mid", "strong"].iter().map(|h| (PathBuf::from(format!("{h}.json")), proposal(h))).collect()
+        ["weak", "mid", "strong"]
+            .iter()
+            .map(|h| (PathBuf::from(format!("{h}.json")), proposal(h)))
+            .collect()
     }
 
     fn names(v: &[(PathBuf, PatchProposal)]) -> Vec<String> {
@@ -146,7 +164,10 @@ mod tests {
                 "mid" => 1.0,
                 _ => 3.0,
             };
-            Ok(RawResponse { status: 200, body: body(s, 0.9) })
+            Ok(RawResponse {
+                status: 200,
+                body: body(s, 0.9),
+            })
         });
         let j = test_jev(Item::PatchRank, t);
         let (out, ann) = rank(Some(&j), items(), &patch_rank::Params::default()).await;

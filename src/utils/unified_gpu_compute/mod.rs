@@ -131,8 +131,8 @@
 // Submodules
 mod async_transfer;
 mod clustering;
-mod constraint_index;
 mod community;
+mod constraint_index;
 mod construction;
 mod execution;
 mod hold_overlay;

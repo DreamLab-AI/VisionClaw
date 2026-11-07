@@ -110,7 +110,10 @@ pub struct Jev {
 
 impl std::fmt::Debug for Jev {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Jev").field("item", &self.item).field("resolved", &self.resolved).finish()
+        f.debug_struct("Jev")
+            .field("item", &self.item)
+            .field("resolved", &self.resolved)
+            .finish()
     }
 }
 
@@ -125,7 +128,11 @@ impl Jev {
         let lookup = |k: &str| std::env::var(k).ok();
         // Resolve first: with the flag off nothing is even constructed.
         let resolved = config::resolve(item, &lookup)?;
-        Ok(Self { item, resolved, transport: Arc::new(HttpTransport::new()?) })
+        Ok(Self {
+            item,
+            resolved,
+            transport: Arc::new(HttpTransport::new()?),
+        })
     }
 
     /// Like [`Jev::from_env`] but logs a non-`flag-off` reason once and
@@ -151,7 +158,11 @@ impl Jev {
         lookup: &dyn Fn(&str) -> Option<String>,
         transport: Arc<dyn Transport>,
     ) -> Result<Self, Fallback> {
-        Ok(Self { item, resolved: config::resolve(item, lookup)?, transport })
+        Ok(Self {
+            item,
+            resolved: config::resolve(item, lookup)?,
+            transport,
+        })
     }
 
     /// The item this client serves.
@@ -229,7 +240,11 @@ pub mod testing {
     impl MockTransport {
         /// A mock replaying `script`.
         pub fn new(script: Script) -> Arc<Self> {
-            Arc::new(Self { script, seen: Mutex::new(vec![]), bearers: Mutex::new(vec![]) })
+            Arc::new(Self {
+                script,
+                seen: Mutex::new(vec![]),
+                bearers: Mutex::new(vec![]),
+            })
         }
         /// How many requests were sent.
         pub fn calls(&self) -> usize {
@@ -251,9 +266,15 @@ pub mod testing {
             _timeout: Duration,
         ) -> Result<RawResponse, TransportError> {
             self.seen.lock().unwrap().push(body.clone());
-            self.bearers.lock().unwrap().push(bearer.map(str::to_string));
+            self.bearers
+                .lock()
+                .unwrap()
+                .push(bearer.map(str::to_string));
             match &self.script {
-                Script::Reply(status, body) => Ok(RawResponse { status: *status, body: body.clone() }),
+                Script::Reply(status, body) => Ok(RawResponse {
+                    status: *status,
+                    body: body.clone(),
+                }),
                 Script::Fail(e) => Err(e.clone()),
                 Script::Hang => {
                     tokio::time::sleep(Duration::from_secs(60)).await;
@@ -286,7 +307,13 @@ pub mod testing {
     where
         F: Fn(&Value) -> Result<RawResponse, TransportError> + Send + Sync + 'static,
     {
-        async fn post(&self, _u: &str, _b: Option<&str>, body: &Value, _t: Duration) -> Result<RawResponse, TransportError> {
+        async fn post(
+            &self,
+            _u: &str,
+            _b: Option<&str>,
+            body: &Value,
+            _t: Duration,
+        ) -> Result<RawResponse, TransportError> {
             *self.1.lock().unwrap() += 1;
             (self.0)(body)
         }
@@ -320,13 +347,25 @@ mod tests {
 
     fn req() -> Request {
         let mut qs = BTreeMap::new();
-        qs.insert("n".to_string(), Question::Noul { instructions: "is it?".into() });
-        Request { model: "jev-latest".into(), state: serde_json::json!("s"), questions: qs }
+        qs.insert(
+            "n".to_string(),
+            Question::Noul {
+                instructions: "is it?".into(),
+            },
+        );
+        Request {
+            model: "jev-latest".into(),
+            state: serde_json::json!("s"),
+            questions: qs,
+        }
     }
 
     #[tokio::test]
     async fn happy_path_and_wire_body() {
-        let t = MockTransport::new(Script::Reply(200, mock::body(vec![("n".into(), mock::noul(0.8))])));
+        let t = MockTransport::new(Script::Reply(
+            200,
+            mock::body(vec![("n".into(), mock::noul(0.8))]),
+        ));
         let j = jev(Item::ProposalTriage, t.clone());
         let a = j.ask(&req()).await.unwrap();
         assert_eq!(a.noul("n").unwrap(), 0.8);
@@ -358,7 +397,11 @@ mod tests {
     async fn invalid_request_never_leaves_the_process() {
         let t = MockTransport::new(Script::Reply(200, "{}".into()));
         let j = jev(Item::ProposalTriage, t.clone());
-        let bad = Request { model: "m".into(), state: serde_json::json!("s"), questions: BTreeMap::new() };
+        let bad = Request {
+            model: "m".into(),
+            state: serde_json::json!("s"),
+            questions: BTreeMap::new(),
+        };
         assert_eq!(j.ask(&bad).await.unwrap_err(), Fallback::Malformed);
         assert_eq!(t.calls(), 0);
     }
@@ -367,7 +410,10 @@ mod tests {
     fn flag_off_builds_nothing() {
         let t = MockTransport::new(Script::Reply(200, "{}".into()));
         let none = |_: &str| None;
-        assert_eq!(Jev::from_lookup(Item::MemoryRerank, &none, t.clone()).unwrap_err(), Fallback::FlagOff);
+        assert_eq!(
+            Jev::from_lookup(Item::MemoryRerank, &none, t.clone()).unwrap_err(),
+            Fallback::FlagOff
+        );
         assert_eq!(t.calls(), 0);
     }
 
@@ -381,9 +427,15 @@ mod tests {
             "TYPESAFE_API_KEY" => Some("must-not-be-sent".to_string()),
             _ => None,
         };
-        let t = MockTransport::new(Script::Reply(200, mock::body(vec![("n".into(), mock::noul(0.5))])));
+        let t = MockTransport::new(Script::Reply(
+            200,
+            mock::body(vec![("n".into(), mock::noul(0.5))]),
+        ));
         let j = Jev::from_lookup(Item::HealthTriage, &lookup, t.clone()).unwrap();
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         rt.block_on(j.ask(&req())).unwrap();
         assert_eq!(t.bearers.lock().unwrap()[0], None);
     }
@@ -426,15 +478,30 @@ mod tests {
         assert_eq!(a.noul("n").unwrap(), 0.7);
 
         let e = serve_once("503 Service Unavailable", "{}".into(), 0);
-        assert_eq!(real(Item::ProposalTriage, e).ask(&req()).await.unwrap_err(), Fallback::Http(503));
+        assert_eq!(
+            real(Item::ProposalTriage, e).ask(&req()).await.unwrap_err(),
+            Fallback::Http(503)
+        );
 
         let m = serve_once("200 OK", "<html>".into(), 0);
-        assert_eq!(real(Item::ProposalTriage, m).ask(&req()).await.unwrap_err(), Fallback::Malformed);
+        assert_eq!(
+            real(Item::ProposalTriage, m).ask(&req()).await.unwrap_err(),
+            Fallback::Malformed
+        );
 
         let slow = serve_once("200 OK", "{}".into(), 1_500);
-        assert_eq!(real(Item::ProposalTriage, slow).ask(&req()).await.unwrap_err(), Fallback::Timeout);
+        assert_eq!(
+            real(Item::ProposalTriage, slow)
+                .ask(&req())
+                .await
+                .unwrap_err(),
+            Fallback::Timeout
+        );
 
         // nothing listening
-        assert!(real(Item::ProposalTriage, "http://127.0.0.1:1".into()).ask(&req()).await.is_err());
+        assert!(real(Item::ProposalTriage, "http://127.0.0.1:1".into())
+            .ask(&req())
+            .await
+            .is_err());
     }
 }

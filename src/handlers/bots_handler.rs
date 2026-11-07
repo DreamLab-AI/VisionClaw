@@ -112,7 +112,10 @@ pub async fn update_bots_graph(
     request: web::Json<BotsDataRequest>,
     state: web::Data<AppState>,
 ) -> Result<impl Responder> {
-    info!("Received bots roster update with {} agents", request.nodes.len());
+    info!(
+        "Received bots roster update with {} agents",
+        request.nodes.len()
+    );
 
     state.graph_service_addr.do_send(UpdateBotsGraph {
         source: RosterSource::Rest,
@@ -285,7 +288,6 @@ pub async fn get_bots_agents(state: web::Data<AppState>) -> Result<impl Responde
         }))),
     }
 }
-
 
 pub async fn spawn_agent_hybrid(
     _auth: crate::settings::auth_extractor::AuthenticatedUser,
@@ -810,7 +812,6 @@ pub async fn get_task_status(
 }
 
 // pause_task and resume_task removed - Management API does not support pause/resume
-
 
 #[cfg(test)]
 mod steering_tests {

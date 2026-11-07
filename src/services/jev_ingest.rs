@@ -29,19 +29,29 @@ pub fn page_facts(content: &str, path: &str, vocab: Option<&Vocabulary>) -> Opti
     if page.frontmatter.has("type") {
         return None;
     }
-    let type_candidates: Vec<(String, String)> =
-        vocab.types.iter().map(|(name, def)| (name.clone(), def.owl.clone())).collect();
+    let type_candidates: Vec<(String, String)> = vocab
+        .types
+        .iter()
+        .map(|(name, def)| (name.clone(), def.owl.clone()))
+        .collect();
     if type_candidates.is_empty() {
         return None;
     }
     let mut relations = Vec::new();
     'outer: for key in vocab.relations.keys() {
         for target in page.frontmatter.strings(key) {
-            let target = target.trim().trim_start_matches("[[").trim_end_matches("]]").to_string();
+            let target = target
+                .trim()
+                .trim_start_matches("[[")
+                .trim_end_matches("]]")
+                .to_string();
             if target.is_empty() {
                 continue;
             }
-            relations.push(RelationClaim { key: key.clone(), target });
+            relations.push(RelationClaim {
+                key: key.clone(),
+                target,
+            });
             if relations.len() >= MAX_CLAIMS {
                 break 'outer;
             }
@@ -49,7 +59,13 @@ pub fn page_facts(content: &str, path: &str, vocab: Option<&Vocabulary>) -> Opti
     }
     let excerpt: String = page.body.trim().chars().take(EXCERPT_CHARS).collect();
     let frontmatter = split(content).yaml.unwrap_or("").to_string();
-    Some(PageFacts { path: path.to_string(), excerpt, frontmatter, type_candidates, relations })
+    Some(PageFacts {
+        path: path.to_string(),
+        excerpt,
+        frontmatter,
+        type_candidates,
+        relations,
+    })
 }
 
 #[cfg(test)]
@@ -76,9 +92,18 @@ relations:
         let f = page_facts(md, "working/Foo.md", Some(&vocab())).expect("facts");
         assert_eq!(f.path, "working/Foo.md");
         assert!(f.excerpt.contains("kind of Bar"));
-        assert_eq!(f.type_candidates.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["Class", "Individual"]);
+        assert_eq!(
+            f.type_candidates
+                .iter()
+                .map(|(n, _)| n.as_str())
+                .collect::<Vec<_>>(),
+            ["Class", "Individual"]
+        );
         assert_eq!(f.relations.len(), 1);
-        assert_eq!((f.relations[0].key.as_str(), f.relations[0].target.as_str()), ("is-subclass-of", "Bar"));
+        assert_eq!(
+            (f.relations[0].key.as_str(), f.relations[0].target.as_str()),
+            ("is-subclass-of", "Bar")
+        );
         assert!(f.frontmatter.contains("public: true"));
     }
 
@@ -87,7 +112,12 @@ relations:
         let typed = "---\npublic: true\ntype: Class\n---\nbody\n";
         assert!(page_facts(typed, "knowledge/A.md", Some(&vocab())).is_none());
         assert!(page_facts("---\npublic: true\n---\nbody\n", "working/A.md", None).is_none());
-        assert!(page_facts("---\n: : bad: [\n---\nbody\n", "working/A.md", Some(&vocab())).is_none());
+        assert!(page_facts(
+            "---\n: : bad: [\n---\nbody\n",
+            "working/A.md",
+            Some(&vocab())
+        )
+        .is_none());
     }
 
     #[test]

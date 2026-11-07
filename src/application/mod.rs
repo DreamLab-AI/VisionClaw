@@ -63,9 +63,9 @@ pub use ontology::{
 // Re-export graph domain
 pub use graph::{
     ComputeShortestPaths, ComputeShortestPathsHandler, GetAutoBalanceNotifications,
-    GetAutoBalanceNotificationsHandler, GetConstraints,
-    GetConstraintsHandler, GetEquilibriumStatus, GetEquilibriumStatusHandler, GetGraphData,
-    GetGraphDataHandler, GetNodeMap, GetNodeMapHandler, GetPhysicsState, GetPhysicsStateHandler,
+    GetAutoBalanceNotificationsHandler, GetConstraints, GetConstraintsHandler,
+    GetEquilibriumStatus, GetEquilibriumStatusHandler, GetGraphData, GetGraphDataHandler,
+    GetNodeMap, GetNodeMapHandler, GetPhysicsState, GetPhysicsStateHandler,
 };
 
 // Application services removed - handlers use actors directly via CQRS or direct messaging

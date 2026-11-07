@@ -78,7 +78,11 @@ impl SplatStore {
     /// Verify `dir` against `manifest` in `mode`. Returns the store and every
     /// refusal met on the way; a refused variant is simply not served. A
     /// missing variant file is not a refusal (it has not been admitted yet).
-    pub fn open(manifest: Manifest, dir: impl Into<PathBuf>, mode: CacheMode) -> (Self, Vec<StoreError>) {
+    pub fn open(
+        manifest: Manifest,
+        dir: impl Into<PathBuf>,
+        mode: CacheMode,
+    ) -> (Self, Vec<StoreError>) {
         let dir = dir.into();
         let mut refusals = Vec::new();
         let mut entries = BTreeMap::new();
@@ -156,7 +160,9 @@ impl SplatStore {
         if !is_content_address(address) {
             return None;
         }
-        self.entries.get(address).map(|e| (e.path.as_path(), e.bytes))
+        self.entries
+            .get(address)
+            .map(|e| (e.path.as_path(), e.bytes))
     }
 }
 
@@ -198,10 +204,13 @@ pub fn admit_variant(
         source,
     })?;
     check_header(asset, variant, &header)?;
-    let want = variant.sha256.as_ref().ok_or_else(|| StoreError::Unproduced {
-        asset: asset.id.clone(),
-        variant: vname.clone(),
-    })?;
+    let want = variant
+        .sha256
+        .as_ref()
+        .ok_or_else(|| StoreError::Unproduced {
+            asset: asset.id.clone(),
+            variant: vname.clone(),
+        })?;
     let got = sha256_hex(bytes);
     if &got != want {
         return Err(StoreError::HashMismatch {
@@ -310,7 +319,13 @@ mod tests {
         // A valid SPZ whose header matches, but not the file the manifest names.
         m.assets[0].variants[0].sha256 = Some("0".repeat(64));
         assert!(matches!(
-            admit_variant(&m.assets[0], &m.assets[0].variants[0], &bytes, dir.path(), CacheMode::Public),
+            admit_variant(
+                &m.assets[0],
+                &m.assets[0].variants[0],
+                &bytes,
+                dir.path(),
+                CacheMode::Public
+            ),
             Err(StoreError::HashMismatch { .. })
         ));
         // Nothing is written on a refusal.
@@ -323,8 +338,17 @@ mod tests {
         let bytes = spz_bytes(5);
         let m = manifest_for(&bytes, 6);
         assert!(matches!(
-            admit_variant(&m.assets[0], &m.assets[0].variants[0], &bytes, dir.path(), CacheMode::Public),
-            Err(StoreError::Header { field: "splat count", .. })
+            admit_variant(
+                &m.assets[0],
+                &m.assets[0].variants[0],
+                &bytes,
+                dir.path(),
+                CacheMode::Public
+            ),
+            Err(StoreError::Header {
+                field: "splat count",
+                ..
+            })
         ));
     }
 
@@ -335,7 +359,13 @@ mod tests {
         let mut m = manifest_for(&bytes, 5);
         m.assets[0].licence.spdx = "CC-BY-NC-4.0".into();
         assert!(matches!(
-            admit_variant(&m.assets[0], &m.assets[0].variants[0], &bytes, dir.path(), CacheMode::Public),
+            admit_variant(
+                &m.assets[0],
+                &m.assets[0].variants[0],
+                &bytes,
+                dir.path(),
+                CacheMode::Public
+            ),
             Err(StoreError::Licence { .. })
         ));
         // The private dev cache takes it.

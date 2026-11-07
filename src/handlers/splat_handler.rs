@@ -52,7 +52,12 @@ pub fn open_store(manifest_path: &str, cache_dir: PathBuf, mode: CacheMode) -> S
     for r in &refusals {
         log::warn!("splats: refused: {r}");
     }
-    let served: usize = store.listing().assets.iter().map(|a| a.variants.len()).sum();
+    let served: usize = store
+        .listing()
+        .assets
+        .iter()
+        .map(|a| a.variants.len())
+        .sum();
     log::info!(
         "splats: {served} variant(s) of {} asset(s) served from {} ({mode:?} cache)",
         store.listing().assets.len(),
@@ -243,7 +248,8 @@ mod tests {
             "/api/splats/blob/..%2F..%2Fetc%2Fpasswd",
             "/api/splats/blob/SHA256-12-ABC",
         ] {
-            let resp = test::call_service(&app, test::TestRequest::get().uri(uri).to_request()).await;
+            let resp =
+                test::call_service(&app, test::TestRequest::get().uri(uri).to_request()).await;
             assert_eq!(resp.status(), 404, "{uri}");
         }
     }

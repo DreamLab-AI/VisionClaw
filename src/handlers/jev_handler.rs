@@ -67,7 +67,9 @@ pub async fn edge_body(client: &JevHub, req: &visionclaw_jev::edge::EdgeReviewRe
         Err(reason) => return not_used(&reason),
     };
     match visionclaw_jev::edge::suggest_edge(client, &evidence).await {
-        Ok(proposal) => json!({"used": true, "advisory": true, "authority": "none", "proposal": proposal}),
+        Ok(proposal) => {
+            json!({"used": true, "advisory": true, "authority": "none", "proposal": proposal})
+        }
         Err(reason) => not_used(&reason),
     }
 }
@@ -104,7 +106,9 @@ pub async fn palette(
     client: web::Data<JevHub>,
     req: web::Json<PaletteRequest>,
 ) -> impl Responder {
-    const { assert!(MAX_PALETTE_CANDIDATES > 0); }
+    const {
+        assert!(MAX_PALETTE_CANDIDATES > 0);
+    }
     HttpResponse::Ok().json(palette_body(&client, &req).await)
 }
 
@@ -131,22 +135,32 @@ mod tests {
             actix_web::App::new()
                 .app_data(web::Data::new(JevHub::disabled()))
                 .configure(configure_jev_routes),
-        ).await;
+        )
+        .await;
         let req = actix_web::test::TestRequest::post().uri("/jev/edge")
             .set_json(json!({"source_label":"Ada", "target_label":"Acme", "evidence":"Ada works at Acme."}))
             .to_request();
-        assert_eq!(actix_web::test::call_service(&app, req).await.status(), actix_web::http::StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            actix_web::test::call_service(&app, req).await.status(),
+            actix_web::http::StatusCode::UNAUTHORIZED
+        );
     }
 
     #[tokio::test]
     async fn edge_review_is_advisory_and_validates_before_transport() {
-        let t = MockTransport::new(Script::Reply(200, json!({"answers":{
+        let t = MockTransport::new(Script::Reply(
+            200,
+            json!({"answers":{
             "predicate":{"choice":"mv:worksAt","confidence":0.99},
-            "asserted":{"noul":0.99}}}).to_string()));
+            "asserted":{"noul":0.99}}})
+            .to_string(),
+        ));
         let c = enabled_hub(&[], t.clone());
         let mut req = visionclaw_jev::edge::EdgeReviewRequest {
-            source_label: "Ada".into(), target_label: "Acme".into(),
-            source_class: Some("mv:Person".into()), target_class: Some("mv:Company".into()),
+            source_label: "Ada".into(),
+            target_label: "Acme".into(),
+            source_class: Some("mv:Person".into()),
+            target_class: Some("mv:Company".into()),
             evidence: "Ada works at Acme.".into(),
         };
         let result = edge_body(&c, &req).await;
@@ -159,14 +173,21 @@ mod tests {
     }
 
     fn creq() -> CommandRequest {
-        CommandRequest { command: "show help".into(), candidates: vec![] }
+        CommandRequest {
+            command: "show help".into(),
+            candidates: vec![],
+        }
     }
 
     #[tokio::test]
     async fn status_reveals_no_secrets_and_defaults_off() {
         let c = JevHub::disabled();
         let s = status_body(&c);
-        assert!(s["enabled"].as_object().unwrap().values().all(|v| v == false));
+        assert!(s["enabled"]
+            .as_object()
+            .unwrap()
+            .values()
+            .all(|v| v == false));
         assert_eq!(s["available"], false);
         let on = enabled_hub(&[], MockTransport::new(Script::Reply(200, "{}".into())));
         let s = status_body(&on).to_string();
@@ -191,6 +212,9 @@ mod tests {
         assert_eq!(v["used"], true);
         assert_eq!(v["intent"]["id"], "help");
         let c = enabled_hub(&[], MockTransport::new(Script::Reply(500, "".into())));
-        assert_eq!(command_body(&c, &creq()).await, json!({"used": false, "reason": "http-500"}));
+        assert_eq!(
+            command_body(&c, &creq()).await,
+            json!({"used": false, "reason": "http-500"})
+        );
     }
 }

@@ -929,12 +929,18 @@ mod definition_scrub_tests {
         assert!(row.contains("[[Public]]"), "a visible link survives: {row}");
         // Markdown links: a hidden target is cut whether bare, `.md`-suffixed or anchored; a
         // visible target and an external URL survive, even when the URL text names the page.
-        assert!(node.contains("[us](Public)"), "visible md link survives: {node}");
+        assert!(
+            node.contains("[us](Public)"),
+            "visible md link survives: {node}"
+        );
         assert!(
             node.contains("[web](https://example.org/Secret Plan)"),
             "an external URL is not a page reference: {node}"
         );
-        assert!(!node.contains("[the plan]") && !node.contains("[goals]"), "md links to the hidden page are cut: {node}");
+        assert!(
+            !node.contains("[the plan]") && !node.contains("[goals]"),
+            "md links to the hidden page are cut: {node}"
+        );
     }
 
     #[test]

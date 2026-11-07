@@ -187,7 +187,10 @@ pub enum ManifestError {
         value: String,
     },
     #[error("asset {asset}: variant {variant} appears twice")]
-    DuplicateVariant { asset: String, variant: &'static str },
+    DuplicateVariant {
+        asset: String,
+        variant: &'static str,
+    },
     #[error("asset {asset}: headset variant {variant} must be SH 0, not {sh}")]
     HeadsetSh {
         asset: String,
@@ -242,7 +245,10 @@ impl Manifest {
                 return Err(ManifestError::Bounds(a.id.clone()));
             }
             if let Some(st) = &a.stage {
-                let stage = |why| ManifestError::Stage { asset: a.id.clone(), why };
+                let stage = |why| ManifestError::Stage {
+                    asset: a.id.clone(),
+                    why,
+                };
                 if !st.metres_per_unit.is_finite() || st.metres_per_unit <= 0.0 {
                     return Err(stage("metresPerUnit is not a positive number"));
                 }
@@ -454,13 +460,18 @@ pub(crate) mod tests {
     #[test]
     fn a_stage_round_trips_and_reaches_the_listing() {
         let mut m = sample();
-        m.assets[0].stage = Some(Stage { metres_per_unit: 2.25, focus: [0.0, 0.5, -0.9] });
+        m.assets[0].stage = Some(Stage {
+            metres_per_unit: 2.25,
+            focus: [0.0, 0.5, -0.9],
+        });
         let json = m.to_json();
         assert!(json.contains("\"metresPerUnit\": 2.25"), "{json}");
         assert_eq!(Manifest::from_json(&json).unwrap(), m);
         let listed = ListedAsset::from_asset(&m.assets[0], |v| v.bytes);
         assert_eq!(listed.stage, m.assets[0].stage);
-        assert!(serde_json::to_string(&listed).unwrap().contains("\"focus\":[0.0,0.5,-0.9]"));
+        assert!(serde_json::to_string(&listed)
+            .unwrap()
+            .contains("\"focus\":[0.0,0.5,-0.9]"));
     }
 
     #[test]
@@ -474,9 +485,27 @@ pub(crate) mod tests {
     #[test]
     fn a_bad_stage_is_refused() {
         for (st, why) in [
-            (Stage { metres_per_unit: 0.0, focus: [0.0; 3] }, "positive"),
-            (Stage { metres_per_unit: f32::NAN, focus: [0.0; 3] }, "positive"),
-            (Stage { metres_per_unit: 1.0, focus: [0.0, 2.0, 0.0] }, "focus"),
+            (
+                Stage {
+                    metres_per_unit: 0.0,
+                    focus: [0.0; 3],
+                },
+                "positive",
+            ),
+            (
+                Stage {
+                    metres_per_unit: f32::NAN,
+                    focus: [0.0; 3],
+                },
+                "positive",
+            ),
+            (
+                Stage {
+                    metres_per_unit: 1.0,
+                    focus: [0.0, 2.0, 0.0],
+                },
+                "focus",
+            ),
         ] {
             let mut m = sample();
             m.assets[0].stage = Some(st);
@@ -484,8 +513,14 @@ pub(crate) mod tests {
             assert!(e.contains(why), "{e}");
         }
         let mut m = sample();
-        m.assets[0].bounds = Bounds { min: [0.5; 3], max: [1.0; 3] };
-        m.assets[0].stage = Some(Stage { metres_per_unit: 1.0, focus: [0.75; 3] });
+        m.assets[0].bounds = Bounds {
+            min: [0.5; 3],
+            max: [1.0; 3],
+        };
+        m.assets[0].stage = Some(Stage {
+            metres_per_unit: 1.0,
+            focus: [0.75; 3],
+        });
         assert!(m.validate().unwrap_err().to_string().contains("origin"));
     }
 

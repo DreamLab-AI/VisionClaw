@@ -90,7 +90,9 @@ fn run(raw: &[String]) -> Result<(), String> {
             a.flag("adaptive"),
             a.flag("all"),
         ),
-        ("admit", [m, work, cache]) => admit(&load(m)?, Path::new(work), Path::new(cache), a.mode()),
+        ("admit", [m, work, cache]) => {
+            admit(&load(m)?, Path::new(work), Path::new(cache), a.mode())
+        }
         ("verify", [m, cache]) => verify(load(m)?, Path::new(cache), a.mode()),
         _ => Err(USAGE.into()),
     }
@@ -167,13 +169,25 @@ fn build(
         let spz_s = spz_path.to_string_lossy().to_string();
         let target = v.name.target_splats().to_string();
         let sh = v.sh_degree.to_string();
-        let decimate = if adaptive { "--decimate-adaptive" } else { "--decimate" };
+        let decimate = if adaptive {
+            "--decimate-adaptive"
+        } else {
+            "--decimate"
+        };
         let scratch_s = scratch.to_string_lossy().to_string();
         // Decimation must be the final action and write a PLY.
         run_tool(
             tool,
             &[
-                "-w", "--scratch-dir", &scratch_s, &input_s, "-H", &sh, decimate, &target, &ply_s,
+                "-w",
+                "--scratch-dir",
+                &scratch_s,
+                &input_s,
+                "-H",
+                &sh,
+                decimate,
+                &target,
+                &ply_s,
             ],
         )?;
         run_tool(tool, &["-w", &ply_s, "--spz-version", "3", &spz_s])?;
@@ -213,7 +227,12 @@ fn admit(m: &Manifest, work: &Path, cache: &Path, mode: CacheMode) -> Result<(),
         for v in asset.variants.iter().filter(|v| v.sha256.is_some()) {
             let path = variant_file(work, &asset.id, v.name);
             let Ok(bytes) = std::fs::read(&path) else {
-                println!("skip {} {}: {} not present", asset.id, v.name.as_str(), path.display());
+                println!(
+                    "skip {} {}: {} not present",
+                    asset.id,
+                    v.name.as_str(),
+                    path.display()
+                );
                 continue;
             };
             match admit_variant(asset, v, &bytes, cache, mode) {
@@ -236,7 +255,13 @@ fn verify(m: Manifest, cache: &Path, mode: CacheMode) -> Result<(), String> {
     let (store, refusals) = SplatStore::open(m, cache, mode);
     for a in &store.listing().assets {
         for v in &a.variants {
-            println!("serving {} {} {} ({} bytes)", a.id, v.name.as_str(), v.address, v.bytes);
+            println!(
+                "serving {} {} {} ({} bytes)",
+                a.id,
+                v.name.as_str(),
+                v.address,
+                v.bytes
+            );
         }
     }
     for r in &refusals {
