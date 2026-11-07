@@ -984,6 +984,22 @@ mod per_view_reasoning_tests {
     }
 
     /// The golden was captured from the code before per-view reasoning existed. The view
+    /// Recursively sort object keys so two JSON values compare by content, not
+    /// by the order a serialiser happened to emit their keys.
+    fn canonical(v: &serde_json::Value) -> serde_json::Value {
+        match v {
+            serde_json::Value::Object(m) => {
+                let mut sorted: Vec<_> = m.iter().collect();
+                sorted.sort_by(|a, b| a.0.cmp(b.0));
+                serde_json::Value::Object(
+                    sorted.into_iter().map(|(k, x)| (k.clone(), canonical(x))).collect(),
+                )
+            }
+            serde_json::Value::Array(a) => serde_json::Value::Array(a.iter().map(canonical).collect()),
+            other => other.clone(),
+        }
+    }
+
     /// reasoner here always fails, so any use of it on the full-access path would show.
     #[tokio::test]
     async fn full_access_replies_are_unchanged_and_never_reason_over_a_view() {
@@ -1003,7 +1019,10 @@ mod per_view_reasoning_tests {
             "testdata/ontology_agent_full_access_golden.json"
         ))
         .expect("golden parses");
-        assert_eq!(actual, golden);
+        // Compare with object keys canonicalised: serde_json emits keys in insertion
+        // order while the golden is pretty-printed sorted, and key order is not part
+        // of the reply contract.
+        assert_eq!(canonical(&actual), canonical(&golden));
         assert_eq!(reasoner.runs(), 0);
     }
 
