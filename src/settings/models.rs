@@ -154,7 +154,14 @@ pub struct NodeFilterSettings {
 }
 
 /// The maturity stages a `min_maturity` floor may name, lowest first (client MATURITY_RANK).
-pub const MATURITY_STAGES: [&str; 6] = ["draft", "developing", "emerging", "growing", "established", "mature"];
+pub const MATURITY_STAGES: [&str; 6] = [
+    "draft",
+    "developing",
+    "emerging",
+    "growing",
+    "established",
+    "mature",
+];
 
 fn default_min_maturity() -> String {
     "off".to_string()

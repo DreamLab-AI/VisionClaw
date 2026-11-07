@@ -8,11 +8,11 @@
 //! named-class closure, because the emitter puts restrictions only on the
 //! superclass side of `rdfs:subClassOf`; `vault certify` enforces that parity.
 
-pub use rdfs_certificate::{
-    consequence_delta, Certificate, ConsequenceDelta, Summary, CONSERVATIVE, EXAMPLE_CAP,
-    FORMAT, NOT_CONSERVATIVE, RULE_TABLE,
-};
 use rdfs_certificate::nt;
+pub use rdfs_certificate::{
+    consequence_delta, Certificate, ConsequenceDelta, Summary, CONSERVATIVE, EXAMPLE_CAP, FORMAT,
+    NOT_CONSERVATIVE, RULE_TABLE,
+};
 
 use crate::build::turtle::{Graph, Subject, Term};
 
@@ -111,8 +111,11 @@ mod tests {
             "http://www.w3.org/2002/07/owl#someValuesFrom",
             t("d"),
         );
-        let whelk: BTreeSet<(String, String)> =
-            crate::whelk::reason(&g).unwrap().inferred.into_iter().collect();
+        let whelk: BTreeSet<(String, String)> = crate::whelk::reason(&g)
+            .unwrap()
+            .inferred
+            .into_iter()
+            .collect();
         assert!(!whelk.is_empty());
         assert_eq!(certify(&g).named_subclass_closure(), whelk);
     }

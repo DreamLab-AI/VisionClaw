@@ -65,7 +65,10 @@ impl Request {
         }
         for (id, q) in &self.questions {
             match q {
-                Question::Choice { instructions, criteria } => {
+                Question::Choice {
+                    instructions,
+                    criteria,
+                } => {
                     if instructions.trim().is_empty() {
                         return Err(format!("{id}: empty instructions"));
                     }
@@ -73,7 +76,10 @@ impl Request {
                         return Err(format!("{id}: choice criteria must hold 1..=255 entries"));
                     }
                 }
-                Question::Score { instructions, criteria } => {
+                Question::Score {
+                    instructions,
+                    criteria,
+                } => {
                     if instructions.trim().is_empty() {
                         return Err(format!("{id}: empty instructions"));
                     }
@@ -115,7 +121,8 @@ pub struct ScoreAnswer {
 pub struct Answers(serde_json::Map<String, Value>);
 
 fn unit(v: &Value) -> Option<f64> {
-    v.as_f64().filter(|x| x.is_finite() && (0.0..=1.0).contains(x))
+    v.as_f64()
+        .filter(|x| x.is_finite() && (0.0..=1.0).contains(x))
 }
 
 impl Answers {
@@ -154,12 +161,21 @@ impl Answers {
     /// offered set, or has no usable confidence.
     pub fn choice(&self, id: &str, offered: &[&str]) -> Result<ChoiceAnswer, Fallback> {
         let a = self.typed(id, "choice")?;
-        let choice = a.get("choice").and_then(Value::as_str).ok_or(Fallback::Malformed)?;
+        let choice = a
+            .get("choice")
+            .and_then(Value::as_str)
+            .ok_or(Fallback::Malformed)?;
         if !offered.contains(&choice) {
             return Err(Fallback::Malformed);
         }
-        let confidence = a.get("confidence").and_then(unit).ok_or(Fallback::Malformed)?;
-        Ok(ChoiceAnswer { choice: choice.to_string(), confidence })
+        let confidence = a
+            .get("confidence")
+            .and_then(unit)
+            .ok_or(Fallback::Malformed)?;
+        Ok(ChoiceAnswer {
+            choice: choice.to_string(),
+            confidence,
+        })
     }
 
     /// A Score answer for a rubric of `levels` levels.
@@ -170,13 +186,22 @@ impl Answers {
     /// without a usable confidence.
     pub fn score(&self, id: &str, levels: usize) -> Result<ScoreAnswer, Fallback> {
         let a = self.typed(id, "score")?;
-        let score = a.get("score").and_then(Value::as_f64).ok_or(Fallback::Malformed)?;
+        let score = a
+            .get("score")
+            .and_then(Value::as_f64)
+            .ok_or(Fallback::Malformed)?;
         let top = levels.saturating_sub(1) as f64;
         if !score.is_finite() || score < -1e-9 || score > top + 1e-9 {
             return Err(Fallback::Malformed);
         }
-        let confidence = a.get("confidence").and_then(unit).ok_or(Fallback::Malformed)?;
-        Ok(ScoreAnswer { score: score.clamp(0.0, top), confidence })
+        let confidence = a
+            .get("confidence")
+            .and_then(unit)
+            .ok_or(Fallback::Malformed)?;
+        Ok(ScoreAnswer {
+            score: score.clamp(0.0, top),
+            confidence,
+        })
     }
 
     /// A Noul answer: the probability of yes.
@@ -210,7 +235,8 @@ pub mod mock {
     /// Wrap answers into a full response body.
     pub fn body(answers: Vec<(String, Value)>) -> String {
         let m: serde_json::Map<String, Value> = answers.into_iter().collect();
-        json!({"model": "jev-test", "answers": m, "usage": {"input_tokens": 1, "output_tokens": 1}}).to_string()
+        json!({"model": "jev-test", "answers": m, "usage": {"input_tokens": 1, "output_tokens": 1}})
+            .to_string()
     }
 }
 
@@ -225,15 +251,45 @@ mod tests {
         crit.insert("a".to_string(), "first".to_string());
         crit.insert("none".to_string(), "neither".to_string());
         let mut qs = BTreeMap::new();
-        qs.insert("c".to_string(), Question::Choice { instructions: "pick".into(), criteria: crit });
-        qs.insert("s".to_string(), Question::Score { instructions: "rate".into(), criteria: vec!["low".into(), "high".into()] });
-        qs.insert("n".to_string(), Question::Noul { instructions: "is it".into() });
-        let r = Request { model: "jev-latest".into(), state: json!({"x": 1}), questions: qs };
+        qs.insert(
+            "c".to_string(),
+            Question::Choice {
+                instructions: "pick".into(),
+                criteria: crit,
+            },
+        );
+        qs.insert(
+            "s".to_string(),
+            Question::Score {
+                instructions: "rate".into(),
+                criteria: vec!["low".into(), "high".into()],
+            },
+        );
+        qs.insert(
+            "n".to_string(),
+            Question::Noul {
+                instructions: "is it".into(),
+            },
+        );
+        let r = Request {
+            model: "jev-latest".into(),
+            state: json!({"x": 1}),
+            questions: qs,
+        };
         r.validate().unwrap();
         let v = serde_json::to_value(&r).unwrap();
-        assert!(v["questions"]["c"]["criteria"].is_object(), "choice criteria is a map");
-        assert!(v["questions"]["s"]["criteria"].is_array(), "score criteria is an ordered list");
-        assert_eq!(v["questions"]["n"], json!({"type": "noul", "instructions": "is it"}));
+        assert!(
+            v["questions"]["c"]["criteria"].is_object(),
+            "choice criteria is a map"
+        );
+        assert!(
+            v["questions"]["s"]["criteria"].is_array(),
+            "score criteria is an ordered list"
+        );
+        assert_eq!(
+            v["questions"]["n"],
+            json!({"type": "noul", "instructions": "is it"})
+        );
         assert_eq!(v["questions"]["c"]["type"], "choice");
         assert_eq!(v["model"], "jev-latest");
     }
@@ -241,10 +297,24 @@ mod tests {
     #[test]
     fn validate_rejects_what_the_service_would() {
         let mut qs = BTreeMap::new();
-        qs.insert("s".to_string(), Question::Score { instructions: "x".into(), criteria: (0..11).map(|i| i.to_string()).collect() });
-        let r = Request { model: "m".into(), state: json!("s"), questions: qs };
+        qs.insert(
+            "s".to_string(),
+            Question::Score {
+                instructions: "x".into(),
+                criteria: (0..11).map(|i| i.to_string()).collect(),
+            },
+        );
+        let r = Request {
+            model: "m".into(),
+            state: json!("s"),
+            questions: qs,
+        };
         assert!(r.validate().is_err());
-        let r = Request { model: "m".into(), state: json!("s"), questions: BTreeMap::new() };
+        let r = Request {
+            model: "m".into(),
+            state: json!("s"),
+            questions: BTreeMap::new(),
+        };
         assert!(r.validate().is_err());
     }
 
@@ -263,10 +333,13 @@ mod tests {
 
     #[test]
     fn real_system_one_answers_need_not_repeat_question_types() {
-        let a = Answers::parse(r#"{"answers":{
+        let a = Answers::parse(
+            r#"{"answers":{
             "choice":{"choice":"on","confidence":0.8919,"probabilities":{"on":0.8919,"off":0.1081}},
             "score":{"score":1.5844,"distribution":[],"confidence":0.251},
-            "noul":{"noul":0.5248}}}"#).unwrap();
+            "noul":{"noul":0.5248}}}"#,
+        )
+        .unwrap();
         assert_eq!(a.choice("choice", &["on", "off"]).unwrap().choice, "on");
         assert_eq!(a.score("score", 3).unwrap().score, 1.5844);
         assert_eq!(a.noul("noul").unwrap(), 0.5248);
@@ -279,7 +352,10 @@ mod tests {
     fn malformed_variants_are_all_rejected() {
         assert_eq!(Answers::parse("not json").unwrap_err(), Fallback::Malformed);
         assert_eq!(Answers::parse("{}").unwrap_err(), Fallback::Malformed);
-        assert_eq!(Answers::parse(r#"{"answers":{}}"#).unwrap_err(), Fallback::Malformed);
+        assert_eq!(
+            Answers::parse(r#"{"answers":{}}"#).unwrap_err(),
+            Fallback::Malformed
+        );
         let b = mock::body(vec![
             ("c".into(), mock::choice("zzz", 0.7)),
             ("s".into(), mock::score(5.0, 0.6)),
@@ -287,10 +363,30 @@ mod tests {
             ("t".into(), mock::noul(0.5)),
         ]);
         let a = Answers::parse(&b).unwrap();
-        assert_eq!(a.choice("c", &["a"]).unwrap_err(), Fallback::Malformed, "outside offered set");
-        assert_eq!(a.score("s", 3).unwrap_err(), Fallback::Malformed, "out of range");
-        assert_eq!(a.noul("n").unwrap_err(), Fallback::Malformed, "probability > 1");
-        assert_eq!(a.noul("missing").unwrap_err(), Fallback::Malformed, "missing id");
-        assert_eq!(a.score("t", 3).unwrap_err(), Fallback::Malformed, "wrong type");
+        assert_eq!(
+            a.choice("c", &["a"]).unwrap_err(),
+            Fallback::Malformed,
+            "outside offered set"
+        );
+        assert_eq!(
+            a.score("s", 3).unwrap_err(),
+            Fallback::Malformed,
+            "out of range"
+        );
+        assert_eq!(
+            a.noul("n").unwrap_err(),
+            Fallback::Malformed,
+            "probability > 1"
+        );
+        assert_eq!(
+            a.noul("missing").unwrap_err(),
+            Fallback::Malformed,
+            "missing id"
+        );
+        assert_eq!(
+            a.score("t", 3).unwrap_err(),
+            Fallback::Malformed,
+            "wrong type"
+        );
     }
 }

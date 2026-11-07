@@ -230,7 +230,10 @@ pub fn hold_unclear(transcript: &str) -> GateOutcome {
     let slot = AmbiguousSlot::LowConfidence;
     GateOutcome::Clarify {
         prompt: prompt_for(slot, &transcript),
-        pending: PendingClarification { slot, original_transcript: transcript },
+        pending: PendingClarification {
+            slot,
+            original_transcript: transcript,
+        },
     }
 }
 

@@ -24,7 +24,12 @@ fn a_splat_transform_v3_file_decodes() {
         let n: f32 = q.iter().map(|v| v * v).sum();
         assert!((n - 1.0).abs() < 0.01, "|q|^2 = {n}");
     }
-    assert!(s.positions.iter().chain(&s.scales).chain(&s.colors).all(|v| v.is_finite()));
+    assert!(s
+        .positions
+        .iter()
+        .chain(&s.scales)
+        .chain(&s.colors)
+        .all(|v| v.is_finite()));
     let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
     for p in s.positions.chunks_exact(3) {
         for c in 0..3 {
@@ -32,5 +37,9 @@ fn a_splat_transform_v3_file_decodes() {
             hi[c] = hi[c].max(p[c]);
         }
     }
-    eprintln!("{} splats, SH {}, bounds {lo:?}..{hi:?}", s.len(), s.sh_degree);
+    eprintln!(
+        "{} splats, SH {}, bounds {lo:?}..{hi:?}",
+        s.len(),
+        s.sh_degree
+    );
 }

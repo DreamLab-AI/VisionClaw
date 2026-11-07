@@ -118,7 +118,10 @@ mod tests {
             admit_licence("CC-BY-NC-ND-4.0", None, Public),
             Err(LicenceRefusal::NoDerivatives(_))
         ));
-        assert_eq!(admit_licence("", None, Public), Err(LicenceRefusal::NoLicence));
+        assert_eq!(
+            admit_licence("", None, Public),
+            Err(LicenceRefusal::NoLicence)
+        );
         assert_eq!(
             admit_licence("NOASSERTION", None, Public),
             Err(LicenceRefusal::NoLicence)
@@ -136,7 +139,11 @@ mod tests {
     #[test]
     fn an_explicit_grant_admits_any_licence() {
         assert_eq!(
-            admit_licence("CC-BY-ND-4.0", Some("Written permission, 2026-11-02"), Public),
+            admit_licence(
+                "CC-BY-ND-4.0",
+                Some("Written permission, 2026-11-02"),
+                Public
+            ),
             Ok(())
         );
         // A blank grant is no grant.

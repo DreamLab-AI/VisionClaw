@@ -86,7 +86,10 @@ pub struct Params {
 
 impl Default for Params {
     fn default() -> Self {
-        Self { min_confidence: 0.2, contradiction_flag_at: 0.7 }
+        Self {
+            min_confidence: 0.2,
+            contradiction_flag_at: 0.7,
+        }
     }
 }
 
@@ -96,8 +99,16 @@ impl Params {
     pub fn from_lookup(lookup: &dyn Fn(&str) -> Option<String>) -> Self {
         let d = Self::default();
         Self {
-            min_confidence: crate::config::threshold(lookup, "VISIONCLAW_JEV_PATCH_MIN_CONFIDENCE", d.min_confidence),
-            contradiction_flag_at: crate::config::threshold(lookup, "VISIONCLAW_JEV_PATCH_CONTRADICTION_AT", d.contradiction_flag_at),
+            min_confidence: crate::config::threshold(
+                lookup,
+                "VISIONCLAW_JEV_PATCH_MIN_CONFIDENCE",
+                d.min_confidence,
+            ),
+            contradiction_flag_at: crate::config::threshold(
+                lookup,
+                "VISIONCLAW_JEV_PATCH_CONTRADICTION_AT",
+                d.contradiction_flag_at,
+            ),
         }
     }
 }
@@ -151,7 +162,9 @@ pub fn build_request(model: &str, f: &PatchFacts) -> Request {
     questions.insert(
         "clarity".into(),
         Question::Score {
-            instructions: "How clearly do `hypothesis` and `diff` state what this ontology change asserts?".into(),
+            instructions:
+                "How clearly do `hypothesis` and `diff` state what this ontology change asserts?"
+                    .into(),
             criteria: CLARITY_LEVELS.iter().map(|s| s.to_string()).collect(),
         },
     );
@@ -182,7 +195,11 @@ pub fn build_request(model: &str, f: &PatchFacts) -> Request {
                 .into(),
         },
     );
-    Request { model: model.into(), state, questions }
+    Request {
+        model: model.into(),
+        state,
+        questions,
+    }
 }
 
 /// Interpret one proposal's answers.
@@ -198,7 +215,10 @@ pub fn interpret(answers: &Answers, params: &Params) -> Result<Assessment, Fallb
     let un = answers.noul("unsupported")?;
     let nv = answers.score("novelty", NOVELTY_LEVELS.len())?;
     let ur = answers.score("urgency", URGENCY_LEVELS.len())?;
-    if [&s, &c, &nv, &ur].iter().any(|a| a.confidence < params.min_confidence) {
+    if [&s, &c, &nv, &ur]
+        .iter()
+        .any(|a| a.confidence < params.min_confidence)
+    {
         return Err(Fallback::LowConfidence);
     }
     let support = s.score / (SUPPORT_LEVELS.len() - 1) as f64;
@@ -242,7 +262,9 @@ pub async fn rank_proposals<T>(
     params: &Params,
 ) -> (Vec<T>, Vec<Option<Assessment>>) {
     let n = items.len();
-    let Some(jev) = jev else { return (items, vec![None; n]) };
+    let Some(jev) = jev else {
+        return (items, vec![None; n]);
+    };
     let fs: Vec<PatchFacts> = items.iter().map(&facts).collect();
     let results = futures_util::future::join_all(fs.iter().map(|f| assess(jev, f, params))).await;
     let mut ann: Vec<Option<Assessment>> = Vec::with_capacity(n);
@@ -270,7 +292,13 @@ mod tests {
     use crate::wire::mock;
 
     fn facts(h: &str) -> PatchFacts {
-        PatchFacts { kind: "edit".into(), hypothesis: h.into(), diff: format!("+ {h}"), consequences: Some("{\"added\":1}".into()), blockers: vec![] }
+        PatchFacts {
+            kind: "edit".into(),
+            hypothesis: h.into(),
+            diff: format!("+ {h}"),
+            consequences: Some("{\"added\":1}".into()),
+            blockers: vec![],
+        }
     }
 
     fn body(support: f64, clarity: f64, contra: f64, conf: f64) -> String {
@@ -289,12 +317,36 @@ mod tests {
         let r = build_request("jev-latest", &facts("A subclass of B"));
         r.validate().unwrap();
         let v = serde_json::to_value(&r).unwrap();
-        assert_eq!(v["questions"]["support"]["criteria"].as_array().unwrap().len(), 4);
-        assert_eq!(v["questions"]["clarity"]["criteria"].as_array().unwrap().len(), 3);
+        assert_eq!(
+            v["questions"]["support"]["criteria"]
+                .as_array()
+                .unwrap()
+                .len(),
+            4
+        );
+        assert_eq!(
+            v["questions"]["clarity"]["criteria"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
         assert_eq!(v["questions"]["contradiction"]["type"], "noul");
         assert_eq!(v["questions"]["unsupported"]["type"], "noul");
-        assert_eq!(v["questions"]["novelty"]["criteria"].as_array().unwrap().len(), 3);
-        assert_eq!(v["questions"]["urgency"]["criteria"].as_array().unwrap().len(), 3);
+        assert_eq!(
+            v["questions"]["novelty"]["criteria"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
+        assert_eq!(
+            v["questions"]["urgency"]["criteria"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
         assert_eq!(v["state"]["hypothesis"], "A subclass of B");
     }
 
@@ -310,19 +362,32 @@ mod tests {
             Ok(RawResponse { status: 200, body })
         });
         let j = jev(Item::PatchRank, t);
-        let (out, ann) = rank_proposals(Some(&j), vec!["weak", "mid", "strong"], |h| facts(h), &Params::default()).await;
+        let (out, ann) = rank_proposals(
+            Some(&j),
+            vec!["weak", "mid", "strong"],
+            |h| facts(h),
+            &Params::default(),
+        )
+        .await;
         assert_eq!(out, vec!["strong", "mid", "weak"]);
         assert!(!ann[0].as_ref().unwrap().contradiction_flag);
         assert!(ann[2].as_ref().unwrap().contradiction_flag);
-        assert!(ann[2].as_ref().unwrap().unsupported_flag, "weak evidence is flagged unsupported");
+        assert!(
+            ann[2].as_ref().unwrap().unsupported_flag,
+            "weak evidence is flagged unsupported"
+        );
         assert!(!ann[0].as_ref().unwrap().unsupported_flag);
     }
 
     #[tokio::test]
     async fn every_fallback_returns_the_input_order() {
         let input = vec!["a", "b", "c"];
-        let (out, ann) = rank_proposals(None, input.clone(), |h| facts(h), &Params::default()).await;
-        assert_eq!((out, ann.iter().all(Option::is_none)), (input.clone(), true));
+        let (out, ann) =
+            rank_proposals(None, input.clone(), |h| facts(h), &Params::default()).await;
+        assert_eq!(
+            (out, ann.iter().all(Option::is_none)),
+            (input.clone(), true)
+        );
         let missing = mock::body(vec![("support".into(), mock::score(1.0, 0.9))]);
         for s in [
             Script::Reply(500, "x".into()),
@@ -335,7 +400,8 @@ mod tests {
             Script::Hang,
         ] {
             let j = jev(Item::PatchRank, MockTransport::new(s));
-            let (out, ann) = rank_proposals(Some(&j), input.clone(), |h| facts(h), &Params::default()).await;
+            let (out, ann) =
+                rank_proposals(Some(&j), input.clone(), |h| facts(h), &Params::default()).await;
             assert_eq!(out, input);
             assert!(ann.iter().all(Option::is_none));
         }

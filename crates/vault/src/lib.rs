@@ -61,8 +61,8 @@
 #![allow(clippy::module_name_repetitions)]
 
 pub mod bodies;
-pub mod certificate;
 pub mod build;
+pub mod certificate;
 pub mod closure;
 pub mod conflicts;
 mod diff;

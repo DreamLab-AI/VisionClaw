@@ -992,10 +992,15 @@ mod per_view_reasoning_tests {
                 let mut sorted: Vec<_> = m.iter().collect();
                 sorted.sort_by(|a, b| a.0.cmp(b.0));
                 serde_json::Value::Object(
-                    sorted.into_iter().map(|(k, x)| (k.clone(), canonical(x))).collect(),
+                    sorted
+                        .into_iter()
+                        .map(|(k, x)| (k.clone(), canonical(x)))
+                        .collect(),
                 )
             }
-            serde_json::Value::Array(a) => serde_json::Value::Array(a.iter().map(canonical).collect()),
+            serde_json::Value::Array(a) => {
+                serde_json::Value::Array(a.iter().map(canonical).collect())
+            }
             other => other.clone(),
         }
     }

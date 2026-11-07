@@ -78,7 +78,12 @@ pub struct Params {
 
 impl Default for Params {
     fn default() -> Self {
-        Self { max_cases: 20, min_confidence: 0.2, unsupported_flag_at: 0.7, cooldown: Duration::from_secs(60) }
+        Self {
+            max_cases: 20,
+            min_confidence: 0.2,
+            unsupported_flag_at: 0.7,
+            cooldown: Duration::from_secs(60),
+        }
     }
 }
 
@@ -89,8 +94,16 @@ impl Params {
         let d = Self::default();
         Self {
             max_cases: crate::config::count(lookup, "VISIONCLAW_JEV_TRIAGE_MAX", d.max_cases, 50),
-            min_confidence: crate::config::threshold(lookup, "VISIONCLAW_JEV_TRIAGE_MIN_CONFIDENCE", d.min_confidence),
-            unsupported_flag_at: crate::config::threshold(lookup, "VISIONCLAW_JEV_TRIAGE_UNSUPPORTED_AT", d.unsupported_flag_at),
+            min_confidence: crate::config::threshold(
+                lookup,
+                "VISIONCLAW_JEV_TRIAGE_MIN_CONFIDENCE",
+                d.min_confidence,
+            ),
+            unsupported_flag_at: crate::config::threshold(
+                lookup,
+                "VISIONCLAW_JEV_TRIAGE_UNSUPPORTED_AT",
+                d.unsupported_flag_at,
+            ),
             cooldown: d.cooldown,
         }
     }
@@ -154,7 +167,11 @@ pub fn build_request(model: &str, f: &ProposalFacts) -> Request {
                 .into(),
         },
     );
-    Request { model: model.into(), state: state(f), questions }
+    Request {
+        model: model.into(),
+        state: state(f),
+        questions,
+    }
 }
 
 /// Interpret one proposal's answers.
@@ -226,7 +243,10 @@ impl TriageCache {
     }
 
     fn cooling(&self) -> bool {
-        self.inner.lock().map(|g| g.cool_until.is_some_and(|t| Instant::now() < t)).unwrap_or(false)
+        self.inner
+            .lock()
+            .map(|g| g.cool_until.is_some_and(|t| Instant::now() < t))
+            .unwrap_or(false)
     }
 
     fn cool(&self, d: Duration) {
@@ -329,8 +349,20 @@ mod tests {
         let r = build_request("jev-latest", &f("1", "pending"));
         r.validate().unwrap();
         let v = serde_json::to_value(&r).unwrap();
-        assert_eq!(v["questions"]["completeness"]["criteria"].as_array().unwrap().len(), 4);
-        assert_eq!(v["questions"]["relevance"]["criteria"].as_array().unwrap().len(), 3);
+        assert_eq!(
+            v["questions"]["completeness"]["criteria"]
+                .as_array()
+                .unwrap()
+                .len(),
+            4
+        );
+        assert_eq!(
+            v["questions"]["relevance"]["criteria"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
         assert_eq!(v["questions"]["unsupported"]["type"], "noul");
         assert_eq!(v["state"]["status"], "pending");
         assert!(v["state"].get("id").is_none(), "the case id is not sent");
@@ -348,8 +380,15 @@ mod tests {
         // Cases whose requested_change contains `low_marker` score low.
         FnTransport::new(move |body| {
             let change = body["state"]["requested_change"].as_str().unwrap_or("");
-            let b = if change.contains(low_marker) { ok_body(0.0, 0.0, 0.1, 0.9) } else { ok_body(3.0, 2.0, 0.9, 0.9) };
-            Ok(crate::client::RawResponse { status: 200, body: b })
+            let b = if change.contains(low_marker) {
+                ok_body(0.0, 0.0, 0.1, 0.9)
+            } else {
+                ok_body(3.0, 2.0, 0.9, 0.9)
+            };
+            Ok(crate::client::RawResponse {
+                status: 200,
+                body: b,
+            })
         })
     }
 
@@ -365,7 +404,14 @@ mod tests {
             (f("decided", "decided"), false),
             (f("high", "pending"), true),
         ];
-        let (out, ann) = triage_queue(Some(&j), &TriageCache::new(), items, pick, &Params::default()).await;
+        let (out, ann) = triage_queue(
+            Some(&j),
+            &TriageCache::new(),
+            items,
+            pick,
+            &Params::default(),
+        )
+        .await;
         let ids: Vec<_> = out.iter().map(|(p, _)| p.id.as_str()).collect();
         assert_eq!(ids, vec!["high", "decided", "low"]);
         assert_eq!(ann[0].as_ref().unwrap().priority, 1.0);
@@ -376,12 +422,26 @@ mod tests {
 
     #[tokio::test]
     async fn every_fallback_returns_the_queue_unchanged() {
-        let original = || vec![(f("a", "pending"), true), (f("b", "decided"), false), (f("c", "pending"), true)];
-        let ids = |v: &[(ProposalFacts, bool)]| v.iter().map(|(p, _)| p.id.clone()).collect::<Vec<_>>();
+        let original = || {
+            vec![
+                (f("a", "pending"), true),
+                (f("b", "decided"), false),
+                (f("c", "pending"), true),
+            ]
+        };
+        let ids =
+            |v: &[(ProposalFacts, bool)]| v.iter().map(|(p, _)| p.id.clone()).collect::<Vec<_>>();
         let want = ids(&original());
 
         // no client
-        let (out, ann) = triage_queue(None, &TriageCache::new(), original(), pick, &Params::default()).await;
+        let (out, ann) = triage_queue(
+            None,
+            &TriageCache::new(),
+            original(),
+            pick,
+            &Params::default(),
+        )
+        .await;
         assert_eq!(ids(&out), want);
         assert!(ann.iter().all(Option::is_none));
 
@@ -398,7 +458,14 @@ mod tests {
             Script::Hang,
         ] {
             let j = jev(Item::ProposalTriage, MockTransport::new(s));
-            let (out, ann) = triage_queue(Some(&j), &TriageCache::new(), original(), pick, &Params::default()).await;
+            let (out, ann) = triage_queue(
+                Some(&j),
+                &TriageCache::new(),
+                original(),
+                pick,
+                &Params::default(),
+            )
+            .await;
             assert_eq!(ids(&out), want);
             assert!(ann.iter().all(Option::is_none));
         }
@@ -406,7 +473,12 @@ mod tests {
 
     #[tokio::test]
     async fn results_are_cached_and_failures_cool_down() {
-        let t = FnTransport::new(|_| Ok(crate::client::RawResponse { status: 200, body: ok_body(3.0, 2.0, 0.0, 0.9) }));
+        let t = FnTransport::new(|_| {
+            Ok(crate::client::RawResponse {
+                status: 200,
+                body: ok_body(3.0, 2.0, 0.0, 0.9),
+            })
+        });
         let j = jev(Item::ProposalTriage, t.clone());
         let cache = TriageCache::new();
         let items = || vec![(f("a", "pending"), true)];
@@ -414,7 +486,12 @@ mod tests {
         triage_queue(Some(&j), &cache, items(), pick, &Params::default()).await;
         assert_eq!(t.calls(), 1, "second poll served from cache");
 
-        let bad = FnTransport::new(|_| Ok(crate::client::RawResponse { status: 503, body: String::new() }));
+        let bad = FnTransport::new(|_| {
+            Ok(crate::client::RawResponse {
+                status: 503,
+                body: String::new(),
+            })
+        });
         let j = jev(Item::ProposalTriage, bad.clone());
         let cache = TriageCache::new();
         triage_queue(Some(&j), &cache, items(), pick, &Params::default()).await;

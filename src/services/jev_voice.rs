@@ -21,11 +21,11 @@
 
 use serde_json::json;
 
+use crate::services::voice_clarification::{hold_unclear, GateOutcome, PendingClarification};
 use visionclaw_jev::config::Item;
 use visionclaw_jev::hub::JevHub;
 use visionclaw_jev::wire::Question;
 use visionclaw_jev::Fallback;
-use crate::services::voice_clarification::{hold_unclear, GateOutcome, PendingClarification};
 
 /// Question-set version (logged on fallback).
 pub const VOICE_QUESTION_SET: &str = "vc-voice-intent-v1";
@@ -35,8 +35,15 @@ const MAX_TRANSCRIPT_CHARS: usize = 400;
 
 /// Intents the voice parser understands
 /// (`actors::voice_commands::VoiceCommand`).
-pub const INTENTS: [&str; 7] =
-    ["spawn_agent", "agent_status", "list_agents", "stop_agent", "add_node", "help", UNCLEAR];
+pub const INTENTS: [&str; 7] = [
+    "spawn_agent",
+    "agent_status",
+    "list_agents",
+    "stop_agent",
+    "add_node",
+    "help",
+    UNCLEAR,
+];
 
 fn clip(s: &str) -> String {
     s.chars().take(MAX_TRANSCRIPT_CHARS).collect()
@@ -65,7 +72,11 @@ fn contradiction_question() -> Question {
 
 /// Repair turn: does the operator's reply abandon the pending request?
 /// `false` for every fallback, which keeps the existing merge.
-pub async fn reply_abandons_pending(client: &JevHub, pending: &PendingClarification, reply: &str) -> bool {
+pub async fn reply_abandons_pending(
+    client: &JevHub,
+    pending: &PendingClarification,
+    reply: &str,
+) -> bool {
     if !client.enabled(Item::VoiceIntent) {
         return false;
     }
@@ -75,7 +86,10 @@ pub async fn reply_abandons_pending(client: &JevHub, pending: &PendingClarificat
         "reply": clip(reply),
     });
     let qs = vec![("abandons".to_string(), contradiction_question())];
-    let Ok(answers) = client.ask(Item::VoiceIntent, VOICE_QUESTION_SET, state, qs).await else {
+    let Ok(answers) = client
+        .ask(Item::VoiceIntent, VOICE_QUESTION_SET, state, qs)
+        .await
+    else {
         return false;
     };
     match answers.noul("abandons") {
@@ -113,7 +127,9 @@ pub async fn tighten(client: &JevHub, outcome: GateOutcome) -> GateOutcome {
 async fn classify(client: &JevHub, transcript: &str) -> Result<bool, Fallback> {
     let state = json!({ "transcript": clip(transcript) });
     let qs = vec![("intent".to_string(), intent_question())];
-    let answers = client.ask(Item::VoiceIntent, VOICE_QUESTION_SET, state, qs).await?;
+    let answers = client
+        .ask(Item::VoiceIntent, VOICE_QUESTION_SET, state, qs)
+        .await?;
     let c = answers.choice("intent", &INTENTS)?;
     if c.choice != UNCLEAR {
         return Ok(false);
@@ -125,10 +141,12 @@ async fn classify(client: &JevHub, transcript: &str) -> Result<bool, Fallback> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::voice_clarification::{
+        AmbiguousSlot, ClarificationGate, DEFAULT_CONFIDENCE_THRESHOLD,
+    };
     use visionclaw_jev::client::testing::{MockTransport, Script};
     use visionclaw_jev::client::TransportError;
     use visionclaw_jev::hub::testing::enabled_hub;
-    use crate::services::voice_clarification::{AmbiguousSlot, ClarificationGate, DEFAULT_CONFIDENCE_THRESHOLD};
 
     fn intent_body(c: &str, conf: f64) -> String {
         json!({"model":"m","answers":{"intent":{"type":"choice","choice":c,"confidence":conf,"probabilities":{}}},"usage":{"input_tokens":1,"output_tokens":1}}).to_string()
@@ -138,7 +156,9 @@ mod tests {
     }
     fn client(script: Script, auto: Option<&str>) -> (JevHub, std::sync::Arc<MockTransport>) {
         let t = MockTransport::new(script);
-        let extra: Vec<(&str, &str)> = auto.map(|a| vec![("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", a)]).unwrap_or_default();
+        let extra: Vec<(&str, &str)> = auto
+            .map(|a| vec![("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", a)])
+            .unwrap_or_default();
         (enabled_hub(&extra, t.clone()), t)
     }
     fn gate() -> ClarificationGate {
@@ -148,18 +168,27 @@ mod tests {
         gate().evaluate("spawn a researcher agent", Some(0.9))
     }
     fn pending() -> PendingClarification {
-        PendingClarification { slot: AmbiguousSlot::AgentType, original_transcript: "spawn a".into() }
+        PendingClarification {
+            slot: AmbiguousSlot::AgentType,
+            original_transcript: "spawn a".into(),
+        }
     }
 
     #[tokio::test]
     async fn wire_shape() {
-        let (c, t) = client(Script::Reply(200, intent_body("spawn_agent", 0.9)), Some("0.9"));
+        let (c, t) = client(
+            Script::Reply(200, intent_body("spawn_agent", 0.9)),
+            Some("0.9"),
+        );
         let _ = tighten(&c, dispatch()).await;
         let b = t.last_body().unwrap();
         assert!(b["questions"]["intent"]["criteria"].is_object());
         assert!(b["questions"]["intent"]["criteria"].get(UNCLEAR).is_some());
         assert_eq!(b["state"]["transcript"], "spawn a researcher agent");
-        assert!(!b.to_string().contains("did:nostr"), "agent DID is never sent");
+        assert!(
+            !b.to_string().contains("did:nostr"),
+            "agent DID is never sent"
+        );
         let (c, t) = client(Script::Reply(200, noul_body(0.9)), Some("0.9"));
         let _ = reply_abandons_pending(&c, &pending(), "stop agent coder").await;
         let b = t.last_body().unwrap();
@@ -171,7 +200,9 @@ mod tests {
     async fn accept_paths() {
         let (c, _) = client(Script::Reply(200, intent_body(UNCLEAR, 0.97)), Some("0.9"));
         match tighten(&c, dispatch()).await {
-            GateOutcome::Clarify { pending, .. } => assert_eq!(pending.slot, AmbiguousSlot::LowConfidence),
+            GateOutcome::Clarify { pending, .. } => {
+                assert_eq!(pending.slot, AmbiguousSlot::LowConfidence)
+            }
             other => panic!("expected hold, got {other:?}"),
         }
         let (c, _) = client(Script::Reply(200, noul_body(0.97)), Some("0.9"));
@@ -214,7 +245,10 @@ mod tests {
         }
         // A held utterance is never released and a missing slot never filled,
         // whatever Jev says.
-        let (c, t) = client(Script::Reply(200, intent_body("spawn_agent", 1.0)), Some("0.1"));
+        let (c, t) = client(
+            Script::Reply(200, intent_body("spawn_agent", 1.0)),
+            Some("0.1"),
+        );
         assert_eq!(tighten(&c, held.clone()).await, held);
         assert_eq!(t.calls(), 0, "held outcomes are not even sent");
     }

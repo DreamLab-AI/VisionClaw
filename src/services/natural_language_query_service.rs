@@ -67,7 +67,6 @@ impl NaturalLanguageQueryService {
         crate::services::jev_nlq::plan_query(jev, query).await.ok()
     }
 
-
     /// Translate natural language query to read-only SPARQL
     pub async fn translate_to_sparql(&self, query: &str) -> Result<QueryTranslation, String> {
         info!("Translating natural language query: {}", query);
@@ -469,7 +468,8 @@ Explanation: This finds all instances.
         if entity {
             a["entity"] = serde_json::json!({"type":"choice","choice":"e0","confidence":0.97,"probabilities":{}});
         }
-        serde_json::json!({"model":"m","answers":a,"usage":{"input_tokens":1,"output_tokens":1}}).to_string()
+        serde_json::json!({"model":"m","answers":a,"usage":{"input_tokens":1,"output_tokens":1}})
+            .to_string()
     }
 
     #[tokio::test]
@@ -489,8 +489,11 @@ Explanation: This finds all instances.
             (Script::Reply(200, "junk".into()), Some("0.9")),
             (Script::Reply(200, jev_body(true)), None),
         ] {
-            let extra: Vec<(&str, &str)> = auto.map(|a| vec![("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", a)]).unwrap_or_default();
-            let svc = create_test_service().with_jev(enabled_hub(&extra, MockTransport::new(script)));
+            let extra: Vec<(&str, &str)> = auto
+                .map(|a| vec![("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", a)])
+                .unwrap_or_default();
+            let svc =
+                create_test_service().with_jev(enabled_hub(&extra, MockTransport::new(script)));
             assert!(svc.try_jev_plan(q).await.is_none());
         }
     }
@@ -503,11 +506,17 @@ Explanation: This finds all instances.
             &[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")],
             MockTransport::new(Script::Reply(200, jev_body(true))),
         ));
-        let t = svc.try_jev_plan("describe urn:ngm:class:Physics").await.unwrap();
+        let t = svc
+            .try_jev_plan("describe urn:ngm:class:Physics")
+            .await
+            .unwrap();
         assert_eq!(t.sparql_query, "DESCRIBE <urn:ngm:class:Physics>");
         assert!(svc.validate_sparql(&t.sparql_query).is_ok());
         // translate_to_sparql returns the planned query without reaching the LLM.
-        let t2 = svc.translate_to_sparql("describe urn:ngm:class:Physics").await.unwrap();
+        let t2 = svc
+            .translate_to_sparql("describe urn:ngm:class:Physics")
+            .await
+            .unwrap();
         assert_eq!(t2.sparql_query, t.sparql_query);
     }
 

@@ -202,7 +202,8 @@ pub fn decode(file: &[u8]) -> Result<Splats, SpzError> {
             out.positions.push(v as f32 * pscale);
         }
         for c in 0..3 {
-            out.scales.push((scale[i * 3 + c] as f32 / 16.0 - 10.0).exp());
+            out.scales
+                .push((scale[i * 3 + c] as f32 / 16.0 - 10.0).exp());
         }
         out.rotations
             .extend_from_slice(&unpack_rotation(u32::from_le_bytes([
@@ -304,7 +305,11 @@ pub fn encode_v3(s: &Splats, fractional_bits: u8) -> Vec<u8> {
         }
     }
     for v in &s.scales {
-        raw.push(((v.max(1e-12).ln() + 10.0) * 16.0).round().clamp(0.0, 255.0) as u8);
+        raw.push(
+            ((v.max(1e-12).ln() + 10.0) * 16.0)
+                .round()
+                .clamp(0.0, 255.0) as u8,
+        );
     }
     for i in 0..n {
         let q = [

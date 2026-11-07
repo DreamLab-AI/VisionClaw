@@ -36,7 +36,9 @@ use actix_web::{web, HttpResponse};
 use log::debug;
 use serde::Serialize;
 
-use crate::handlers::enrichment_proposals_handler::store::{self, EnrichmentProposal, ProposalStatus};
+use crate::handlers::enrichment_proposals_handler::store::{
+    self, EnrichmentProposal, ProposalStatus,
+};
 use crate::middleware::RequireAuth;
 use std::sync::OnceLock;
 use visionclaw_jev::proposal_triage::{self, ProposalFacts, Triage, TriageCache};
@@ -158,11 +160,13 @@ static JEV_TRIAGE: OnceLock<Option<JevTriage>> = OnceLock::new();
 fn jev_triage() -> Option<&'static JevTriage> {
     JEV_TRIAGE
         .get_or_init(|| {
-            Jev::from_env_logged(JevItem::ProposalTriage, proposal_triage::QSET_VERSION).map(|jev| JevTriage {
-                jev,
-                params: proposal_triage::Params::from_lookup(&|k| std::env::var(k).ok()),
-                cache: TriageCache::new(),
-            })
+            Jev::from_env_logged(JevItem::ProposalTriage, proposal_triage::QSET_VERSION).map(
+                |jev| JevTriage {
+                    jev,
+                    params: proposal_triage::Params::from_lookup(&|k| std::env::var(k).ok()),
+                    cache: TriageCache::new(),
+                },
+            )
         })
         .as_ref()
 }
@@ -190,14 +194,18 @@ fn triage_facts(p: &EnrichmentProposal) -> Option<ProposalFacts> {
 /// call falls back, the result is exactly the pre-change projection (same
 /// cases, same order, no `jev` key). Otherwise annotated cases are ordered by
 /// triage priority within the slots annotated cases already occupy.
-async fn assemble_inbox(proposals: Vec<EnrichmentProposal>, triage: Option<&JevTriage>) -> InboxResponse {
+async fn assemble_inbox(
+    proposals: Vec<EnrichmentProposal>,
+    triage: Option<&JevTriage>,
+) -> InboxResponse {
     let total = proposals.len();
     let Some(t) = triage else {
         let cases = proposals.iter().map(BrokerCase::from).collect();
         return InboxResponse { cases, total };
     };
     let (ordered, ann) =
-        proposal_triage::triage_queue(Some(&t.jev), &t.cache, proposals, triage_facts, &t.params).await;
+        proposal_triage::triage_queue(Some(&t.jev), &t.cache, proposals, triage_facts, &t.params)
+            .await;
     let cases = ordered
         .iter()
         .zip(ann)
@@ -220,7 +228,10 @@ async fn assemble_inbox(proposals: Vec<EnrichmentProposal>, triage: Option<&JevT
 pub async fn inbox() -> HttpResponse {
     let proposals = store::all().await;
     let body = assemble_inbox(proposals, jev_triage()).await;
-    debug!("[broker-inbox] serving {} proposal(s) to bridge", body.total);
+    debug!(
+        "[broker-inbox] serving {} proposal(s) to bridge",
+        body.total
+    );
     HttpResponse::Ok().json(body)
 }
 
@@ -385,15 +396,31 @@ mod tests {
 
     #[tokio::test]
     async fn jev_off_is_the_pre_change_projection_exactly() {
-        let baseline = InboxResponse { cases: queue().iter().map(BrokerCase::from).collect(), total: 3 };
+        let baseline = InboxResponse {
+            cases: queue().iter().map(BrokerCase::from).collect(),
+            total: 3,
+        };
         let out = assemble_inbox(queue(), None).await;
-        assert_eq!(serde_json::to_value(&out).unwrap(), serde_json::to_value(&baseline).unwrap());
-        assert!(serde_json::to_string(&out).unwrap().find("\"jev\"").is_none(), "no jev key when off");
+        assert_eq!(
+            serde_json::to_value(&out).unwrap(),
+            serde_json::to_value(&baseline).unwrap()
+        );
+        assert!(
+            serde_json::to_string(&out)
+                .unwrap()
+                .find("\"jev\"")
+                .is_none(),
+            "no jev key when off"
+        );
     }
 
     #[tokio::test]
     async fn jev_every_fallback_is_the_pre_change_projection_exactly() {
-        let baseline = serde_json::to_value(InboxResponse { cases: queue().iter().map(BrokerCase::from).collect(), total: 3 }).unwrap();
+        let baseline = serde_json::to_value(InboxResponse {
+            cases: queue().iter().map(BrokerCase::from).collect(),
+            total: 3,
+        })
+        .unwrap();
         for script in [
             Script::Reply(500, "x".into()),
             Script::Reply(429, "x".into()),
@@ -414,8 +441,15 @@ mod tests {
     async fn jev_accept_path_annotates_orders_and_leaves_decided_cases_alone() {
         let t = FnTransport::new(|body| {
             let change = body["state"]["requested_change"].as_str().unwrap_or("");
-            let b = if change.contains("low") { answers(0.0, 0.0, 0.1, 0.9) } else { answers(3.0, 2.0, 0.95, 0.9) };
-            Ok(RawResponse { status: 200, body: b })
+            let b = if change.contains("low") {
+                answers(0.0, 0.0, 0.1, 0.9)
+            } else {
+                answers(3.0, 2.0, 0.95, 0.9)
+            };
+            Ok(RawResponse {
+                status: 200,
+                body: b,
+            })
         });
         let st = state_with(t.clone());
         let out = assemble_inbox(queue(), Some(&st)).await;

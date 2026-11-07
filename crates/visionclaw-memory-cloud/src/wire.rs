@@ -422,10 +422,14 @@ mod tests {
         });
         let w = serde_json::to_value(&with_note).unwrap();
         assert_eq!(keys(&w["sidecar"]), ["jev", "method", "results", "tookMs"]);
-        assert_eq!(keys(&w["sidecar"]["jev"]), ["judged", "noCandidateSuffices", "questionSet"]);
+        assert_eq!(
+            keys(&w["sidecar"]["jev"]),
+            ["judged", "noCandidateSuffices", "questionSet"]
+        );
         // an older server's response (no `jev`) still reads
         let old: SidecarResults =
-            serde_json::from_value(json!({"results": [], "tookMs": 1.0, "method": "hnsw"})).unwrap();
+            serde_json::from_value(json!({"results": [], "tookMs": 1.0, "method": "hnsw"}))
+                .unwrap();
         assert_eq!(old.jev, None);
         assert_eq!(v["sidecar"]["method"], "exact");
         assert_eq!(serde_json::to_value(SearchMethod::Hnsw).unwrap(), "hnsw");

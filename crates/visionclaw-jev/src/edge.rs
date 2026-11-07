@@ -103,8 +103,14 @@ impl EdgeReviewRequest {
         if !bounded(&self.source_label, 240)
             || !bounded(&self.target_label, 240)
             || !bounded(&self.evidence, MAX_EVIDENCE_CHARS)
-            || self.source_class.as_deref().is_some_and(|s| !bounded(s, 512))
-            || self.target_class.as_deref().is_some_and(|s| !bounded(s, 512))
+            || self
+                .source_class
+                .as_deref()
+                .is_some_and(|s| !bounded(s, 512))
+            || self
+                .target_class
+                .as_deref()
+                .is_some_and(|s| !bounded(s, 512))
         {
             return Err(Fallback::Malformed);
         }
@@ -122,7 +128,9 @@ impl EdgeReviewRequest {
 /// predicate's domain or range rejects it; unknown classes are not rejected
 /// (the pre-change classifier does not check them either).
 pub fn domain_range_ok(iri: &str, source_class: Option<&str>, target_class: Option<&str>) -> bool {
-    let Some(p) = VOCAB.iter().find(|p| p.iri == iri) else { return false };
+    let Some(p) = VOCAB.iter().find(|p| p.iri == iri) else {
+        return false;
+    };
     let ok = |class: Option<&str>, want: &str| match class {
         Some(c) if !want.is_empty() => c.contains(want),
         _ => true,
@@ -131,8 +139,10 @@ pub fn domain_range_ok(iri: &str, source_class: Option<&str>, target_class: Opti
 }
 
 fn questions(ev: &EdgeEvidence<'_>) -> Vec<(String, Question)> {
-    let mut criteria: BTreeMap<String, String> =
-        VOCAB.iter().map(|p| (p.iri.to_string(), p.definition.to_string())).collect();
+    let mut criteria: BTreeMap<String, String> = VOCAB
+        .iter()
+        .map(|p| (p.iri.to_string(), p.definition.to_string()))
+        .collect();
     criteria.insert(
         UNSUPPORTED.into(),
         "None of the listed predicates is stated by `evidence`: the relation is negated, only historical, hypothetical, or absent, or the span names a different relation.".into(),
@@ -157,7 +167,10 @@ fn questions(ev: &EdgeEvidence<'_>) -> Vec<(String, Question)> {
 
 /// Ask Jev for a predicate proposal. `Err` ⇒ leave the edge unclassified,
 /// exactly as the deterministic classifier did.
-pub async fn propose_edge(client: &JevHub, ev: &EdgeEvidence<'_>) -> Result<EdgeProposal, Fallback> {
+pub async fn propose_edge(
+    client: &JevHub,
+    ev: &EdgeEvidence<'_>,
+) -> Result<EdgeProposal, Fallback> {
     let proposal = judge_edge(client, ev).await?;
     client.accept_outcome(proposal.confidence)?;
     client.accept_outcome(proposal.asserted)?;
@@ -168,7 +181,10 @@ pub async fn propose_edge(client: &JevHub, ev: &EdgeEvidence<'_>) -> Result<Edge
 /// this uses the suggestion threshold, so a human can review it before the
 /// automatic threshold has been calibrated. Vocabulary and domain/range checks
 /// apply equally to both paths.
-pub async fn suggest_edge(client: &JevHub, ev: &EdgeEvidence<'_>) -> Result<EdgeProposal, Fallback> {
+pub async fn suggest_edge(
+    client: &JevHub,
+    ev: &EdgeEvidence<'_>,
+) -> Result<EdgeProposal, Fallback> {
     let proposal = judge_edge(client, ev).await?;
     client.accept_suggestion(proposal.confidence)?;
     client.accept_suggestion(proposal.asserted)?;
@@ -188,7 +204,9 @@ async fn judge_edge(client: &JevHub, ev: &EdgeEvidence<'_>) -> Result<EdgePropos
         "target": {"label": ev.target_label, "class": ev.target_class},
         "evidence": evidence,
     });
-    let answers = client.ask(Item::EdgeMeaning, EDGE_QUESTION_SET, state, questions(ev)).await?;
+    let answers = client
+        .ask(Item::EdgeMeaning, EDGE_QUESTION_SET, state, questions(ev))
+        .await?;
     let mut offered: Vec<&str> = VOCAB.iter().map(|p| p.iri).collect();
     offered.push(UNSUPPORTED);
     let c = answers.choice("predicate", &offered)?;
@@ -203,7 +221,11 @@ async fn judge_edge(client: &JevHub, ev: &EdgeEvidence<'_>) -> Result<EdgePropos
     if !domain_range_ok(&c.choice, ev.source_class, ev.target_class) {
         return reject(Fallback::LowConfidence);
     }
-    Ok(EdgeProposal { predicate: c.choice, confidence: c.confidence, asserted })
+    Ok(EdgeProposal {
+        predicate: c.choice,
+        confidence: c.confidence,
+        asserted,
+    })
 }
 
 /// The predicate IRIs the Jev edge vocabulary offers, so the host can check
@@ -238,58 +260,104 @@ mod tests {
     fn body(pred: &str, conf: f64, noul: f64) -> String {
         json!({"model":"m","answers":{
             "predicate":{"type":"choice","choice":pred,"confidence":conf,"probabilities":{}},
-            "asserted":{"type":"noul","noul":noul}},"usage":{"input_tokens":1,"output_tokens":1}}).to_string()
+            "asserted":{"type":"noul","noul":noul}},"usage":{"input_tokens":1,"output_tokens":1}})
+        .to_string()
     }
     fn client(script: Script, auto: Option<&str>) -> (JevHub, std::sync::Arc<MockTransport>) {
         let t = MockTransport::new(script);
-        let extra: Vec<(&str, &str)> = auto.map(|a| vec![("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", a)]).unwrap_or_default();
+        let extra: Vec<(&str, &str)> = auto
+            .map(|a| vec![("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", a)])
+            .unwrap_or_default();
         (enabled_hub(&extra, t.clone()), t)
     }
 
     #[tokio::test]
     async fn review_suggestion_does_not_enable_automatic_gap_fill() {
         let (c, _) = client(Script::Reply(200, body("mv:worksAt", 0.95, 0.97)), None);
-        assert_eq!(suggest_edge(&c, &ev()).await.unwrap().predicate, "mv:worksAt");
-        assert_eq!(propose_edge(&c, &ev()).await.unwrap_err(), Fallback::LowConfidence);
-        let swapped = EdgeEvidence { source_class: Some("mv:Company"), target_class: Some("mv:Person"), ..ev() };
-        assert_eq!(suggest_edge(&c, &swapped).await.unwrap_err(), Fallback::LowConfidence);
+        assert_eq!(
+            suggest_edge(&c, &ev()).await.unwrap().predicate,
+            "mv:worksAt"
+        );
+        assert_eq!(
+            propose_edge(&c, &ev()).await.unwrap_err(),
+            Fallback::LowConfidence
+        );
+        let swapped = EdgeEvidence {
+            source_class: Some("mv:Company"),
+            target_class: Some("mv:Person"),
+            ..ev()
+        };
+        assert_eq!(
+            suggest_edge(&c, &swapped).await.unwrap_err(),
+            Fallback::LowConfidence
+        );
         let (c, _) = client(Script::Reply(200, body("mv:invented", 1.0, 1.0)), None);
-        assert_eq!(suggest_edge(&c, &ev()).await.unwrap_err(), Fallback::Malformed);
+        assert_eq!(
+            suggest_edge(&c, &ev()).await.unwrap_err(),
+            Fallback::Malformed
+        );
     }
 
     #[test]
     fn review_request_is_bounded_and_cannot_supply_candidates() {
-        let mut value = json!({"source_label":"Ada", "target_label":"Acme", "evidence":"Ada works at Acme."});
+        let mut value =
+            json!({"source_label":"Ada", "target_label":"Acme", "evidence":"Ada works at Acme."});
         let request: EdgeReviewRequest = serde_json::from_value(value.clone()).unwrap();
         assert!(request.evidence().is_ok());
         value["evidence"] = json!("x".repeat(1201));
-        assert!(serde_json::from_value::<EdgeReviewRequest>(value.clone()).unwrap().evidence().is_err());
+        assert!(serde_json::from_value::<EdgeReviewRequest>(value.clone())
+            .unwrap()
+            .evidence()
+            .is_err());
         value["candidates"] = json!(["mv:invented"]);
         assert!(serde_json::from_value::<EdgeReviewRequest>(value).is_err());
     }
 
     #[test]
     fn domain_range_gate() {
-        assert!(domain_range_ok("mv:worksAt", Some("mv:Person"), Some("mv:Company")));
-        assert!(!domain_range_ok("mv:worksAt", Some("mv:Company"), Some("mv:Person")));
+        assert!(domain_range_ok(
+            "mv:worksAt",
+            Some("mv:Person"),
+            Some("mv:Company")
+        ));
+        assert!(!domain_range_ok(
+            "mv:worksAt",
+            Some("mv:Company"),
+            Some("mv:Person")
+        ));
         assert!(domain_range_ok("mv:worksAt", None, None));
         assert!(!domain_range_ok("mv:invented", None, None));
     }
 
     #[tokio::test]
     async fn wire_shape_and_accept_path() {
-        let (c, t) = client(Script::Reply(200, body("mv:worksAt", 0.95, 0.97)), Some("0.9"));
+        let (c, t) = client(
+            Script::Reply(200, body("mv:worksAt", 0.95, 0.97)),
+            Some("0.9"),
+        );
         let p = propose_edge(&c, &ev()).await.unwrap();
         assert_eq!(p.predicate, "mv:worksAt");
         let b = t.last_body().unwrap();
         assert!(b["questions"]["predicate"]["criteria"].is_object());
-        assert!(b["questions"]["predicate"]["criteria"].get(UNSUPPORTED).is_some());
+        assert!(b["questions"]["predicate"]["criteria"]
+            .get(UNSUPPORTED)
+            .is_some());
         assert_eq!(b["questions"]["asserted"]["type"], "noul");
         assert_eq!(b["state"]["evidence"], "Ada is employed by Acme.");
         // Existing validation still runs: domain/range rejects a swapped pair.
-        let swapped = EdgeEvidence { source_class: Some("mv:Company"), target_class: Some("mv:Person"), ..ev() };
-        let (c, _) = client(Script::Reply(200, body("mv:worksAt", 0.95, 0.97)), Some("0.9"));
-        assert_eq!(propose_edge(&c, &swapped).await.unwrap_err(), Fallback::LowConfidence);
+        let swapped = EdgeEvidence {
+            source_class: Some("mv:Company"),
+            target_class: Some("mv:Person"),
+            ..ev()
+        };
+        let (c, _) = client(
+            Script::Reply(200, body("mv:worksAt", 0.95, 0.97)),
+            Some("0.9"),
+        );
+        assert_eq!(
+            propose_edge(&c, &swapped).await.unwrap_err(),
+            Fallback::LowConfidence
+        );
     }
 
     #[tokio::test]
@@ -297,19 +365,37 @@ mod tests {
         // flag off
         let t = MockTransport::new(Script::Reply(200, body("mv:worksAt", 1.0, 1.0)));
         let off = JevHub::with_transport(|_| None, t.clone());
-        assert_eq!(propose_edge(&off, &ev()).await.unwrap_err(), Fallback::FlagOff);
+        assert_eq!(
+            propose_edge(&off, &ev()).await.unwrap_err(),
+            Fallback::FlagOff
+        );
         assert_eq!(t.calls(), 0);
         // default threshold: accept nothing automatically
         let (c, _) = client(Script::Reply(200, body("mv:worksAt", 1.0, 1.0)), None);
-        assert_eq!(propose_edge(&c, &ev()).await.unwrap_err(), Fallback::LowConfidence);
+        assert_eq!(
+            propose_edge(&c, &ev()).await.unwrap_err(),
+            Fallback::LowConfidence
+        );
         let cases: Vec<(Script, Fallback)> = vec![
             (Script::Fail(TransportError::Timeout), Fallback::Timeout),
             (Script::Reply(500, "".into()), Fallback::Http(500)),
             (Script::Reply(200, "junk".into()), Fallback::Malformed),
-            (Script::Reply(200, body("mv:invented", 0.99, 0.99)), Fallback::Malformed),
-            (Script::Reply(200, body("mv:worksAt", 0.3, 0.99)), Fallback::LowConfidence),
-            (Script::Reply(200, body("mv:worksAt", 0.99, 0.3)), Fallback::LowConfidence),
-            (Script::Reply(200, body(UNSUPPORTED, 0.99, 0.99)), Fallback::LowConfidence),
+            (
+                Script::Reply(200, body("mv:invented", 0.99, 0.99)),
+                Fallback::Malformed,
+            ),
+            (
+                Script::Reply(200, body("mv:worksAt", 0.3, 0.99)),
+                Fallback::LowConfidence,
+            ),
+            (
+                Script::Reply(200, body("mv:worksAt", 0.99, 0.3)),
+                Fallback::LowConfidence,
+            ),
+            (
+                Script::Reply(200, body(UNSUPPORTED, 0.99, 0.99)),
+                Fallback::LowConfidence,
+            ),
         ];
         for (s, want) in cases {
             let (c, _) = client(s, Some("0.9"));

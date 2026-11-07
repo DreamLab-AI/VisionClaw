@@ -1058,7 +1058,10 @@ pub const RENDERING_ROW: &str = "rendering";
 
 /// The stored `rendering` row replaces the snapshot's rendering settings. A row that does not
 /// load as RenderingSettings is logged and leaves the snapshot as it was.
-fn seed_rendering_from_blob(row: Option<serde_json::Value>, settings: &mut crate::config::AppFullSettings) {
+fn seed_rendering_from_blob(
+    row: Option<serde_json::Value>,
+    settings: &mut crate::config::AppFullSettings,
+) {
     let Some(blob) = row.filter(|r| r.is_object()) else {
         return;
     };
@@ -1277,12 +1280,17 @@ mod layout_mode_snapshot_tests {
         let repo = SqliteSettingsRepository::open(std::path::Path::new(":memory:"))
             .await
             .expect("open in-memory repo");
-        let mut rendering = serde_json::to_value(crate::config::RenderingSettings::default()).unwrap();
+        let mut rendering =
+            serde_json::to_value(crate::config::RenderingSettings::default()).unwrap();
         rendering["ambientLightIntensity"] = json!(0.7);
         rendering["backgroundColor"] = json!("#102030");
-        repo.set_setting(super::RENDERING_ROW, SettingValue::Json(rendering), Some("test"))
-            .await
-            .unwrap();
+        repo.set_setting(
+            super::RENDERING_ROW,
+            SettingValue::Json(rendering),
+            Some("test"),
+        )
+        .await
+        .unwrap();
         let loaded = repo.load_all_settings().await.unwrap().unwrap();
         let r = loaded.visualisation.rendering;
         assert!((r.ambient_light_intensity - 0.7).abs() < 1e-6);
@@ -1296,9 +1304,13 @@ mod layout_mode_snapshot_tests {
         let repo = SqliteSettingsRepository::open(std::path::Path::new(":memory:"))
             .await
             .expect("open in-memory repo");
-        repo.set_setting(super::RENDERING_ROW, SettingValue::Json(json!({"ambientLightIntensity": "loud"})), Some("test"))
-            .await
-            .unwrap();
+        repo.set_setting(
+            super::RENDERING_ROW,
+            SettingValue::Json(json!({"ambientLightIntensity": "loud"})),
+            Some("test"),
+        )
+        .await
+        .unwrap();
         let loaded = repo.load_all_settings().await.unwrap().unwrap();
         assert_eq!(
             loaded.visualisation.rendering.background_color,

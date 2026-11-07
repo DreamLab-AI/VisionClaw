@@ -24,6 +24,7 @@ use serde::Deserialize;
 use tokio::sync::{watch, RwLock};
 use tokio_postgres::NoTls;
 
+use visionclaw_jev::{rerank as jev_rerank, Item as JevItem, Jev};
 use visionclaw_memory_cloud::config::{MemoryCloudConfig, NamespacePatterns};
 use visionclaw_memory_cloud::recall::{mean, recall_at_k, recall_at_k_by_distance};
 use visionclaw_memory_cloud::sampling::{allocate, NamespaceCount, SamplingPolicy};
@@ -31,13 +32,12 @@ use visionclaw_memory_cloud::snapshot::{build_snapshot, probe_rows, BuiltSnapsho
 use visionclaw_memory_cloud::snippet::{snippet, SNIPPET_MAX_CHARS};
 use visionclaw_memory_cloud::validate::ValidatedQuery;
 use visionclaw_memory_cloud::vector::{format_ruvector_literal, l2_normalise};
+use visionclaw_memory_cloud::wire::JevRerankNote;
 use visionclaw_memory_cloud::wire::{
     EmbedderHealth, MemoryCloudHealth, MemoryCloudHit, MemoryCloudMeta, MemoryCloudQueryResponse,
     MemoryCloudRecallProbe, NamespaceHealth, QueryEcho, SearchMethod, SidecarHealth, SidecarIssue,
     SidecarResults,
 };
-use visionclaw_memory_cloud::wire::JevRerankNote;
-use visionclaw_jev::{rerank as jev_rerank, Item as JevItem, Jev};
 
 /// Environment variable holding the sidecar's libpq connection string.
 pub const CONNINFO_ENV: &str = "RUVECTOR_PG_CONNINFO";
@@ -316,11 +316,19 @@ impl MemoryCloudService {
 
     /// [`MemoryCloudService::new`] with an explicit Jev rerank client (tests,
     /// or a host that owns the transport).
-    pub fn new_with_jev(config: MemoryCloudConfig, conninfo: Option<String>, jev: Jev) -> Arc<Self> {
+    pub fn new_with_jev(
+        config: MemoryCloudConfig,
+        conninfo: Option<String>,
+        jev: Jev,
+    ) -> Arc<Self> {
         Self::construct(config, conninfo, Some(jev))
     }
 
-    fn construct(config: MemoryCloudConfig, conninfo: Option<String>, jev: Option<Jev>) -> Arc<Self> {
+    fn construct(
+        config: MemoryCloudConfig,
+        conninfo: Option<String>,
+        jev: Option<Jev>,
+    ) -> Arc<Self> {
         let pool = match conninfo.filter(|c| !c.trim().is_empty()) {
             None => Err(format!(
                 "{CONNINFO_ENV} is not set; the live memory cloud is disabled"
@@ -735,9 +743,11 @@ impl MemoryCloudService {
             text,
             results,
             |h| {
-                (!excluded.matches(&h.namespace) && !h.snippet.trim().is_empty()).then(|| jev_rerank::Candidate {
-                    namespace: h.namespace.clone(),
-                    snippet: h.snippet.clone(),
+                (!excluded.matches(&h.namespace) && !h.snippet.trim().is_empty()).then(|| {
+                    jev_rerank::Candidate {
+                        namespace: h.namespace.clone(),
+                        snippet: h.snippet.clone(),
+                    }
                 })
             },
             &self.jev_params,
@@ -1019,16 +1029,29 @@ mod tests {
     fn rerank_body(per: &[(f64, f64, f64)], none: f64) -> String {
         let mut answers = serde_json::Map::new();
         for (i, (s, c, p)) in per.iter().enumerate() {
-            answers.insert(format!("rel_{i}"), serde_json::json!({"type":"score","score":s,"confidence":c}));
-            answers.insert(format!("sup_{i}"), serde_json::json!({"type":"noul","noul":p}));
+            answers.insert(
+                format!("rel_{i}"),
+                serde_json::json!({"type":"score","score":s,"confidence":c}),
+            );
+            answers.insert(
+                format!("sup_{i}"),
+                serde_json::json!({"type":"noul","noul":p}),
+            );
         }
-        answers.insert("none".into(), serde_json::json!({"type":"noul","noul":none}));
+        answers.insert(
+            "none".into(),
+            serde_json::json!({"type":"noul","noul":none}),
+        );
         serde_json::json!({"model":"jev-test","answers":answers,"usage":{"input_tokens":1,"output_tokens":1}}).to_string()
     }
 
     fn svc_with(script: Script) -> (Arc<MemoryCloudService>, Arc<MockTransport>) {
         let t = MockTransport::new(script);
-        let svc = MemoryCloudService::new_with_jev(cfg(), None, test_jev(JevItem::MemoryRerank, t.clone()));
+        let svc = MemoryCloudService::new_with_jev(
+            cfg(),
+            None,
+            test_jev(JevItem::MemoryRerank, t.clone()),
+        );
         (svc, t)
     }
 
@@ -1042,9 +1065,15 @@ mod tests {
 
     #[tokio::test]
     async fn jev_accept_path_reorders_keeping_each_hits_own_placement() {
-        let (svc, t) = svc_with(Script::Reply(200, rerank_body(&[(0.0, 0.9, 0.0), (1.0, 0.9, 0.2), (2.0, 0.9, 1.0)], 0.05)));
+        let (svc, t) = svc_with(Script::Reply(
+            200,
+            rerank_body(&[(0.0, 0.9, 0.0), (1.0, 0.9, 0.2), (2.0, 0.9, 1.0)], 0.05),
+        ));
         let (out, note) = svc.apply_jev("what is gamma?", hits()).await;
-        assert_eq!(out.iter().map(|h| h.id.as_str()).collect::<Vec<_>>(), ["c", "b", "a"]);
+        assert_eq!(
+            out.iter().map(|h| h.id.as_str()).collect::<Vec<_>>(),
+            ["c", "b", "a"]
+        );
         // each hit still carries its own row and position
         assert_eq!(out[0].sample_index, Some(12));
         assert_eq!(out[0].position, Some([12.0, 0.0, 0.0]));
@@ -1059,14 +1088,20 @@ mod tests {
 
     #[tokio::test]
     async fn jev_never_sends_excluded_namespaces() {
-        let (svc, t) = svc_with(Script::Reply(200, rerank_body(&[(0.0, 0.9, 0.0), (2.0, 0.9, 1.0)], 0.0)));
+        let (svc, t) = svc_with(Script::Reply(
+            200,
+            rerank_body(&[(0.0, 0.9, 0.0), (2.0, 0.9, 1.0)], 0.0),
+        ));
         let mixed = vec![
             hit("p", "personal-context", "private diary", 1),
             hit("a", "project-state", "alpha", 2),
             hit("b", "project-state", "beta", 3),
         ];
         let (out, _) = svc.apply_jev("q", mixed).await;
-        assert_eq!(out.iter().map(|h| h.id.as_str()).collect::<Vec<_>>(), ["p", "b", "a"]);
+        assert_eq!(
+            out.iter().map(|h| h.id.as_str()).collect::<Vec<_>>(),
+            ["p", "b", "a"]
+        );
         let sent = serde_json::to_string(&t.seen.lock().unwrap()[0]).unwrap();
         assert!(!sent.contains("private diary") && !sent.contains("personal-context"));
     }
@@ -1075,7 +1110,8 @@ mod tests {
     async fn jev_every_fallback_returns_the_pre_change_hits() {
         let low = rerank_body(&[(2.0, 0.0, 1.0), (2.0, 0.0, 1.0), (2.0, 0.0, 1.0)], 0.0);
         let missing_none = {
-            let mut v: serde_json::Value = serde_json::from_str(&rerank_body(&[(1.0, 0.9, 0.5); 3], 0.0)).unwrap();
+            let mut v: serde_json::Value =
+                serde_json::from_str(&rerank_body(&[(1.0, 0.9, 0.5); 3], 0.0)).unwrap();
             v["answers"].as_object_mut().unwrap().remove("none");
             v.to_string()
         };
