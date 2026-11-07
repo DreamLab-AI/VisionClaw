@@ -57,3 +57,24 @@ describe('overview node material', () => {
     expect(spriteSizePx(0, 1, 1)).toBe(SPRITE_MIN_PX);
   });
 });
+
+describe('overview edge breathe (desktop parity with xr-client edge_flow_common.gdshaderinc)', () => {
+  // The old GLSL glass-edge shader carried the breathe; the TSL port declared
+  // `time` but never read it, so the effect was silently lost on desktop when
+  // the GLSL twins were deleted. These pin that the overview material now has it.
+  it('ships the XR defaults: 36 s period, 0.8 depth, on by default', () => {
+    const u = edgeUniforms();
+    expect(u.uBreathePeriod.value).toBe(36);
+    expect(u.uBreatheDepth.value).toBe(0.8);
+    expect(u.uTime.value).toBe(0);
+  });
+
+  it('still builds a TSL material once the breathe term is in the alpha path', async () => {
+    const g = createOverviewEdgeGeometry(8);
+    const u = edgeUniforms();
+    u.uTime.value = 9;
+    const m = await createTslOverviewEdgeMaterial(u, g) as THREE.Material & { colorNode?: unknown };
+    expect(m.colorNode).toBeTruthy();
+    expect(m.transparent).toBe(true);
+  });
+});

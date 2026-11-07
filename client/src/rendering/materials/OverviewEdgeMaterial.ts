@@ -56,6 +56,9 @@ export interface OverviewEdgeUniforms {
   uFadeFar: { value: number };
   uMinOpacity: { value: number };
   uOpacity: { value: number };
+  uTime: { value: number };
+  uBreathePeriod: { value: number };
+  uBreatheDepth: { value: number };
   uGreyOpacity: { value: number };
   uDashed: { value: number };
   uDash: { value: number };
@@ -75,6 +78,13 @@ export function createOverviewEdgeUniforms(v: OverviewEdgeUniformValues): Overvi
     uFadeFar: { value: v.fadeFarPx },
     uMinOpacity: { value: v.minOpacity },
     uOpacity: { value: v.opacity },
+    // Slow breathe, matching the XR ribbons (edge_flow_common.gdshaderinc): the
+    // whole edge network swells and fades on a 36 s cosine, dipping by
+    // breatheDepth at the trough. Time is fed by OverviewEdgeLines each frame.
+    // Not reduced-motion gated: it is a brightness change, nothing travels.
+    uTime: { value: 0 },
+    uBreathePeriod: { value: 36 },
+    uBreatheDepth: { value: 0.8 },
     uGreyOpacity: { value: v.greyoutOpacity },
     uDashed: { value: v.dashed },
     uDash: { value: v.dashPx },
@@ -115,7 +125,7 @@ export async function createTslOverviewEdgeMaterial(
   const T = (await import('three/tsl')) as any;
   const {
     Fn, float, int, vec2, vec3, vec4, ivec2, uniform, instancedBufferAttribute,
-    positionGeometry, cameraViewMatrix, cameraProjectionMatrix, varyingProperty, select, abs, clamp, mod, max, min, length, mix,
+    positionGeometry, cameraViewMatrix, cameraProjectionMatrix, varyingProperty, select, abs, clamp, mod, max, min, length, mix, cos,
     Discard, If,
   } = T;
 
@@ -129,6 +139,9 @@ export async function createTslOverviewEdgeMaterial(
     fadeFar: uniform(150).onRenderUpdate(() => uniforms.uFadeFar.value),
     minOpacity: uniform(0.25).onRenderUpdate(() => uniforms.uMinOpacity.value),
     opacity: uniform(1).onRenderUpdate(() => uniforms.uOpacity.value),
+    time: uniform(0).onRenderUpdate(() => uniforms.uTime.value),
+    breathePeriod: uniform(36).onRenderUpdate(() => uniforms.uBreathePeriod.value),
+    breatheDepth: uniform(0.8).onRenderUpdate(() => uniforms.uBreatheDepth.value),
     grey: uniform(0.1).onRenderUpdate(() => uniforms.uGreyOpacity.value),
     dashed: uniform(0).onRenderUpdate(() => uniforms.uDashed.value),
     dash: uniform(1).onRenderUpdate(() => uniforms.uDash.value),
@@ -186,6 +199,9 @@ export async function createTslOverviewEdgeMaterial(
       out.assign(c);
       const fade = fadeAlphaWith(tslScalarOps(T), lenPx, u.fadeNear, u.fadeFar, u.minOpacity);
       const alpha = fade.mul(u.opacity).toVar();
+      // swell = 0.5 - 0.5*cos(2*pi*t/period): 0 at the peak, 1 at the trough.
+      const swell = float(0.5).sub(float(0.5).mul(cos(float(6.28318531).mul(u.time).div(max(u.breathePeriod, 0.001)))));
+      alpha.assign(alpha.mul(float(1).sub(clamp(u.breatheDepth, 0, 1).mul(swell))));
       If(greyed, () => { alpha.assign(min(alpha, u.grey)); });
       If(emph, () => { alpha.assign(1); });
       vAlpha.assign(alpha);

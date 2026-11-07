@@ -140,7 +140,8 @@ export const OverviewEdgeLines: React.FC<Props> = ({ positions, data, style, vis
     geometry.instanceCount = n;
   }, [data, geometry, style.widthPx, style.maxWidthPx]);
 
-  useFrame(({ camera }) => {
+  useFrame(({ camera, clock }) => {
+    uniforms.uTime.value = clock.elapsedTime;
     if (!mesh) return;
     mesh.visible = visible && geometry.instanceCount > 0 && overviewPositionsReady() && !isOverviewFaulted(faultLayer);
     if (!mesh.visible) return;
