@@ -1489,7 +1489,7 @@ impl GitHubSyncService {
     /// uses/supports/implements subPropertyOf utilises,
     /// hasPart/isPartOf transitive, relatesTo/similarTo symmetric,
     /// hasPart inverseOf isPartOf, enables inverseOf enabledBy.
-    fn ngm_property_hierarchy_axioms() -> Vec<OwlAxiom> {
+    pub(crate) fn ngm_property_hierarchy_axioms() -> Vec<OwlAxiom> {
         let sub_prop = |sub: &str, sup: &str| OwlAxiom {
             id: None,
             axiom_type: AxiomType::SubPropertyOf,

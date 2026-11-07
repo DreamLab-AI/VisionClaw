@@ -12,8 +12,15 @@
 //! property signatures and the Whelk closure) are scrubbed before any answer is computed, so
 //! a hidden class reads exactly as one that was never stored: not found, absent from lists,
 //! hints, related notes and traversals, and `not_asserted` in `/check`.
+//!
+//! Scrubbing pairs that name a hidden class is not enough for the Whelk closure: it is
+//! computed over the whole store, so `A ⊑ H ⊑ B` yields `A ⊑ B` with `H` hidden. For a gated
+//! caller the closure is therefore re-derived over their view ([`ViewReasoner`], ADR-2184 Q1)
+//! and only the pairs both closures hold are served. A full-access caller keeps the shared
+//! cached closure untouched.
 
 use crate::adapters::whelk_inference_engine::WhelkInferenceEngine;
+use crate::services::ontology_view_reasoner::{ViewReasoner, VIEW_REASONING_UNAVAILABLE};
 use crate::services::ontology_visibility::HiddenClasses;
 use crate::services::schema_service::SchemaService;
 use crate::types::ontology_tools::*;
@@ -61,6 +68,8 @@ pub struct OntologyQueryService {
     /// fingerprint (ADR-2127 decision 3: answers name the generation they
     /// were computed against, and it refreshes when the ontology reloads).
     loaded: RwLock<Option<Arc<LoadedOntology>>>,
+    /// The per-view reasoner gated callers' closures come from (ADR-2184 Q1).
+    view_reasoner: Arc<ViewReasoner>,
 }
 
 /// The property a relation axiom is about: the object-property predicate or
@@ -89,7 +98,14 @@ impl OntologyQueryService {
             schema_service,
             generation_source: GenerationSource::Environment,
             loaded: RwLock::new(None),
+            view_reasoner: Arc::new(ViewReasoner::new()),
         }
+    }
+
+    /// Share `view_reasoner` (and so its per-view cache) with the other ontology routes.
+    pub fn with_view_reasoner(mut self, view_reasoner: Arc<ViewReasoner>) -> Self {
+        self.view_reasoner = view_reasoner;
+        self
     }
 
     /// Override the generation answers report (tests, or a caller that has
@@ -245,40 +261,68 @@ impl OntologyQueryService {
         (index, relations, asserted.into_iter().collect())
     }
 
+    /// The Whelk `(sub, sup)` pairs `hidden`'s caller may be served. With nothing hidden this
+    /// is the shared engine's closure, as before. Otherwise it is the pairs of that closure
+    /// that the caller's own view also derives ([`ViewReasoner::closure`]), so no pair reached
+    /// only through a hidden class survives and a gated answer never states more than the
+    /// full-access one. An engine holding no closure serves no inference to anyone, so the
+    /// view is not reasoned over then. A failure of the view's reasoning is an `Err`
+    /// ([`VIEW_REASONING_UNAVAILABLE`]), never the whole-store closure.
+    async fn hierarchy_for(&self, hidden: &HiddenClasses) -> Result<Vec<(String, String)>, String> {
+        let whole = self
+            .whelk
+            .read()
+            .await
+            .get_subclass_hierarchy()
+            .await
+            .unwrap_or_default();
+        if hidden.is_empty() || whole.is_empty() {
+            return Ok(whole);
+        }
+        let view: HashSet<(String, String)> = self
+            .view_reasoner
+            .closure(self.ontology_repo.as_ref(), hidden)
+            .await?
+            .hierarchy()
+            .into_iter()
+            .collect();
+        Ok(hidden.pairs(whole.into_iter().filter(|p| view.contains(p)).collect()))
+    }
+
     /// The loaded ontology as `hidden`'s caller may see it. With nothing hidden this is the
     /// shared cached index ([`Self::loaded_for`] when the caller already holds the class list,
-    /// else [`Self::loaded`]). Otherwise it is built for this request from axioms and a Whelk
-    /// closure with every pair naming a hidden class removed, and is never cached, so the
-    /// shared index stays whole for full-access callers. The generation is the corpus's own.
+    /// else [`Self::loaded`]). Otherwise it is built for this request from the visible axioms
+    /// and [`Self::hierarchy_for`] the caller, and is never cached here (the view's closure is
+    /// cached by the [`ViewReasoner`]), so the shared index stays whole for full-access
+    /// callers. The generation is the corpus's own. For a gated caller an unreadable store or
+    /// a failed view reasoning is an `Err`, never a partial or whole-store index.
     async fn loaded_hiding(
         &self,
         hidden: &HiddenClasses,
         classes: Option<&[OwlClass]>,
-    ) -> Arc<LoadedOntology> {
+    ) -> Result<Arc<LoadedOntology>, String> {
         if hidden.is_empty() {
-            return match classes {
+            return Ok(match classes {
                 Some(classes) => self.loaded_for(classes).await,
                 None => self.loaded().await,
-            };
+            });
         }
         let generation = self.loaded().await.generation.clone();
-        let axioms = hidden.axioms(self.ontology_repo.get_axioms().await.unwrap_or_default());
-        let hierarchy = hidden.pairs(
-            self.whelk
-                .read()
+        let axioms = hidden.axioms(
+            self.ontology_repo
+                .get_axioms()
                 .await
-                .get_subclass_hierarchy()
-                .await
-                .unwrap_or_default(),
+                .map_err(|e| format!("{VIEW_REASONING_UNAVAILABLE}: {e}"))?,
         );
+        let hierarchy = self.hierarchy_for(hidden).await?;
         let (index, relations, asserted) = Self::indexes(&axioms, hierarchy);
-        Arc::new(LoadedOntology {
+        Ok(Arc::new(LoadedOntology {
             fingerprint: 0,
             index,
             relations,
             asserted,
             generation,
-        })
+        }))
     }
 
     /// ADR-2127 decision 3: the open-world scope every answer carries, so an
@@ -299,7 +343,7 @@ impl OntologyQueryService {
         hidden: &HiddenClasses,
     ) -> Result<MembershipCheck, String> {
         info!("Ontology check_membership: '{}' ⊑ '{}'", subject, class);
-        let loaded = self.loaded_hiding(hidden, None).await;
+        let loaded = self.loaded_hiding(hidden, None).await?;
         Ok(loaded
             .index
             .membership(subject, class, AnswerScope::open(loaded.generation.clone())))
@@ -321,7 +365,7 @@ impl OntologyQueryService {
             "Ontology check_relation: '{}' {} '{}'",
             subject, property, object
         );
-        let loaded = self.loaded_hiding(hidden, None).await;
+        let loaded = self.loaded_hiding(hidden, None).await?;
         let properties = self
             .ontology_repo
             .list_owl_properties()
@@ -377,7 +421,7 @@ impl OntologyQueryService {
                 .await
                 .unwrap_or_default(),
         );
-        let loaded = self.loaded_hiding(hidden, Some(&all_classes)).await;
+        let loaded = self.loaded_hiding(hidden, Some(&all_classes)).await?;
 
         while let Some((current_iri, depth)) = queue.pop_front() {
             if depth > max_depth {
@@ -498,14 +542,9 @@ impl OntologyQueryService {
             }
         }
 
-        // Step 3: Whelk expansion — for top matches, include subclasses via inference
-        let whelk = self.whelk.read().await;
-        let hierarchy: Vec<(String, String)> = hidden.pairs(
-            whelk
-                .get_subclass_hierarchy()
-                .await
-                .unwrap_or_else(|_| Vec::new()),
-        );
+        // Step 3: Whelk expansion — for top matches, include subclasses via inference.
+        // A gated caller expands only along pairs their own view derives (ADR-2184 Q1).
+        let hierarchy = self.hierarchy_for(hidden).await?;
 
         // Build parent->children and child->parents maps
         let mut children_of: HashMap<String, HashSet<String>> = HashMap::new();
@@ -601,7 +640,7 @@ impl OntologyQueryService {
                 .await
                 .unwrap_or_default(),
         );
-        let loaded = self.loaded_hiding(hidden, Some(&all_classes)).await;
+        let loaded = self.loaded_hiding(hidden, Some(&all_classes)).await?;
         self.read_note_in(&loaded, &all_classes, iri, hidden).await
     }
 

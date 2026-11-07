@@ -291,6 +291,10 @@ pub struct AppState {
 
     // Oxigraph ontology repository (ADR-11)
     pub ontology_repository: Arc<OxigraphOntologyRepository>,
+    /// Per-view Whelk reasoning for gated ontology callers (ADR-2184 Q1), shared by the
+    /// `/api/ontology` inference reads and the ontology agent routes so each view is reasoned
+    /// over once per store state.
+    pub ontology_view_reasoner: Arc<crate::services::ontology_view_reasoner::ViewReasoner>,
 
     pub graph_repository: Arc<ActorGraphRepository>,
     pub graph_query_handlers: GraphQueryHandlers,
@@ -1325,6 +1329,9 @@ impl AppState {
             graph_adapter,
 
             ontology_repository,
+            ontology_view_reasoner: Arc::new(
+                crate::services::ontology_view_reasoner::ViewReasoner::new(),
+            ),
 
             graph_repository,
             graph_query_handlers,

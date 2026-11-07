@@ -12,9 +12,7 @@ use std::collections::{HashMap, HashSet};
 use crate::services::owl_validator::ValidationReport;
 use visionclaw_adapters::provenance_emitter::ProvenanceChain;
 use visionclaw_domain::models::graph::GraphData;
-use visionclaw_domain::ports::ontology_repository::{
-    InferenceResults, OwlAxiom, OwlClass, OwlProperty,
-};
+use visionclaw_domain::ports::ontology_repository::{OwlAxiom, OwlClass, OwlProperty};
 
 /// The class IRIs hidden from one caller
 /// ([`crate::handlers::graph_access::hidden_class_iris`]).
@@ -128,14 +126,6 @@ impl HiddenClasses {
     pub fn axioms(&self, mut axioms: Vec<OwlAxiom>) -> Vec<OwlAxiom> {
         axioms.retain(|a| !self.mentions(a));
         axioms
-    }
-
-    /// Inference results without the inferred axioms that name a hidden class.
-    pub fn inference_results(&self, results: Option<InferenceResults>) -> Option<InferenceResults> {
-        results.map(|mut r| {
-            r.inferred_axioms = self.axioms(std::mem::take(&mut r.inferred_axioms));
-            r
-        })
     }
 
     /// `(sub, sup)` pairs (the Whelk closure) without those that name a hidden class.

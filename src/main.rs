@@ -539,7 +539,8 @@ async fn main() -> std::io::Result<()> {
             app_state.ontology_repository.clone(),
             whelk_engine.clone(),
             schema_service.clone(),
-        ),
+        )
+        .with_view_reasoner(app_state.ontology_view_reasoner.clone()),
     );
     // W-E transaction spine (ADR-049): idempotency store + write-ahead intent log.
     // In-memory by default (real, thread-safe); a durable SQLite-backed impl can

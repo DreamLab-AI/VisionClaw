@@ -940,6 +940,23 @@ impl OxigraphOntologyRepository {
         .map_err(|e| db_err(format!("join error: {e}")))?
     }
 
+    /// The id of the reasoner run the inferred graph holds, if one is stored: a single-pattern
+    /// read, cheap enough to key a cache derived from that run.
+    pub async fn inference_run_id_stored(&self) -> RepoResult<Option<String>> {
+        let run_q = format!(
+            "{PROLOGUE}\
+             SELECT ?run\n\
+             FROM <{GRAPH_ONTOLOGY_INFERRED}>\n\
+             WHERE {{ <{INFER_META_IRI}> <{P_RUN_ID}> ?run }}\n"
+        );
+        let (_v, run_rows) = self.run_select(run_q).await?;
+        Ok(run_rows
+            .first()
+            .and_then(|r| r.first())
+            .and_then(|t| t.as_ref())
+            .map(term_lexical))
+    }
+
     /// Read the inferred named graph as `{ namedGraph, runId?, triples: [...] }`
     /// where each triple is `{ s, p, o }` lexical strings (ADR-099 D4 surface
     /// for the `InferencePanel`). Reuses the store's pattern scan over
@@ -967,18 +984,7 @@ impl OxigraphOntologyRepository {
             .collect();
 
         // Surface the latest run id if recorded.
-        let run_q = format!(
-            "{PROLOGUE}\
-             SELECT ?run\n\
-             FROM <{GRAPH_ONTOLOGY_INFERRED}>\n\
-             WHERE {{ <{INFER_META_IRI}> <{P_RUN_ID}> ?run }}\n"
-        );
-        let (_v, run_rows) = self.run_select(run_q).await?;
-        let run_id = run_rows
-            .first()
-            .and_then(|r| r.first())
-            .and_then(|t| t.as_ref())
-            .map(term_lexical);
+        let run_id = self.inference_run_id_stored().await?;
 
         Ok(serde_json::json!({
             "namedGraph": GRAPH_ONTOLOGY_INFERRED,
