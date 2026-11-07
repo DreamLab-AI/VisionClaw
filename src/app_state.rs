@@ -296,6 +296,11 @@ pub struct AppState {
     /// over once per store state.
     pub ontology_view_reasoner: Arc<crate::services::ontology_view_reasoner::ViewReasoner>,
 
+    /// The one Whelk engine the ontology-agent routes read. Startup loads it and
+    /// every sync swaps its new closure in (`GitHubSyncService::reason_into_shared`).
+    pub ontology_inference_engine:
+        Arc<RwLock<crate::adapters::whelk_inference_engine::WhelkInferenceEngine>>,
+
     pub graph_repository: Arc<ActorGraphRepository>,
     pub graph_query_handlers: GraphQueryHandlers,
 
@@ -536,12 +541,16 @@ impl AppState {
         // vault by default, GitHub when CORPUS_SOURCE=github.
         let corpus_source =
             crate::services::corpus_source::source_from_env_with_github(enhanced_content_api);
+        let ontology_inference_engine = Arc::new(RwLock::new(
+            crate::adapters::whelk_inference_engine::WhelkInferenceEngine::new(),
+        ));
         let github_sync_service = Arc::new(GitHubSyncService::new(
             corpus_source,
             graph_adapter.clone()
                 as Arc<dyn crate::ports::knowledge_graph_repository::KnowledgeGraphRepository>,
             ontology_repository.clone(),
             sqlite_settings_repository.clone(),
+            ontology_inference_engine.clone(),
         ));
 
         info!("[AppState::new] Starting GitHub data sync in background (non-blocking)...");
@@ -557,6 +566,13 @@ impl AppState {
         let sync_handle = tokio::spawn(async move {
             info!("Background GitHub sync task spawned successfully");
             debug!("Task ID: {:?}", std::thread::current().id());
+
+            // Serve inference from the store as it stands before the sync runs,
+            // on this task so the load cannot land after (and overwrite) the
+            // closure the sync computes.
+            if let Err(e) = sync_service_clone.load_shared_inference().await {
+                warn!("Startup Whelk load failed (routes serve no inference until a sync): {}", e);
+            }
             info!("Starting sync_graphs() execution...");
 
             info!("Calling sync_service.sync_graphs()...");
@@ -1332,6 +1348,7 @@ impl AppState {
             ontology_view_reasoner: Arc::new(
                 crate::services::ontology_view_reasoner::ViewReasoner::new(),
             ),
+            ontology_inference_engine,
 
             graph_repository,
             graph_query_handlers,

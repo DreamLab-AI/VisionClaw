@@ -8,6 +8,7 @@
 
 use std::sync::Arc;
 
+use visionclaw_server::adapters::whelk_inference_engine::WhelkInferenceEngine;
 use visionclaw_server::adapters::{
     OxigraphGraphRepository, OxigraphOntologyRepository, SqliteSettingsRepository,
 };
@@ -148,6 +149,7 @@ async fn harness() -> Harness {
         kg_repo.clone() as Arc<dyn KnowledgeGraphRepository>,
         onto_repo.clone(),
         sync_db,
+        Arc::new(tokio::sync::RwLock::new(WhelkInferenceEngine::new())),
     );
 
     Harness {
@@ -549,6 +551,7 @@ async fn real_vault_ingest_counts() {
         kg_repo.clone() as Arc<dyn KnowledgeGraphRepository>,
         onto_repo.clone(),
         sync_db,
+        Arc::new(tokio::sync::RwLock::new(WhelkInferenceEngine::new())),
     );
 
     let stats = service
