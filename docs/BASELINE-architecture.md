@@ -1,7 +1,7 @@
 ---
 title: VisionClaw Current Architecture Baseline
 doc_id: VC-BASELINE
-version: 0.4.5
+version: 0.4.6
 status: draft-for-ratification
 verified_commit: 
 date: 2026-08-31
@@ -21,6 +21,7 @@ sources:
   - crates/visionclaw-protocol/src/protocols/binary_settings_protocol.rs
   - src/utils/binary_protocol.rs
 changelog:
+  - "0.4.6 (2026-11-07): crate census corrected: eighteen workspace members (Cargo.toml:2-21), visionclaw-splat (ADR-2170, a leaf) added to the list and to layer_direction.rs ALLOWED, where its absence had failed the rust-cpu gate. Citation refresh; no invariant changed."
   - "0.4.5 (2026-11-06): one desktop renderer: WebGPURenderer only, with its WebGL2 backend as the fallback (TSL materials only, BloomNode only, linear blend everywhere, Lightformer studio into CubeRenderTarget); splats one backend (three GaussianSplat addon; Spark removed, ADR-2170 amended); graph-view suite status per ADR (2179/2181/2182 partial) with its remaining gaps, and ADR-2187 rejected; ADR-2184 node table is typed arrays (apache-arrow removed). No invariant changed."
   - "0.4.4 (2026-11-06): ADR-2189 menus: explore, Memory explorer and node detail are tabs of one right-hand drawer; the timeline Diff checkbox and provenance.diffMode are one control; one edge colour per graph mode; Show Clusters/Communities merged into colour scheme. Corrects 0.4.3: non-physics server buckets are stored under one key each and reach every viewer, they do not follow the account."
   - "0.4.3 (2026-11-06): ADR-2189 accepted (partial: desktop built, XR HUD not): one seven-section menu information architecture for desktop and XR, generated from the settings registry as ia.json; 40 settings nothing read were deleted with tolerant loading on both sides; one client write path. Note under XR + React clients. No invariant changed."
@@ -124,15 +125,16 @@ entrypoint (`CODESCAPE_PTX_DIR`). Status: P0, P1 and the shared-port access of A
 
 The monolith split (legacy ADR-090) is **real but incomplete**. The root binary
 is renamed `visionclaw-server` (`Cargo.toml` `[package] name = "visionclaw-server"`)
-with `src/lib.rs` + `src/main.rs`. The workspace declares **seventeen** members
-(`Cargo.toml:2-20`, `[workspace].members`) — the root `"."` plus sixteen `crates/`:
+with `src/lib.rs` + `src/main.rs`. The workspace declares **eighteen** members
+(`Cargo.toml:2-21`, `[workspace].members`) — the root `"."` plus seventeen `crates/`:
 
 `visionclaw-contracts`, `visionclaw-domain`, `visionclaw-protocol`,
 `visionclaw-wire` (the frozen position wire, ADR-2143 A5), `visionclaw-adapters`,
 `visionclaw-gpu`, `visionclaw-ontology`, `visionclaw-actors`,
 `visionclaw-xr-presence`, `visionclaw-analytics-oracle`, `vault-core`, `vault`,
 `visionclaw-integration-tests`, `visionclaw-memory-cloud` (ADR-2133) and
-`visionclaw-tri-layout` (ADR-2135) and `visionclaw-jev` (the opt-in System One typed-decision client, ADR-2148). The original census (`ADR-2005`) was the root plus
+`visionclaw-tri-layout` (ADR-2135) and `visionclaw-jev` (the opt-in System One typed-decision client, ADR-2148) and
+`visionclaw-splat` (the Gaussian splat manifest, cache and SPZ codec, ADR-2170; a leaf). The original census (`ADR-2005`) was the root plus
 nine; `vault-migrate`, once the tenth, was replaced by `vault-core` + `vault`. The empty
 orphan dir `graph-cognition-extract` never was a member and has been removed.
 `xr-client/rust` (Godot gdext, Quest APK cdylib) and `agentbox/crates/headroom-napi`
