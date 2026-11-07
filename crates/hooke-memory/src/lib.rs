@@ -4,4 +4,8 @@
 //! slots occupy a relational field built from each collection's typed triples. See
 //! `PORTING.md` for the port boundary and `PREREGISTRATION.md` for the frozen test.
 
+pub mod data;
 pub mod decoder;
+pub mod memory;
+pub mod prompt;
+pub mod store;
