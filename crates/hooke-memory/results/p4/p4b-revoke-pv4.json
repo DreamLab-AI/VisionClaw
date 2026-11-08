@@ -1,0 +1,9 @@
+{
+  "clip": 1.0,
+  "keyed_identical": true,
+  "keyed_max_abs_diff": 0.0,
+  "positional_max_abs_diff": 9.846484184265137,
+  "positional_rows_differing": 1920,
+  "rows": 1982,
+  "sigma": 1.0
+}
