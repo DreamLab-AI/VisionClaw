@@ -24,3 +24,22 @@ deleted the last document, which leaves a positional stream unchanged.
   trend.
 
 ## T1: pending
+
+## T1 (utility under the guarantee): H1 FAILS, T4 FAILS
+
+FactKG test, 9,041 claims, scored once per arm/sigma/seed. Exact McNemar vs F at the same sigma.
+
+| sigma (eps) | F | N s0 | N s1 | B s0 | B s1 |
+|---|---|---|---|---|---|
+| 1.0 (10.0) | 71.62 | 73.79 (+2.17, p 5e-5) | 72.24 (+0.62, p 0.26) | 73.28 (+1.66, p 0.0016) | 71.08 (-0.54, p 0.33) |
+| 1.5 (6.13) | 71.41 | 72.66 (+1.25, p 0.022) | 73.23 (+1.83, p 9e-4) | 72.93 (+1.53, p 0.0039) | 71.72 (+0.31, p 0.59) |
+
+- H1 (B beats F by >= 2.0 points, p < 0.01, both seeds, at some sigma): FAILS. Best B gain +1.66.
+- Secondary N vs F: N gains in all four runs (+0.6 to +2.2); significant at p < 0.01 in two.
+- Secondary B vs N: the bottleneck does not beat N.
+- T4 (>= 75.0% at sigma 1.5, both seeds): FAILS. Best 73.23%.
+- Context: clean memory 83.52%, closed book 66.0% (Memorilla reproduction). Noise-aware training
+  recovers about 1-2 of the ~12 points the mechanism costs.
+
+Decision table: H1 fails. Under the frozen table no utility claim is made; T2 also failed its
+flatness criterion, so the guarantee is stated as a theorem with the audit as preliminary evidence.
