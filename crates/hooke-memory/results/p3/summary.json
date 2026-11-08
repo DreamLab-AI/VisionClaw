@@ -1,0 +1,54 @@
+{
+ "accuracy": {
+  "random-0.25": 82.3913283928769,
+  "sim-0.25": 83.91770821811747,
+  "full": 83.48634000663644,
+  "attention-0.25": 83.1766397522398,
+  "sim-0.10": 83.05497179515541,
+  "attention-0.10": 82.67890720053092,
+  "random-0.10": 80.75434133392324
+ },
+ "verdict": {
+  "0.25": {
+   "H1a_attention_beats_random": false,
+   "H1b_attention_matches_similarity": true,
+   "attention_vs_random": [
+    338,
+    267,
+    0.004389815217942827
+   ],
+   "similarity_vs_random": [
+    430,
+    292,
+    3.1621604213889074e-07
+   ],
+   "attention_vs_similarity": [
+    283,
+    350,
+    0.008657181196845814
+   ],
+   "headroom_similarity_minus_random": 1.53
+  },
+  "0.10": {
+   "H1a_attention_beats_random": true,
+   "H1b_attention_matches_similarity": true,
+   "attention_vs_random": [
+    492,
+    318,
+    1.0510332624180908e-09
+   ],
+   "similarity_vs_random": [
+    614,
+    406,
+    7.849006732488594e-11
+   ],
+   "attention_vs_similarity": [
+    447,
+    481,
+    0.27867758318211805
+   ],
+   "headroom_similarity_minus_random": 2.3
+  }
+ },
+ "claim": "attention is not a sufficient acquisition signal; a trained policy is required (H2)"
+}
