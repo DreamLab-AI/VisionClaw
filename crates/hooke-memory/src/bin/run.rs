@@ -30,6 +30,9 @@ fn micro() -> usize {
     std::env::var("HOOKE_MICRO").ok().and_then(|v| v.parse().ok()).unwrap_or(4)
 }
 const EVAL_BATCH: usize = 16;
+/// Leave-one-out scorer: documents masked out per decoder batch (P5 targets).
+const LOO_BATCH: usize = 16;
+const LOO_TRAIN_SEED: u64 = 23;
 const WARMUP: usize = 100;
 const GEOMETRY_LR: f64 = 1e-3;
 /// Embedding shards drawn from. The shards are sorted by label (0-3 are 93% False, 7-10 all
@@ -197,10 +200,10 @@ fn keep_subset(v: Vec<f32>, n: usize, w: usize, row_index: usize, row: &Row, q: 
             let score = |i: usize| -> f32 { v[i * w..(i + 1) * w].iter().zip(q).map(|(a, b)| a * b).sum() };
             idx.sort_by(|&a, &b| score(b).total_cmp(&score(a)));
         }
-        "attention" => {
+        "attention" | "file" => {
             static SCORES: std::sync::OnceLock<std::collections::HashMap<usize, Vec<f32>>> = std::sync::OnceLock::new();
             let scores = SCORES.get_or_init(|| {
-                let path = std::env::var("HOOKE_ATTN_FILE").expect("HOOKE_KEEP_MODE=attention needs HOOKE_ATTN_FILE");
+                let path = std::env::var("HOOKE_ATTN_FILE").expect("HOOKE_KEEP_MODE=attention|file needs HOOKE_ATTN_FILE");
                 let text = std::fs::read_to_string(&path).expect("read HOOKE_ATTN_FILE");
                 text.lines()
                     .filter(|l| !l.trim().is_empty())
@@ -481,6 +484,97 @@ fn main() -> Result<()> {
     let tok = PromptTokenizer::load(&e.qwen)?;
     let dec = Decoder::load(&e.qwen, DType::BF16, &dev)?;
     match args.first().map(String::as_str) {
+        Some("loo") => {
+            // P5 targets: signed gold-answer logit margin with the full collection and with each
+            // document masked out in turn. Plain full collections only: no noise, no subset.
+            ensure!(args.len() >= 4, "run loo <split> <out.jsonl> <rows> [start]");
+            ensure!(dp_sigma().is_none() && std::env::var("HOOKE_KEEP_FRAC").is_err(), "run loo runs on the plain full collection");
+            let split = args[1].as_str();
+            let out = PathBuf::from(&args[2]);
+            let want: usize = args[3].parse()?;
+            let start: usize = args.get(4).map(|s| s.parse()).transpose()?.unwrap_or(0);
+            let model = build(Arm::A0, rel.len(), &dev)?;
+            let set = load_into(&model.varmap, &e.stage3, &dev)?;
+            ensure!(set == 37, "loaded {set} Stage 3 tensors, expected 37");
+            let owned;
+            let rows: &[Row] = if split == "train" { &train_rows } else { owned = data::load_split(&e.data, "factkg", split)?; &owned };
+            let order: Vec<usize> = if split == "validation" {
+                validation_rows(rows)
+            } else {
+                let mut i: Vec<usize> = (0..rows.len()).collect();
+                i.shuffle(&mut StdRng::seed_from_u64(LOO_TRAIN_SEED));
+                i
+            };
+            let mut store = EmbeddingStore::open(&e.data, ENCODER, "factkg", split)?;
+            let (t_ids, f_ids) = (tok.encode("True")?, tok.encode("False")?);
+            ensure!(t_ids.len() == 1 && f_ids.len() == 1, "answer tokens must be single tokens");
+            let (t_id, f_id) = (t_ids[0] as usize, f_ids[0] as usize);
+            let margin = |mem: &Tensor, ids: &[Vec<u32>]| -> Result<Vec<f32>> {
+                let (embeds, mask) = prompt::splice(&dec, ids, mem, tok.memory_id, &dev)?;
+                let h = dec.forward_embeds(&embeds, &mask)?;
+                let last = h.narrow(1, h.dim(1)? - 1, 1)?.squeeze(1)?.contiguous()?;
+                let logits = dec.logits(&last)?.to_dtype(DType::F32)?;
+                let t = logits.narrow(1, t_id, 1)?.squeeze(1)?;
+                let f = logits.narrow(1, f_id, 1)?.squeeze(1)?;
+                Ok((t - f)?.to_vec1::<f32>()?)
+            };
+            let mut file = std::io::BufWriter::new(std::fs::File::create(&out)?);
+            let (mut done, mut skipped, mut checked) = (0usize, 0usize, false);
+            for &ri in order.iter().skip(start) {
+                if done == want {
+                    break;
+                }
+                let row = &rows[ri];
+                let Ok((v, n, w)) = store.documents(row.collection_id) else { skipped += 1; continue };
+                if n != row.documents.len() || n < 2 {
+                    skipped += 1;
+                    continue;
+                }
+                let sign = match row.answer.trim() { "True" => 1f32, "False" => -1f32, _ => { skipped += 1; continue } };
+                let q = store.question(ri)?;
+                let docs = Tensor::from_vec(v.clone(), (1, n, w), &dev)?;
+                let question = Tensor::from_vec(q.clone(), (1, w), &dev)?;
+                let full = Batch { docs: docs.clone(), noise: None, mask: Tensor::ones((1, n), DType::F32, &dev)?, question: question.clone(), triples: None };
+                let mem_full = memory_tokens(&model, &full, false)?.detach().to_dtype(DType::BF16)?;
+                let attention = model.memory.doc_attention(&full.docs, Some(&full.mask), &full.question)?.to_dtype(DType::F32)?.to_vec2::<f32>()?[0].clone();
+                let ids = vec![tok.encode(&prompt::render(prompt::PERSONA_PROMPT, &row.question, 16))?];
+                let s_full = sign * margin(&mem_full, &ids)?[0];
+                let mut s_minus = Vec::with_capacity(n);
+                for chunk in (0..n).step_by(LOO_BATCH) {
+                    let b = (n - chunk).min(LOO_BATCH);
+                    let mut mask = vec![1f32; b * n];
+                    for r in 0..b {
+                        mask[r * n + chunk + r] = 0.0;
+                    }
+                    let bb = Batch {
+                        docs: docs.broadcast_as((b, n, w))?.contiguous()?,
+                        noise: None,
+                        mask: Tensor::from_vec(mask, (b, n), &dev)?,
+                        question: question.broadcast_as((b, w))?.contiguous()?,
+                        triples: None,
+                    };
+                    let mem = memory_tokens(&model, &bb, false)?.detach().to_dtype(DType::BF16)?;
+                    if !checked {
+                        // Masking a document must equal removing it: check once, on document 0.
+                        let rb = Batch { docs: Tensor::from_vec(v[w..].to_vec(), (1, n - 1, w), &dev)?, noise: None, mask: Tensor::ones((1, n - 1), DType::F32, &dev)?, question: question.clone(), triples: None };
+                        let mem_r = memory_tokens(&model, &rb, false)?.detach().to_dtype(DType::F32)?;
+                        let d = (mem.get(0)?.to_dtype(DType::F32)? - mem_r.get(0)?)?.abs()?.flatten_all()?.max(0)?.to_scalar::<f32>()?;
+                        eprintln!("mask-vs-remove max abs diff (first row, doc 0): {d:.3e}");
+                        checked = true;
+                    }
+                    let ids_b: Vec<Vec<u32>> = vec![ids[0].clone(); b];
+                    s_minus.extend(margin(&mem, &ids_b)?.into_iter().map(|m| sign * m));
+                }
+                let sims: Vec<f32> = (0..n).map(|i| v[i * w..(i + 1) * w].iter().zip(&q).map(|(a, b)| a * b).sum()).collect();
+                let deltas: Vec<f32> = s_minus.iter().map(|s| s_full - s).collect();
+                writeln!(file, "{}", serde_json::json!({"row": ri, "collection_id": row.collection_id, "n": n, "answer": row.answer.trim(), "margin_full": s_full, "deltas": deltas, "attention": attention, "sims": sims}))?;
+                done += 1;
+                if done % 50 == 0 {
+                    eprintln!("loo {done}/{want} rows (skipped {skipped})");
+                }
+            }
+            eprintln!("loo done: {done} rows, skipped {skipped}");
+        }
         Some("train") => {
             ensure!(args.len() >= 5, "run train <arm> <memory lr> <seed> <out dir> [max rows]");
             let arm: Arm = args[1].parse()?;
