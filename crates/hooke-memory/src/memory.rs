@@ -251,6 +251,21 @@ impl MemoryModule {
         Ok((with, without))
     }
 
+    /// Attention mass each document receives from the question-conditioned slots in the first
+    /// cross-attention layer, averaged over heads and slots: `[b, n]`. Evaluation mode, no
+    /// geometry. This is the memory's own estimate of which stored documents matter for a
+    /// question, and the acquisition signal of the P3 probe.
+    pub fn doc_attention(&self, docs: &Tensor, doc_mask: Option<&Tensor>, question: &Tensor) -> Result<Tensor> {
+        let b = docs.dim(0)?;
+        let slots = self.queries.broadcast_as((b, self.config.num_memories, self.config.embedding_dim))?.contiguous()?;
+        let cond = self.query_cond_attn.forward(&slots, &question.unsqueeze(1)?, None, None, 0.0, false)?;
+        let slots = self.query_cond_norm.forward(&(slots + cond)?)?;
+        let docs = self.doc_norm.forward(docs)?;
+        let q = self.cross_norms[0].forward(&slots)?;
+        let p = self.cross_attn[0].probs(&q, &docs, doc_mask, None)?;
+        p.mean(1)?.mean(1)
+    }
+
     /// Cast-free helper: the dtype the module's parameters were loaded in.
     pub fn dtype(&self) -> DType {
         self.queries.dtype()

@@ -177,6 +177,68 @@ fn privatise(v: &mut [f32], w: usize, row: &Row) {
     }
 }
 
+/// Headroom probe (validation only): keep a fraction of each collection's documents, chosen by
+/// `HOOKE_KEEP_MODE` = random (seeded by collection), sim (cosine to the question embedding) or
+/// lexical (word overlap between claim and document text) or attention (the memory's own
+/// first-layer attention mass per document, read from the `HOOKE_ATTN_FILE` dump written by an
+/// earlier full-collection pass with `HOOKE_ATTN_DUMP`). Unset `HOOKE_KEEP_FRAC` keeps all.
+fn keep_subset(v: Vec<f32>, n: usize, w: usize, row_index: usize, row: &Row, q: &[f32]) -> (Vec<f32>, usize) {
+    let Some(frac) = std::env::var("HOOKE_KEEP_FRAC").ok().and_then(|s| s.parse::<f64>().ok()) else {
+        return (v, n);
+    };
+    let k = ((frac * n as f64).ceil() as usize).clamp(1, n);
+    if k == n {
+        return (v, n);
+    }
+    let mode = std::env::var("HOOKE_KEEP_MODE").unwrap_or_else(|_| "random".into());
+    let mut idx: Vec<usize> = (0..n).collect();
+    match mode.as_str() {
+        "sim" => {
+            let score = |i: usize| -> f32 { v[i * w..(i + 1) * w].iter().zip(q).map(|(a, b)| a * b).sum() };
+            idx.sort_by(|&a, &b| score(b).total_cmp(&score(a)));
+        }
+        "attention" => {
+            static SCORES: std::sync::OnceLock<std::collections::HashMap<usize, Vec<f32>>> = std::sync::OnceLock::new();
+            let scores = SCORES.get_or_init(|| {
+                let path = std::env::var("HOOKE_ATTN_FILE").expect("HOOKE_KEEP_MODE=attention needs HOOKE_ATTN_FILE");
+                let text = std::fs::read_to_string(&path).expect("read HOOKE_ATTN_FILE");
+                text.lines()
+                    .filter(|l| !l.trim().is_empty())
+                    .map(|l| {
+                        let v: serde_json::Value = serde_json::from_str(l).expect("attention dump line");
+                        let row = v["row"].as_u64().expect("row") as usize;
+                        let sc = v["scores"].as_array().expect("scores").iter().map(|x| x.as_f64().unwrap() as f32).collect();
+                        (row, sc)
+                    })
+                    .collect()
+            });
+            let sc = scores.get(&row_index).unwrap_or_else(|| panic!("no attention scores for row {row_index}"));
+            assert_eq!(sc.len(), n, "row {row_index}: {} attention scores for {n} documents", sc.len());
+            idx.sort_by(|&a, &b| sc[b].total_cmp(&sc[a]).then(a.cmp(&b)));
+        }
+        "lexical" => {
+            let words = |t: &str| -> std::collections::HashSet<String> {
+                t.split(|c: char| !c.is_alphanumeric()).filter(|x| x.len() > 2).map(|x| x.to_lowercase()).collect()
+            };
+            let qw = words(&row.question);
+            let score: Vec<usize> = row.documents.iter().map(|d| words(d).intersection(&qw).count()).collect();
+            idx.sort_by(|&a, &b| score[b].cmp(&score[a]).then(a.cmp(&b)));
+        }
+        _ => {
+            use rand::{seq::SliceRandom, SeedableRng};
+            let mut rng = rand::rngs::StdRng::seed_from_u64(row.collection_id as u64 ^ 0x9e37_79b9_7f4a_7c15);
+            idx.shuffle(&mut rng);
+        }
+    }
+    let mut keep: Vec<usize> = idx[..k].to_vec();
+    keep.sort_unstable();
+    let mut out = Vec::with_capacity(k * w);
+    for i in keep {
+        out.extend_from_slice(&v[i * w..(i + 1) * w]);
+    }
+    (out, k)
+}
+
 fn batch(
     rows: &[(usize, &Row)],
     store: &mut EmbeddingStore,
@@ -192,9 +254,11 @@ fn batch(
         let (mut v, n, w) = store.documents(row.collection_id)?;
         ensure!(n == row.documents.len(), "collection {}: {n} embeddings for {} documents", row.collection_id, row.documents.len());
         privatise(&mut v, w, row);
+        let q = store.question(row_index)?;
+        let (v, n) = keep_subset(v, n, w, row_index, row, &q);
         docs.push(Tensor::from_vec(v, (n, w), dev)?);
         lens.push(n);
-        questions.push(Tensor::from_vec(store.question(row_index)?, w, dev)?);
+        questions.push(Tensor::from_vec(q, w, dev)?);
     }
     let n_max = *lens.iter().max().unwrap();
     let pad = |t: &Tensor, n: usize| -> Result<Tensor> {
@@ -280,6 +344,11 @@ fn evaluate(
     dev: &Device,
 ) -> Result<(f64, Option<f64>)> {
     let mut file = std::io::BufWriter::new(std::fs::File::create(out)?);
+    // P3 probe: per-document attention mass on the full collection, for the `attention` keep mode.
+    let mut attn_dump = std::env::var("HOOKE_ATTN_DUMP").ok().map(|p| std::io::BufWriter::new(std::fs::File::create(p).expect("create HOOKE_ATTN_DUMP"))).map(|f| {
+        assert!(std::env::var("HOOKE_KEEP_FRAC").is_err(), "HOOKE_ATTN_DUMP must run on the full collection");
+        f
+    });
     let (mut correct, mut kl_sum, mut kl_n) = (0usize, 0f64, 0usize);
     let mut scramble = |row: &Row, n: usize| -> Vec<u32> {
         let mut p: Vec<u32> = (0..n as u32).collect();
@@ -291,6 +360,12 @@ fn evaluate(
         let b = batch(&items, store, m.field.as_ref(), rel, &mut scramble, dev)?;
         // Detached: evaluation must not keep the autograd graph alive through decoding.
         let mem = memory_tokens(m, &b, false)?.detach().to_dtype(DType::BF16)?;
+        if let Some(f) = attn_dump.as_mut() {
+            let a = m.memory.doc_attention(&b.docs, Some(&b.mask), &b.question)?.to_dtype(DType::F32)?.to_vec2::<f32>()?;
+            for (j, (i, r)) in items.iter().enumerate() {
+                writeln!(f, "{}", serde_json::json!({"row": i, "scores": &a[j][..r.documents.len()]}))?;
+            }
+        }
         if let (Some(f), Some(t)) = (m.field.as_ref(), b.triples.as_ref()) {
             let geo = |s: &Tensor| f.bias(s, t).map_err(|e| candle_core::Error::Msg(e.to_string()));
             let (with, without) = m.memory.first_layer_probs(&b.docs, Some(&b.mask), &b.question, &geo)?;
