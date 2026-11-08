@@ -18,6 +18,7 @@ use hooke_memory::memory::{MemoryConfig, MemoryModule};
 use hooke_memory::prompt::{self, PromptTokenizer};
 use hooke_memory::store::EmbeddingStore;
 use rand::seq::SliceRandom;
+use std::sync::atomic::{AtomicU64, Ordering};
 use rand::{rngs::StdRng, SeedableRng};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -57,6 +58,9 @@ struct Model {
     varmap: VarMap,
     memory: MemoryModule,
     field: Option<Field>,
+    /// P2 learned privacy bottleneck (`HOOKE_DP_K`): down-projection, clip and noise at width k,
+    /// up-projection back to the embedding width. Trained on public rows only.
+    dp: Option<(candle_nn::Linear, candle_nn::Linear)>,
 }
 
 fn build(arm: Arm, relations: usize, dev: &Device) -> Result<Model> {
@@ -65,7 +69,14 @@ fn build(arm: Arm, relations: usize, dev: &Device) -> Result<Model> {
     let cfg = MemoryConfig::default();
     let memory = MemoryModule::new(cfg, vb.clone())?;
     let field = (arm != Arm::A0).then(|| Field::new(arm, relations, cfg.embedding_dim, vb.pp("field"))).transpose()?;
-    Ok(Model { varmap, memory, field })
+    let dp = match dp_k() {
+        None => None,
+        Some(k) => Some((
+            candle_nn::linear_no_bias(cfg.embedding_dim, k, vb.pp("dp.down"))?,
+            candle_nn::linear_no_bias(k, cfg.embedding_dim, vb.pp("dp.up"))?,
+        )),
+    };
+    Ok(Model { varmap, memory, field, dp })
 }
 
 /// Overwrite every variable present in `path`; return how many were set.
@@ -102,9 +113,68 @@ fn normalise(s: &str) -> String {
 /// Padded batch inputs for the memory module, plus triple positions when the arm needs them.
 struct Batch {
     docs: Tensor,
+    /// Keyed per-document noise at the bottleneck width (P2 with `HOOKE_DP_K`).
+    noise: Option<Tensor>,
     mask: Tensor,
     question: Tensor,
     triples: Option<Tensor>,
+}
+
+/// Training-time salt for the P2 noise keys; 0 (the release key) outside training.
+static DP_SALT: AtomicU64 = AtomicU64::new(0);
+
+fn dp_sigma() -> Option<f64> {
+    std::env::var("HOOKE_DP_SIGMA").ok().and_then(|s| s.parse().ok())
+}
+fn dp_k() -> Option<usize> {
+    std::env::var("HOOKE_DP_K").ok().and_then(|s| s.parse().ok())
+}
+fn dp_clip() -> f64 {
+    std::env::var("HOOKE_DP_CLIP").ok().and_then(|s| s.parse().ok()).unwrap_or(1.0)
+}
+
+/// FNV-1a over byte strings: a fixed, platform-independent key derivation for noise seeds.
+fn fnv(parts: &[&[u8]]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for p in parts {
+        for &b in *p {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        h ^= 0xff;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// Gaussian noise for one document, keyed by (release seed, training salt, collection, document
+/// text). Keying by content, not position, means deleting a document leaves every other
+/// document's noise unchanged: revocation equals never having ingested it (P2 T3).
+fn keyed_noise(collection_id: i64, doc: &str, dim: usize, sigma: f64) -> Vec<f32> {
+    use rand::{Rng, SeedableRng};
+    let seed: u64 = std::env::var("HOOKE_DP_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let salt = DP_SALT.load(Ordering::Relaxed);
+    let key = fnv(&[&seed.to_le_bytes(), &salt.to_le_bytes(), &collection_id.to_le_bytes(), doc.as_bytes()]);
+    let mut rng = rand::rngs::StdRng::seed_from_u64(key);
+    (0..dim).map(|_| (sigma * rng.sample::<f64, _>(rand_distr::StandardNormal)) as f32).collect()
+}
+
+/// Input-level Gaussian mechanism at the embedding width (P2 without a bottleneck): clip each
+/// document embedding to L2 norm C, add keyed N(0, sigma^2) noise per coordinate. Unset: no-op.
+fn privatise(v: &mut [f32], w: usize, row: &Row) {
+    let Some(sigma) = dp_sigma() else { return };
+    if dp_k().is_some() {
+        return;
+    }
+    let clip = dp_clip();
+    for (doc, text) in v.chunks_mut(w).zip(&row.documents) {
+        let norm = doc.iter().map(|&x| (x as f64) * (x as f64)).sum::<f64>().sqrt();
+        let scale = if norm > clip { clip / norm } else { 1.0 };
+        let z = keyed_noise(row.collection_id, text, w, sigma);
+        for (x, e) in doc.iter_mut().zip(z) {
+            *x = ((*x as f64) * scale) as f32 + e;
+        }
+    }
 }
 
 fn batch(
@@ -119,8 +189,9 @@ fn batch(
     let mut lens = Vec::new();
     let mut questions = Vec::new();
     for &(row_index, row) in rows {
-        let (v, n, w) = store.documents(row.collection_id)?;
+        let (mut v, n, w) = store.documents(row.collection_id)?;
         ensure!(n == row.documents.len(), "collection {}: {n} embeddings for {} documents", row.collection_id, row.documents.len());
+        privatise(&mut v, w, row);
         docs.push(Tensor::from_vec(v, (n, w), dev)?);
         lens.push(n);
         questions.push(Tensor::from_vec(store.question(row_index)?, w, dev)?);
@@ -141,12 +212,24 @@ fn batch(
             Some(Tensor::stack(&out, 0)?)
         }
     };
+    let noise = match (dp_sigma(), dp_k()) {
+        (Some(sigma), Some(k)) => {
+            let mut out = Vec::new();
+            for ((_, row), &n) in rows.iter().zip(&lens) {
+                let z: Vec<f32> = row.documents.iter().flat_map(|t| keyed_noise(row.collection_id, t, k, sigma)).collect();
+                out.push(pad(&Tensor::from_vec(z, (n, k), dev)?, n)?);
+            }
+            Some(Tensor::stack(&out, 0)?)
+        }
+        _ => None,
+    };
     let mask: Vec<f32> = lens.iter().flat_map(|&n| (0..n_max).map(move |i| if i < n { 1.0 } else { 0.0 })).collect();
     Ok(Batch {
         docs: Tensor::stack(&docs.iter().zip(&lens).map(|(d, &n)| pad(d, n)).collect::<Result<Vec<_>>>()?, 0)?,
         mask: Tensor::from_vec(mask, (rows.len(), n_max), dev)?,
         question: Tensor::stack(&questions, 0)?,
         triples,
+        noise,
     })
 }
 
@@ -156,7 +239,23 @@ fn memory_tokens(m: &Model, b: &Batch, train: bool) -> Result<Tensor> {
         f.bias(slots, b.triples.as_ref().unwrap()).map_err(|e| candle_core::Error::Msg(e.to_string()))
     };
     let g: Option<&dyn Fn(&Tensor) -> candle_core::Result<Tensor>> = m.field.as_ref().map(|_| &geometry as _);
-    Ok(m.memory.forward(&b.docs, Some(&b.mask), &b.question, g, train)?)
+    let docs = match &m.dp {
+        None => b.docs.clone(),
+        Some((down, up)) => {
+            use candle_core::Module;
+            // Down-project, clip each document to L2 norm C, add the keyed noise, up-project.
+            let z = down.forward(&b.docs)?;
+            let norm = (z.sqr()?.sum_keepdim(2)? + 1e-12)?.sqrt()?;
+            let c = dp_clip();
+            let z = z.broadcast_mul(&norm.clamp(c, f64::MAX)?.recip()?.affine(c, 0.0)?)?;
+            let z = match &b.noise {
+                Some(e) => (z + e)?,
+                None => z,
+            };
+            up.forward(&z)?
+        }
+    };
+    Ok(m.memory.forward(&docs, Some(&b.mask), &b.question, g, train)?)
 }
 
 fn validation_rows(rows: &[Row]) -> Vec<usize> {
@@ -214,9 +313,92 @@ fn evaluate(
     Ok((correct as f64 / idx.len() as f64, (kl_n > 0).then(|| kl_sum / kl_n as f64)))
 }
 
+/// P2 T3: is revoking a document the same as never having ingested it?
+///
+/// For validation collections with at least two documents, one document is chosen at random.
+/// Two ingestion schemes are compared at the embedding width: keyed noise (this design, noise per
+/// document from its content) and positional noise (one stream per collection, drawn in ingest
+/// order). For each, the memory tokens after "privatise everything at ingest, then delete the
+/// stored row" are compared with those after "ingest only the remaining documents". Runs on the CPU
+/// without the decoder; identical memory tokens give identical answers.
+fn revoke(e: &Env, args: &[String]) -> Result<()> {
+    use rand::Rng;
+    ensure!(args.len() >= 3, "run revoke <weights> <out.json> [rows]");
+    let sigma = dp_sigma().context("run revoke needs HOOKE_DP_SIGMA")?;
+    ensure!(dp_k().is_none(), "run revoke checks the embedding-width mechanism; unset HOOKE_DP_K");
+    let want: usize = args.get(3).map(|s| s.parse()).transpose()?.unwrap_or(200);
+    let dev = Device::Cpu;
+    let model = build(Arm::A0, 1, &dev)?;
+    let set = load_into(&model.varmap, Path::new(&args[1]), &dev)?;
+    ensure!(set == model.varmap.all_vars().len(), "weights cover {set} of {} variables", model.varmap.all_vars().len());
+    let rows = data::load_split(&e.data, "factkg", "validation")?;
+    let mut store = EmbeddingStore::open(&e.data, ENCODER, "factkg", "validation")?;
+    let clip = dp_clip();
+    let clip_add = |x: &[f32], z: Vec<f32>| -> Vec<f32> {
+        let norm = x.iter().map(|&v| (v as f64) * (v as f64)).sum::<f64>().sqrt();
+        let scale = if norm > clip { clip / norm } else { 1.0 };
+        x.iter().zip(z).map(|(&v, e)| ((v as f64) * scale) as f32 + e).collect()
+    };
+    let tokens = |v: Vec<f32>, n: usize, w: usize, q: &[f32]| -> Result<Tensor> {
+        let b = Batch {
+            docs: Tensor::from_vec(v, (1, n, w), &dev)?,
+            noise: None,
+            mask: Tensor::ones((1, n), DType::F32, &dev)?,
+            question: Tensor::from_vec(q.to_vec(), (1, w), &dev)?,
+            triples: None,
+        };
+        memory_tokens(&model, &b, false)
+    };
+    let max_diff = |a: &Tensor, b: &Tensor| -> Result<f32> { Ok((a - b)?.abs()?.flatten_all()?.max(0)?.to_scalar::<f32>()?) };
+    let mut pick = StdRng::seed_from_u64(SCRAMBLE_EVAL_SEED);
+    let (mut checked, mut keyed_max, mut positional_max, mut positional_differ) = (0usize, 0f32, 0f32, 0usize);
+    for ri in validation_rows(&rows) {
+        if checked == want {
+            break;
+        }
+        let row = &rows[ri];
+        let (raw, n, w) = store.documents(row.collection_id)?;
+        if n < 2 {
+            continue;
+        }
+        let j = pick.gen_range(0..n);
+        let q = store.question(ri)?;
+        let keyed = |idx: &[usize]| -> Vec<f32> {
+            idx.iter().flat_map(|&i| clip_add(&raw[i * w..(i + 1) * w], keyed_noise(row.collection_id, &row.documents[i], w, sigma))).collect()
+        };
+        let positional = |idx: &[usize]| -> Vec<f32> {
+            let mut r = StdRng::seed_from_u64(fnv(&[&row.collection_id.to_le_bytes()]));
+            idx.iter()
+                .flat_map(|&i| {
+                    let z: Vec<f32> = (0..w).map(|_| (sigma * r.sample::<f64, _>(rand_distr::StandardNormal)) as f32).collect();
+                    clip_add(&raw[i * w..(i + 1) * w], z)
+                })
+                .collect()
+        };
+        let all: Vec<usize> = (0..n).collect();
+        let kept: Vec<usize> = (0..n).filter(|&i| i != j).collect();
+        let delete = |full: Vec<f32>| -> Vec<f32> { full.chunks(w).enumerate().filter(|(i, _)| *i != j).flat_map(|(_, c)| c.to_vec()).collect() };
+        let kd = max_diff(&tokens(delete(keyed(&all)), n - 1, w, &q)?, &tokens(keyed(&kept), n - 1, w, &q)?)?;
+        let pd = max_diff(&tokens(delete(positional(&all)), n - 1, w, &q)?, &tokens(positional(&kept), n - 1, w, &q)?)?;
+        keyed_max = keyed_max.max(kd);
+        positional_max = positional_max.max(pd);
+        positional_differ += usize::from(pd > 0.0);
+        checked += 1;
+    }
+    let out = serde_json::json!({"rows": checked, "sigma": sigma, "clip": clip,
+        "keyed_max_abs_diff": keyed_max, "keyed_identical": keyed_max == 0.0,
+        "positional_max_abs_diff": positional_max, "positional_rows_differing": positional_differ});
+    std::fs::write(&args[2], serde_json::to_string_pretty(&out)?)?;
+    println!("{out}");
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let e = env()?;
+    if args.first().map(String::as_str) == Some("revoke") {
+        return revoke(&e, &args);
+    }
     let dev = Device::new_cuda(0)?;
     let train_rows = data::load_split(&e.data, "factkg", "train")?;
     let rel = Relations::from_triples(train_rows.iter().flat_map(|r| r.documents.iter().map(String::as_str)));
@@ -263,20 +445,23 @@ fn main() -> Result<()> {
             }
             let (mut mem_vars, mut geo_vars): (Vec<Var>, Vec<Var>) = (Vec::new(), Vec::new());
             for (name, var) in model.varmap.data().lock().unwrap().iter() {
-                if name.starts_with("field.") { geo_vars.push(var.clone()) } else { mem_vars.push(var.clone()) }
+                if name.starts_with("field.") || name.starts_with("dp.") { geo_vars.push(var.clone()) } else { mem_vars.push(var.clone()) }
             }
             // P1b (`HOOKE_P1B=1`, PREREGISTRATION-P1b.md): the Stage 3 memory module is frozen and
             // only geometry trains; `lr` is the geometry's peak rate, under Memorilla's schedule
             // (10% linear warm-up, cosine decay to 10% of peak). Unset, P1 behaves as frozen in P1.
             let p1b = std::env::var("HOOKE_P1B").is_ok_and(|v| v == "1");
+            // P2 (`HOOKE_P2=1`, PREREGISTRATION-P2.md): the whole memory module (and any privacy
+            // bottleneck) trains under Memorilla's schedule on noise-perturbed public rows.
+            let cosine = p1b || std::env::var("HOOKE_P2").is_ok_and(|v| v == "1");
             ensure!(!p1b || !geo_vars.is_empty(), "P1b trains geometry only; arm {} has none", args[1]);
             let geo_peak = if p1b { lr } else { GEOMETRY_LR };
             let total_steps = order.len().div_ceil(BATCH);
-            let warm_steps = if p1b { (total_steps / 10).max(1) } else { WARMUP };
+            let warm_steps = if cosine { (total_steps / 10).max(1) } else { WARMUP };
             let schedule = |step: usize, peak: f64| -> f64 {
                 if step < warm_steps {
                     peak * (step + 1) as f64 / warm_steps as f64
-                } else if p1b {
+                } else if cosine {
                     let t = (step - warm_steps) as f64 / (total_steps - warm_steps).max(1) as f64;
                     peak * (0.1 + 0.9 * 0.5 * (1.0 + (std::f64::consts::PI * t).cos()))
                 } else {
@@ -288,6 +473,7 @@ fn main() -> Result<()> {
             let mut opt_geo = (!geo_vars.is_empty()).then(|| AdamW::new(geo_vars, params(geo_peak))).transpose()?;
             let mut rng = StdRng::seed_from_u64(seed);
             let mut log = std::fs::File::create(out.join("train.log"))?;
+            DP_SALT.store(seed.wrapping_add(1), Ordering::Relaxed);
             let started = std::time::Instant::now();
             for (step, chunk) in order.chunks(BATCH).enumerate() {
                 if let Some(o) = opt_mem.as_mut() {
@@ -385,6 +571,7 @@ fn main() -> Result<()> {
                     }
                 }
             }
+            DP_SALT.store(0, Ordering::Relaxed);
             model.varmap.save(out.join("weights.safetensors"))?;
             let val_rows = data::load_split(&e.data, "factkg", "validation")?;
             let mut vstore = EmbeddingStore::open(&e.data, ENCODER, "factkg", "validation")?;
@@ -408,7 +595,7 @@ fn main() -> Result<()> {
             let (acc, kl) = evaluate(&model, &dec, &tok, &rel, &rows, &idx, &mut store, Path::new(&args[4]), &dev)?;
             println!("{}", serde_json::json!({"arm": args[1], "split": args[3], "rows": idx.len(), "accuracy": acc, "attention_kl": kl}));
         }
-        _ => bail!("usage: run train|eval ..."),
+        _ => bail!("usage: run train|eval|revoke ..."),
     }
     Ok(())
 }
