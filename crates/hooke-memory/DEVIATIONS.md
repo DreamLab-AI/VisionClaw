@@ -35,3 +35,13 @@ by an arm receives gradient (`field.triple.*` is used by A4 only).
 | A0 | 77.7% | 195 / 105 | n/a | n/a |
 | A1 | 77.7% | 195 / 105 | 0.0981, 1.0019 | 2 rows (1 gain, 1 loss) |
 | A2 | 77.3% | n/a | 0.0983, 1.0016 | 1 row (0 gains, 1 loss) |
+
+## P5 (PREREGISTRATION-P5.md)
+
+**D1, 8 November 2026 20:53 UTC, before any target was used.** The mask-equals-removal check
+compared the masked memory tokens after they had been rounded to bf16 against the removed-document
+tokens kept in f32, and reported a maximum absolute difference of 6.015e-2 on the first row, above
+the frozen 1e-3 limit. The check was corrected to compare both sides in f32; the same row then
+measured 2.098e-5. The target definition, the masking implementation and the rule are unchanged.
+The first run (26 validation rows) was discarded (`loo-validation.invalid-check.jsonl` kept in the
+scratchpad) and the pipeline restarted from the beginning with the corrected check.

@@ -553,15 +553,17 @@ fn main() -> Result<()> {
                         question: question.broadcast_as((b, w))?.contiguous()?,
                         triples: None,
                     };
-                    let mem = memory_tokens(&model, &bb, false)?.detach().to_dtype(DType::BF16)?;
+                    let mem_f32 = memory_tokens(&model, &bb, false)?.detach().to_dtype(DType::F32)?;
                     if !checked {
-                        // Masking a document must equal removing it: check once, on document 0.
+                        // Masking a document must equal removing it: check once, on document 0, with
+                        // both sides in f32 (the earlier check compared a bf16-rounded side with f32).
                         let rb = Batch { docs: Tensor::from_vec(v[w..].to_vec(), (1, n - 1, w), &dev)?, noise: None, mask: Tensor::ones((1, n - 1), DType::F32, &dev)?, question: question.clone(), triples: None };
                         let mem_r = memory_tokens(&model, &rb, false)?.detach().to_dtype(DType::F32)?;
-                        let d = (mem.get(0)?.to_dtype(DType::F32)? - mem_r.get(0)?)?.abs()?.flatten_all()?.max(0)?.to_scalar::<f32>()?;
+                        let d = (mem_f32.get(0)? - mem_r.get(0)?)?.abs()?.flatten_all()?.max(0)?.to_scalar::<f32>()?;
                         eprintln!("mask-vs-remove max abs diff (first row, doc 0): {d:.3e}");
                         checked = true;
                     }
+                    let mem = mem_f32.to_dtype(DType::BF16)?;
                     let ids_b: Vec<Vec<u32>> = vec![ids[0].clone(); b];
                     s_minus.extend(margin(&mem, &ids_b)?.into_iter().map(|m| sign * m));
                 }
