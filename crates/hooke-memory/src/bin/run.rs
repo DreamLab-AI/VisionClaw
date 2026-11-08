@@ -265,17 +265,36 @@ fn main() -> Result<()> {
             for (name, var) in model.varmap.data().lock().unwrap().iter() {
                 if name.starts_with("field.") { geo_vars.push(var.clone()) } else { mem_vars.push(var.clone()) }
             }
+            // P1b (`HOOKE_P1B=1`, PREREGISTRATION-P1b.md): the Stage 3 memory module is frozen and
+            // only geometry trains; `lr` is the geometry's peak rate, under Memorilla's schedule
+            // (10% linear warm-up, cosine decay to 10% of peak). Unset, P1 behaves as frozen in P1.
+            let p1b = std::env::var("HOOKE_P1B").is_ok_and(|v| v == "1");
+            ensure!(!p1b || !geo_vars.is_empty(), "P1b trains geometry only; arm {} has none", args[1]);
+            let geo_peak = if p1b { lr } else { GEOMETRY_LR };
+            let total_steps = order.len().div_ceil(BATCH);
+            let warm_steps = if p1b { (total_steps / 10).max(1) } else { WARMUP };
+            let schedule = |step: usize, peak: f64| -> f64 {
+                if step < warm_steps {
+                    peak * (step + 1) as f64 / warm_steps as f64
+                } else if p1b {
+                    let t = (step - warm_steps) as f64 / (total_steps - warm_steps).max(1) as f64;
+                    peak * (0.1 + 0.9 * 0.5 * (1.0 + (std::f64::consts::PI * t).cos()))
+                } else {
+                    peak
+                }
+            };
             let params = |lr| ParamsAdamW { lr, weight_decay: 0.01, ..Default::default() };
-            let mut opt_mem = AdamW::new(mem_vars, params(lr))?;
-            let mut opt_geo = (!geo_vars.is_empty()).then(|| AdamW::new(geo_vars, params(GEOMETRY_LR))).transpose()?;
+            let mut opt_mem = (!p1b).then(|| AdamW::new(mem_vars, params(lr))).transpose()?;
+            let mut opt_geo = (!geo_vars.is_empty()).then(|| AdamW::new(geo_vars, params(geo_peak))).transpose()?;
             let mut rng = StdRng::seed_from_u64(seed);
             let mut log = std::fs::File::create(out.join("train.log"))?;
             let started = std::time::Instant::now();
             for (step, chunk) in order.chunks(BATCH).enumerate() {
-                let warm = ((step + 1) as f64 / WARMUP as f64).min(1.0);
-                opt_mem.set_learning_rate(lr * warm);
+                if let Some(o) = opt_mem.as_mut() {
+                    o.set_learning_rate(schedule(step, lr));
+                }
                 if let Some(o) = opt_geo.as_mut() {
-                    o.set_learning_rate(GEOMETRY_LR * warm);
+                    o.set_learning_rate(schedule(step, geo_peak));
                 }
                 let items: Vec<(usize, &Row)> = chunk.iter().map(|&i| (i, &train_rows[i])).collect();
                 let mut scramble = |_: &Row, n: usize| -> Vec<u32> {
@@ -348,7 +367,9 @@ fn main() -> Result<()> {
                 let grads = grads.context("empty batch")?;
                 memlog(&dev, "accumulated");
                 let loss = Tensor::new(loss_sum as f32, &dev)?;
-                opt_mem.step(&grads)?;
+                if let Some(o) = opt_mem.as_mut() {
+                    o.step(&grads)?;
+                }
                 if let Some(o) = opt_geo.as_mut() {
                     o.step(&grads)?;
                 }
