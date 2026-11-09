@@ -1,0 +1,35 @@
+{
+ "n_test": 4926,
+ "full": 82.3,
+ "cells": {
+  "random@0.25": 82.54,
+  "sim@0.25": 83.54,
+  "attention@0.25": 81.61,
+  "random@0.10": 82.68,
+  "sim@0.10": 84.82,
+  "attention@0.10": 81.63
+ },
+ "tests": {
+  "P6a_full_minus_sim_25": {
+   "diff": -1.24,
+   "gains": 152,
+   "losses": 213,
+   "p": 0.0016497726495843196,
+   "pass": false
+  },
+  "P6b_att_minus_sim_25": {
+   "diff": -1.93,
+   "gains": 146,
+   "losses": 241,
+   "p": 1.5768176740460405e-06,
+   "pass": false
+  },
+  "reported_sim_minus_random_25": {
+   "diff": 0.99,
+   "gains": 217,
+   "losses": 168,
+   "p": 0.014326949683314156
+  }
+ },
+ "verdict": "P6a fail, P6b fail: similarity matches the full collection here too"
+}
