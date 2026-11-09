@@ -25,3 +25,8 @@ with frozen criteria; the funded H1 test (week 2 freeze, 1,000 two-step claims p
 3. Computation: at least 20 times less than the reasoning extractor per paragraph, measured as parameters x tokens
    processed (prompt + generated), using P12d's generated-token estimate.
 Criteria failing are reported as failing. Recall by sentence form is reported without a pass mark.
+
+## Deviation 1 (before any training completed)
+Batch 32 ran out of GPU memory (151k-token vocabulary logits). Each step now accumulates four micro-batches of 8 with
+the loss summed over target tokens and divided by the step's target-token count: the same effective batch of 32 and the
+same objective. The first seed-0 attempt was stopped near step 0 and restarted with this code; all three seeds use it.

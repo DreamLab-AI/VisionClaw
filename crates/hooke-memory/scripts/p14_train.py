@@ -19,13 +19,17 @@ data = [encode(e) for e in ex]; BS = 32
 steps = int(EPOCHS * len(data) / BS)
 opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=0.0)
 sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: min(1.0, (s + 1) / 50) * max(0.0, 1 - s / steps))
-model.train()
+model.train(); MB = 8
 for step in range(steps):
-    batch = [data[(step * BS + i) % len(data)] for i in range(BS)]; L = max(len(x) for x, _ in batch)
-    ids = torch.tensor([x + [tok.eos_token_id] * (L - len(x)) for x, _ in batch]).cuda()
-    lab = torch.tensor([y + [-100] * (L - len(y)) for _, y in batch]).cuda()
-    att = torch.tensor([[1] * len(x) + [0] * (L - len(x)) for x, _ in batch]).cuda()
-    loss = model(input_ids=ids, attention_mask=att, labels=lab).loss
-    loss.backward(); torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0); opt.step(); sched.step(); opt.zero_grad()
-    if step % 100 == 0: print(step, steps, round(loss.item(), 4), flush=True)
+    batch = [data[(step * BS + i) % len(data)] for i in range(BS)]; ntok = sum(sum(1 for t in y if t != -100) for _, y in batch)
+    for m in range(0, BS, MB):
+        mb = batch[m:m + MB]; L = max(len(x) for x, _ in mb)
+        ids = torch.tensor([x + [tok.eos_token_id] * (L - len(x)) for x, _ in mb]).cuda()
+        lab = torch.tensor([y + [-100] * (L - len(y)) for _, y in mb]).cuda()
+        att = torch.tensor([[1] * len(x) + [0] * (L - len(x)) for x, _ in mb]).cuda()
+        logits = model(input_ids=ids, attention_mask=att).logits[:, :-1].float()
+        loss = torch.nn.functional.cross_entropy(logits.reshape(-1, logits.shape[-1]), lab[:, 1:].reshape(-1), ignore_index=-100, reduction="sum") / ntok
+        loss.backward()
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0); opt.step(); sched.step(); opt.zero_grad()
+    if step % 100 == 0: print(step, steps, round(loss.item() * BS / MB, 4), flush=True)
 model.save_pretrained(OUT, safe_serialization=True); tok.save_pretrained(OUT); print("saved", OUT)
