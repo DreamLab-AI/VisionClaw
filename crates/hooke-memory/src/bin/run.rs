@@ -330,6 +330,14 @@ fn memory_tokens(m: &Model, b: &Batch, train: bool) -> Result<Tensor> {
 }
 
 fn validation_rows(rows: &[Row]) -> Vec<usize> {
+    // `HOOKE_ROWS_FILE`: an explicit newline-separated list of row indices (P6 defines its
+    // validation and held-out test subsets this way); otherwise the seeded prefix.
+    if let Ok(path) = std::env::var("HOOKE_ROWS_FILE") {
+        let text = std::fs::read_to_string(&path).expect("read HOOKE_ROWS_FILE");
+        let idx: Vec<usize> = text.split_whitespace().map(|t| t.parse().expect("row index")).collect();
+        assert!(idx.iter().all(|&i| i < rows.len()), "HOOKE_ROWS_FILE index out of range");
+        return idx;
+    }
     let mut idx: Vec<usize> = (0..rows.len()).collect();
     idx.shuffle(&mut StdRng::seed_from_u64(VALIDATION_SEED));
     idx.truncate(std::env::var("HOOKE_VAL_ROWS").ok().and_then(|v| v.parse().ok()).unwrap_or(VALIDATION_ROWS));
