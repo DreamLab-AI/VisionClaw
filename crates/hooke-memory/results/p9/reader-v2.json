@@ -1,0 +1,19 @@
+{
+ "epochs": 30,
+ "n_train": 8000,
+ "n_val": 4000,
+ "arms": {
+  "reader-2hop-cosinit": {
+   "single-hop": 89.8,
+   "two-hop": 50.6
+  },
+  "set-reader-top16": {
+   "single-hop": 69.4,
+   "two-hop": 61.6
+  }
+ },
+ "two_hop_gold_recall_at_25pct": {
+  "reader": 82.8,
+  "similarity": 80.0
+ }
+}

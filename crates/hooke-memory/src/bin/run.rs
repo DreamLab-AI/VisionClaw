@@ -708,7 +708,9 @@ fn main() -> Result<()> {
                     }
                 }
             }
-            let half = TRAIN_ROWS / 2;
+            // `HOOKE_TRAIN_ROWS` overrides the frozen FactKG size for other corpora (P9).
+            let train_rows_n: usize = std::env::var("HOOKE_TRAIN_ROWS").ok().and_then(|v| v.parse().ok()).unwrap_or(TRAIN_ROWS);
+            let half = train_rows_n / 2;
             ensure!(yes.len() >= half && no.len() >= half, "shards {TRAIN_SHARDS:?} hold {} True and {} False rows, need {half} each", yes.len(), no.len());
             let mut pick = StdRng::seed_from_u64(1000);
             yes.shuffle(&mut pick);
