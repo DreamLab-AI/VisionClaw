@@ -51,3 +51,14 @@ results therefore do not show composition across documents and are not used as e
 * Swap control pass mark: at most 60% in each stratum, in every seed; a failure fails H1.
 * The 5-point margin is computed on unrounded accuracies. The diagnostic is reported for all three seeds.
 * Code fixes before any run: cache keyed by corpus and embedding identity; top-k guarded for small collections.
+
+## Result (9 November 2026, scored once after all arms completed)
+H1 FAILS. The verifier does not beat the strongest similarity variant (sim4) on two-step claims in any seed (margins
+-4.3, -6.5, -3.5 points). Verifier two-step 51.3% (49.5-52.6), at chance; single-step 89.7%, below similarity top-1
+(94.5%). Swap control at chance (passes). Probe ceiling with gold documents 95.7% / 88.6%. Plain text, Qwen3-8B with
+the collection in the prompt, 79.2% / 52.6% (answers True on 96.5% of two-step claims); no documents 50.8% / 49.5%.
+Second-hop pilot (verifier2, exploratory) 57.6% two-step. Both gold documents are in the top-16 for 68.0% of two-step
+claims; the verifier is 50.7-56.5% on that subset, so the failure is composition, not only retrieval.
+Reading: per-fact verification over the owner's embeddings works (single-step); neither the learned verifier nor an 8B
+model reading the text composes two private facts across documents once the count shortcut is removed. Full table:
+`results/p10/score.md`; per-claim outputs for every arm in `results/p10/`.
