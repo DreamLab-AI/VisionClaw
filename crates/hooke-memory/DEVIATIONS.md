@@ -65,3 +65,13 @@ throughput only; per-row outputs do not depend on it. The parity gate is run on 
 rows, paired against Memorilla's own per-row predictions on the same rows, rather than all 5,000. Both sides are scored with Memorilla's nearest-choice metric in one encoder session
 (scripts/pmv2_parity.py). Gate, fixed before the run: Rust within 2.0 points of Memorilla on those
 rows and exact McNemar p >= 0.01 between them; a fail stops P8 until the cause is found and recorded.
+
+**P8 parity gate result, 9 November 2026 12:41 UTC.** Rust vs Memorilla on pmv2 test rows 0–999 (the
+run generated past row 999 because HOOKE_ROWS_FILE applies to validation only; rows ≥1000 were
+discarded before scoring): Rust 46.0, Memorilla 45.7, same choice 86.5%, McNemar 49/46, p = 0.84.
+Gate (within 2.0 points, p ≥ 0.01): **pass**.
+
+**D2 criterion, recorded before measurement.** P8 generation cells may use a 64-token answer cap in
+place of 256 only if, on pmv2 test rows 0–999, the 64-token run's nearest-choice selection agrees
+with the 256-token run's on at least 97% of rows and its accuracy is within 0.5 points. Otherwise
+256 tokens stand.
