@@ -45,3 +45,12 @@ paraphrases that invert or bury the relation, not wrong admissions; a prompted m
 * P12c's 48.5% is the share of false claims among the first 400 two-step claims: each owner answered False to every
   claim. It is a base rate, not a measured failure. See P13 for composition with the records actually split.
 * The 827 figure is the median token count of the records alone (`forms.json`), not of the full prompt.
+
+## P12d: extraction with reasoning on (`scripts/p12d_extract.py`, scored by `scripts/p12d_score.py`)
+Same rendering (seed 0) and prompt as P12b, Qwen3-8B with thinking on (temperature 0.6, top-p 0.95, top-k 20, max
+6,000 new tokens), test collections 200-399 only, admit all, same canonicalisation (`p12d-score.json`):
+precision 95.6, recall 88.7; true claims confirmed 33/41 single-step, 52/52 two-step; false claims rejected 59/59 and
+48/48. Generated tokens per paragraph about 1,100 (vLLM throughput x elapsed: 1,377 tok/s x 674 s over 848
+paragraphs; 1,528 x 636 s over 846) against about 80 without reasoning (P12b run). Weakest forms: "X has been approved
+under C" 27.2%, "X provides C services" 60.3%; inverted supplier forms 84.8-91.7%. P12b scored by the same script on the
+same half: `p12b-testhalf-score.json` (matches `rescore.json`).

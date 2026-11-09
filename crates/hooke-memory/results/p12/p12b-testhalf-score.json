@@ -1,0 +1,102 @@
+{
+ "precision": 91.3,
+ "recall": 77.0,
+ "single-hop_true": "31/41",
+ "single-hop_false": "59/59",
+ "two-hop_true": "43/52",
+ "two-hop_false": "48/48",
+ "recall_by_form": {
+  "{o} sources components from {s}.": {
+   "n": 224,
+   "recall": 12.1
+  },
+  "Among {o}'s suppliers is {s}.": {
+   "n": 193,
+   "recall": 14.5
+  },
+  "{o} buys parts from {s}.": {
+   "n": 229,
+   "recall": 18.8
+  },
+  "{s} provides {o} services.": {
+   "n": 522,
+   "recall": 33.0
+  },
+  "{s} has been approved under {o}.": {
+   "n": 614,
+   "recall": 38.4
+  },
+  "{s} offers {o}.": {
+   "n": 468,
+   "recall": 41.5
+  },
+  "It also offers {o}.": {
+   "n": 355,
+   "recall": 51.5
+  },
+  "It is a supplier to {o}.": {
+   "n": 364,
+   "recall": 77.5
+  },
+  "{s} is a supplier to {o}.": {
+   "n": 395,
+   "recall": 84.1
+  },
+  "{s}'s works are in {o}.": {
+   "n": 616,
+   "recall": 84.6
+  },
+  "{s} holds {o} certification.": {
+   "n": 593,
+   "recall": 88.5
+  },
+  "{s} operates from {o}.": {
+   "n": 590,
+   "recall": 89.3
+  },
+  "It is based in {o}.": {
+   "n": 849,
+   "recall": 92.1
+  },
+  "{s} is based in {o}.": {
+   "n": 624,
+   "recall": 96.3
+  },
+  "It is certified to {o}.": {
+   "n": 959,
+   "recall": 96.4
+  },
+  "{s} has {o} capability.": {
+   "n": 498,
+   "recall": 97.0
+  },
+  "It has {o} capability.": {
+   "n": 364,
+   "recall": 97.3
+  },
+  "{s} is certified to {o}.": {
+   "n": 574,
+   "recall": 97.4
+  },
+  "It supplies {o}.": {
+   "n": 319,
+   "recall": 99.1
+  },
+  "{s} supplies {o}.": {
+   "n": 405,
+   "recall": 99.5
+  },
+  "It partners with {o}.": {
+   "n": 40,
+   "recall": 100.0
+  },
+  "{s} partners with {o}.": {
+   "n": 37,
+   "recall": 100.0
+  },
+  "{s} works in partnership with {o}.": {
+   "n": 23,
+   "recall": 100.0
+  }
+ }
+}
