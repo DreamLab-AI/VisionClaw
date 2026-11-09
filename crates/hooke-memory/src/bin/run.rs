@@ -18,6 +18,7 @@ use hooke_memory::memory::{MemoryConfig, MemoryModule};
 use hooke_memory::prompt::{self, PromptTokenizer};
 use hooke_memory::store::EmbeddingStore;
 use rand::seq::SliceRandom;
+use rand::Rng;
 use std::sync::atomic::{AtomicU64, Ordering};
 use rand::{rngs::StdRng, SeedableRng};
 use std::io::Write;
@@ -392,7 +393,10 @@ fn evaluate(
             .iter()
             .map(|(_, r)| tok.encode(&prompt::render(prompt::PERSONA_PROMPT, &r.question, 16)))
             .collect::<Result<_>>()?;
-        let answers = prompt::generate(dec, tok, &ids, &mem, 8, dev)?;
+        // FactKG answers in one token; pmv2/pv4 use Memorilla's 256 and are scored by
+        // embedding nearest-choice in Python (scripts/pmv2_score.py), so the full text is kept.
+        let max_new: usize = std::env::var("HOOKE_MAX_NEW").ok().and_then(|v| v.parse().ok()).unwrap_or(8);
+        let answers = prompt::generate(dec, tok, &ids, &mem, max_new, dev)?;
         for ((i, r), a) in items.iter().zip(&answers) {
             let chosen = r.choices.iter().find(|c| normalise(c) == normalise(a));
             let ok = chosen.is_some_and(|c| c.trim() == r.answer.trim());
@@ -496,6 +500,66 @@ fn main() -> Result<()> {
     let tok = PromptTokenizer::load(&e.qwen)?;
     let dec = Decoder::load(&e.qwen, DType::BF16, &dev)?;
     match args.first().map(String::as_str) {
+        Some("tokens") => {
+            // P7 attestation: export each claim's 16 memory tokens for (a) the full collection,
+            // (b) the collection with one chosen document removed, (c) with that document
+            // replaced by a non-member from another collection. Row list from HOOKE_ROWS_FILE.
+            ensure!(args.len() >= 3, "run tokens <split> <out.safetensors>");
+            ensure!(dp_sigma().is_none() && std::env::var("HOOKE_KEEP_FRAC").is_err(), "run tokens runs on the plain collection");
+            let split = args[1].as_str();
+            let out = PathBuf::from(&args[2]);
+            let model = build(Arm::A0, rel.len(), &dev)?;
+            let set = load_into(&model.varmap, &e.stage3, &dev)?;
+            ensure!(set == 37, "loaded {set} Stage 3 tensors, expected 37");
+            let owned;
+            let rows: &[Row] = if split == "train" { &train_rows } else { owned = data::load_split(&e.data, CONFIG.as_str(), split)?; &owned };
+            let order = validation_rows(rows);
+            let mut store = EmbeddingStore::open(&e.data, ENCODER, CONFIG.as_str(), split)?;
+            let mut rng = StdRng::seed_from_u64(7_2026_11_09);
+            let (mut full, mut removed, mut swapped, mut ids) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+            // A pool of foreign documents for the swap arm: first document of other rows.
+            let mut pool: Vec<(Vec<f32>, usize)> = Vec::new();
+            for &ri in order.iter().take(64) {
+                if let Ok((v, n, w)) = store.documents(rows[ri].collection_id) { if n > 0 { pool.push((v[..w].to_vec(), w)); } }
+            }
+            ensure!(!pool.is_empty(), "no foreign documents for the swap arm");
+            let one = |docs: Vec<f32>, n: usize, w: usize, q: &[f32]| -> Result<Vec<f32>> {
+                let d = Tensor::from_vec(docs, (1, n, w), &dev)?.to_dtype(DType::BF16)?;
+                let qq = Tensor::from_slice(q, (1, w), &dev)?.to_dtype(DType::BF16)?;
+                let b = Batch { docs: d, mask: Tensor::ones((1, n), DType::F32, &dev)?, question: qq, triples: None, noise: None };
+                let t = memory_tokens(&model, &b, false)?;
+                Ok(t.to_dtype(DType::F32)?.flatten_all()?.to_vec1::<f32>()?)
+            };
+            for &ri in &order {
+                let row = &rows[ri];
+                let Ok((v, n, w)) = store.documents(row.collection_id) else { continue };
+                if n < 2 { continue; }
+                let q = store.question(ri)?;
+                let target = rng.gen_range(0..n);
+                let mut without: Vec<f32> = Vec::with_capacity((n - 1) * w);
+                for j in 0..n { if j != target { without.extend_from_slice(&v[j * w..(j + 1) * w]); } }
+                let (fd, fw) = &pool[rng.gen_range(0..pool.len())];
+                ensure!(*fw == w, "width mismatch in swap pool");
+                let mut swap = without.clone();
+                swap.extend_from_slice(fd);
+                full.push(one(v.clone(), n, w, &q)?);
+                removed.push(one(without, n - 1, w, &q)?);
+                swapped.push(one(swap, n, w, &q)?);
+                ids.push(ri as u32);
+            }
+            let m = ids.len();
+            ensure!(m > 0, "no rows exported");
+            let k = full[0].len();
+            let flat = |v: &Vec<Vec<f32>>| v.iter().flatten().copied().collect::<Vec<f32>>();
+            let tensors = vec![
+                ("full".to_string(), Tensor::from_vec(flat(&full), (m, k), &Device::Cpu)?),
+                ("removed".to_string(), Tensor::from_vec(flat(&removed), (m, k), &Device::Cpu)?),
+                ("swapped".to_string(), Tensor::from_vec(flat(&swapped), (m, k), &Device::Cpu)?),
+                ("rows".to_string(), Tensor::from_vec(ids, (m,), &Device::Cpu)?),
+            ];
+            candle_core::safetensors::save(&tensors.into_iter().collect::<std::collections::HashMap<_, _>>(), &out)?;
+            eprintln!("tokens: {m} rows x {k} values, three arms");
+        }
         Some("loo") => {
             // P5 targets: signed gold-answer logit margin with the full collection and with each
             // document masked out in turn. Plain full collections only: no noise, no subset.
@@ -521,14 +585,28 @@ fn main() -> Result<()> {
             let (t_ids, f_ids) = (tok.encode("True")?, tok.encode("False")?);
             ensure!(t_ids.len() == 1 && f_ids.len() == 1, "answer tokens must be single tokens");
             let (t_id, f_id) = (t_ids[0] as usize, f_ids[0] as usize);
-            let margin = |mem: &Tensor, ids: &[Vec<u32>]| -> Result<Vec<f32>> {
+            // Margin at the answer position: gold first token minus the best competing first
+            // token. True/False rows compete True against False; multiple-choice rows compete the
+            // gold choice against the other choices (first tokens, deduplicated).
+            let margin = |mem: &Tensor, ids: &[Vec<u32>], gold: usize, wrong: &[usize]| -> Result<Vec<f32>> {
                 let (embeds, mask) = prompt::splice(&dec, ids, mem, tok.memory_id, &dev)?;
                 let h = dec.forward_embeds(&embeds, &mask)?;
                 let last = h.narrow(1, h.dim(1)? - 1, 1)?.squeeze(1)?.contiguous()?;
                 let logits = dec.logits(&last)?.to_dtype(DType::F32)?;
-                let t = logits.narrow(1, t_id, 1)?.squeeze(1)?;
-                let f = logits.narrow(1, f_id, 1)?.squeeze(1)?;
-                Ok((t - f)?.to_vec1::<f32>()?)
+                let lp = candle_nn::ops::log_softmax(&logits, 1)?;
+                let g = lp.narrow(1, gold, 1)?.squeeze(1)?;
+                let mut best: Option<Tensor> = None;
+                for &w in wrong {
+                    let c = lp.narrow(1, w, 1)?.squeeze(1)?;
+                    best = Some(match best { None => c, Some(b) => b.maximum(&c)? });
+                }
+                let b = best.ok_or_else(|| anyhow::anyhow!("no competing choice"))?;
+                Ok((g - b)?.to_vec1::<f32>()?)
+            };
+            let first_tok = |text: &str| -> Result<usize> {
+                let v = tok.encode(text.trim())?;
+                ensure!(!v.is_empty(), "empty answer text");
+                Ok(v[0] as usize)
             };
             let mut file = std::io::BufWriter::new(std::fs::File::create(&out)?);
             let (mut done, mut skipped, mut checked) = (0usize, 0usize, false);
@@ -542,7 +620,23 @@ fn main() -> Result<()> {
                     skipped += 1;
                     continue;
                 }
-                let sign = match row.answer.trim() { "True" => 1f32, "False" => -1f32, _ => { skipped += 1; continue } };
+                // True/False: signed so that +delta always means "this document helped the gold
+                // answer". Multiple choice: gold vs other choices, sign +1.
+                let (sign, gold, wrong): (f32, usize, Vec<usize>) = match row.answer.trim() {
+                    "True" => (1.0, t_id, vec![f_id]),
+                    "False" => (1.0, f_id, vec![t_id]),
+                    a => {
+                        let g = first_tok(a)?;
+                        let mut ws: Vec<usize> = Vec::new();
+                        for c in &row.choices {
+                            if c.trim().is_empty() || c.trim() == a { continue; }
+                            let t = first_tok(c)?;
+                            if t != g && !ws.contains(&t) { ws.push(t); }
+                        }
+                        if ws.is_empty() { skipped += 1; continue }
+                        (1.0, g, ws)
+                    }
+                };
                 let q = store.question(ri)?;
                 let docs = Tensor::from_vec(v.clone(), (1, n, w), &dev)?;
                 let question = Tensor::from_vec(q.clone(), (1, w), &dev)?;
@@ -550,7 +644,7 @@ fn main() -> Result<()> {
                 let mem_full = memory_tokens(&model, &full, false)?.detach().to_dtype(DType::BF16)?;
                 let attention = model.memory.doc_attention(&full.docs, Some(&full.mask), &full.question)?.to_dtype(DType::F32)?.to_vec2::<f32>()?[0].clone();
                 let ids = vec![tok.encode(&prompt::render(prompt::PERSONA_PROMPT, &row.question, 16))?];
-                let s_full = sign * margin(&mem_full, &ids)?[0];
+                let s_full = sign * margin(&mem_full, &ids, gold, &wrong)?[0];
                 let mut s_minus = Vec::with_capacity(n);
                 for chunk in (0..n).step_by(LOO_BATCH) {
                     let b = (n - chunk).min(LOO_BATCH);
@@ -577,7 +671,7 @@ fn main() -> Result<()> {
                     }
                     let mem = mem_f32.to_dtype(DType::BF16)?;
                     let ids_b: Vec<Vec<u32>> = vec![ids[0].clone(); b];
-                    s_minus.extend(margin(&mem, &ids_b)?.into_iter().map(|m| sign * m));
+                    s_minus.extend(margin(&mem, &ids_b, gold, &wrong)?.into_iter().map(|m| sign * m));
                 }
                 let sims: Vec<f32> = (0..n).map(|i| v[i * w..(i + 1) * w].iter().zip(&q).map(|(a, b)| a * b).sum()).collect();
                 let deltas: Vec<f32> = s_minus.iter().map(|s| s_full - s).collect();
