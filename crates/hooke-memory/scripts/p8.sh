@@ -7,7 +7,7 @@ set -u
 D=$(cd "$(dirname "$0")/.." && pwd)
 mkdir -p "$OUT"
 log() { echo "$(date -u +%FT%TZ) $*" | tee -a "$OUT/pipeline.log"; }
-export HOOKE_MAX_NEW=256
+export HOOKE_MAX_NEW=256 HOOKE_EVAL_BATCH=48
 
 if [ ! -f "$OUT/loo-test.jsonl" ]; then
   log "loo test start"
