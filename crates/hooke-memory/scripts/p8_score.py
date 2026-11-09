@@ -12,7 +12,9 @@ ARMS = ["random", "centrality", "calsim", "learned", "oracle"]
 
 
 def load(name):
-    p = OUT / name / "out.jsonl"
+    p = OUT / name / "out.jsonl.scored.jsonl"
+    if not p.exists():
+        p = OUT / name / "out.jsonl"
     rows = [json.loads(l) for l in p.open()]
     return {r["row"]: bool(r["correct"]) for r in rows}
 
@@ -35,8 +37,9 @@ def mcnemar(a, b):
 
 
 full = load("heldout-full-1.0")
-closed = load("heldout-closed-1.0")
-out = {"n_heldout": len(full), "full": acc(full), "closed": acc(closed), "cells": {}, "tests": {}}
+out = {"n_heldout": len(full), "full": acc(full), "cells": {}, "tests": {}}
+if (OUT / "closed.json").exists():
+    out["closed_memorilla_baseline_heldout"] = json.loads((OUT / "closed.json").read_text())
 for f in ("0.25", "0.10"):
     cells = {a: load(f"heldout-{a}-{f}") for a in ARMS}
     for a, d in cells.items():
