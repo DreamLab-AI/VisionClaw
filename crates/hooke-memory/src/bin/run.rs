@@ -34,7 +34,10 @@ const BATCH: usize = 8;
 fn micro() -> usize {
     std::env::var("HOOKE_MICRO").ok().and_then(|v| v.parse().ok()).unwrap_or(4)
 }
-const EVAL_BATCH: usize = 16;
+/// Rows per evaluation batch (`HOOKE_EVAL_BATCH`, default 16). Throughput only; outputs do not depend on it.
+fn eval_batch() -> usize {
+    std::env::var("HOOKE_EVAL_BATCH").ok().and_then(|v| v.parse().ok()).unwrap_or(16)
+}
 /// Leave-one-out scorer: documents masked out per decoder batch (P5 targets).
 const LOO_BATCH: usize = 16;
 const LOO_TRAIN_SEED: u64 = 23;
@@ -371,7 +374,7 @@ fn evaluate(
         p.shuffle(&mut StdRng::seed_from_u64(SCRAMBLE_EVAL_SEED ^ row.collection_id as u64));
         p
     };
-    for chunk in idx.chunks(EVAL_BATCH) {
+    for chunk in idx.chunks(eval_batch()) {
         let items: Vec<(usize, &Row)> = chunk.iter().map(|&i| (i, &rows[i])).collect();
         let b = batch(&items, store, m.field.as_ref(), rel, &mut scramble, dev)?;
         // Detached: evaluation must not keep the autograd graph alive through decoding.

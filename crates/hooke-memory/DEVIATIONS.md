@@ -55,3 +55,13 @@ The one cell that ran before the panic (validation, full collection) used the ev
 prefix, not the frozen split, and is discarded. Fix: the script now runs the split builder under
 the project venv, with the venv's C++ runtime on the library path (the launcher had set it for CUDA only). The seed (20261109), the split sizes and every threshold are unchanged. No
 policy was scored on any row before this fix.
+
+## P8 (PREREGISTRATION-P8.md)
+
+**D1, 9 November 2026 10:25 UTC, before any P8 stage.** The evaluator's batch size is now
+`HOOKE_EVAL_BATCH` (default 16, the previous constant). Generation at 256 tokens ran at about 13
+rows a minute at batch 16; the pmv2 parity reference would have taken six hours. Batch size changes
+throughput only; per-row outputs do not depend on it. The parity gate is run on the first 1,000 test
+rows, paired against Memorilla's own per-row predictions on the same rows, rather than all 5,000. Both sides are scored with Memorilla's nearest-choice metric in one encoder session
+(scripts/pmv2_parity.py). Gate, fixed before the run: Rust within 2.0 points of Memorilla on those
+rows and exact McNemar p >= 0.01 between them; a fail stops P8 until the cause is found and recorded.
