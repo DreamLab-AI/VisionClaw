@@ -45,3 +45,13 @@ the frozen 1e-3 limit. The check was corrected to compare both sides in f32; the
 measured 2.098e-5. The target definition, the masking implementation and the rule are unchanged.
 The first run (26 validation rows) was discarded (`loo-validation.invalid-check.jsonl` kept in the
 scratchpad) and the pipeline restarted from the beginning with the corrected check.
+
+## P6 (PREREGISTRATION-P6.md)
+
+**D1, 9 November 2026 08:50 UTC, before any P6 cell completed.** `scripts/p6.sh` built the frozen
+2,000/4,926 row split with the system `python3`, which has no `pyarrow`; the split files were never
+written, so `HOOKE_ROWS_FILE` pointed at a missing file and every policy cell panicked (exit 101).
+The one cell that ran before the panic (validation, full collection) used the evaluator's seeded
+prefix, not the frozen split, and is discarded. Fix: the script now runs the split builder under
+the project venv. The seed (20261109), the split sizes and every threshold are unchanged. No
+policy was scored on any row before this fix.

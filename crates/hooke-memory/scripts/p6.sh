@@ -10,7 +10,7 @@ log() { echo "$(date -u +%FT%TZ) $*" | tee -a "$OUT/pipeline.log"; }
 
 # The evaluator reads validation.jsonl row ids from HOOKE_VAL_ROWS_FILE when set; P6 defines the
 # 2,000-claim validation subset by seed and the rest as test. Build both row lists once.
-python3 - "$OUT" <<'PY'
+/home/devuser/workspace/.tmp/claude-1000/-home-devuser-workspace-innovate-uk-2582-esc-ai/0d0bbb45-5914-4438-a0bb-c33e0ee2f8ea/scratchpad/venv-memorilla/bin/python -I - "$OUT" <<'PY'
 import random, sys, pyarrow.parquet as pq, glob, os
 out = sys.argv[1]; root = os.environ["HOOKE_DATA"]
 n = pq.read_table(glob.glob(f"{root}/data/kb/validation-*.parquet")[0], columns=["collection_id"]).num_rows
