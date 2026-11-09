@@ -23,6 +23,10 @@ use rand::{rngs::StdRng, SeedableRng};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+/// Dataset config under `data/` and `embeddings/<encoder>/` (`HOOKE_CONFIG`, default `factkg`).
+static CONFIG: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| std::env::var("HOOKE_CONFIG").unwrap_or_else(|_| "factkg".to_string()));
+
 const ENCODER: &str = "qwen3-embedding-4b";
 const BATCH: usize = 8;
 /// Rows per micro-batch (`HOOKE_MICRO`, default 4); the effective batch stays `BATCH`.
@@ -409,8 +413,8 @@ fn revoke(e: &Env, args: &[String]) -> Result<()> {
     let model = build(Arm::A0, 1, &dev)?;
     let set = load_into(&model.varmap, Path::new(&args[1]), &dev)?;
     ensure!(set == model.varmap.all_vars().len(), "weights cover {set} of {} variables", model.varmap.all_vars().len());
-    let rows = data::load_split(&e.data, "factkg", "validation")?;
-    let mut store = EmbeddingStore::open(&e.data, ENCODER, "factkg", "validation")?;
+    let rows = data::load_split(&e.data, CONFIG.as_str(), "validation")?;
+    let mut store = EmbeddingStore::open(&e.data, ENCODER, CONFIG.as_str(), "validation")?;
     let clip = dp_clip();
     let clip_add = |x: &[f32], z: Vec<f32>| -> Vec<f32> {
         let norm = x.iter().map(|&v| (v as f64) * (v as f64)).sum::<f64>().sqrt();
@@ -478,7 +482,7 @@ fn main() -> Result<()> {
         return revoke(&e, &args);
     }
     let dev = Device::new_cuda(0)?;
-    let train_rows = data::load_split(&e.data, "factkg", "train")?;
+    let train_rows = data::load_split(&e.data, CONFIG.as_str(), "train")?;
     let rel = Relations::from_triples(train_rows.iter().flat_map(|r| r.documents.iter().map(String::as_str)));
     eprintln!("relations: {} (incl. UNK)", rel.len());
     let tok = PromptTokenizer::load(&e.qwen)?;
@@ -497,7 +501,7 @@ fn main() -> Result<()> {
             let set = load_into(&model.varmap, &e.stage3, &dev)?;
             ensure!(set == 37, "loaded {set} Stage 3 tensors, expected 37");
             let owned;
-            let rows: &[Row] = if split == "train" { &train_rows } else { owned = data::load_split(&e.data, "factkg", split)?; &owned };
+            let rows: &[Row] = if split == "train" { &train_rows } else { owned = data::load_split(&e.data, CONFIG.as_str(), split)?; &owned };
             let order: Vec<usize> = if split == "validation" {
                 validation_rows(rows)
             } else {
@@ -505,7 +509,7 @@ fn main() -> Result<()> {
                 i.shuffle(&mut StdRng::seed_from_u64(LOO_TRAIN_SEED));
                 i
             };
-            let mut store = EmbeddingStore::open(&e.data, ENCODER, "factkg", split)?;
+            let mut store = EmbeddingStore::open(&e.data, ENCODER, CONFIG.as_str(), split)?;
             let (t_ids, f_ids) = (tok.encode("True")?, tok.encode("False")?);
             ensure!(t_ids.len() == 1 && f_ids.len() == 1, "answer tokens must be single tokens");
             let (t_id, f_id) = (t_ids[0] as usize, f_ids[0] as usize);
@@ -588,7 +592,7 @@ fn main() -> Result<()> {
             let model = build(arm, rel.len(), &dev)?;
             let set = load_into(&model.varmap, &e.stage3, &dev)?;
             ensure!(set == 37, "loaded {set} Stage 3 tensors, expected 37");
-            let mut store = EmbeddingStore::open(&e.data, ENCODER, "factkg", "train")?;
+            let mut store = EmbeddingStore::open(&e.data, ENCODER, CONFIG.as_str(), "train")?;
             let (mut yes, mut no): (Vec<usize>, Vec<usize>) = (Vec::new(), Vec::new());
             for i in 0..train_rows.len() {
                 if store.shard(train_rows[i].collection_id).is_some_and(|s| TRAIN_SHARDS.contains(&s)) {
@@ -744,8 +748,8 @@ fn main() -> Result<()> {
             }
             DP_SALT.store(0, Ordering::Relaxed);
             model.varmap.save(out.join("weights.safetensors"))?;
-            let val_rows = data::load_split(&e.data, "factkg", "validation")?;
-            let mut vstore = EmbeddingStore::open(&e.data, ENCODER, "factkg", "validation")?;
+            let val_rows = data::load_split(&e.data, CONFIG.as_str(), "validation")?;
+            let mut vstore = EmbeddingStore::open(&e.data, ENCODER, CONFIG.as_str(), "validation")?;
             let idx = validation_rows(&val_rows);
             let (acc, kl) = evaluate(&model, &dec, &tok, &rel, &val_rows, &idx, &mut vstore, &out.join("validation.jsonl"), &dev)?;
             let summary = serde_json::json!({"arm": args[1], "lr": lr, "seed": seed, "train_rows": order.len(),
@@ -760,9 +764,9 @@ fn main() -> Result<()> {
             let model = build(arm, rel.len(), &dev)?;
             let set = load_into(&model.varmap, Path::new(&args[2]), &dev)?;
             ensure!(set == model.varmap.all_vars().len(), "weights cover {set} of {} variables", model.varmap.all_vars().len());
-            let rows = data::load_split(&e.data, "factkg", &args[3])?;
+            let rows = data::load_split(&e.data, CONFIG.as_str(), &args[3])?;
             let idx: Vec<usize> = if args[3] == "validation" { validation_rows(&rows) } else { (0..rows.len()).collect() };
-            let mut store = EmbeddingStore::open(&e.data, ENCODER, "factkg", &args[3])?;
+            let mut store = EmbeddingStore::open(&e.data, ENCODER, CONFIG.as_str(), &args[3])?;
             let (acc, kl) = evaluate(&model, &dec, &tok, &rel, &rows, &idx, &mut store, Path::new(&args[4]), &dev)?;
             println!("{}", serde_json::json!({"arm": args[1], "split": args[3], "rows": idx.len(), "accuracy": acc, "attention_kl": kl}));
         }
