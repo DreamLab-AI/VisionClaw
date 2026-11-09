@@ -1,6 +1,6 @@
 """Score P12d (reasoning-on extraction) on the test half only (collections n/2..n-1), admit-all, with the same
 canonicalisation as p12_rescore.py, true/false claims separately, and recall by sentence form (replayed render).
-Usage: p12d_score.py <val root> <cand.jsonl> <n> <out json>"""
+Usage: p12d_score.py <val root> <cand.jsonl> <n> <out json> [lo hi]  (default lo=n/2, hi=n)"""
 import json, random, re, sys
 from collections import Counter
 from pathlib import Path
@@ -17,7 +17,8 @@ G = {}
 for l in open(CAND):
     if l.strip():
         c = json.loads(l); G.setdefault(c["c"], set()).add(canon(c["t"]))
-test = list(range(N // 2, N))
+LO, HI = (int(sys.argv[5]), int(sys.argv[6])) if len(sys.argv) > 6 else (N // 2, N)
+test = list(range(LO, HI))
 def verdict(ci, g):
     claim = rows[ci]["question"].split("Claim: ", 1)[1].rstrip(".")
     if meta[ci]["stratum"] == "single-hop":
@@ -44,9 +45,10 @@ for ci, r in enumerate(rows):
             if j == 0: t = rng.choice([t for t in TPL[rr] if t.startswith("{s}")])
             elif rng.random() < 0.4: t = rng.choice(PRON[rr])
             else: t = rng.choice(TPL[rr])
-            if ci >= N // 2: tot[t] += 1; hit[t] += canon((s, rr, o)) in G.get(ci, set())
+            if LO <= ci < HI: tot[t] += 1; hit[t] += canon((s, rr, o)) in G.get(ci, set())
         if rng.random() < 0.3:
             rng.randrange(1, len(facts) + 1); rng.choice(NONFACT); rng.choice(places); rng.choice(comps)
     paras = list(by); rng.shuffle(paras)
 out["recall_by_form"] = {k: {"n": tot[k], "recall": round(100 * hit[k] / tot[k], 1)} for k in sorted(tot, key=lambda k: hit[k] / tot[k])}
+out["preds"] = {str(ci): verdict(ci, G.get(ci, set())) for ci in test}
 OUT.write_text(json.dumps(out, indent=1)); print({k: v for k, v in out.items() if k != "recall_by_form"}); print(list(out["recall_by_form"].items())[:6])
