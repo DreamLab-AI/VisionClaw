@@ -35,7 +35,9 @@ def unit(x):
 
 
 def build(root, emb, tag):
-    cache = OUT.parent / f"cache-{tag}.npz"
+    import hashlib
+    key = hashlib.sha256(f"{root.resolve()}|{emb.resolve()}|{(emb / 'docs.npy').stat().st_size}|{(emb / 'docs.npy').stat().st_mtime_ns}".encode()).hexdigest()[:16]
+    cache = OUT.parent / f"cache-{tag}-{key}.npz"
     off, D, Q, meta = load(root, emb)
     n = len(meta)
     y = np.array([1.0 if m["label"] else 0.0 for m in meta], np.float32)
@@ -47,10 +49,10 @@ def build(root, emb, tag):
         d = torch.tensor(np.asarray(D[off[i]:off[i + 1]]), device=DEV).float(); q = torch.tensor(Q[i], device=DEV).float()
         c = d @ q; top = torch.topk(c, min(16, len(c))).indices
         S1[i, :len(top)] = d[top].cpu().numpy(); M1[i, :len(top)] = True
-        first = torch.topk(c, 8).indices; ids = list(first.tolist())
-        for j in torch.topk(c, 2).indices.tolist():
+        nd = len(c); first = torch.topk(c, min(8, nd)).indices; ids = list(first.tolist())
+        for j in torch.topk(c, min(2, nd)).indices.tolist():
             cj = d @ d[j]; cj[j] = -9
-            ids += [k for k in torch.topk(cj, 8).indices.tolist() if k not in ids][:8]
+            ids += [k for k in torch.topk(cj, min(8, nd)).indices.tolist() if k not in ids][:8]
         ids = ids[:24]; S2[i, :len(ids)] = d[ids].cpu().numpy(); M2[i, :len(ids)] = True
         G[i] = unit(d[meta[i]["gold"]].mean(0)).cpu().numpy()
     np.savez(cache, S1=S1, M1=M1, S2=S2, M2=M2, G=G)
@@ -142,8 +144,8 @@ for i in range(len(yv)):
     d = torch.tensor(np.asarray(D[off[i]:off[i + 1]])).float(); q = torch.tensor(Qv[i]).float()
     gold = set(mv[i]["gold"]); top = set(torch.topk(d @ q, min(16, len(d))).indices.tolist())
     res["gold_in_top16"].append(int(gold <= top))
-    c = d @ q; ids = set(torch.topk(c, 8).indices.tolist())
-    for j in torch.topk(c, 2).indices.tolist():
-        cj = d @ d[j]; cj[j] = -9; ids |= set(torch.topk(cj, 8).indices.tolist())
+    c = d @ q; nd = len(c); ids = set(torch.topk(c, min(8, nd)).indices.tolist())
+    for j in torch.topk(c, min(2, nd)).indices.tolist():
+        cj = d @ d[j]; cj[j] = -9; ids |= set(torch.topk(cj, min(8, nd)).indices.tolist())
     res["gold_in_hop2"].append(int(gold <= ids))
 (OUT / f"arms-seed{SEED}.json").write_text(json.dumps(res)); print("saved", OUT / f"arms-seed{SEED}.json")

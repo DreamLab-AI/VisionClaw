@@ -35,3 +35,19 @@ to say whether the gap to the ceiling is retrieval or composition.
 ## Outputs
 `results/p10/arms-seed{0,1,2}.json` (per-claim predictions for every arm), `results/p10/text-*.json`, the score table
 from `scripts/h1_score.py`, and the record of any deviation in `DEVIATIONS.md` before the affected stage runs.
+
+## Amendment 1 (9 November 2026, before any P10 embedding, training or scoring)
+An independent audit found that `p9_corpus.py` lets a surface count decide every two-step claim: the claimed place
+appears in two documents when the claim is true and one when it is false. On a 4,000-claim P9-style corpus the rule
+"true iff the claimed place appears at least twice" scores 100.0% on two-step claims (50.6% single-step). P9's two-step
+results therefore do not show composition across documents and are not used as evidence.
+* P10 uses `scripts/p10_corpus.py`: identical except for one extra decoy located in the false place, so both places
+  appear exactly twice. Precondition, checked with `scripts/shortcut_check.py` before embedding: the count rule
+  scores 50.5% (two-step) and 50.9% (single-step) on the seed-2027 validation corpus, 50.2% and 50.3% on the
+  seed-1021 training corpus. Seeds and sizes are unchanged.
+* Protocol differences from P9 are acknowledged: the encoder is run through Hugging Face with last-token pooling and
+  an instruction prefix on the claim text; similarity is the best of three variants; the probe is an MLP trained on
+  training gold. P10 is a modified protocol, not a rerun of P9.
+* Swap control pass mark: at most 60% in each stratum, in every seed; a failure fails H1.
+* The 5-point margin is computed on unrounded accuracies. The diagnostic is reported for all three seeds.
+* Code fixes before any run: cache keyed by corpus and embedding identity; top-k guarded for small collections.
