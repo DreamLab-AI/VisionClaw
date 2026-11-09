@@ -53,5 +53,5 @@ scratchpad) and the pipeline restarted from the beginning with the corrected che
 written, so `HOOKE_ROWS_FILE` pointed at a missing file and every policy cell panicked (exit 101).
 The one cell that ran before the panic (validation, full collection) used the evaluator's seeded
 prefix, not the frozen split, and is discarded. Fix: the script now runs the split builder under
-the project venv. The seed (20261109), the split sizes and every threshold are unchanged. No
+the project venv, with the venv's C++ runtime on the library path (the launcher had set it for CUDA only). The seed (20261109), the split sizes and every threshold are unchanged. No
 policy was scored on any row before this fix.
