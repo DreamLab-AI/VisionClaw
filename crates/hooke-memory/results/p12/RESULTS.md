@@ -31,3 +31,17 @@ Score AUC for correct against wrong candidates: 0.733. Recall by sentence form (
 supplier forms 11.2% ("{o} sources components from {s}"), 13.4% ("Among {o}'s suppliers is {s}"), 19.5% ("{o} buys
 parts from {s}"); "{s} provides {c} services" 29.3%; direct forms 95-100%. The gap to the oracle is missed facts in
 paraphrases that invert or bury the relation, not wrong admissions; a prompted model's own confidence does not fix it.
+
+## Corrections after independent review (9 November 2026)
+* The P12b table above is a post-hoc rescore: name canonicalisation was added after inspecting extraction errors.
+  The original run gives precision 88.0, recall 74.3, single-step 88.0, two-step 91.0, score AUC 0.639.
+* Test half: 100 single-step and 100 two-step claims. Every false claim was rejected; 31 of 41 true single-step and 43
+  of 52 true two-step claims were confirmed (`rescore.json`). Composed accuracy therefore mixes a 100% false-claim
+  rate with true-claim recall; report the two separately.
+* Recall by sentence form is produced by `scripts/p12_forms.py` (`forms.json`): 23 forms, 6 under 50%, from 11.2%
+  to 100%; "X supplies Y" 99.7%. The earlier "95-100% on direct forms" summary was too broad.
+* The threshold grid starts at the minimum score, so a tuned threshold that admits everything is not evidence about a
+  gate either way.
+* P12c's 48.5% is the share of false claims among the first 400 two-step claims: each owner answered False to every
+  claim. It is a base rate, not a measured failure. See P13 for composition with the records actually split.
+* The 827 figure is the median token count of the records alone (`forms.json`), not of the full prompt.

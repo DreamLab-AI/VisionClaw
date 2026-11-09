@@ -23,6 +23,7 @@ from vllm import LLM, SamplingParams
 
 ROOT, MD, OUT, N = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3]), int(sys.argv[4])
 rng = random.Random(int(sys.argv[5]) if len(sys.argv) > 5 else 0)
+THINK = len(sys.argv) > 6 and sys.argv[6] == "think"  # P12d: extraction with reasoning on
 tok = AutoTokenizer.from_pretrained(MD, padding_side="left")
 llm = LLM(MD, dtype="bfloat16", gpu_memory_utilization=0.85, max_model_len=8192, seed=0, enforce_eager=True)
 rows = pq.read_table(next((ROOT / "data/syn9").glob("validation-*.parquet"))).to_pylist()[:N]
@@ -72,11 +73,14 @@ EX = ("Extract every fact the passage states as a current fact, as triples, one 
 PH = {"supplies": "supplies", "located-in": "is currently located in", "has-capability": "has the capability", "certified-for": "is certified for", "partners-with": "partners with"}
 
 
-def chat(m):
-    return tok.apply_chat_template([{"role": "user", "content": m}], tokenize=False, add_generation_prompt=True, enable_thinking=False)
+def chat(m, think=False):
+    return tok.apply_chat_template([{"role": "user", "content": m}], tokenize=False, add_generation_prompt=True, enable_thinking=think)
 
 
 def extract(paras):
+    if THINK:
+        outs = llm.generate([chat(EX + p, True) for p in paras], SamplingParams(temperature=0.6, top_p=0.95, top_k=20, max_tokens=6000, seed=0))
+        return [o.outputs[0].text.split("</think>")[-1] for o in outs]
     outs = llm.generate([chat(EX + p) for p in paras], SamplingParams(temperature=0, max_tokens=600))
     return [o.outputs[0].text for o in outs]
 

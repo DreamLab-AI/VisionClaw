@@ -1,6 +1,8 @@
 """P12b offline rescoring with canonical names (strip template suffixes 'services', 'capability', 'certification').
 
 Usage: p12_rescore.py <val root> <cand.jsonl> <n>
+Post-hoc: name canonicalisation was added after inspecting extraction errors. The threshold grid starts at the
+minimum score, so a tuned threshold that admits everything says nothing about a gate either way.
 Reports precision/recall, composed accuracy (test half) for admit-all, a score threshold tuned on the dev half for
 two-step accuracy, and the oracle; score AUC on canonicalised candidates; wrong-fact breakdown.
 """
@@ -67,6 +69,10 @@ thr = max(grid, key=lambda t: acc(dev, t, "two-hop") + acc(dev, t, "single-hop")
 out = {"threshold": round(thr, 2)}
 for name, t in (("admit_all", None), ("threshold_dev_tuned", thr), ("schema_checked", "schema"), ("oracle", "oracle")):
     p, r = pr(test, t); out[name] = {"precision": p, "recall": r, "single-step": round(acc(test, t, "single-hop"), 1), "two-step": round(acc(test, t, "two-hop"), 1)}
+    for s_ in ("single-hop", "two-hop"):
+        for lab in (1, 0):
+            ids = [ci for ci in test if meta[ci]["stratum"] == s_ and int(meta[ci]["label"]) == lab]
+            out[name][f"{s_}_{'true' if lab else 'false'}"] = f"{sum(verdict(ci, graph(ci, t)) == lab for ci in ids)}/{len(ids)}"
 ok = np.array([c["ok"] for c in cand]); rk = np.argsort(np.argsort(sc)); P = ok.sum(); Nn = len(ok) - P
 out["score_auc"] = round(float((rk[ok == 1].sum() - P * (P - 1) / 2) / (P * Nn)), 3)
 out["wrong_by_relation"] = {r: int(sum(1 for c in cand if not c["ok"] and c["t"][1] == r)) for r in ("supplies", "located-in", "has-capability", "certified-for", "partners-with")}
