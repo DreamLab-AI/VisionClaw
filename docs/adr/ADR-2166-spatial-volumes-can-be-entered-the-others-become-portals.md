@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158]
-verified_commit: eba81532aced55cd53edc37655571a49e3846c04
+verified_commit: f6fcca7e80f844a914ead0170c64ebf07017870a
 verified_paths: [xr-client/scripts/space_portals.gd, xr-client/scripts/spatial_volume.gd, xr-client/scripts/emulated_volume.gd, xr-client/scripts/volume_arrangement.gd, xr-client/scripts/graph_scene.gd, xr-client/scripts/hud.gd, xr-client/scripts/xr_prefs.gd, xr-client/materials/portal_membrane.gdshader]
 owner: jjohare
 review_trigger: the first headset session with Enter used (stereo membranes, 90 Hz with an entered 6 m room, comfort of the dim); or XE merging FrameBudgetPass.set_volume_weights
@@ -129,7 +129,7 @@ The portal mechanics are untouched.
 
 **Decision unaffected; status stays `partial`/`inactive`.** Re-run: `git diff 81e711267..7bd25427e -- <verified_paths>`. Checked by reading that diff; GUT was not re-run for this stamp.
 
-## Re-verification — 2026-11-10 (`eba81532a`)
+## Re-verification — 2026-11-10 (`f6fcca7e8`)
 
 Governed-path changes since `7bd25427e` (slice 1 of the XR upgrade):
 - `graph_scene.gd`: the dead edge re-rank is deleted, resume redials a down connection, a socket swap releases grabs (`_connect_graph` `:3022`), the quality toggle greys locally, and the build stamp is shown (`_show_build_stamp` `:2235`).
@@ -140,4 +140,4 @@ The portal mechanics are untouched.
 - The scene dispatches those actions at `graph_scene.gd:2317-2319`.
 - The budget hook still calls `set_volume_weights(_portals.budget_weights())` behind `has_method` (`graph_scene.gd:1564-1565`).
 
-**Decision unaffected; status stays `partial`/`inactive`.** Re-run: `git diff 7bd25427e..eba81532a -- <verified_paths>`. Checked by reading that diff; `scripts/xr-gate.sh` passed at `eba81532a` (both XR crates' fmt, clippy and tests; headless Godot 4.8-beta2 parse check and GUT, 676 of 679 passing, 3 pending for want of a GL renderer).
+**Decision unaffected; status stays `partial`/`inactive`.** Re-run: `git diff 7bd25427e..f6fcca7e8 -- <verified_paths>`; `f6fcca7e8` itself only corrects two `graph_scene.gd` comments (`_topo_ids` sizes the HUD's node readout, not a draw domain). Checked by reading that diff; `scripts/xr-gate.sh` passed at `f6fcca7e8` (both XR crates' fmt, clippy and tests; headless Godot 4.8-beta2 parse check and GUT, 676 of 679 passing, 3 pending for want of a GL renderer).

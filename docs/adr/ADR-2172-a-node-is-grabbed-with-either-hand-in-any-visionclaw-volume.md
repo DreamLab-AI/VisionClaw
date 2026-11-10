@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158, ADR-2166]
-verified_commit: eba81532aced55cd53edc37655571a49e3846c04
+verified_commit: f6fcca7e80f844a914ead0170c64ebf07017870a
 verified_paths: [xr-client/scripts/graph_scene.gd, xr-client/scripts/spatial_environment.gd, xr-client/scripts/backend_connection.gd, xr-client/scripts/connection_volume_source.gd, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs, xr-client/materials/edge_flow_common.gdshaderinc, xr-client/materials/edge_flow.tres]
 owner: jjohare
 review_trigger: the first headset session grabbing in the Ontology volume and inside an entered room (reach, depth feel, two-hand comfort); or the server's drag-release unpin (stream GS) merging
@@ -123,7 +123,7 @@ The grab model is untouched:
 
 **Decision unaffected; status stays `partial`/`inactive`.** Re-run: `git diff 81e711267..7bd25427e -- <verified_paths>`. Checked by reading that diff; GUT and the xr-client tests were not re-run for this stamp.
 
-## Re-verification — 2026-11-10 (`eba81532a`)
+## Re-verification — 2026-11-10 (`f6fcca7e8`)
 
 Governed-path changes since `7bd25427e` (slice 1 of the XR upgrade):
 - **A socket swap releases grabs** (audit D11, `4a87ce14b`). HUD Reconnect and the new resume redial replace the socket without a Disconnected event, so the release-on-disconnect path never ran. `_connect_graph` (`graph_scene.gd:3022`) now calls `_release_grab` (`:164`) first, while the old socket can still carry `nodeDragEnd`. GUT: `test_a_reconnect_releases_held_grabs_on_the_old_socket_first`.
@@ -137,4 +137,4 @@ The grab model is untouched:
 - `_merge_grab_candidates` is `graph_scene.gd:3771`.
 - `send_drag_end` (`backend_connection.gd:348`) still records no pin.
 
-**Decision unaffected; status stays `partial`/`inactive`.** Re-run: `git diff 7bd25427e..eba81532a -- <verified_paths>`. Checked by reading that diff; `scripts/xr-gate.sh` passed at `eba81532a` (both XR crates' fmt, clippy and tests; headless Godot 4.8-beta2 parse check and GUT, 676 of 679 passing, 3 pending for want of a GL renderer).
+**Decision unaffected; status stays `partial`/`inactive`.** Re-run: `git diff 7bd25427e..f6fcca7e8 -- <verified_paths>`; `f6fcca7e8` itself only corrects two `graph_scene.gd` comments (`_topo_ids` sizes the HUD's node readout, not a draw domain). Checked by reading that diff; `scripts/xr-gate.sh` passed at `f6fcca7e8` (both XR crates' fmt, clippy and tests; headless Godot 4.8-beta2 parse check and GUT, 676 of 679 passing, 3 pending for want of a GL renderer).

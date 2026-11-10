@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: eba81532aced55cd53edc37655571a49e3846c04
+verified_commit: f6fcca7e80f844a914ead0170c64ebf07017870a
 verified_paths: [crates/visionclaw-splat/src/manifest.rs, xr-client/rust/src/splat_loader.rs, xr-client/scripts/space_portals.gd, xr-client/scripts/splat_volume.gd, xr-client/scripts/graph_scene.gd, xr-client/scripts/hud.gd, xr-client/scripts/xr_prefs.gd]
 owner: jjohare
 review_trigger: The first headset session in the merged space, a second staged asset, or any change to ADR-2170's placement or budget rules.
@@ -62,6 +62,6 @@ Governed-path changes since `81e711267`:
 
 The merged space is still reached from the Layout page's Splat Scene group. **Merge with Ontology** is `hud.gd:887-891` (in `_build_layout_page`, `:833`) and emits `splat_merge`. Its label shows the multiplier (`:2504`). The viewer-scale multiplier is still stored as `xr.merged_splat_scale` (`KEY_MERGED_SCALE`, `xr_prefs.gd:31`; getter and setter `:137-146`). **Decision unaffected; status stays `proposed`/`partial`/`staged`.** Re-run: `git diff 81e711267..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.
 
-## Re-verification — 2026-11-10 (`eba81532a`)
+## Re-verification — 2026-11-10 (`f6fcca7e8`)
 
-Governed-path changes since `7bd25427e`: `splat_loader.rs` (`cargo fmt` reflow and one test's `vec!` turned into an array; `05a057268`, `f3d5acc43`), `graph_scene.gd` (dead edge re-rank deleted, resume redial, grab release on a socket swap, local quality toggle, build stamp) and `hud.gd` (the build stamp in the Session header, `:1568`). No staged-scene or splat line appears in the diff (the only "merge" hits are the edge-expansion comment); the splat credits line is still `hud.gd:360-362`. **Decision unaffected.** Re-run: `git diff 7bd25427e..eba81532a -- <verified_paths>`. Checked by reading that diff; `scripts/xr-gate.sh` passed at `eba81532a` (both XR crates' fmt, clippy and tests; headless Godot 4.8-beta2 parse check and GUT, 676 of 679 passing, 3 pending for want of a GL renderer).
+Governed-path changes since `7bd25427e`: `splat_loader.rs` (`cargo fmt` reflow and one test's `vec!` turned into an array; `05a057268`, `f3d5acc43`), `graph_scene.gd` (dead edge re-rank deleted, resume redial, grab release on a socket swap, local quality toggle, build stamp) and `hud.gd` (the build stamp in the Session header, `:1568`). No staged-scene or splat line appears in the diff (the only "merge" hits are the edge-expansion comment); the splat credits line is still `hud.gd:360-362`. **Decision unaffected.** Re-run: `git diff 7bd25427e..f6fcca7e8 -- <verified_paths>`; `f6fcca7e8` itself only corrects two `graph_scene.gd` comments (`_topo_ids` sizes the HUD's node readout, not a draw domain). Checked by reading that diff; `scripts/xr-gate.sh` passed at `f6fcca7e8` (both XR crates' fmt, clippy and tests; headless Godot 4.8-beta2 parse check and GUT, 676 of 679 passing, 3 pending for want of a GL renderer).
