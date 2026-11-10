@@ -280,6 +280,21 @@ pub struct GetConstraints;
 #[rtype(result = "Result<Vec<crate::models::constraints::ConstraintData>, String>")]
 pub struct GetConstraintBuffer;
 
+/// What the device writer holds per constraint source (ADR-2192), answered by
+/// ForceComputeActor: the ontology and user counts in its cache, and whether the
+/// engine holds that cache (`synced`: no upload or clear is pending).
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[rtype(result = "DeviceConstraintCounts")]
+pub struct GetDeviceConstraintCounts;
+
+/// Answer to [`GetDeviceConstraintCounts`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, actix::MessageResponse)]
+pub struct DeviceConstraintCounts {
+    pub ontology: usize,
+    pub user: usize,
+    pub synced: bool,
+}
+
 /// Update cached ontology constraint buffer in ForceComputeActor
 #[derive(Message)]
 #[rtype(result = "()")]

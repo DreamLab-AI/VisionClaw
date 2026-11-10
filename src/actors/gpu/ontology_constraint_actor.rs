@@ -159,6 +159,11 @@ pub struct OntologyConstraintActor {
     /// `physics.ontologyConstraintsEnabled` (ADR-2192). Off, the live buffer is empty.
     constraints_enabled: bool,
 
+    /// The policy last handed to the device writer (ForceComputeActor), or `None` until one
+    /// has been delivered. An identical policy is answered without re-uploading; anything
+    /// else (including the first policy after a restart) is applied (ADR-2192).
+    applied_policy: Option<SetOntologyConstraintPolicy>,
+
     gpu_state: GPUState,
 
     stats: OntologyConstraintStats,
@@ -184,6 +189,7 @@ impl OntologyConstraintActor {
             global_strength: DEFAULT_GLOBAL_STRENGTH,
             constraints_enabled:
                 visionclaw_domain::types::physics_config::ONTOLOGY_CONSTRAINTS_ENABLED_DEFAULT,
+            applied_policy: None,
             gpu_state: GPUState::default(),
             stats: OntologyConstraintStats::default(),
             last_update: Instant::now(),
@@ -264,30 +270,8 @@ impl OntologyConstraintActor {
             resolver.unresolved_count()
         );
 
-        if self.gpu_initialized && self.shared_context.is_some() {
-            match self.upload_constraints_to_gpu() {
-                Ok(_) => {
-                    info!(
-                        "OntologyConstraintActor: Uploaded {} live-kernel constraints to GPU",
-                        produced
-                    );
-                }
-                Err(e) => {
-                    warn!(
-                        "OntologyConstraintActor: GPU upload failed, deferring to next physics step: {}",
-                        e
-                    );
-                    self.stats.gpu_failure_count += 1;
-                    self.stats.cpu_fallback_count += 1;
-                }
-            }
-        } else {
-            debug!(
-                "OntologyConstraintActor: GPU not available, constraints cached for next physics step"
-            );
-            self.stats.cpu_fallback_count += 1;
-        }
-
+        // The device write happens in ForceComputeActor (notified below), which
+        // uploads this set together with the user and analytics constraints.
         self.last_update = Instant::now();
         self.stats.last_update_time_ms = start_time.elapsed().as_secs_f32() * 1000.0;
         self.stats.constraint_evaluation_count += 1;
@@ -298,7 +282,10 @@ impl OntologyConstraintActor {
     }
 
     /// Send the updated constraint buffer to ForceComputeActor
-    fn notify_force_compute_actor(&self) {
+    /// Hand the live buffer to ForceComputeActor, the one device writer (ADR-2192): it keeps
+    /// this set apart from the user and analytics constraints and uploads their union.
+    /// Returns whether there was a writer to hand it to.
+    fn notify_force_compute_actor(&self) -> bool {
         if let Some(ref addr) = self.force_compute_addr {
             info!(
                 "OntologyConstraintActor: Sending {} constraints to ForceComputeActor",
@@ -307,10 +294,12 @@ impl OntologyConstraintActor {
             addr.do_send(UpdateOntologyConstraintBuffer {
                 constraint_buffer: self.constraint_buffer.clone(),
             });
+            true
         } else {
             debug!(
                 "OntologyConstraintActor: ForceComputeActor address not set, skipping notification"
             );
+            false
         }
     }
 
@@ -328,31 +317,16 @@ impl OntologyConstraintActor {
         Ok(())
     }
 
+    /// Put the live buffer on the device. This actor no longer writes the engine itself
+    /// (ADR-2192): a direct write replaced the whole device set, user and analytics
+    /// constraints included. It hands the buffer to ForceComputeActor, which uploads the union
+    /// of the ontology set and the user set on its next step.
     fn upload_constraints_to_gpu(&self) -> Result<(), String> {
-        let shared_context = self
-            .shared_context
-            .as_ref()
-            .ok_or("GPU context not available")?;
-
-        let mut unified_compute = shared_context
-            .unified_compute
-            .lock()
-            .map_err(|e| format!("Failed to acquire GPU compute lock: {}", e))?;
-
-        if self.constraint_buffer.is_empty() {
-            debug!("OntologyConstraintActor: No constraints to upload, clearing GPU constraints");
-            unified_compute
-                .clear_constraints()
-                .map_err(|e| format!("Failed to clear GPU constraints: {}", e))?;
+        if self.notify_force_compute_actor() {
+            Ok(())
         } else {
-            // ADR-098 break #4: LOSSLESS writer — preserves all 4 node_idx + 8
-            // params and stamps activation_frame for the progressive ramp.
-            unified_compute
-                .set_constraints(self.constraint_buffer.clone())
-                .map_err(|e| format!("Failed to upload constraints to GPU: {}", e))?;
+            Err("ForceComputeActor not wired: the ontology constraints wait for it".to_string())
         }
-
-        Ok(())
     }
 
     fn get_ontology_stats(&self) -> OntologyConstraintStats {
@@ -691,6 +665,15 @@ impl Handler<SetOntologyConstraintPolicy> for OntologyConstraintActor {
         // the legacy `ontology_constraints` Vec. The live buffer is rebuilt from
         // that unscaled base, so strength changes are reversible and switching
         // the constraints back on needs no re-reasoning.
+        if self.applied_policy == Some(msg) {
+            return Ok(serde_json::json!({
+                "success": true,
+                "unchanged": true,
+                "enabled": self.constraints_enabled,
+                "appliedStrength": self.global_strength,
+                "activeConstraints": self.constraint_buffer.len()
+            }));
+        }
         self.constraints_enabled = msg.enabled;
         self.global_strength = msg.strength;
         self.constraint_buffer = live_constraint_buffer(
@@ -700,21 +683,16 @@ impl Handler<SetOntologyConstraintPolicy> for OntologyConstraintActor {
         );
         let live = self.constraint_buffer.len() as u32;
 
-        // Upload (an empty buffer clears the device set).
-        if self.gpu_initialized && self.shared_context.is_some() {
-            if let Err(e) = self.upload_constraints_to_gpu() {
-                warn!(
-                    "OntologyConstraintActor: GPU upload after policy change failed: {}",
-                    e
-                );
-                self.stats.gpu_failure_count += 1;
-            }
+        // ForceComputeActor is the one device writer: it replaces only its ontology
+        // source (the user and analytics set stays) and uploads the union next step.
+        // Without a writer the policy is not applied, so the next push retries it.
+        if !self.notify_force_compute_actor() {
+            self.applied_policy = None;
+            return Err(
+                "ForceComputeActor not wired: ontology-constraint policy not applied".into(),
+            );
         }
-
-        // ForceComputeActor re-uploads its cached copy each step until it holds
-        // the new one, so it must hear of every change, the empty set included.
-        self.notify_force_compute_actor();
-
+        self.applied_policy = Some(msg);
         self.stats.active_ontology_constraints = live;
 
         Ok(serde_json::json!({
@@ -779,18 +757,58 @@ mod tests {
         assert_eq!(live_constraint_buffer(&base, true, 7.0)[0].weight, 2.0);
     }
 
-    /// ADR-2192, at the actor: a sync's constraints arrive at the stored strength; the stored
-    /// policy switched off empties the live buffer but keeps the reasoned set, and switched on
-    /// again re-applies it at the new strength, without another sync.
+    /// ADR-2192, at the actor: with no device writer wired the policy is refused, and the
+    /// same policy is applied once a writer is there (a failed push is retried, not skipped
+    /// as "unchanged"); an identical policy after that is a no-op; switching off empties the
+    /// writer's ontology source and leaves its user source; switching on re-applies the set
+    /// at the new strength, without another sync.
     #[actix::test]
     async fn the_stored_policy_switches_the_live_set_off_and_on_without_re_reasoning() {
-        use crate::actors::messages::{ApplyMaterializedAxioms, GetConstraintBuffer};
+        use crate::actors::gpu::force_compute_actor::ForceComputeActor;
+        use crate::actors::messages::{
+            ApplyMaterializedAxioms, GetConstraintBuffer, GetDeviceConstraintCounts,
+            SetForceComputeAddr, UpdateConstraints,
+        };
         let mut graph = visionclaw_domain::models::graph::GraphData::new();
         graph.nodes = vec![
             class_node(1, "urn:vc:class:Dog", 0.0),
             class_node(2, "urn:vc:class:Animal", 40.0),
         ];
         let addr = OntologyConstraintActor::new().start();
+        let off = SetOntologyConstraintPolicy {
+            enabled: false,
+            strength: 0.6,
+        };
+        assert!(
+            addr.send(off).await.unwrap().is_err(),
+            "no device writer: refused"
+        );
+
+        let force = ForceComputeActor::headless().start();
+        // A user constraint the ontology switch must never remove.
+        force
+            .send(UpdateConstraints {
+                constraint_data: serde_json::json!([{
+                    "kind": 0, "count": 2, "node_idx": [5, 6, -1, -1],
+                    "params": [10.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                    "weight": 1.0, "activation_frame": 0
+                }]),
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        addr.send(SetForceComputeAddr {
+            addr: force.clone(),
+        })
+        .await
+        .unwrap();
+
+        // Back on (the default), then a sync's axioms arrive at the default strength.
+        let on = SetOntologyConstraintPolicy {
+            enabled: true,
+            strength: DEFAULT_GLOBAL_STRENGTH,
+        };
+        addr.send(on).await.unwrap().unwrap();
         let produced = addr
             .send(ApplyMaterializedAxioms {
                 axioms: vec![sub_class_of("urn:vc:class:Dog", "urn:vc:class:Animal")],
@@ -801,25 +819,23 @@ mod tests {
             .unwrap();
         assert_eq!(produced, 1);
         let at_default = addr.send(GetConstraintBuffer).await.unwrap().unwrap();
-        assert_eq!(at_default.len(), 1);
         let unscaled = at_default[0].weight / DEFAULT_GLOBAL_STRENGTH;
+        let d = force.send(GetDeviceConstraintCounts).await.unwrap();
+        assert_eq!((d.ontology, d.user), (1, 1));
 
-        let off = addr
-            .send(SetOntologyConstraintPolicy {
-                enabled: false,
-                strength: 0.6,
-            })
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(off["activeConstraints"], 0);
-        assert_eq!(off["retainedConstraints"], 1);
-        assert!(addr
-            .send(GetConstraintBuffer)
-            .await
-            .unwrap()
-            .unwrap()
-            .is_empty());
+        let same = addr.send(on).await.unwrap().unwrap();
+        assert_eq!(same["unchanged"], true, "identical policy: no re-upload");
+
+        // The earlier refused "off" is applied now that a writer exists.
+        let applied = addr.send(off).await.unwrap().unwrap();
+        assert_eq!(applied["activeConstraints"], 0);
+        assert_eq!(applied["retainedConstraints"], 1);
+        let d = force.send(GetDeviceConstraintCounts).await.unwrap();
+        assert_eq!(
+            (d.ontology, d.user),
+            (0, 1),
+            "off keeps the user constraint"
+        );
         let stats = addr.send(GetOntologyStats).await.unwrap().unwrap();
         assert_eq!(stats.active_ontology_constraints, 0);
 
@@ -833,6 +849,8 @@ mod tests {
         let back = addr.send(GetConstraintBuffer).await.unwrap().unwrap();
         assert_eq!(back.len(), 1);
         assert!((back[0].weight - unscaled * 0.3).abs() < 1e-6);
+        let d = force.send(GetDeviceConstraintCounts).await.unwrap();
+        assert_eq!((d.ontology, d.user), (1, 1));
     }
 
     #[test]

@@ -154,15 +154,29 @@ pub async fn get_constraints(state: web::Data<AppState>) -> impl Responder {
         }));
     };
 
+    // What the device writer holds (ADR-2192): ForceComputeActor keeps the ontology set
+    // apart from the user set, so this is the ontology count actually uploaded (or about
+    // to be: `deviceSynced` false means an upload is pending for the next step).
+    let device = match state.get_gpu_compute_addr().await {
+        Some(addr) => addr
+            .send(crate::actors::messages::GetDeviceConstraintCounts)
+            .await
+            .ok(),
+        None => None,
+    };
+
     // Get ontology constraint stats
     match gpu_manager_addr.send(GetOntologyConstraintStats).await {
         Ok(Ok(stats)) => {
+            let on_device = device.map_or(stats.active_ontology_constraints, |d| d.ontology as u32);
             ok_json!(json!({
-                "activeConstraints": stats.active_ontology_constraints,
+                "activeConstraints": on_device,
                 // Constraints currently driving GPU forces. Post-dispatch every
                 // uploaded constraint is active, so total == active here; the
                 // distinct axiom input count is surfaced as `axiomsProcessed`.
-                "totalConstraints": stats.active_ontology_constraints,
+                "totalConstraints": on_device,
+                "userConstraintsOnDevice": device.map(|d| d.user),
+                "deviceSynced": device.map(|d| d.synced),
                 "axiomsProcessed": stats.total_axioms_processed,
                 "constraintEvaluationCount": stats.constraint_evaluation_count,
                 "lastUpdateTimeMs": stats.last_update_time_ms,

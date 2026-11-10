@@ -614,29 +614,43 @@ pub async fn update_physics_settings(
     }
 }
 
-/// Send the stored ontology-constraint policy (ADR-2192) to the constraint actor when it differs
-/// from `previous`. Failure is logged, not returned: the store already holds the value, and the
-/// physics supervisor re-sends it at its next (re)start.
-async fn push_ontology_constraint_policy_if_changed(
+/// Whether a physics patch names one of the ontology-constraint policy keys (ADR-2192), in
+/// either wire spelling. A write that asks for the policy reports a failed application.
+pub(crate) fn patch_touches_ontology_policy(patch: &serde_json::Value) -> bool {
+    patch.as_object().is_some_and(|o| {
+        [
+            "ontologyConstraintsEnabled",
+            "ontology_constraints_enabled",
+            "ontologyConstraintStrength",
+            "ontology_constraint_strength",
+        ]
+        .iter()
+        .any(|k| o.contains_key(*k))
+    })
+}
+
+/// Send the stored ontology-constraint policy (ADR-2192) to the constraint actor.
+///
+/// Sent on every physics write, not only when the stored value changed: the store is written
+/// first, so comparing against it cannot tell whether an earlier application failed. The
+/// constraint actor holds the policy it last applied and answers an unchanged one without
+/// re-uploading, so a repeat costs one message and a failed application is retried by the next
+/// write (or the next supervisor start). Returns the actor's error, if any.
+async fn apply_ontology_constraint_policy(
     state: &web::Data<AppState>,
-    previous: SetOntologyConstraintPolicy,
     physics: &PhysicsSettings,
-) {
+) -> Result<(), String> {
     let policy = SetOntologyConstraintPolicy::from_physics(physics);
-    if policy == previous {
-        return;
-    }
     let Some(ref gpu_manager) = state.gpu_manager_addr else {
-        warn!("Ontology-constraint policy stored but no GPU manager to apply it");
-        return;
+        return Err("no GPU manager to apply the ontology-constraint policy".to_string());
     };
     match gpu_manager.send(policy).await {
-        Ok(Ok(applied)) => info!("Ontology-constraint policy applied: {}", applied),
-        Ok(Err(e)) => warn!("Ontology-constraint policy not applied: {}", e),
-        Err(e) => warn!(
-            "Ontology-constraint policy: GPU manager mailbox error: {}",
-            e
-        ),
+        Ok(Ok(applied)) => {
+            debug!("Ontology-constraint policy applied: {}", applied);
+            Ok(())
+        }
+        Ok(Err(e)) => Err(e),
+        Err(e) => Err(format!("GPU manager mailbox error: {}", e)),
     }
 }
 
@@ -676,8 +690,8 @@ pub(crate) async fn apply_physics_patch(
 
     // Merge partial patch onto current physics from the same snapshot
     let current_physics = &full_settings.visualisation.graphs.knowledge.physics;
-    let previous_policy = SetOntologyConstraintPolicy::from_physics(current_physics);
     let current_json = serde_json::to_value(current_physics).unwrap_or_default();
+    let asks_for_policy = patch_touches_ontology_policy(&patch);
 
     let new_physics = match merge_physics_patch(current_json, patch) {
         Ok(Some(merged)) => merged,
@@ -721,6 +735,15 @@ pub(crate) async fn apply_physics_patch(
     {
         Ok(Ok(())) => {
             info!("Physics settings updated successfully by {}", updated_by);
+
+            // The ontology-constraint policy (ADR-2192) is not a SimParams field: it goes to the
+            // constraint actor, first, so a SimParams refusal below cannot leave it unapplied.
+            let policy_error = apply_ontology_constraint_policy(state, &new_physics)
+                .await
+                .err();
+            if let Some(ref e) = policy_error {
+                warn!("Ontology-constraint policy stored but not applied: {}", e);
+            }
 
             // Propagate physics changes to GPU actors so layout actually responds
             let sim_params: crate::models::simulation_params::SimulationParams =
@@ -787,10 +810,6 @@ pub(crate) async fn apply_physics_patch(
             state
                 .client_manager_addr
                 .do_send(stream_settings_message(&new_physics));
-            // The ontology-constraint policy (ADR-2192) is not a SimParams field either: it goes
-            // to the constraint actor, and only when it changed, because each application
-            // re-uploads the whole constraint set and restarts its ramp-in.
-            push_ontology_constraint_policy_if_changed(state, previous_policy, &new_physics).await;
 
             info!("Sending UpdateSimulationParams to GraphServiceSupervisor");
             if let Err(e) = state.graph_service_addr.send(update_msg).await {
@@ -841,6 +860,14 @@ pub(crate) async fn apply_physics_patch(
             // the one that never announced itself.
             broadcast_settings_change(state, "physics", updated_by);
 
+            // A write that asked for the policy hears that it was not applied; the store holds
+            // it and the next write or supervisor start retries.
+            if let (true, Some(e)) = (asks_for_policy, policy_error) {
+                return Err(PhysicsPatchError::Internal(format!(
+                    "Stored, but the ontology-constraint policy was not applied: {}",
+                    e
+                )));
+            }
             Ok(new_physics)
         }
         Ok(Err(e)) => {
@@ -1889,13 +1916,13 @@ pub async fn reset_layout(
     // compute actor held the mode itself (ADR-2140).
     let stored_before = stored_physics(&state).await;
     let reset_physics = reset_document_for(stored_before.as_ref());
-    // A reset restores the ontology-constraint policy to its defaults too (ADR-2192).
-    let previous_policy = SetOntologyConstraintPolicy::from_physics(
-        stored_before
-            .as_ref()
-            .unwrap_or(&PhysicsSettings::default()),
-    );
-    push_ontology_constraint_policy_if_changed(&state, previous_policy, &reset_physics).await;
+    // A reset keeps the constraint switch and resets their strength (ADR-2192).
+    if let Err(e) = apply_ontology_constraint_policy(&state, &reset_physics).await {
+        warn!(
+            "Layout reset: ontology-constraint policy not applied: {}",
+            e
+        );
+    }
     let sim_params: crate::models::simulation_params::SimulationParams = (&reset_physics).into();
     info!(
         "Reset physics from canonical default (axis_compression_z={}, enable_dual_disc_layout={}, repel_k={}, center_gravity_k={})",
@@ -2406,6 +2433,20 @@ mod reset_layout_mode_tests {
             LayoutMode::default(),
             "no stored document: the default mode"
         );
+    }
+
+    /// ADR-2192: only a patch naming a policy key reports a failed policy application.
+    #[test]
+    fn only_policy_patches_report_a_failed_application() {
+        use serde_json::json;
+        assert!(patch_touches_ontology_policy(
+            &json!({ "ontologyConstraintsEnabled": false })
+        ));
+        assert!(patch_touches_ontology_policy(
+            &json!({ "ontology_constraint_strength": 0.3 })
+        ));
+        assert!(!patch_touches_ontology_policy(&json!({ "repelK": 3.0 })));
+        assert!(!patch_touches_ontology_policy(&json!([1, 2])));
     }
 
     /// ADR-2192: a reset keeps the ontology-constraint switch (an operator choice) and resets
