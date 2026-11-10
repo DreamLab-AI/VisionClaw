@@ -28,3 +28,24 @@ collections it was not trained on (400-599) for comparison.
   text style and no transfer claim is made.
 A positive P20 is pilot support, on generated text, for a learned selector that transfers across text styles within
 one generator. It is not evidence about practitioner text.
+
+## Result (10 November 2026, scored once): partial
+Selector trained on renderers A, B and C (14,319 paragraphs, collections 200-599), tested on renderer D, which it
+never saw (5,250 paragraphs, 200 two-step claims). `results/p20/p20.json`. Recall of supplies and located-in facts:
+cheap pass alone 69.0; reasoning on every paragraph 88.1.
+
+| Budget | Learned | Hand gate | Random | Oracle-target | Oracle-gold | Learned minus hand (95% interval) | Learned minus random |
+|---|---|---|---|---|---|---|---|
+| 10% | 73.2 | 71.6 | 70.7 | 76.1 | 77.6 | +1.7 (1.0 to 2.3) | +2.5 |
+| 20% | 76.3 | 73.8 | 72.4 | 80.5 | 82.6 | +2.5 (1.8 to 3.3) | +3.9 |
+| 30% | 78.6 | 76.0 | 74.2 | 83.8 | 87.9 | +2.6 (1.8 to 3.4) | +4.4 |
+
+* Headroom holds at 20%: oracle-gold minus hand gate 8.8, oracle-target minus hand gate 6.7.
+* The learned selector exceeds the hand gate by at least 2.0 points at 20% and 30% with the interval above zero, and
+  is not below it on recall over all relations (+1.2). The positive criterion is still not met: it exceeds random
+  by 3.9 points at 20%, under the 5.0 required. Verdict: partial. It closes 28% of the oracle-gold gap at 20%.
+* The gain over the hand gate is larger on the unseen style (2.5) than within-style in P19 (1.8), with twice the
+  test collections. The hand gate, written with knowledge of renderer D, beats random by only 1.4 at 20%.
+* Ablations at 20%: surface features only 75.6; expectation counts only 73.5; ridge 75.7.
+* Two-step balanced accuracy (200 claims, not a pass mark): learned 77.8 at 20%, hand gate 70.7, reasoning on every
+  paragraph 84.2.
