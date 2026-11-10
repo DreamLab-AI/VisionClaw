@@ -6,9 +6,10 @@
 # reported as passed):
 #   1. gdext crate (xr-client/rust):           cargo fmt --check, clippy -D warnings, cargo test
 #   2. presence crate (crates/visionclaw-xr-presence): the same three
-#   3. gdext debug library build (what the Godot editor binary loads)
-#   4. GDScript parse check of every script under xr-client (needs Godot)
-#   5. GUT unit tests, headless, plus tests/gut_guard.sh (needs Godot)
+#   3. launcher and export tool tests (xr-client/tests/tools/*.sh)
+#   4. gdext debug library build (what the Godot editor binary loads)
+#   5. GDScript parse check of every script under xr-client (needs Godot)
+#   6. GUT unit tests, headless, plus tests/gut_guard.sh (needs Godot)
 #
 # Godot steps run on a throwaway copy of xr-client, because the 4.8 importer
 # rewrites tracked .import files and writes .uid files: the working tree is
@@ -47,7 +48,7 @@ if [ "${1:-}" = "--fetch-godot" ]; then
   echo "$dest/bin/${ENGINE_ZIP%.zip}"
   exit 0
 fi
-[ $# -eq 0 ] || { sed -n '2,32p' "$0" >&2; exit 2; }
+[ $# -eq 0 ] || { sed -n '2,33p' "$0" >&2; exit 2; }
 
 declare -a results=()
 failed=0
@@ -71,7 +72,12 @@ run "presence: cargo fmt --check"     "$presence" cargo fmt --check
 run "presence: cargo clippy -D warnings" "$repo" cargo clippy --locked -p visionclaw-xr-presence --all-targets -- -D warnings
 run "presence: cargo test"            "$repo" cargo test --locked -p visionclaw-xr-presence
 
-# 3. The debug cdylib the .gdextension maps for linux.debug.x86_64. Without it
+# 3. Shell tests for the launch guard, live.sh and the versioned export.
+for t in "$xr"/tests/tools/test_*.sh; do
+  run "tools: $(basename "$t")" "$xr" bash "$t"
+done
+
+# 4. The debug cdylib the .gdextension maps for linux.debug.x86_64. Without it
 # BinaryProtocolClient is absent and GUT's client tests would pass vacuously.
 lib_ok=0
 printf '\n-- gdext: cargo build (debug library)\n'
@@ -81,7 +87,7 @@ else
   record "gdext: debug library build" FAIL
 fi
 
-# 4-5. Godot.
+# 5-6. Godot.
 godot="${GODOT:-}"
 if [ -z "$godot" ] || [ ! -x "$godot" ]; then
   why="GODOT unset or not executable (scripts/xr-gate.sh --fetch-godot DIR fetches $ENGINE_TAG)"
@@ -122,7 +128,7 @@ else
     timeout 900 "$godot" --headless --path "$copy" --import > "$work/import.log" 2>&1
     import_rc=$?
 
-    # 4. Parse check: every .gd file, after the import has built the class cache.
+    # 5. Parse check: every .gd file, after the import has built the class cache.
     parse_fail=0
     : > "$work/parse.log"
     while IFS= read -r f; do
@@ -143,7 +149,7 @@ else
       record "godot: GDScript parse check" PASS "$n_gd scripts"
     fi
 
-    # 5. GUT, then the guard that catches skipped (unparseable) test scripts.
+    # 6. GUT, then the guard that catches skipped (unparseable) test scripts.
     printf '\n-- godot: GUT\n'
     timeout 1200 "$godot" --headless --xr-mode off --path "$copy" \
       -s res://addons/gut/gut_cmdln.gd -gconfig=res://.gutconfig.json \

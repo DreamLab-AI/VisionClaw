@@ -327,6 +327,14 @@ can open the X11 display for the SteamVR compositor — the process has no
 inherited session. SteamVR must be running with the VIVE Pro tracked and
 `~/.config/openxr/1/active_runtime.json` pointed at SteamVR.
 
+Since the 2026-11-10 slice the deployed tree is a versioned export
+(`xr-client/tools/export.sh <ref> <dest-root>` → `vc-<sha9>/` with a
+`build_stamp.json`), the backend URL is pinned in `live.env` beside the exports
+and read by `tools/live.sh`, and the HUD Session header shows the exported
+commit, the export and library build times and the backend in use. The steps
+are in `xr-client/README.md` ("Versioned export and deploy"). `scripts/xr-gate.sh`
+is the pre-merge check (GitHub Actions is off for this repository).
+
 ### Identity and signing (NIP-98)
 `NostrAuth.create(OS.get_environment("XR_NOSTR_SECRET"))` always returns a signer
 — ephemeral if the secret is empty (`graph_scene.gd:425-430`). `XR_NOSTR_SECRET`

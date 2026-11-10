@@ -139,15 +139,43 @@ on stale Rust. The guard builds the profile that entry names, pins
 older than `rust/src`, the manifests or any path dependency's source. Tests:
 `bash tests/tools/test_gdext_fresh.sh`.
 
-- `XR_BACKEND_WS` — presence/graph WebSocket. Point at the dev backend
-  (`ws://192.168.2.132:4000` on the LAN). **Use `:4000` directly**; nginx `:3001`
-  does not proxy `/ws/presence`.
+- `XR_BACKEND_WS` — presence/graph WebSocket base, e.g. `ws://<backend-host>:4000`.
+  On the render host it is pinned in `live.env` (below), never in a tracked file.
 - `XR_NOSTR_SECRET` — hex Nostr secret key. **Required** — besides the presence
   challenge/response handshake it signs the NIP-98 `authenticate` on the graph
   socket that gates node drag/pin (server-authoritative drag). Without it, presence
   won't join and drags are rejected. Any BIP-340 key works in dev
   (`graph_scene.gd:288` → `NostrAuth.create(OS.get_environment("XR_NOSTR_SECRET"))`;
   `transport.rs:75`).
+
+### Versioned export and deploy (render host)
+
+What runs on the headset host is an export of one commit, never a working
+tree, so the operator can always tell what is deployed:
+
+1. **Check** (here, before exporting): `scripts/xr-gate.sh` from the repository
+   root with `GODOT` naming a 4.8-beta2 binary (`scripts/xr-gate.sh --fetch-godot DIR`
+   downloads and SHA-512-checks one). Every step must read PASS; a SKIPPED step
+   was not checked.
+2. **Export** the commit: `xr-client/tools/export.sh <ref> <dest-root>` writes
+   `<dest-root>/vc-<sha9>/` with `xr-client/` and the path-dependency crates
+   exactly as committed (`git archive`), plus `xr-client/build_stamp.json`
+   (`sha`, `ref`, `exported_at` in UTC). An existing export is never overwritten.
+   Copy that directory to the host's export root (for example `~/mce-xr/`).
+3. **Pin the backend once** on the host: copy `tools/live.env.example` to
+   `live.env` in the live directory (the export root, so one file serves every
+   export) and set `XR_BACKEND_WS` (and `XR_CODESCAPE_WS` if Codescape is reached
+   through another port). This file is the single place the deployed build's
+   backend URL is pinned; it stays out of git and out of the export.
+4. **Launch**: `cd <export-root>/vc-<sha9>/xr-client && GODOT=<godot-4.8-beta2> tools/live.sh`.
+   It builds the debug library with the tracked `Cargo.lock` (`--locked`), refuses
+   a stale library, starts Godot detached and writes `RUNNING` with the pid, the
+   log, the backend and the exported commit (`build=`).
+5. **Confirm on the headset**: the HUD Session header reads
+   `build <sha9> · exported <time> · lib <time> · <backend>`. A tree that was not
+   exported reads `build unstamped (not an export)`.
+
+Rollback is launching the previous `vc-<sha9>` directory the same way.
 
 ### Render constraints (learned the hard way, 2026-08-22)
 

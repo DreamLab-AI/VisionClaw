@@ -10,6 +10,7 @@ const NativeContainerShim := preload("res://scripts/native_container_shim.gd")
 const LinkLayerScript := preload("res://scripts/link_layer.gd")
 const BridgeLinkSource := preload("res://scripts/bridge_link_source.gd")
 const XrPrefs := preload("res://scripts/xr_prefs.gd")
+const BuildStamp := preload("res://scripts/build_stamp.gd")
 const SpacePortalsScript := preload("res://scripts/space_portals.gd")
 const SplatVolumeScript := preload("res://scripts/splat_volume.gd")
 const VolumePicker := preload("res://scripts/volume_picker.gd")
@@ -989,6 +990,8 @@ var _node_budget: int = NODE_SAFETY_CEILING
 # Set of node ids that appear as an edge endpoint (built from the topology's edge
 # list on arrival). The level-of-detail draw domain is restricted to these.
 var _topo_ids: Dictionary = {}
+# Last build stamp line shown (see _show_build_stamp).
+var _build_stamp_line: String = ""
 # Centrality bias added to topo (edge-endpoint) nodes so the LOD cap fills with
 # them first. Far above any real centrality (0..1) so ordering among topo nodes is
 # still by their true centrality, and non-topo nodes only take leftover slots.
@@ -2206,6 +2209,7 @@ func _wire_hud() -> void:
 # (intervention, memory) always go to the VisionClaw connection.
 func _sync_hud_backend() -> void:
 	var conn: Node = _conn_for_volume(_focused_volume)
+	_show_build_stamp()
 	if hud != null:
 		if hud.has_method("set_volume_state"):
 			hud.set_volume_state(_focused_volume, _volume_states())
@@ -2223,6 +2227,20 @@ func _sync_hud_backend() -> void:
 			_refresh_memory_cloud_hud()
 	if _memory_search != null and _memory_search.has_method("set_http_base"):
 		_memory_search.set_http_base(_http_base())
+
+
+## Session header: the deployed commit, export and library build times, and the
+## VisionClaw backend this client is actually using (its live ws base, so a
+## backend switch shows at once). Printed to the log once per change too.
+func _show_build_stamp() -> void:
+	var backend: String = _vc_conn.ws_base if _vc_conn != null else _vc_base()
+	var text: String = BuildStamp.line(BuildStamp.load_stamp(), BuildStamp.library_mtime(), backend)
+	if text == _build_stamp_line:
+		return
+	_build_stamp_line = text
+	print("GraphScene: %s" % text)
+	if hud != null and hud.has_method("set_build_info"):
+		hud.set_build_info(text)
 
 
 ## Whether the focused volume's connection serves `cap` (a BackendCaps key).
