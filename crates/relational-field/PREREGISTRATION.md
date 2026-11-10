@@ -338,7 +338,7 @@ M3 chance, which always predicts the training majority type `links`, is 0.224 ±
 | RF-sim | 0.628 ± 0.068 | 0.640 ± 0.020 | 0.153 ± 0.169 | 0.655 ± 0.019 |
 
 - Slice M3 chance is 0.007, because `links` is rare inside the slice.
-- RF's slice M3 varies widely across seeds (sd 0.14) on few test triples, and supports no claim.
+- RF's slice M3 varies widely across seeds (sd 0.14) on few test triples (about 212 pairs, 282 triples per seed), and supports no claim.
 - Slice M1 near 0.5 for every arm is expected. Random negatives inside a tight cluster of domains
   are close by construction.
 
@@ -392,7 +392,7 @@ caused by nodes stuck at the bounds. B0 seed 0 was rerun outside the scoring pat
 | Median edge length | 49.4 |
 | Median distance to the 10th-nearest node | 8.5 |
 
-With the live rest length of 50 on a graph averaging about 28 training neighbours per node,
+With the live rest length of 50 on a graph averaging about 18 distinct training neighbours per node (86,928 training pairs over 9,609 nodes),
 springs hold neighbours about 50 apart while non-neighbours pack in closer. Gate 6 passes as
 preregistered, but against a near-zero floor, so it says little about readability.
 
