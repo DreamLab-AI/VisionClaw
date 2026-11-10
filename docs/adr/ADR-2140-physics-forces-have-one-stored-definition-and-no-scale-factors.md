@@ -9,7 +9,7 @@ evidence_class: source+test
 acceptance_boundary: local runs only, not deployed to any running server or headset. The GPU receipt (adr_2140_layout_mode_gpu_tests) drives merge_physics_patch, not the HTTP handler, because apply_physics_patch needs a live AppState; no test builds an AppState, so the quality-gate handler's decision is tested as a pure function (layout_mode_to_forward) and reset_layout's as reset_document_for, not through the HTTP handlers. The boot path is tested at the repository load (load_all_settings against a store holding only the physics row, and one with frozen leaves) which is what the settings actor calls at startup; OptimizedSettingsActor and AppState::new are not booted. The client round trip is pinned by unit tests, not a browser against a live backend; the removed sssp/params routes are shown absent by a routing test, not by a deployed 404.
 supersedes: []
 superseded_by: []
-verified_commit: 77305d3811a0e14d8d33d60c6b6d2178a94b9805
+verified_commit: 7a6adcc8383aca0742cb84f49916cc4f5c084af3
 verified_paths: [src/handlers/layout_handler.rs, src/actors/gpu/force_compute_actor.rs, src/actors/gpu/physics_restore.rs, crates/visionclaw-domain/src/types/layout.rs, src/utils/unified_gpu_compute/execution.rs, src/adapters/sqlite_settings_repository.rs, src/handlers/api_handler/analytics/sssp_handlers.rs, src/settings/api/settings_routes.rs, crates/visionclaw-domain/src/types/physics_config.rs, src/models/simulation_params.rs, crates/visionclaw-domain/src/models/simulation_params.rs, docs/reference/physics-parameters.md]
 owner: jjohare
 review_trigger: any new force, any new place that holds a physics value, any multiplier or clamp between the settings store and the GPU
@@ -199,7 +199,7 @@ Governed-path changes since `e2afd65d6`:
 
 **Governed change:** `crates/visionclaw-domain/src/types/physics_config.rs` (`adf382ea4`): a comment-only change in `PhysicsSettings::default`. The note said the graph sits "well inside the ~400u soft-cube bounds", but the default has been `bounds_size: 1600.0` since `b11d8cba1`. It now says the ~45u centroid measurement was taken under the earlier 400u bounds and that the cube is 1600u (`:547-550`). No value or parameter path changed. **Decision unaffected.** Re-run: `git diff 7bd25427e..adf382ea4 -- crates/visionclaw-domain/src/types/physics_config.rs`. Checked by reading that diff; server `cargo test -p visionclaw-server --lib` 1972 passed, 0 failed, 15 ignored at `adf382ea4`.
 
-## Amended by ADR-2192 (2026-11-10, `77305d381`)
+## Amended by ADR-2192 (2026-11-10, `7a6adcc83`)
 
 - **A sixth parallel definition removed.** The reasoner-derived constraint strength had four definitions, none stored as a physics value: the constraint actor's compiled-in `DEFAULT_GLOBAL_STRENGTH` 0.6 (the one in force), `qualityGates.ontologyStrength` 0.5, the dead `SemanticPhysicsConfig.constraint_strength` 1.0, and the Ontology panel's local 0.6. They are now one stored physics pair, `ontologyConstraintsEnabled` (true) and `ontologyConstraintStrength` (0.6, `physics_bounds::ONTOLOGY_CONSTRAINT_STRENGTH` 0..=1). The actor's constant is that stored default. The quality-gate pair is retired (read and dropped).
 - **Sink.** Like the clustering and stream settings, the pair is not a `SimParams` field. `apply_physics_patch` sends `SetOntologyConstraintPolicy` to the constraint actor, only when the pair changed, because each application re-uploads the set and restarts its ramp-in. The layout reset and `restore_saved_physics` (boot and every supervisor restart) send it too.

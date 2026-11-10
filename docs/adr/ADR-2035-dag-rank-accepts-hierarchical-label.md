@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 77305d3811a0e14d8d33d60c6b6d2178a94b9805
+verified_commit: 7a6adcc8383aca0742cb84f49916cc4f5c084af3
 verified_paths: [src/actors/gpu/force_compute_actor.rs, crates/visionclaw-domain/src/models/edge.rs, src/services/github_sync_service.rs, src/services/inferred_edge_materialiser.rs, src/services/semantic_type_registry.rs]
 owner: jjohare
 review_trigger: a producer that writes a 'hierarchical' subclass edge without rdfs:subClassOf in owl_property_iri (it would silently stop ranking), a store path that drops vc:owlProperty, or a new producer of explicit subclass_of labels
@@ -404,6 +404,6 @@ Governed-path changes since `ff849f2ba`:
 
 **Decision unaffected.** Re-run: `git diff ff849f2ba..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.
 
-## Re-verification — 2026-11-10 (`77305d381`, ADR-2192)
+## Re-verification — 2026-11-10 (`7a6adcc83`, ADR-2192)
 
 Governed-path change: `src/services/github_sync_service.rs`, where `plan_domain_roots` takes the `materialiseDomainRoots` switch (off purges the roots), and `src/actors/gpu/force_compute_actor.rs`, where the constraint sync clears the device on an emptied cache. Domain spokes are still `domain_member`, not `hierarchical`, and no rank code moved. **Decision unaffected.**

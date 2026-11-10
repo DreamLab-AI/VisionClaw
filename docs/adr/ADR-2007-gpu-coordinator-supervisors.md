@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 77305d3811a0e14d8d33d60c6b6d2178a94b9805
+verified_commit: 7a6adcc8383aca0742cb84f49916cc4f5c084af3
 verified_paths: [src/actors/gpu/gpu_manager_actor.rs, src/actors/gpu/mod.rs, src/actors/gpu/context_bus.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: a new GPU subsystem that does not fit the four-supervisor split, or a change to SharedGPUContext distribution
@@ -189,6 +189,6 @@ Re-read against `docs/GPU-wire-abi.md` at this commit: the four supervisors are 
 
 Governed-path change (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `gpu_manager_actor.rs` loses its `SetNodeSSSP` forward (the `node_sssp` map is removed). The coordinator/supervisor shape is unchanged. Not re-stamped: `docs/GPU-wire-abi.md` changed before this branch. **Decision unaffected.**
 
-## Re-verification — 2026-11-10 (`77305d381`, ADR-2192)
+## Re-verification — 2026-11-10 (`7a6adcc83`, ADR-2192)
 
 Governed-path change: `src/actors/gpu/gpu_manager_actor.rs` routes `SetOntologyConstraintPolicy` (which replaces `AdjustConstraintWeights`) to the physics supervisor exactly as before. The supervisor structure is unchanged. **Decision unaffected.** Checked by reading the diff.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 77305d3811a0e14d8d33d60c6b6d2178a94b9805
+verified_commit: 7a6adcc8383aca0742cb84f49916cc4f5c084af3
 verified_paths: [crates/visionclaw-domain/src/types/physics_config.rs, src/actors/gpu/ontology_constraint_actor.rs, src/actors/gpu/force_compute_actor.rs, src/actors/gpu/physics_supervisor.rs, src/actors/messages/physics_messages.rs, src/settings/models.rs, src/settings/api/settings_routes.rs, src/services/github_sync_service.rs, src/handlers/api_handler/ontology_physics/mod.rs, src/actors/client_filter.rs, src/actors/client_coordinator_actor.rs, src/handlers/api_handler/graph/mod.rs, client/src/features/control-center/registry/groups/quality.ts, client/src/features/control-center/registry/groups/motion.ts, client/src/features/ontology/components/OntologyForcesPanel.tsx]
 relates: [ADR-2140, ADR-2183, ADR-2189, ADR-2173, ADR-2071, ADR-098]
 owner: jjohare
@@ -69,14 +69,25 @@ acceptance_boundary: "Local runs only: not built into or deployed on the dev sta
 - Size: 24 server files and 31 client and IA files, plus this record and 16 amended or re-stamped ADRs. The stored-settings path cost model, validator, route, message, actor, client types, defaults, registry and test edits for each key, against the one-row-plus-regenerate the `FIELDS` table offers its own group.
 
 ## Verification
-At `77305d381`, with no GPU:
-- `cargo test -p visionclaw-server --lib` exercises the new tests:
-  - `constraint_sync_action_tests` (2) and `ontology_constraint_actor::tests` (live buffer; the actix policy off/on test);
-  - `ontology_physics::tests` (2) and `sync_switch_tests` (3);
-  - `domain_root_plan_tests::switched_off_domain_roots_are_purged_with_their_spokes`;
-  - `client_filter` cap tests (2) and `rest_removal_matches_the_stream_filter_and_is_opt_in`;
-  - the settings-model round trips (`sync_switches_default_on_for_old_documents_and_round_trip`, `quality_gates_with_retired_keys_still_deserialise`, `node_filter_max_nodes_round_trips_and_defaults_to_no_cap`).
+At `7a6adcc83`, on this container, with no GPU:
+- `cargo fmt --all --check` is clean.
+- CPU crates (the CI set): `cargo clippy --all-targets` reports no warnings; `cargo test` gives 1,287 passed, 0 failed, 30 ignored.
+- Server crate:
+  - `cargo check -p visionclaw-server --all-targets` passes.
+  - `cargo clippy -p visionclaw-server --lib --tests` adds no warnings in changed lines. The two it reports in touched files are pre-existing test code.
+  - `cargo test -p visionclaw-server --lib` gives 1,986 passed, 0 failed, 15 ignored.
+  - `cargo test -p visionclaw-server --test corpus_local_sync` gives 10 passed and 1 ignored. That includes `adr_2192_sync_switches_skip_reasoning_and_purge_domain_roots`, which runs the real sync over temporary stores.
+- The new server tests:
+  - `constraint_sync_action_tests` (2) and `ontology_constraint_actor::tests` (the live buffer, and the actix policy off/on test);
+  - `ontology_physics::tests` (2), `sync_switch_tests` (3) and `domain_root_plan_tests::switched_off_domain_roots_are_purged_with_their_spokes`;
+  - the `client_filter` cap tests (2) and the scope-true count assertion;
+  - `rest_removal_matches_the_stream_filter_and_is_opt_in` and `the_reset_keeps_the_constraint_switch_and_resets_its_strength`;
+  - the settings-model round trips;
+  - `policy_key_compat_tests::live_physics_row_without_the_policy_keys_loads_todays_policy`: the captured 56-key live row lacks both new keys, loads today's policy, keeps its tuning and passes the validator.
 - `cargo test -p visionclaw-domain` runs `ontology_constraint_keys_default_round_trip_and_load_from_rows_without_them`.
-- The stored row captured from the live system (`src/actors/gpu/test_fixtures/live_physics_settings.json`, 56 keys) lacks both new keys and still deserialises (`live_physics_row_without_the_policy_keys_loads_todays_policy`).
-- Client: `vitest run` (207 files, 1,916 tests) and `tsc --noEmit` are clean. That covers registry counts and placement (`(c9)`), the filter-sync `maxNodes` send, the count store and readout, and the Ontology panel writing the stored keys.
-- The GPU test named in the acceptance boundary is left for a gate run.
+- Client: `vitest run` gives 207 files and 1,917 tests passed, on a quiet machine (a run made while cargo held every core timed out 8 unrelated tests). `tsc --noEmit` exits 0. Coverage includes:
+  - registry counts and placement `(c9)`;
+  - the filter-sync `maxNodes` send;
+  - the count store and readout;
+  - the Ontology panel hydrating and writing the stored keys.
+- Not run: the GPU test named in the acceptance boundary (a gate run), and anything against the live stack.

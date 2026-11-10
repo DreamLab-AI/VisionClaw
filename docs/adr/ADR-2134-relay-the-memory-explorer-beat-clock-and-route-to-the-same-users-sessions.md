@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 77305d3811a0e14d8d33d60c6b6d2178a94b9805
+verified_commit: 7a6adcc8383aca0742cb84f49916cc4f5c084af3
 verified_paths: [src/handlers/socket_flow_handler/session_relay.rs, src/handlers/socket_flow_handler/message_routing.rs, src/actors/client_coordinator_actor.rs, crates/visionclaw-protocol/src/socket_flow_messages.rs, client/src/features/visualisation/memoryCloud/xrRelay.ts, xr-client/rust/src/beat.rs, xr-client/rust/src/pulse.rs, xr-client/scripts/beat_pulse.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): a desktop and headset filmed side by side with phase error below 30 ms. Review: a second consumer of beatClock or memoryRoute; any request to relay across users or rooms; a headset receipt showing desktop/headset phase error above 30 ms; a change to RECORD_AUDIO policy"
@@ -137,6 +137,6 @@ Governed-path changes since `15acb9219`:
 
 **Decision unaffected.** Re-run: `git diff 15acb9219..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.
 
-## Re-verification — 2026-11-10 (`77305d381`, ADR-2192)
+## Re-verification — 2026-11-10 (`7a6adcc83`, ADR-2192)
 
 Governed-path change: `src/actors/client_coordinator_actor.rs` applies the parsed `max_nodes`, records `considered_nodes`, and sends `filter_update_success` with counts after a filter recompute. Same-user relay is untouched. **Decision unaffected.**

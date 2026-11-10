@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 77305d3811a0e14d8d33d60c6b6d2178a94b9805
+verified_commit: 7a6adcc8383aca0742cb84f49916cc4f5c084af3
 relates: [ADR-2169]
 verified_paths: [src/utils/unified_gpu_compute/constraint_index.rs, src/utils/unified_gpu_compute/memory.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, src/utils/unified_gpu_compute/execution.rs, src/actors/gpu/force_compute_actor.rs]
 owner: jjohare
@@ -70,7 +70,7 @@ New decision in this stamp: the owner's change-only upload and the always-active
 
 Governed-path change since `e2afd65d6`: `src/actors/gpu/force_compute_actor.rs` (`7c58d3e6e`, `ab05ee9d6`, `405edcfe1`): `GetCurrentPositions` (`:3246`) skips a GPU slot with no node id (`slot_node_id`, `:3226`) instead of labelling it with its own index, and averages KE over mapped slots only (review L2); the refusing `Handler<RunCommunityDetection>` stub is deleted (community detection is `ClusteringActor`'s). No force, kernel parameter, rank or constraint code moved. `sync_constraints` is `force_compute_actor.rs:1675`, unchanged. **Decision unaffected.** Re-run: `git diff e2afd65d6..7bd25427e -- src/actors/gpu/force_compute_actor.rs`. Checked by reading that diff; no test was re-run for this stamp.
 
-## Amended by ADR-2192 (2026-11-10, `77305d381`)
+## Amended by ADR-2192 (2026-11-10, `7a6adcc83`)
 
 - **Part of the end state is done.** `sync_constraints` now clears the device when a writer replaces the cache with the empty set and the engine still holds constraints (`constraint_sync_action`: empty, pending and resident > 0 gives `Clear`). This is what makes the stored ontology-constraint switch off stick. That clear removes everything the engine holds, including any set `ConstraintActor` wrote directly. An empty cache that is not pending never clears. Before, the cached copy came back on the next step, because the resident count differed.
 - **Still open.** `OntologyConstraintActor` and `ConstraintActor` still write the engine directly. That part of the end state is not done.

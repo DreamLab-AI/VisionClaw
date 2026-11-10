@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: 77305d3811a0e14d8d33d60c6b6d2178a94b9805
+verified_commit: 7a6adcc8383aca0742cb84f49916cc4f5c084af3
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -235,6 +235,6 @@ This record remains superseded by ADR-2115. Since `5c94c3cbd` the governed paths
 
 None of these touch the key this record renamed. `GraphsSettings` is still `{ knowledge, visionclaw }` with no `logseq` alias (`crates/visionclaw-domain/src/config/visualisation.rs:509-517`, unchanged). The client settings type still keys `knowledge: GraphSettings` (`settings.ts:409`). XR physics writes still target `?graph=knowledge` (`graph_scene.gd:2921`). A grep of the diff for `logseq`, `graph_type`, `graphType`, `graphs.` and `graph=knowledge` finds only a removed doc comment. **Decision unaffected (superseded by ADR-2115).** Re-run: `git diff 5c94c3cbd..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.
 
-## Re-verification — 2026-11-10 (`77305d381`, ADR-2192)
+## Re-verification — 2026-11-10 (`7a6adcc83`, ADR-2192)
 
 Governed-path change: `client/src/features/settings/config/settings.ts` gains `nodeFilter.maxNodes` and the three quality-gate sync switches, and loses `ontologyPhysics`/`ontologyStrength`. The settings key stays `knowledge`. **Decision unaffected.**

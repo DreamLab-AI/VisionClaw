@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 77305d3811a0e14d8d33d60c6b6d2178a94b9805
+verified_commit: 7a6adcc8383aca0742cb84f49916cc4f5c084af3
 verified_paths: [src/layout/scc.rs, src/handlers/api_handler/analytics/cycles_handlers.rs, src/settings/api/settings_routes.rs, client/src/api/layoutApi.ts, client/src/features/graph/hooks/useCyclicNodeIds.ts, xr-client/rust/src/render_store.rs, xr-client/scripts/hud.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): the XR Shapes tab first run on a headset against a live graph. Review: before any cycle datum is added to the 52-byte position frame"
@@ -127,6 +127,6 @@ Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The gov
 
 **Decision holds, with D2 narrowed to the caller's view.** Re-run: `git diff 5c94c3cbd..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.
 
-## Re-verification — 2026-11-10 (`77305d381`, ADR-2192)
+## Re-verification — 2026-11-10 (`7a6adcc83`, ADR-2192)
 
 Governed-path change: `src/settings/api/settings_routes.rs` validates `ontologyConstraintStrength` and `nodeFilter.maxNodes`, sends the constraint policy from the physics write path and layout reset, and drops the retired quality-gate ontology fields. Cycle analysis is untouched. **Decision unaffected.**
