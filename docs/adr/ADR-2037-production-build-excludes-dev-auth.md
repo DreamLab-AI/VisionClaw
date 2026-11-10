@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 4a137acf774507d7f0529ceebedb982c5c87859b
 verified_paths: [src/config/security_profile.rs, src/main.rs, .github/workflows/ci.yml, Dockerfile.production]
 owner: jjohare
 review_trigger: any change to the production Dockerfile build line, the dev-auth feature gates, or enforce_release_env_hygiene
@@ -200,3 +200,7 @@ Governed-path changes since `b5200feb4`:
 - `.github/workflows/ci.yml` (`9f2e75fa3`): `push`/`pull_request` gain a `paths:` filter, the concurrency group becomes `${{ github.workflow }}-${{ github.ref }}`, and every job gains `timeout-minutes` (`dev-auth-release-gate` 5, job at `:178`). The gate's assertions are byte-identical and still carry no `continue-on-error`. Every file it reads (`Dockerfile.production`, `Dockerfile.unified`, `scripts/prod-entrypoint.sh`, `scripts/dev-entrypoint.sh`, `scripts/rust-backend-wrapper.sh`) is inside the new filter (`Dockerfile.production`, `Dockerfile.unified`, `scripts/**`), so a change to any gated input still triggers it.
 
 **Decision unaffected; status stays `partial`/`staged`.** Re-run: `git diff b5200feb4..7bd25427e -- <verified_paths>`. Checked by reading that diff; the gate was not re-run locally for this stamp.
+
+## Re-verification — 2026-11-10 (`4a137acf7`)
+
+Governed-path change since `7bd25427e`: `.github/workflows/ci.yml` (`4bf6a03bf`) drops the `push`-to-main trigger. `pull_request` (same `paths:` filter, which includes `Dockerfile.production`, `Dockerfile.unified` and `scripts/**`) and `workflow_dispatch` remain. The `dev-auth-release-gate` job (`ci.yml:162`) is unchanged, so a release build line that gains `dev-auth` in a pull request is still refused. A change pushed straight to `main` is no longer asserted until the next pull request or a manual run. `src/config/security_profile.rs`, `src/main.rs` and `Dockerfile.production` are unchanged. **Decision unaffected.** Re-run: `git diff 7bd25427e..4a137acf7 -- <verified_paths>`. Checked by reading that diff.
