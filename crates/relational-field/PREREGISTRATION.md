@@ -339,8 +339,8 @@ M3 chance, which always predicts the training majority type `links`, is 0.224 ±
 
 - Slice M3 chance is 0.007, because `links` is rare inside the slice.
 - RF's slice M3 varies widely across seeds (sd 0.14) on few test triples (about 212 pairs, 282 triples per seed), and supports no claim.
-- Slice M1 near 0.5 for every arm is expected. Random negatives inside a tight cluster of domains
-  are close by construction.
+- Slice M1 is near 0.5 for every arm. The cause is not established, and the figure is
+  descriptive only.
 
 *What RF learned.*
 
@@ -363,16 +363,25 @@ M3 chance, which always predicts the training majority type `links`, is 0.224 ±
   | `implemented-in-layer` | 0.217 ± 0.018 |
 
   Here m is RF's own median training-edge length. Each spring therefore acts almost as
-  `κ_r d²` with rest length near zero, which is the B1 law, and RF's metrics match B1's on every
-  measure.
+  `κ_r d²` with rest length near zero, which is the B1 law. RF's metrics are within 0.013 of
+  B1's on every measure.
 - **Stiffness.** κ_r separates more, from 0.52 (`bridges-to`) and 0.59 (`is-a`) to 1.43
   (`contrasts-with`), with a seed sd of about 0.03. `contrasts-with` learned the stiffest pull,
   not a repulsion.
-- **Axial offsets** are not stable. For every type, h_r / m has a seed sd larger than its mean
-  (for example `is-a` 0.37 ± 0.69, `uses` −0.99 ± 1.19), and μ_r stays small (0.01 to 0.33).
-  The model learned no consistent direction for any relation.
-- **Rare types.** The 35 types with fewer than 100 training triples barely moved from their
-  initial values, and should not be read as learned.
+- **Axial offsets** are at most weakly consistent, even allowing for a symmetry of the score.
+  - Reflecting every z and every h_r leaves the RF score unchanged, so each seed may settle on
+    either sign.
+  - Aligning each seed's h vector to seed 0 by the sign of their dot product (seed 1 flips) still
+    leaves the smallest pairwise correlation between seeds at |r| = 0.13 over the 15 types with
+    at least 100 training triples.
+  - After alignment, most types have a seed sd close to or larger than their mean, for example
+    `enables` −0.08 ± 1.05 and `requires` −0.17 ± 1.25.
+  - A few are steadier: `implemented-in-layer` +1.23 ± 0.41, `uses` −1.31 ± 0.70 and `is-a`
+    +0.62 ± 0.40.
+  - μ_r stays small (0.01 to 0.33), so the axial term carries little weight in the score.
+- **Rare types.** The 35 types with fewer than 100 training triples moved from their initial
+  values: κ runs 0.88 to 1.58 against an initial 0.69, and L / m runs 0.22 to 0.59. h stayed
+  near 0. With so few triples behind them, these values are not interpretable.
 
 *RF-sim.*
 
@@ -398,8 +407,23 @@ preregistered, but against a near-zero floor, so it says little about readabilit
 
 *Overall.* H1 is **not supported as stated**: gates 2, 4 and 6 passed, gates 1, 3 and 5 failed.
 
+The three passes are weak and should not be read as partial support for typed geometry:
+
+- **Gate 2:** RF equals the untyped B1 on M2, and 78% of RF's margin over B0 survives
+  degree-preserving rewiring.
+- **Gate 4:** it compares two arms that both sit at chance on M3, and B2 was still improving at
+  its last epoch.
+- **Gate 6:** it is a ratio of two near-zero recalls.
+
 - On this corpus and with these fixed recipes, no arm's final geometry lets the preregistered
   classifier recover relation type above the majority rate.
 - RF's link-prediction gain over the uniform layout equals that of an untyped learned embedding,
   and mostly survives degree-preserving rewiring.
 - The learned parameters, loaded into the simulator, do not reproduce RF's geometry.
+
+*Disclosure on the rewiring control (made before any run).* D4 gave the swap as (a, r₁, b),
+(c, r₂, d) → (a, r₁, d), (c, r₂, b) and also promised that it keeps per-relation in- and
+out-degree. That formula does not keep per-relation in-degree when r₁ ≠ r₂. Before any run, a unit
+test caught this, and the code was changed to swap only within one relation (r₁ = r₂). That
+keeps the property D4 promised rather than the formula it wrote. The committed code at
+`9219ac099` contains the restriction.
