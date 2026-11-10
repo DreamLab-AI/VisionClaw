@@ -1,6 +1,6 @@
 """P16 (validation of P14): rule baseline, small extractor (P14 checkpoint, no retraining) and 8B prompted, on hard text.
 
-Usage: p16_eval.py <val root> <n> <lo> <hi> <out prefix> <mode: rule|small|8b> [model dir]
+Usage: p16_eval.py <val root> <n> <lo> <hi> <out prefix> <mode: rule|small|8b|8bthink> [model dir]
 Writes <prefix>-<mode>.jsonl candidates in p12d_score.py format (score with the same canonicalisation).
 """
 import json, random, re, sys
@@ -42,10 +42,11 @@ else:
     else:
         src = open(Path(__file__).with_name("p12_freetext.py")).read(); ns = {}; exec(src[src.index("EX = ("):src.index("PH = {")], ns)
         tok = AutoTokenizer.from_pretrained(MD)
-        prompts = [tok.apply_chat_template([{"role": "user", "content": ns["EX"] + p}], tokenize=False, add_generation_prompt=True, enable_thinking=False) for _, p in allp]
-        sp = SamplingParams(temperature=0, max_tokens=600)
+        think = MODE == "8bthink"
+        prompts = [tok.apply_chat_template([{"role": "user", "content": ns["EX"] + p}], tokenize=False, add_generation_prompt=True, enable_thinking=think) for _, p in allp]
+        sp = SamplingParams(temperature=0.6, top_p=0.95, top_k=20, max_tokens=6000, seed=0) if think else SamplingParams(temperature=0, max_tokens=600)
     for (ci, p), g in zip(allp, llm.generate(prompts, sp)):
-        for line in g.outputs[0].text.splitlines():
+        for line in g.outputs[0].text.split("</think>")[-1].splitlines():
             parts = [x.strip().strip(".") for x in line.split("|")]
             if len(parts) == 3 and parts[1] in REL and parts[0] and parts[0].lower() not in ("it", "the company"):
                 out.append(json.dumps({"c": ci, "t": parts, "s": 0.0, "ok": 0}))

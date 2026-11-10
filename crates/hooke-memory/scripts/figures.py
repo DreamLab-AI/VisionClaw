@@ -53,7 +53,7 @@ series = [("8B prompted", ORANGE), ("8B with reasoning", INK2), ("0.6B trained o
 gen = {"8B prompted": load("p14/p14-score-8b.json"), "8B with reasoning": load("p12/p12d-score.json"),
        "0.6B trained on generated text": load("p14/p14-score-s1.json")}
 hard = {}
-for k, p in (("8B prompted", "p16/p16-score-8b.json"), ("0.6B trained on generated text", "p16/p16-score-small.json")):
+for k, p in (("8B prompted", "p16/p16-score-8b.json"), ("8B with reasoning", "p16/p16h-score-8bthink.json"), ("0.6B trained on generated text", "p16/p16-score-small.json")):
     if (R / p).exists(): hard[k] = load(p)
 rule = {t: load(p) for t, p in (("generated", "p14/p14-rule-score.json"), ("hard", "p16/p16-rule-score.json"))}
 fig, axes = plt.subplots(1, 2, figsize=(7.2, 2.6), sharey=True)

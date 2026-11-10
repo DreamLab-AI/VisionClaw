@@ -49,8 +49,9 @@ Collections 200-1999 (900 single-step, 900 two-step claims):
 * Criterion 1 (>= 95% true, >= 98% false, each stratum, every seed): PASS.
 * Criterion 2 (more true two-step confirmed than the 8B extractor, McNemar p < 0.01, every seed): PASS; 82 claims
   confirmed only by the small extractor, 0 only by the 8B, p = 4.1e-25 in each seed.
-* Criterion 3 (>= 20x less computation than the reasoning extractor): see `results/p15` once its measured tokens are
-  in; the small extractor uses 0.6B x 230 tokens per paragraph (142 prompt + 88 generated).
+* Criterion 3 (>= 20x less computation than the reasoning extractor): PASS. Measured on collections 200-399
+  (`results/p15`): the reasoning extractor processes 172.6 prompt + 1,090.2 generated tokens per paragraph
+  (8B x 1,262.8 = 10,102 B-param-tokens); the small extractor 142.4 + 87.8 (0.6B x 230.2 = 138); ratio 73x.
 
 ## Validity check that overturns the reading (added after scoring; not a criterion)
 A no-learning rule (`scripts/p14_rule.py`: subject = the paragraph's company; relation from the object's type in the
