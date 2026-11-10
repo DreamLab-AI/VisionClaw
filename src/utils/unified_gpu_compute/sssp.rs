@@ -97,6 +97,9 @@ impl UnifiedGPUCompute {
         let mut bound = bucket_width.unwrap_or(f32::INFINITY);
         let max_rounds = 10 * n.max(1);
         let mut rounds = 0usize;
+        // Re-seeded frontier for the next bucket. Declared outside the loop so it outlives its
+        // asynchronous upload, which completes at the inner loop's next synchronise.
+        let mut frontier: Vec<i32> = Vec::new();
         loop {
             while frontier_len > 0 {
                 rounds += 1;
@@ -169,13 +172,16 @@ impl UnifiedGPUCompute {
             if bound <= nearest {
                 bound = nearest + width;
             }
-            let frontier: Vec<i32> = snapshot
-                .iter()
-                .enumerate()
-                .filter(|(_, d)| **d >= lower && **d < bound)
-                .map(|(i, _)| i as i32)
-                .collect();
-            // SAFETY: `frontier.len() <= n`; the vector lives until the next synchronise.
+            frontier.clear();
+            frontier.extend(
+                snapshot
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, d)| **d >= lower && **d < bound)
+                    .map(|(i, _)| i as i32),
+            );
+            // SAFETY: `frontier.len() <= n`; the vector is not touched again until after the
+            // inner loop's next synchronise, by which time the upload has completed.
             unsafe {
                 self.current_frontier
                     .index(0..frontier.len())
