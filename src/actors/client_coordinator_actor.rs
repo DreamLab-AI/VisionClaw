@@ -1670,24 +1670,7 @@ impl Handler<UpdateClientFilter> for ClientCoordinatorActor {
         };
 
         if let Some(client) = manager.get_client_mut(msg.client_id) {
-            let filter_mode = msg
-                .filter_mode
-                .parse::<FilterMode>()
-                .map_err(|e| format!("Invalid filter mode: {}", e))?;
-
-            client.filter.enabled = msg.enabled;
-            client.filter.quality_threshold = msg.quality_threshold;
-            client.filter.authority_threshold = msg.authority_threshold;
-            client.filter.filter_by_quality = msg.filter_by_quality;
-            client.filter.filter_by_authority = msg.filter_by_authority;
-            client.filter.filter_mode = filter_mode;
-            client.filter.include_linked_pages = msg.include_linked_pages;
-            client.filter.server_remove = msg.server_remove;
-            // ADR-2192: the cap was parsed and persisted but never applied.
-            client.filter.max_nodes = msg
-                .max_nodes
-                .and_then(|n| usize::try_from(n).ok())
-                .filter(|&n| n > 0);
+            crate::actors::client_filter::apply_filter_update(&mut client.filter, &msg)?;
 
             info!(
                 "Updated filter for client {}: enabled={}, quality_threshold={}",

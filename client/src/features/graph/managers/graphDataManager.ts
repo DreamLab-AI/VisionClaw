@@ -1,6 +1,7 @@
 import { createLogger, createErrorMetadata } from '../../../utils/loggerConfig';
 import { debugState } from '../../../utils/clientDebugState';
 import { useSettingsStore } from '../../../store/settingsStore';
+import { restNodeFilterSnapshot } from '../../../store/websocket/filterSync';
 import type { WebSocketAdapter } from '../../../store/websocketStore';
 import { binaryProtocol } from '../../../services/BinaryWebSocketProtocol';
 import { graphWorkerProxy } from './graphWorkerProxy';
@@ -217,13 +218,13 @@ class GraphDataManager {
   private async _fetchInitialDataInner(): Promise<GraphData> {
     // Drop linked_page stubs at source unless the user has opted to include
     // them — mirrors the ingestion gate in setGraphData and the server param.
-    const nodeFilter = useSettingsStore.getState().settings?.nodeFilter;
-    const includeLinkedPages = nodeFilter?.includeLinkedPages ?? false;
+    const includeLinkedPages =
+      useSettingsStore.getState().settings?.nodeFilter?.includeLinkedPages ?? false;
     const validatedData = await fetchGraphData(
       this.graphType,
       this.graphTypeFilter,
       !includeLinkedPages,
-      !!(nodeFilter?.enabled && nodeFilter?.serverRemove),
+      restNodeFilterSnapshot(),
     );
 
     await this.setGraphData(validatedData);

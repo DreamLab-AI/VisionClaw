@@ -73,6 +73,35 @@ type FilterSyncGet = () => {
   sendFilterUpdate: (filter: FilterUpdateParams) => void;
 };
 
+/**
+ * The `filter_update` wire body for a filter: the one mapping, used for the `/wss` message and
+ * for the REST graph load's `node_filter` snapshot, so the server reads the same filter both
+ * ways and removes the same nodes (ADR-2192).
+ */
+export function filterWireBody(filter: FilterUpdateParams): Record<string, unknown> {
+  return {
+    enabled: filter.enabled,
+    quality_threshold: filter.qualityThreshold,
+    authority_threshold: filter.authorityThreshold,
+    filter_by_quality: filter.filterByQuality,
+    filter_by_authority: filter.filterByAuthority,
+    filter_mode: filter.filterMode,
+    include_linked_pages: filter.includeLinkedPages ?? false,
+    server_remove: filter.serverRemove ?? false,
+    max_nodes: filter.maxNodes ?? 0,
+  };
+}
+
+/**
+ * The REST `node_filter` query value for the current settings, or null when the filter does
+ * not ask for server removal (then the REST load removes nothing, as the stream does).
+ */
+export function restNodeFilterSnapshot(): string | null {
+  const snap = currentFilterSnapshot();
+  if (!snap || !snap.enabled || !snap.serverRemove) return null;
+  return JSON.stringify(filterWireBody(snap));
+}
+
 function currentFilterSnapshot(): FilterSnapshot | null {
   const nodeFilter = useSettingsStore.getState().settings?.nodeFilter;
   if (!nodeFilter) return null;

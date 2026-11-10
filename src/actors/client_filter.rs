@@ -24,6 +24,19 @@ use visionclaw_domain::models::graph::GraphData;
 /// changes. Scope removal always applies; predicate removal, and the
 /// `max_nodes` cap (ADR-2192), only when `filter.enabled && filter.server_remove`.
 pub fn recompute_filtered_nodes(filter: &mut ClientFilter, graph_data: &GraphData) {
+    recompute_filtered_nodes_admitting(filter, graph_data, &|_| true);
+}
+
+/// [`recompute_filtered_nodes`] with an extra population predicate, `admit`, applied with the
+/// scope gate and before predicate removal and the `max_nodes` cap. The `/wss` stream admits
+/// every node; a REST load admits its `graph_type` population, so the cap picks the best N of
+/// what the caller asked for rather than of the whole graph (ADR-2192). One function, one
+/// order: visibility (by the caller), scope, admit, predicates, cap.
+pub fn recompute_filtered_nodes_admitting(
+    filter: &mut ClientFilter,
+    graph_data: &GraphData,
+    admit: &dyn Fn(&visionclaw_domain::models::node::Node) -> bool,
+) {
     filter.filtered_node_ids.clear();
     filter.considered_nodes = 0;
     let remove_by_predicate = filter.enabled && filter.server_remove;
@@ -33,6 +46,9 @@ pub fn recompute_filtered_nodes(filter: &mut ClientFilter, graph_data: &GraphDat
         // origin via Node::population_type() (metadata["type"] first, node_type
         // only as legacy fallback), matching the client filter and the GPU.
         if !filter.include_linked_pages && node.population_type() == Some("linked_page") {
+            continue;
+        }
+        if !admit(node) {
             continue;
         }
         // In scope: what this client would receive with no removal (the "of M").
@@ -73,23 +89,29 @@ pub fn recompute_filtered_nodes(filter: &mut ClientFilter, graph_data: &GraphDat
     );
 }
 
-/// The per-client filter a stored node-filter document describes (the same
-/// fields a desktop client sends in `filter_update`).
-pub fn client_filter_from_settings(
-    s: &crate::settings::models::NodeFilterSettings,
-) -> ClientFilter {
-    ClientFilter {
-        enabled: s.enabled,
-        quality_threshold: s.quality_threshold,
-        authority_threshold: s.authority_threshold,
-        filter_by_quality: s.filter_by_quality,
-        filter_by_authority: s.filter_by_authority,
-        filter_mode: s.filter_mode.parse().unwrap_or(FilterMode::Or),
-        max_nodes: Some(s.max_nodes as usize).filter(|&n| n > 0),
-        include_linked_pages: s.include_linked_pages,
-        server_remove: s.server_remove,
-        ..Default::default()
-    }
+/// Apply a `filter_update` to a client's filter: the one mapping from the wire message,
+/// used by the `/wss` coordinator and by the REST load's `node_filter` snapshot (ADR-2192).
+pub fn apply_filter_update(
+    filter: &mut ClientFilter,
+    msg: &crate::actors::messages::UpdateClientFilter,
+) -> Result<(), String> {
+    let filter_mode = msg
+        .filter_mode
+        .parse::<FilterMode>()
+        .map_err(|e| format!("Invalid filter mode: {}", e))?;
+    filter.enabled = msg.enabled;
+    filter.quality_threshold = msg.quality_threshold;
+    filter.authority_threshold = msg.authority_threshold;
+    filter.filter_by_quality = msg.filter_by_quality;
+    filter.filter_by_authority = msg.filter_by_authority;
+    filter.filter_mode = filter_mode;
+    filter.include_linked_pages = msg.include_linked_pages;
+    filter.server_remove = msg.server_remove;
+    filter.max_nodes = msg
+        .max_nodes
+        .and_then(|n| usize::try_from(n).ok())
+        .filter(|&n| n > 0);
+    Ok(())
 }
 
 /// A node's authored quality score, as the quality predicate reads it: node

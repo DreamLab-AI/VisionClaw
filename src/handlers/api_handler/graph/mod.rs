@@ -102,12 +102,12 @@ pub struct GraphQuery {
     /// 17.1k nodes) is never transferred when it will only be hidden anyway.
     /// Absent ⇒ no stub filtering (back-compat default).
     pub exclude_linked_pages: Option<bool>,
-    /// When `true`, apply the stored node filter's server-side removal (ADR-2183 D2,
-    /// ADR-2192): with `nodeFilter.enabled && serverRemove`, the nodes the `/wss`
-    /// stream would remove (failing predicates, beyond `maxNodes`) are dropped here
-    /// too, so a desktop client's REST reload cannot re-expand a thinned view.
+    /// The caller's own node-filter snapshot, as JSON: the same body it sends as
+    /// `filter_update` on `/wss` (ADR-2183 D2, ADR-2192). With `enabled && server_remove`
+    /// the nodes its stream drops (failing predicates, beyond `max_nodes`) are dropped here
+    /// too, through the same function, so a REST reload cannot re-expand a thinned view.
     /// Absent ⇒ no removal (the XR client and other callers only grey).
-    pub apply_node_filter: Option<bool>,
+    pub node_filter: Option<String>,
 }
 
 /// The three node populations, mirroring the wire flag bits in
@@ -262,10 +262,16 @@ pub async fn get_graph_data(
                 physics_state
             );
 
-            let removal = if query.apply_node_filter.unwrap_or(false) {
-                stored_removal_filter(&state).await
-            } else {
-                None
+            let removal = match query
+                .node_filter
+                .as_deref()
+                .map(removal_filter_from_snapshot)
+            {
+                Some(Ok(f)) => f,
+                Some(Err(e)) => {
+                    return Ok(HttpResponse::BadRequest().json(serde_json::json!({ "error": e })))
+                }
+                None => None,
             };
             let (filtered_nodes, filtered_edges, visible_metadata) = graph_data_projection(
                 &graph_data,
@@ -312,24 +318,19 @@ pub async fn get_graph_data(
     }
 }
 
-/// The stored node filter as a removal filter, when it asks for server-side removal
-/// (`enabled && serverRemove`); `None` otherwise or when the row is unreadable.
-async fn stored_removal_filter(
-    state: &AppState,
-) -> Option<crate::actors::client_coordinator_actor::ClientFilter> {
-    use crate::ports::settings_repository::{SettingValue, SettingsRepository};
-    let stored = match state
-        .sqlite_settings_repository
-        .get_setting("node_filter")
-        .await
-    {
-        Ok(Some(SettingValue::Json(json))) => {
-            serde_json::from_value::<crate::settings::models::NodeFilterSettings>(json).ok()?
-        }
-        _ => return None,
-    };
-    let filter = crate::actors::client_filter::client_filter_from_settings(&stored);
-    (filter.enabled && filter.server_remove).then_some(filter)
+/// The removal filter a `node_filter` snapshot describes: parsed with the `/wss`
+/// `filter_update` parser and mapped with the coordinator's own function, so REST and the
+/// stream read the same filter the same way. `None` unless it asks for server removal.
+pub(crate) fn removal_filter_from_snapshot(
+    json: &str,
+) -> Result<Option<crate::actors::client_coordinator_actor::ClientFilter>, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(json).map_err(|e| format!("node_filter is not JSON: {}", e))?;
+    let update =
+        crate::handlers::socket_flow_handler::filter_auth::filter_update_from_wire(0, &value);
+    let mut filter = crate::actors::client_coordinator_actor::ClientFilter::default();
+    crate::actors::client_filter::apply_filter_update(&mut filter, &update)?;
+    Ok((filter.enabled && filter.server_remove).then_some(filter))
 }
 
 /// The `GET /api/graph/data` node, edge and metadata projection for one caller: the ADR-060
@@ -400,11 +401,21 @@ pub(crate) fn graph_data_projection(
         })
         .collect();
 
-    // ADR-2192: the stream's server-side removal, applied to this view.
+    // ADR-2192: the stream's server-side removal, through the stream's function, with this
+    // view's population admitted first so the cap keeps the best N of what was asked for.
     let filtered_nodes = match removal {
         Some(filter) => {
             let mut filter = filter.clone();
-            crate::actors::client_filter::recompute_filtered_nodes(&mut filter, graph_data);
+            let admit = |node: &visionclaw_domain::models::node::Node| {
+                population.map_or(true, |p| {
+                    p.matches(node.node_type.as_deref(), &node.metadata)
+                }) && !(exclude_linked_pages && node.population_type() == Some("linked_page"))
+            };
+            crate::actors::client_filter::recompute_filtered_nodes_admitting(
+                &mut filter,
+                graph_data,
+                &admit,
+            );
             filtered_nodes
                 .into_iter()
                 .filter(|n| filter.filtered_node_ids.contains(&n.id))
@@ -2446,7 +2457,7 @@ mod visibility_parity_tests {
             filter: None,
             graph_type: None,
             exclude_linked_pages: None,
-            apply_node_filter: None,
+            node_filter: None,
         }
     }
 
@@ -2523,16 +2534,23 @@ mod visibility_parity_tests {
         );
     }
 
-    /// ADR-2192: with the stored filter asking for removal, a REST load drops exactly the nodes
-    /// the `/wss` filter reply drops (here the `maxNodes` cap), so a reload cannot re-expand a
-    /// thinned view; without `apply_node_filter` nothing is removed.
+    /// ADR-2192: with the caller's filter snapshot asking for removal, a REST load drops
+    /// exactly the nodes the `/wss` filter reply drops for the same filter (here the
+    /// `max_nodes` cap), through the same function; with `graph_type` set the cap keeps the
+    /// best N of that population, not fewer; without a snapshot nothing is removed.
     #[test]
     fn rest_removal_matches_the_stream_filter_and_is_opt_in() {
         let mut graph = GraphData::new();
-        for (id, q) in [(1u32, "0.9"), (2, "0.2"), (3, "0.7")] {
+        for (id, q, ty) in [
+            (1u32, "0.9", "page"),
+            (2, "0.2", "page"),
+            (3, "0.7", "page"),
+            (4, "0.95", "owl_class"),
+        ] {
             let mut n =
                 visionclaw_domain::models::node::Node::new_with_id(format!("p{id}"), Some(id));
             n.metadata.insert("quality_score".into(), q.into());
+            n.node_type = Some(ty.into());
             graph.nodes.push(n);
         }
         graph
@@ -2542,21 +2560,14 @@ mod visibility_parity_tests {
             .edges
             .push(visionclaw_domain::models::edge::Edge::new(1, 2, 1.0));
         let arc = std::sync::Arc::new(graph);
-        let stored = crate::settings::models::NodeFilterSettings {
-            enabled: true,
-            server_remove: true,
-            filter_by_quality: false,
-            max_nodes: 2,
-            ..Default::default()
-        };
-        let removal = crate::actors::client_filter::client_filter_from_settings(&stored);
+        let snapshot =
+            r#"{"enabled":true,"server_remove":true,"filter_by_quality":false,"max_nodes":2}"#;
+        let removal = super::removal_filter_from_snapshot(snapshot)
+            .unwrap()
+            .unwrap();
 
-        let (nodes, edges, _) =
-            graph_data_projection(&arc, &no_filters(), None, false, Some(&removal));
+        let (nodes, _, _) = graph_data_projection(&arc, &no_filters(), None, false, Some(&removal));
         let ids: BTreeSet<u32> = nodes.iter().map(|n| n.id).collect();
-        assert_eq!(ids, [1, 3].into_iter().collect::<BTreeSet<u32>>());
-        assert_eq!(edges.len(), 1, "only the edge between kept nodes");
-
         let mut stream_filter = removal.clone();
         let (wss_nodes, _) = crate::actors::client_coordinator_actor::filter_update_reply(
             &mut stream_filter,
@@ -2566,9 +2577,24 @@ mod visibility_parity_tests {
         );
         let wss: BTreeSet<u32> = wss_nodes.iter().map(|n| n.id).collect();
         assert_eq!(ids, wss, "REST removal must match the /wss filter reply");
+        assert_eq!(ids, [1, 4].into_iter().collect::<BTreeSet<u32>>());
 
+        // graph_type=knowledge: the best two *pages*, not the pages left in a global top two.
+        let mut q = no_filters();
+        q.graph_type = Some("knowledge".into());
+        let (pages, edges, _) = graph_data_projection(&arc, &q, None, false, Some(&removal));
+        let ids: BTreeSet<u32> = pages.iter().map(|n| n.id).collect();
+        assert_eq!(ids, [1, 3].into_iter().collect::<BTreeSet<u32>>());
+        assert_eq!(edges.len(), 1, "only the edge between kept nodes");
+
+        // Not asking for server removal: no filter; no snapshot: nothing removed.
+        let grey_only = r#"{"enabled":true,"server_remove":false,"max_nodes":1}"#;
+        assert!(super::removal_filter_from_snapshot(grey_only)
+            .unwrap()
+            .is_none());
+        assert!(super::removal_filter_from_snapshot("not json").is_err());
         let (all, _, _) = graph_data_projection(&arc, &no_filters(), None, false, None);
-        assert_eq!(all.len(), 3, "no removal unless asked for");
+        assert_eq!(all.len(), 4);
     }
 
     #[test]
