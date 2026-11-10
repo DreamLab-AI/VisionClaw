@@ -40,16 +40,13 @@ const RECONNECT_MAX_DELAY_SEC: float = 60.0
 # Render budgets, sized for the lowest-spec headset we intend to support
 # (Quest 3 standalone, a planned target) and therefore comfortably safe on the
 # currently deployed Vive/SteamVR desktop rig.
-# When the graph exceeds these, the most important nodes (by server-computed
-# centrality) and the heaviest edges (by weight) are kept — same importance
-# language as the desktop client.
-# Instance budgets are now RUNTIME-DERIVED from the received topology (the backend
-# serves a settings-driven initial load that can exceed any fixed constant), not
-# hardcoded quality gates. Node budget = topology node count, edge budget =
-# topology edge count, each bounded by an absolute safety ceiling so a runaway
-# payload can't blow the MultiMesh instance buffers. See _recompute_instance_budgets.
+# The node budget is RUNTIME-DERIVED from the received topology (the backend
+# serves a settings-driven initial load that can exceed any fixed constant):
+# topology node count, bounded by an absolute safety ceiling so a runaway payload
+# can't blow the MultiMesh instance buffers. See _recompute_instance_budgets.
+# Edge selection and packing live in the Rust render store (heaviest first, capped
+# per volume; overview_lod.gd EDGE_DRAW_CEILING).
 const NODE_SAFETY_CEILING: int = 20000
-const EDGE_SAFETY_CEILING: int = 20000
 
 # XR fit-to-view: the server streams graph coordinates spanning hundreds of
 # metres centred nowhere near the user. A flat client frames its camera to the
@@ -824,19 +821,9 @@ var _eye_gaze_supported: bool = false
 var _lod_recompute: bool = false
 
 var _avatars: Dictionary = {}
-# Node positions/targets now live in the Rust render store (BinaryProtocolClient):
-# it owns the hunt and packs the MultiMesh buffers, so the per-frame 13k-entry
-# GDScript loops are gone (PRD-008 perf). GDScript keeps only centrality (for the
-# LOD/edge selection domain) mirrored from the throttled node_visuals signal.
-var _node_centrality: Dictionary = {}
-# Running max centrality, used to normalise per-node size/halo tells. Monotonic
-# (never shrinks while a graph is loaded) so a settled top node keeps a stable
-# reference; updated only when visuals arrive, never per frame. Seeded > 0 to
-# avoid a divide-by-zero before the first analytics frame.
-var _centrality_max: float = 0.0001
-# Edge topology from initialGraphLoad, pre-capped by weight:
-# flat [src0, tgt0, src1, tgt1, ...].
-var _edge_pairs: PackedInt32Array = PackedInt32Array()
+# Node positions/targets, colours, centrality and edge selection live in the Rust
+# render store (BinaryProtocolClient): it owns the hunt and packs the MultiMesh
+# buffers, so no per-node graph state is mirrored in GDScript (PRD-008 perf).
 
 # LOD-selected drawn node ids (topology-biased, budget-capped). Cached and only
 # recomputed when the selection domain changes (visuals/topology/budget) — the
@@ -979,7 +966,7 @@ var _last_write_error: String = ""
 # Per-view density level: 0 = ∅ (everything), 1 = hide low-signal, 2 = fold
 # subclass chains, 3 = community fold. Local view state — NOT server-routed, so
 # two viewers of the same session can hold different fold levels (same posture
-# as _node_size_factor / _edge_show_count). Stepped via the HUD [Fold +]/[Fold -]
+# as _node_size_factor). Stepped via the HUD [Fold +]/[Fold -]
 # buttons; each step GETs /api/graph/fold and applies the plan to the Rust store.
 const FOLD_LEVEL_MIN: int = 0
 const FOLD_LEVEL_MAX: int = 3
@@ -994,27 +981,13 @@ var _cycles_count: int = 0
 # to _fold_level only on a 2xx, mirroring the physics one-in-flight discipline.
 var _fold_pending: bool = false
 var _fold_staged_level: int = 0
-# Full topology kept verbatim so the edge ranking can be recomputed once centrality
-# analytics arrive (topology often precedes them, which would otherwise pin the
-# ranking to the global-weight fallback forever).
-var _edge_pairs_full: PackedInt32Array = PackedInt32Array()
-var _edge_weights_full: PackedFloat32Array = PackedFloat32Array()
-# Latches true after the one-shot re-rank fires (once centrality is populated) so
-# the O(E log E) rank runs at most twice: once at topology, once when analytics land.
-var _edge_rerank_done: bool = false
-# Full weight-ranked edge list; Edges+/- re-slice the rendered subset from this
-# without re-sorting or re-fetching. _edge_pairs is a prefix of it.
-var _edge_pairs_ranked: PackedInt32Array = PackedInt32Array()
-var _edge_show_count: int = 0
-# Runtime instance budgets derived from the received topology (see
-# _recompute_instance_budgets). Seeded to the safety ceilings so that before any
+# Runtime node budget derived from the received topology (see
+# _recompute_instance_budgets). Seeded to the safety ceiling so that before any
 # topology arrives the client draws everything the position stream gives it (up to
 # the ceiling) rather than an arbitrary constant.
 var _node_budget: int = NODE_SAFETY_CEILING
-var _edge_budget: int = EDGE_SAFETY_CEILING
-# Set of node ids that appear as an edge endpoint (built from _edge_pairs_full on
-# topology arrival). The LOD draw domain and the edge-ranking domain are both
-# restricted to these, so drawn nodes and drawable edges stay coherent.
+# Set of node ids that appear as an edge endpoint (built from the topology's edge
+# list on arrival). The level-of-detail draw domain is restricted to these.
 var _topo_ids: Dictionary = {}
 # Centrality bias added to topo (edge-endpoint) nodes so the LOD cap fills with
 # them first. Far above any real centrality (0..1) so ordering among topo nodes is
@@ -1048,7 +1021,6 @@ const REST_LENGTH_MIN: float = 10.0
 const REST_LENGTH_MAX: float = 400.0
 const NODE_SIZE_FACTOR_MIN: float = 0.3
 const NODE_SIZE_FACTOR_MAX: float = 3.0
-const EDGE_SHOW_MIN: int = 200
 # Dev bearer the codebase uses for physics settings writes.
 const PHYSICS_BEARER: String = "Bearer dev-session-token"
 
@@ -1249,10 +1221,9 @@ func _ready() -> void:
 		_selection.connect("selection_made", Callable(self, "_on_selection_made"))
 
 	if _binary_client != null:
-		# position_updated is intentionally NOT connected: positions live in the Rust
-		# render store now (no per-node signal storm). Only the throttled
-		# node_visuals_updated crosses the boundary, for the centrality mirror.
-		_binary_client.connect("node_visuals_updated", Callable(self, "_on_node_visuals_updated"))
+		# position_updated and node_visuals_updated are intentionally NOT connected:
+		# positions, colours and centrality live in the Rust render store (no
+		# per-node signal storm, no GDScript mirror).
 		_binary_client.connect("topology_updated", Callable(self, "_on_topology_updated"))
 		if _binary_client.has_signal("text_message"):
 			_binary_client.connect("text_message", Callable(self, "_on_graph_text"))
@@ -3022,20 +2993,11 @@ func _clear_graph_mirror() -> void:
 	# gems and phantom edges, so drop all graph state before re-dialling. The
 	# Rust store is cleared inside connect_to_url (below); clear the GDScript
 	# mirror + selection here.
-	_node_centrality.clear()
-	_centrality_max = 0.0001
 	_selection_dirty = true
-	_edge_pairs = PackedInt32Array()
-	_edge_pairs_ranked = PackedInt32Array()
-	_edge_pairs_full = PackedInt32Array()
-	_edge_weights_full = PackedFloat32Array()
-	_edge_rerank_done = false
 	_topo_ids = {}
-	_edge_show_count = 0
 	# Back to "draw everything up to the ceiling" until the next topology sets the
-	# real budgets.
+	# real budget.
 	_node_budget = NODE_SAFETY_CEILING
-	_edge_budget = EDGE_SAFETY_CEILING
 	# Graph-state clear: drop any two-hand manual latch so the fresh snapshot is
 	# re-fitted from scratch rather than inheriting a stale manual transform.
 	_manual_transform = false
@@ -4693,29 +4655,6 @@ func _on_presence_connection_changed(connected: bool) -> void:
 		_schedule_presence_reconnect()
 
 
-# position_updated is no longer emitted by the Rust client (the store owns
-# positions), so there is no _on_position_updated handler. Colours + centrality
-# arrive via the throttled node_visuals_updated below; positions never touch
-# GDScript.
-func _on_node_visuals_updated(node_id: int, community_id: int, centrality: float, anomaly: float) -> void:
-	# Colour is now computed Rust-side inside build_node_buffer; GDScript keeps only
-	# centrality (for the LOD/edge selection domain) and marks the selection dirty
-	# so a new/changed node re-enters the drawn set.
-	_node_centrality[node_id] = centrality
-	_centrality_max = maxf(_centrality_max, centrality)
-	_selection_dirty = true
-	# Topology often arrives before centrality analytics, forcing the edge ranking
-	# onto its global-weight fallback. Re-rank ONCE — not per-frame — the moment
-	# centrality covers the nodes the cap will actually draw, so the rendered edge
-	# subset finally reflects the visible subgraph.
-	if not _edge_rerank_done and not _edge_pairs_full.is_empty():
-		var node_total: int = _binary_client.node_count() if _binary_client != null else 0
-		var need: int = mini(_node_budget, maxi(1, node_total))
-		if _node_centrality.size() >= need:
-			_rerank_edges(true)
-			_edge_rerank_done = true
-
-
 # Deterministic community palette: golden-ratio hue walk gives well-separated
 # colours for any community count (same approach as the desktop renderer).
 # When the server has not computed communities (all community_id == 0, which
@@ -4732,127 +4671,34 @@ func _community_color(community_id: int, anomaly: float, node_id: int = 0) -> Co
 
 
 func _on_topology_updated(_edge_count: int) -> void:
-	# Keep the full topology verbatim so the ranking can be recomputed once
-	# centrality analytics arrive (see _on_node_visuals_updated).
-	_edge_pairs_full = _binary_client.get_edges()
-	_edge_weights_full = _binary_client.get_edge_weights()
-	_edge_rerank_done = false
 	# A fresh topology is a new layout: release any two-hand manual latch so the
 	# adaptive fit re-frames the new graph automatically.
 	_manual_transform = false
 	_two_hand_active = false
 	_manip_session_base_scale = -1.0
-	# Endpoint-id set (built once here, not per frame): the LOD draw domain and the
-	# edge ranking domain are both restricted to these so they stay coherent.
+	# Endpoint-id set (built once here, not per frame): the level-of-detail draw
+	# domain is restricted to these. Edge selection is the Rust store's.
+	var pairs: PackedInt32Array = _binary_client.get_edges()
 	_topo_ids = {}
-	for i: int in range(_edge_pairs_full.size()):
-		_topo_ids[_edge_pairs_full[i]] = true
+	for i: int in range(pairs.size()):
+		_topo_ids[pairs[i]] = true
 	_recompute_instance_budgets()
-	_selection_dirty = true
 	var known: int = _binary_client.node_count() if _binary_client != null else 0
-	print("GraphScene DEBUG: topology arrived edges=%d nodes=%d positions_known=%d budgets=%d/%d" % [
-		_edge_weights_full.size(), _topo_ids.size(), known, _node_budget, _edge_budget])
-	# preserve_show=false: a fresh topology defaults to showing all ranked edges.
-	_rerank_edges(false)
+	print("GraphScene DEBUG: topology arrived edges=%d nodes=%d positions_known=%d node_budget=%d" % [
+		pairs.size() / 2, _topo_ids.size(), known, _node_budget])
 
 
-# Derive the runtime instance budgets from the received topology, each bounded by
-# its absolute safety ceiling so a runaway settings-driven load can't overrun the
-# MultiMesh instance buffers. Node budget follows the count of topology (edge-endpoint)
-# nodes; edge budget follows the topology edge count. When topology carries no
-# edges the node budget stays at the ceiling so the position stream still draws.
+# Derive the runtime node budget from the received topology, bounded by its
+# absolute safety ceiling so a runaway settings-driven load can't overrun the
+# MultiMesh instance buffers. It follows the count of topology (edge-endpoint)
+# nodes; when topology carries no edges it stays at the ceiling so the position
+# stream still draws.
 func _recompute_instance_budgets() -> void:
 	var topo_nodes: int = _topo_ids.size()
 	_node_budget = NODE_SAFETY_CEILING if topo_nodes <= 0 else mini(NODE_SAFETY_CEILING, topo_nodes)
-	_edge_budget = mini(EDGE_SAFETY_CEILING, _edge_weights_full.size())
 	_selection_dirty = true
 	if hud != null:
 		_refresh_controls_status()
-
-
-# The node ids the LOD cap will actually draw: all edge-endpoint (topo) nodes when
-# they fit the cap, else the top-cap of them by centrality. Mirrors the TOPO bias
-# in _update_multimesh so the edge ranking domain equals the drawn domain. Empty
-# when no topology has arrived. Event-driven (topology / analytics), not per frame.
-func _topo_top_ids() -> Dictionary:
-	var out := {}
-	if _topo_ids.is_empty():
-		return out
-	var domain: Array = _topo_ids.keys()
-	if domain.size() <= _node_budget:
-		for id: int in domain:
-			out[id] = true
-		return out
-	domain.sort_custom(func(a: int, b: int) -> bool:
-		return _node_centrality.get(a, 0.0) > _node_centrality.get(b, 0.0))
-	for i: int in range(_node_budget):
-		out[domain[i]] = true
-	return out
-
-
-# (Re)compute the weight-ranked edge list from the kept full topology. When over
-# budget, an edge earns budget only if BOTH endpoints are in the top-centrality
-# node set the node cap will actually draw (visible-subgraph ranking); it falls
-# back to global-weight ranking only when no draw domain exists yet. Runs on
-# topology and once more when centrality lands — never per frame.
-func _rerank_edges(preserve_show: bool) -> void:
-	var pairs: PackedInt32Array = _edge_pairs_full
-	var weights: PackedFloat32Array = _edge_weights_full
-	var total: int = weights.size()
-	if total <= 0:
-		_edge_pairs_ranked = PackedInt32Array()
-		_edge_show_count = 0
-		_apply_edge_slice()
-		return
-	if total <= _edge_budget:
-		_edge_pairs_ranked = pairs
-		if not preserve_show:
-			_edge_show_count = total
-		_apply_edge_slice()
-		return
-	# Rank over the SAME domain the LOD path draws: the top-cap topo (edge-endpoint)
-	# nodes by centrality. This keeps the ranking domain and the drawn domain equal,
-	# so both-endpoints-drawn edges actually render instead of being ranked in but
-	# never shown.
-	var eligible: Array = []
-	var top_ids: Dictionary = _topo_top_ids()
-	if not top_ids.is_empty():
-		for e: int in range(total):
-			if top_ids.has(pairs[e * 2]) and top_ids.has(pairs[e * 2 + 1]):
-				eligible.append(e)
-	# Fallback to global-weight ranking only when there is no usable draw domain yet
-	# (no topology endpoints) — a genuinely sparse-but-real subgraph is kept as-is
-	# rather than padded with edges whose endpoints will never be drawn.
-	if eligible.is_empty():
-		eligible = range(total)
-	eligible.sort_custom(func(a: int, b: int) -> bool: return weights[a] > weights[b])
-	var kept: int = mini(_edge_budget, eligible.size())
-	var capped := PackedInt32Array()
-	capped.resize(kept * 2)
-	for i: int in range(kept):
-		var e: int = eligible[i]
-		capped[i * 2] = pairs[e * 2]
-		capped[i * 2 + 1] = pairs[e * 2 + 1]
-	_edge_pairs_ranked = capped
-	if not preserve_show:
-		_edge_show_count = kept
-	_apply_edge_slice()
-	push_warning("GraphScene: %d edges exceed budget; rendering %d (visible-subgraph ranked)" % [total, kept])
-
-
-# Render the first _edge_show_count pairs of the ranked edge list (heaviest-first),
-# clamped to [EDGE_SHOW_MIN, ranked size]. Zero-copy when showing all.
-func _apply_edge_slice() -> void:
-	var ranked_pairs: int = _edge_pairs_ranked.size() / 2
-	if ranked_pairs <= 0:
-		_edge_pairs = PackedInt32Array()
-		_edge_show_count = 0
-		return
-	_edge_show_count = clampi(_edge_show_count, mini(EDGE_SHOW_MIN, ranked_pairs), ranked_pairs)
-	if _edge_show_count >= ranked_pairs:
-		_edge_pairs = _edge_pairs_ranked
-	else:
-		_edge_pairs = _edge_pairs_ranked.slice(0, _edge_show_count * 2)
 
 
 func _on_avatar_joined(did: String, display_name: String, avatar_id: String) -> void:
@@ -5242,21 +5088,16 @@ func _on_expand_completed(result: int, code: int, _headers: PackedStringArray, b
 		_refresh_topology_additive()
 
 
-# Additively fold newly merged edges into the draw pipeline: re-pull the edge list,
-# extend the endpoint-id domain, recompute budgets and re-rank — WITHOUT re-fitting
-# the view (GraphDBViewerWeb additive-merge principle: no rebuild, no re-fit).
+# Additively fold newly merged edges into the draw domain: re-pull the edge list,
+# extend the endpoint-id set and recompute the budget — WITHOUT re-fitting the view
+# (GraphDBViewerWeb additive-merge principle: no rebuild, no re-fit).
 func _refresh_topology_additive() -> void:
 	if _binary_client == null:
 		return
-	_edge_pairs_full = _binary_client.get_edges()
-	_edge_weights_full = _binary_client.get_edge_weights()
-	for i: int in range(_edge_pairs_full.size()):
-		_topo_ids[_edge_pairs_full[i]] = true
+	var pairs: PackedInt32Array = _binary_client.get_edges()
+	for i: int in range(pairs.size()):
+		_topo_ids[pairs[i]] = true
 	_recompute_instance_budgets()
-	_selection_dirty = true
-	_edge_rerank_done = false
-	# preserve_show=true: keep the user's current density; do not reset the fit.
-	_rerank_edges(true)
 
 
 # --- Feature 2: teleport to a node ------------------------------------------
