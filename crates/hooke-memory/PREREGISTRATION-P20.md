@@ -49,3 +49,19 @@ cheap pass alone 69.0; reasoning on every paragraph 88.1.
 * Ablations at 20%: surface features only 75.6; expectation counts only 73.5; ridge 75.7.
 * Two-step balanced accuracy (200 claims, not a pass mark): learned 77.8 at 20%, hand gate 70.7, reasoning on every
   paragraph 84.2.
+
+## Exploratory addition after scoring (10 November 2026): length-only and other trivial selectors
+Not preregistered; run once on the same P20 outputs after the result above was recorded, at an external reviewer's
+suggestion, to test whether the selector only reproduces paragraph length. `scripts/p20_lengthcheck.py`,
+`results/p20/p20-lengthcheck.json`. Same test set, budgets and metric.
+
+| Budget | Learned | Longest paragraphs first (characters) | Most prompt tokens first | Fewest cheap triples first | Hand gate | Random |
+|---|---|---|---|---|---|---|
+| 10% | 73.2 | 71.3 | 71.3 | 70.3 | 71.6 | 70.7 |
+| 20% | 76.3 | 73.4 | 73.6 | 72.0 | 73.8 | 72.4 |
+| 30% | 78.6 | 76.0 | 75.7 | 73.3 | 76.0 | 74.2 |
+
+Learned minus longest-first at 20%: +2.9 (95% interval 2.2 to 3.5); at 10% +1.9 (1.4 to 2.5); at 30% +2.5 (1.8 to
+3.2). Length alone performs about as well as the hand gate and does not account for the learned selector's gain.
+The best no-learning selector found on this test set is the hand gate at 20% (73.8); the confirmatory test must use
+the best of the hand gate and length as its no-learning baseline.
