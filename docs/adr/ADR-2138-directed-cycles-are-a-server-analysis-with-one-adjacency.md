@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: eba81532aced55cd53edc37655571a49e3846c04
 verified_paths: [src/layout/scc.rs, src/handlers/api_handler/analytics/cycles_handlers.rs, src/settings/api/settings_routes.rs, client/src/api/layoutApi.ts, client/src/features/graph/hooks/useCyclicNodeIds.ts, xr-client/rust/src/render_store.rs, xr-client/scripts/hud.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): the XR Shapes tab first run on a headset against a live graph. Review: before any cycle datum is added to the 52-byte position frame"
@@ -126,3 +126,7 @@ Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The gov
 - The XR cycle overlay is unchanged: `RenderStore::set_cycle_overlay` and `clear_cycle_overlay` are at `render_store.rs:1323-1329`, previously cited at `:1273`, and the `#[func]`s at `binary_protocol.rs:2550-2557`.
 
 **Decision holds, with D2 narrowed to the caller's view.** Re-run: `git diff 5c94c3cbd..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`eba81532a`)
+
+Governed-path changes since `7bd25427e`: `render_store.rs` gains the headset quality toggle beside the received filter (`set_node_filter` `:2551`, `set_local_quality_filter` `:2560`; `d969c2142`) and a `cargo fmt` reflow (`05a057268`); `hud.gd` gains the build stamp in the Session header (`614f0b9b6`). The cycle overlay is untouched: `CYCLE_DIM` is `render_store.rs:713` and no cycle, adjacency or overlay line appears in the diff. **Decision unaffected.** Re-run: `git diff 7bd25427e..eba81532a -- <verified_paths>`. Checked by reading that diff; `scripts/xr-gate.sh` passed at `eba81532a` (both XR crates' fmt, clippy and tests; headless Godot 4.8-beta2 parse check and GUT, 676 of 679 passing, 3 pending for want of a GL renderer).

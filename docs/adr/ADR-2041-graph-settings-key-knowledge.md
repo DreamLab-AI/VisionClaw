@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: eba81532aced55cd53edc37655571a49e3846c04
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -234,3 +234,7 @@ This record remains superseded by ADR-2115. Since `5c94c3cbd` the governed paths
 - `xr-client/scripts/graph_scene.gd`: the overview path, the filter grey-out and the HUD wiring.
 
 None of these touch the key this record renamed. `GraphsSettings` is still `{ knowledge, visionclaw }` with no `logseq` alias (`crates/visionclaw-domain/src/config/visualisation.rs:509-517`, unchanged). The client settings type still keys `knowledge: GraphSettings` (`settings.ts:409`). XR physics writes still target `?graph=knowledge` (`graph_scene.gd:2921`). A grep of the diff for `logseq`, `graph_type`, `graphType`, `graphs.` and `graph=knowledge` finds only a removed doc comment. **Decision unaffected (superseded by ADR-2115).** Re-run: `git diff 5c94c3cbd..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`eba81532a`)
+
+This record remains superseded by ADR-2115. Since `7bd25427e` `xr-client/scripts/graph_scene.gd` changed for slice 1 of the XR upgrade: the dead GDScript edge re-rank is deleted (`881b5cd43`), resume redials and a socket swap releases grabs (`4a87ce14b`), the quality toggle greys locally (`d969c2142`), and the HUD shows a build stamp (`614f0b9b6`). None touches the key this record renamed: XR physics writes still target `?graph=knowledge` (`graph_scene.gd:2900`), and a grep of the diff for `logseq`, `graph_type`, `graphType` and `graph=` finds nothing. **Decision unaffected (superseded by ADR-2115).** Re-run: `git diff 7bd25427e..eba81532a -- <verified_paths>`. Checked by reading that diff; `scripts/xr-gate.sh` passed at `eba81532a` (both XR crates' fmt, clippy and tests; headless Godot 4.8-beta2 parse check and GUT, 676 of 679 passing, 3 pending for want of a GL renderer).

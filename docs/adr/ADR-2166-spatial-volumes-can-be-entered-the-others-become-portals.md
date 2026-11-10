@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158]
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: eba81532aced55cd53edc37655571a49e3846c04
 verified_paths: [xr-client/scripts/space_portals.gd, xr-client/scripts/spatial_volume.gd, xr-client/scripts/emulated_volume.gd, xr-client/scripts/volume_arrangement.gd, xr-client/scripts/graph_scene.gd, xr-client/scripts/hud.gd, xr-client/scripts/xr_prefs.gd, xr-client/materials/portal_membrane.gdshader]
 owner: jjohare
 review_trigger: the first headset session with Enter used (stereo membranes, 90 Hz with an entered 6 m room, comfort of the dim); or XE merging FrameBudgetPass.set_volume_weights
@@ -128,3 +128,16 @@ The portal mechanics are untouched.
 - `xr.portal_walkthrough` is still `KEY_WALKTHROUGH` (`xr_prefs.gd:25`, getter `:102`).
 
 **Decision unaffected; status stays `partial`/`inactive`.** Re-run: `git diff 81e711267..7bd25427e -- <verified_paths>`. Checked by reading that diff; GUT was not re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`eba81532a`)
+
+Governed-path changes since `7bd25427e` (slice 1 of the XR upgrade):
+- `graph_scene.gd`: the dead edge re-rank is deleted, resume redials a down connection, a socket swap releases grabs (`_connect_graph` `:3022`), the quality toggle greys locally, and the build stamp is shown (`_show_build_stamp` `:2235`).
+- `hud.gd`: the Session header row carries the build stamp (`:1568`).
+
+The portal mechanics are untouched.
+- The HUD **Enter**/**Leave** button is still on the Session page and still emits `volume_enter:<id>` / `volume_leave` (`hud.gd:1649`).
+- The scene dispatches those actions at `graph_scene.gd:2317-2319`.
+- The budget hook still calls `set_volume_weights(_portals.budget_weights())` behind `has_method` (`graph_scene.gd:1564-1565`).
+
+**Decision unaffected; status stays `partial`/`inactive`.** Re-run: `git diff 7bd25427e..eba81532a -- <verified_paths>`. Checked by reading that diff; `scripts/xr-gate.sh` passed at `eba81532a` (both XR crates' fmt, clippy and tests; headless Godot 4.8-beta2 parse check and GUT, 676 of 679 passing, 3 pending for want of a GL renderer).

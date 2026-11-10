@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: eba81532aced55cd53edc37655571a49e3846c04
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a new GPU analytics field that cannot fit an existing slot, or any need to change the 52-byte node-record layout
@@ -308,3 +308,7 @@ Re-run: `git diff abcf36db1..81e711267 -- src/utils/binary_protocol.rs xr-client
 ## Re-verification — 2026-11-07 (`7bd25427e`)
 
 Governed-path change since `81e711267`: `xr-client/rust/src/binary_protocol.rs` (`d4e5da63d`, `415c0d6d3`, ADR-2188 overview path), +137/-1. It adds two pure helpers over the decoded edge list (`neighbours_in`, `edge_count_for_class_mask`, at `:518-561`) and highlight and label `#[func]`s on `BinaryProtocolClient` (`set_highlight_ids` `:1646`, `rank_labels` `:2490` and others), plus their tests. No `PROTOCOL_*`, `OPCODE_*`, record-width or tag literal is added or edited. No hunk touches the decoder: `PROTOCOL_V5` is still `:29`, `NODE_RECORD_BYTES = 52` is still `:32`, and `decode_position_frame_with_sequence` is at `:646`. `graph_robust_bounds`, cited at `:1778` in the 48e1bf327 note, is now `:2305`. **Decision unaffected.** Re-run: `git diff 81e711267..7bd25427e -- <verified_paths>`. Checked by reading that diff and grepping for wire constants in it (0 hits); the xr-client tests were not re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`eba81532a`)
+
+Governed-path change since `7bd25427e`: `xr-client/rust/src/binary_protocol.rs` (slice 1 of the XR upgrade). `cargo fmt` (`05a057268`, layout only) and the clippy clean-up (`f3d5acc43`), a `stream_live` signal emitted once per connection when the first position frame is applied (`:1315`, emitted from `emit_frame` `:2807`), and the headset quality toggle's `set_local_quality_filter` (`:1749`). No `PROTOCOL_*`, `OPCODE_*`, record-width or tag literal is added or edited (grep of the diff: 0 hits) and the decoder is untouched: `PROTOCOL_V5` is `:29`, `NODE_RECORD_BYTES = 52` is `:32`, `decode_position_frame_with_sequence` is `:671`, `graph_robust_bounds` is `:2376`. The freshness gate still decides what is applied, and `stream_live` fires only after it admits a frame. **Decision unaffected.** Re-run: `git diff 7bd25427e..eba81532a -- <verified_paths>`. Checked by reading that diff; `scripts/xr-gate.sh` passed at `eba81532a` (both XR crates' fmt, clippy and tests; headless Godot 4.8-beta2 parse check and GUT, 676 of 679 passing, 3 pending for want of a GL renderer).

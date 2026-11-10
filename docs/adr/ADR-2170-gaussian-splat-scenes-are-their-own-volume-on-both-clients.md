@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: eba81532aced55cd53edc37655571a49e3846c04
 verified_paths: [crates/visionclaw-splat, src/handlers/splat_handler.rs, client/src/features/splats, xr-client/rust/src/frame_budget.rs, xr-client/rust/src/splat_governor.rs, xr-client/rust/src/splat_sort.rs, xr-client/rust/src/splat_loader.rs, xr-client/materials/splat.gdshader, xr-client/scripts/splat_volume.gd]
 owner: jjohare
 review_trigger: The first splat frame on either client, any three.js bump past 0.183, a Spark release with WebGPURenderer support (sparkjsdev/spark#394), or the first headset session with `XR_SPLATS=1`.
@@ -180,3 +180,7 @@ Re-verified 2026-11-05 at `858cf136f` for ADR-2178: Governed paths changed only 
 ## Re-verification — 2026-11-07 (`7bd25427e`)
 
 Governed-path change since `5d1b2d04d`: `bd170e81a` only (`cargo fmt --all`) in `crates/visionclaw-splat/src/{bin/splat_admit.rs,licence.rs,manifest.rs,spz.rs,store.rs}`, `crates/visionclaw-splat/tests/real_file.rs` and `src/handlers/splat_handler.rs`. I re-ran `rustfmt --edition 2021` on each Rust file as of `bd170e81a^` and got byte-for-byte what `bd170e81a` committed, so no Rust token changed. **Decision unaffected.** Re-run: `git diff 5d1b2d04d..7bd25427e -- <verified_paths>`. Checked by reading that diff and re-running rustfmt; no test was re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`eba81532a`)
+
+Governed-path changes since `7bd25427e`: `frame_budget.rs`, `splat_governor.rs` and `splat_sort.rs` changed by `cargo fmt` only (`05a057268`; rustfmt applied to each file at `7bd25427e` reproduces it byte for byte), and `splat_loader.rs` by that reflow plus one test's `vec!` turned into an array (`f3d5acc43`). No splat manifest, loader, governor or sort logic changed. **Decision unaffected.** Re-run: `git diff 7bd25427e..eba81532a -- <verified_paths>`. Checked by reading that diff; `scripts/xr-gate.sh` passed at `eba81532a` (both XR crates' fmt, clippy and tests; headless Godot 4.8-beta2 parse check and GUT, 676 of 679 passing, 3 pending for want of a GL renderer).

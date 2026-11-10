@@ -9,7 +9,7 @@ evidence_class: source+test
 acceptance_boundary: mono desktop and headless on HP (Godot 4.6.1 and 4.8-beta2); not stereo, headset or both-eye fill rate
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: eba81532aced55cd53edc37655571a49e3846c04
 verified_paths: [xr-client/rust/src/frame_budget.rs, xr-client/scripts/frame_budget_pass.gd, xr-client/scripts/eye_candy.gd, xr-client/scripts/emulated_volume.gd, xr-client/scripts/spatial_environment.gd, xr-client/perf/benchmark.gd, xr-client/perf/gpu_time_probe.gd]
 owner: jjohare
 review_trigger: A headset session that measures both eyes, or any change to the renderer, the frame budget or the comfort switches.
@@ -78,3 +78,7 @@ Governed-path change since `5c94c3cbd`: `xr-client/scripts/spatial_environment.g
 3. otherwise reduced motion on and full visuals (`:76-87`).
 
 HUD toggles persist the choice (`:192-198`). Decision 4 still holds: `XR_VISUAL_QUALITY=low` still turns every extra off, and the defaults are unchanged. A stored low-cost choice now also turns them off when no environment value is set. The allocator, tiers and governor are untouched. **Decision unaffected; status stays `proposed`/`partial`/`staged`.** Re-run: `git diff 5c94c3cbd..7bd25427e -- xr-client/scripts/spatial_environment.gd`. Checked by reading that diff; GUT was not re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`eba81532a`)
+
+Governed-path change since `7bd25427e`: `xr-client/rust/src/frame_budget.rs` changed by `cargo fmt` only (`05a057268`): rustfmt applied to the file at `7bd25427e` reproduces it byte for byte. No budget, layer or allocator logic changed. **Decision unaffected.** Re-run: `git diff 7bd25427e..eba81532a -- <verified_paths>`. Checked by reading that diff; `scripts/xr-gate.sh` passed at `eba81532a` (both XR crates' fmt, clippy and tests; headless Godot 4.8-beta2 parse check and GUT, 676 of 679 passing, 3 pending for want of a GL renderer).
