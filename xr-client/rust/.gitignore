@@ -1,2 +1,5 @@
 target/
-Cargo.lock
+# Tracked on purpose (overrides the root ignore): this crate is its own workspace
+# and builds the shipped cdylib, so the HP and scripts/xr-gate.sh build the same
+# dependency versions with --locked.
+!Cargo.lock
