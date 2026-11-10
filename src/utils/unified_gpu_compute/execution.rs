@@ -666,17 +666,13 @@ impl UnifiedGPUCompute {
         let force_pass_kernel = self._module.get_function(force_kernel_name)?;
         let stream = &self.stream;
 
-        let d_sssp = if (self.sssp_available || self.sssp_device_distances.is_some())
-            && (params.feature_flags
-                & crate::models::simulation_params::FeatureFlags::ENABLE_SSSP_SPRING_ADJUST
-                != 0)
+        let d_sssp = if params.feature_flags
+            & crate::models::simulation_params::FeatureFlags::ENABLE_SSSP_SPRING_ADJUST
+            != 0
         {
-            // Prefer the persistent sssp_device_distances buffer (stable across run_sssp calls)
-            // over self.dist which is the working buffer that gets overwritten each SSSP run.
-            match &self.sssp_device_distances {
-                Some(buf) => buf.as_device_ptr(),
-                None => self.dist.as_device_ptr(),
-            }
+            // Only distances computed for this graph, one per live node (S1a, finding C1b).
+            // There is no fallback to `self.dist`: that is SSSP's working buffer.
+            self.sssp_distances_for_force_pass()
         } else {
             DevicePointer::null()
         };
@@ -685,7 +681,7 @@ impl UnifiedGPUCompute {
         // 1. All position, velocity, and force buffers are valid DeviceBuffers with capacity >= num_nodes
         // 2. cell_start, cell_end, sorted_node_indices, cell_keys are from the spatial grid build phase
         // 3. edge_row_offsets, edge_col_indices, edge_weights are CSR graph data loaded at construction
-        // 4. d_sssp is either a valid DevicePointer to dist buffer or DevicePointer::null()
+        // 4. d_sssp is null or the persisted SSSP distances, which hold at least num_nodes entries (sssp_distances_for_force_pass)
         // 5. constraint_data has capacity for num_constraints ConstraintData elements
         // 6. should_skip_physics is a valid single-element DeviceBuffer for stability gating
         // 7. grid_size and block_size are validated via validate_kernel_launch()

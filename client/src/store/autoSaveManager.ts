@@ -121,6 +121,21 @@ export class AutoSaveManager {
       logger.debug(`[SETTINGS-DIAG] autoSaveManager.flush SUCCESS: ${updates.length} updates sent to server`);
       useSettingsSyncStatus.getState().markSaved(updates.map((u) => u.path));
     } catch (error) {
+      // ADR-2192: the server refused the values (validation, HTTP 400). Retrying would resend
+      // a value it will always refuse while the control keeps showing it, so revert the store
+      // to what the server holds instead.
+      if (httpStatus(error) === 400) {
+        const paths = updates.map((u) => u.path);
+        this.markUnsaved(paths, 'rejected');
+        try {
+          // Lazy: the store imports this module, so a static import would be a cycle.
+          const { useSettingsStore } = await import('./settingsStore');
+          await useSettingsStore.getState().reloadFromServer(paths);
+        } catch (reloadError) {
+          logger.warn('Could not revert refused settings to the server values', reloadError);
+        }
+        return;
+      }
       this.markUnsaved(updates.map((u) => u.path), 'failed');
 
       // Delegate all failed updates to the centralized retry manager
@@ -143,6 +158,12 @@ export class AutoSaveManager {
   getPendingCount(): number {
     return this.pendingChanges.size;
   }
+}
+
+/** The HTTP status of an axios-style error, if it has one. */
+export function httpStatus(error: unknown): number | undefined {
+  const status = (error as { response?: { status?: unknown } } | null)?.response?.status;
+  return typeof status === 'number' ? status : undefined;
 }
 
 // Export singleton instance

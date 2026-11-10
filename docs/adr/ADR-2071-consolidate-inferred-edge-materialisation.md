@@ -178,3 +178,8 @@ $ sed -n '1186,1200p' src/services/github_sync_service.rs
 
 Corrects the Phase 1 report, which described this module as a dead duplicate: it is live, and the
 duplication is on the other side.
+
+## Amended by ADR-2192 (2026-11-10)
+
+- `OntologyPipelineService` is deleted. Its entry point `on_ontology_modified` had no caller, so the sync path is the only consumer of `inferred_edge_materialiser`. The service's inline child→ancestor map (the open item above) went with it.
+- Inferred-edge materialisation is now switchable: `qualityGates.materialiseInferredEdges`, default on, because the sync always wrote them. Off, or with `qualityGates.ontologyReasoning` off, the sync writes none and removes the stored `inferred:true` edges.

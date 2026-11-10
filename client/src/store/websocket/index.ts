@@ -60,6 +60,7 @@ import {
   resetFilterState,
   expectFilterResponseFor,
   syncFilterToServer,
+  filterWireBody,
 } from './filterSync';
 
 import { createBinaryFrameDispatcher, createMessageHandler } from './binaryFrameDispatcher';
@@ -369,16 +370,7 @@ export const useWebSocketStore = create<WebSocketState>()(
         // in handleInitialGraphLoad lets it through (see filterSync.ts).
         expectFilterResponseFor(filter);
 
-        state.sendMessage('filter_update', {
-          enabled: filter.enabled,
-          quality_threshold: filter.qualityThreshold,
-          authority_threshold: filter.authorityThreshold,
-          filter_by_quality: filter.filterByQuality,
-          filter_by_authority: filter.filterByAuthority,
-          filter_mode: filter.filterMode,
-          include_linked_pages: filter.includeLinkedPages ?? false,
-          server_remove: filter.serverRemove ?? false,
-        });
+        state.sendMessage('filter_update', filterWireBody(filter));
 
         logger.info('Filter update sent to server', filter);
       },

@@ -144,6 +144,19 @@ describe('handleTextMessage — settingsUpdated (ADR-2047)', () => {
     expect(mockGetSettingsByPaths).not.toHaveBeenCalled();
   });
 
+  it('a second session takes the cap from a peer node-filter write (ADR-2192)', () => {
+    // The server frame is the stored document (node_filter_broadcast), so it carries maxNodes;
+    // the receiver replaces its nodeFilter with it and its filter subscription then sends
+    // max_nodes in its own filter_update (filterSync.test).
+    const peer = {
+      enabled: true, qualityThreshold: 0.7, authorityThreshold: 0.5, filterByQuality: true,
+      filterByAuthority: false, filterMode: 'or', includeLinkedPages: false,
+      serverRemove: true, minConnections: 0, minMaturity: '', maxNodes: 2500,
+    };
+    dispatch({ type: 'settingsUpdated', category: 'nodeFilter', updatedBy: OTHER_PUBKEY, timestamp: 5000, settings: peer });
+    expect(mockSet).toHaveBeenCalledWith('nodeFilter', expect.objectContaining({ maxNodes: 2500, serverRemove: true }), true);
+  });
+
   it('re-reads the category from the settings API for a physics update', async () => {
     mockGetSettingsByPaths.mockResolvedValue({
       visualisation: { graphs: { knowledge: { physics: { springK: 0.42 } } } },

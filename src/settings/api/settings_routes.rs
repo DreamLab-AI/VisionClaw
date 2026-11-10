@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use crate::actors::messages::{
     BroadcastMessage, ConfigureStream, ForceResumePhysics, GetSettings, ResetPositions,
-    SetComputeMode, UpdateClusteringParams, UpdateConstraints, UpdateSettings,
-    UpdateSimulationParams,
+    SetComputeMode, SetOntologyConstraintPolicy, UpdateClusteringParams, UpdateConstraints,
+    UpdateSettings, UpdateSimulationParams,
 };
 use crate::adapters::SqliteSettingsRepository;
 use crate::config::{PhysicsSettings, RenderingSettings};
@@ -294,6 +294,13 @@ pub fn validate_physics_settings(settings: &PhysicsSettings) -> Result<(), Strin
         bounds::STREAM_ACK_TIMEOUT_MS.1,
         &mut errors,
     );
+    check_range(
+        settings.ontology_constraint_strength,
+        "ontology_constraint_strength",
+        bounds::ONTOLOGY_CONSTRAINT_STRENGTH.0,
+        bounds::ONTOLOGY_CONSTRAINT_STRENGTH.1,
+        &mut errors,
+    );
 
     // All other f32 fields: reject NaN/Infinity
     check_finite(settings.separation_radius, "separation_radius", &mut errors);
@@ -389,6 +396,12 @@ pub fn validate_node_filter_settings(settings: &NodeFilterSettings) -> Result<()
     if settings.filter_mode != "and" && settings.filter_mode != "or" {
         return Err("filter_mode must be 'and' or 'or'".into());
     }
+    if settings.max_nodes > crate::settings::models::MAX_NODES_CEILING {
+        return Err(format!(
+            "max_nodes must be 0 (no cap) to {}",
+            crate::settings::models::MAX_NODES_CEILING
+        ));
+    }
     if settings.min_maturity != "off"
         && !crate::settings::models::MATURITY_STAGES.contains(&settings.min_maturity.as_str())
     {
@@ -408,15 +421,6 @@ pub fn validate_node_filter_settings(settings: &NodeFilterSettings) -> Result<()
 pub fn validate_quality_gate_settings(settings: &QualityGateSettings) -> Result<(), String> {
     let mut errors = Vec::new();
 
-    if !settings.ontology_strength.is_finite()
-        || settings.ontology_strength < 0.0
-        || settings.ontology_strength > 1.0
-    {
-        errors.push(format!(
-            "ontology_strength must be between 0.0 and 1.0 (got {})",
-            settings.ontology_strength
-        ));
-    }
     let valid_modes = visionclaw_domain::types::layout::QUALITY_GATE_LAYOUT_MODES;
     if !valid_modes.contains(&settings.layout_mode.as_str()) {
         errors.push(format!(
@@ -610,6 +614,46 @@ pub async fn update_physics_settings(
     }
 }
 
+/// Whether a physics patch names one of the ontology-constraint policy keys (ADR-2192), in
+/// either wire spelling. A write that asks for the policy reports a failed application.
+pub(crate) fn patch_touches_ontology_policy(patch: &serde_json::Value) -> bool {
+    patch.as_object().is_some_and(|o| {
+        [
+            "ontologyConstraintsEnabled",
+            "ontology_constraints_enabled",
+            "ontologyConstraintStrength",
+            "ontology_constraint_strength",
+        ]
+        .iter()
+        .any(|k| o.contains_key(*k))
+    })
+}
+
+/// Send the stored ontology-constraint policy (ADR-2192) to the constraint actor.
+///
+/// Sent on every physics write, not only when the stored value changed: the store is written
+/// first, so comparing against it cannot tell whether an earlier application failed. The
+/// constraint actor holds the policy it last applied and answers an unchanged one without
+/// re-uploading, so a repeat costs one message and a failed application is retried by the next
+/// write (or the next supervisor start). Returns the actor's error, if any.
+async fn apply_ontology_constraint_policy(
+    state: &web::Data<AppState>,
+    physics: &PhysicsSettings,
+) -> Result<(), String> {
+    let policy = SetOntologyConstraintPolicy::from_physics(physics);
+    let Some(ref gpu_manager) = state.gpu_manager_addr else {
+        return Err("no GPU manager to apply the ontology-constraint policy".to_string());
+    };
+    match gpu_manager.send(policy).await {
+        Ok(Ok(applied)) => {
+            debug!("Ontology-constraint policy applied: {}", applied);
+            Ok(())
+        }
+        Ok(Err(e)) => Err(e),
+        Err(e) => Err(format!("GPU manager mailbox error: {}", e)),
+    }
+}
+
 /// The one physics write path (ADR-2140 decision 3): deep-merge `patch` onto the stored
 /// document, validate it with the central validators, write the store, push the result to the
 /// GPU actors, persist to SQLite and tell other sessions. `PUT /api/settings/physics` and every
@@ -647,6 +691,7 @@ pub(crate) async fn apply_physics_patch(
     // Merge partial patch onto current physics from the same snapshot
     let current_physics = &full_settings.visualisation.graphs.knowledge.physics;
     let current_json = serde_json::to_value(current_physics).unwrap_or_default();
+    let asks_for_policy = patch_touches_ontology_policy(&patch);
 
     let new_physics = match merge_physics_patch(current_json, patch) {
         Ok(Some(merged)) => merged,
@@ -690,6 +735,15 @@ pub(crate) async fn apply_physics_patch(
     {
         Ok(Ok(())) => {
             info!("Physics settings updated successfully by {}", updated_by);
+
+            // The ontology-constraint policy (ADR-2192) is not a SimParams field: it goes to the
+            // constraint actor, first, so a SimParams refusal below cannot leave it unapplied.
+            let policy_error = apply_ontology_constraint_policy(state, &new_physics)
+                .await
+                .err();
+            if let Some(ref e) = policy_error {
+                warn!("Ontology-constraint policy stored but not applied: {}", e);
+            }
 
             // Propagate physics changes to GPU actors so layout actually responds
             let sim_params: crate::models::simulation_params::SimulationParams =
@@ -806,6 +860,14 @@ pub(crate) async fn apply_physics_patch(
             // the one that never announced itself.
             broadcast_settings_change(state, "physics", updated_by);
 
+            // A write that asked for the policy hears that it was not applied; the store holds
+            // it and the next write or supervisor start retries.
+            if let (true, Some(e)) = (asks_for_policy, policy_error) {
+                return Err(PhysicsPatchError::Internal(format!(
+                    "Stored, but the ontology-constraint policy was not applied: {}",
+                    e
+                )));
+            }
             Ok(new_physics)
         }
         Ok(Err(e)) => {
@@ -1144,26 +1206,11 @@ pub async fn update_node_filter_settings(
     // Propagate node filter changes to all connected clients via broadcast.
     // Clients receiving this message recompute which nodes pass the filter
     // and re-render the visible graph accordingly.
-    let broadcast_payload = serde_json::json!({
-        "type": "settingsUpdated",
-        "category": "nodeFilter",
-        "settings": {
-            "enabled": settings.enabled,
-            "qualityThreshold": settings.quality_threshold,
-            "authorityThreshold": settings.authority_threshold,
-            "filterByQuality": settings.filter_by_quality,
-            "filterByAuthority": settings.filter_by_authority,
-            "filterMode": settings.filter_mode,
-            "includeLinkedPages": settings.include_linked_pages,
-            "serverRemove": settings.server_remove,
-            // the receiver replaces its whole nodeFilter object with this payload, so a field
-            // left out here would be wiped on every other client
-            "minConnections": settings.min_connections,
-            "minMaturity": settings.min_maturity,
-        },
-        "updatedBy": auth.pubkey,
-        "timestamp": chrono::Utc::now().timestamp_millis()
-    });
+    let broadcast_payload = node_filter_broadcast(
+        &settings,
+        &auth.pubkey,
+        chrono::Utc::now().timestamp_millis(),
+    );
     if let Ok(msg_str) = serde_json::to_string(&broadcast_payload) {
         state
             .client_manager_addr
@@ -1181,6 +1228,24 @@ pub async fn update_node_filter_settings(
 // ============================================================================
 // Quality Gate Settings Routes
 // ============================================================================
+
+/// The `settingsUpdated` frame for a node-filter write. The receiver replaces its whole
+/// `nodeFilter` object with `settings`, so the payload is the stored document itself
+/// (serialised from [`NodeFilterSettings`]): a field cannot be left out and wiped on the other
+/// sessions, as `maxNodes` was (ADR-2192).
+pub(crate) fn node_filter_broadcast(
+    settings: &NodeFilterSettings,
+    updated_by: &str,
+    timestamp_ms: i64,
+) -> serde_json::Value {
+    serde_json::json!({
+        "type": "settingsUpdated",
+        "category": "nodeFilter",
+        "settings": serde_json::to_value(settings).unwrap_or_default(),
+        "updatedBy": updated_by,
+        "timestamp": timestamp_ms
+    })
+}
 
 /// GET /api/settings/quality-gates
 /// Loads quality gate settings from SQLite repository, falling back to defaults.
@@ -1290,8 +1355,13 @@ pub async fn update_quality_gate_settings(
     }
 
     info!(
-        "User {} updated quality gate settings: gpu={}, ontology={}, layout={}",
-        auth.pubkey, settings.gpu_acceleration, settings.ontology_physics, settings.layout_mode
+        "User {} updated quality gate settings: gpu={}, reasoning={}, domain_roots={}, inferred_edges={}, layout={}",
+        auth.pubkey,
+        settings.gpu_acceleration,
+        settings.ontology_reasoning,
+        settings.materialise_domain_roots,
+        settings.materialise_inferred_edges,
+        settings.layout_mode
     );
 
     // ADR-2140: the layout mode is `physics.layoutMode`. A client that still names it here (the
@@ -1383,19 +1453,9 @@ pub async fn update_quality_gate_settings(
                 settings.layout_mode
             );
 
-            // Ontology constraint weights follow the quality gate's ontology strength. (The
-            // semantic-force parameters are NOT propagated from here any more: they are the
-            // central physics settings' `semantic` group, applied by the physics PUT.)
-            if settings.ontology_physics {
-                if let Some(ref gpu_manager) = state.gpu_manager_addr {
-                    let weight_msg = crate::actors::messages::AdjustConstraintWeights {
-                        global_strength: settings.ontology_strength,
-                    };
-                    if let Err(e) = gpu_manager.send(weight_msg).await {
-                        warn!("Quality gates: failed to propagate ontology weights: {}", e);
-                    }
-                }
-            }
+            // The ontology constraints are not a quality gate any more: they are the stored
+            // physics keys `ontologyConstraintsEnabled` / `ontologyConstraintStrength`
+            // (ADR-2192), applied by the physics write path.
         }
         Ok(Err(e)) => {
             warn!(
@@ -1818,9 +1878,16 @@ pub async fn delete_profile(
 // ============================================================================
 
 /// The document a layout reset writes: the canonical defaults with the mode of the stored
-/// document, or the default mode when the store cannot answer.
+/// document, or the default mode when the store cannot answer. The ontology-constraint on/off
+/// switch is kept too (ADR-2192): like the mode it is an operator choice, not a tuning value,
+/// and an operator who switched the constraints off and then reset a collapsed layout must not
+/// get them back. Their strength is tuning and resets.
 pub(crate) fn reset_document_for(stored: Option<&PhysicsSettings>) -> PhysicsSettings {
-    reset_document(stored.map(|p| p.layout_mode).unwrap_or_default())
+    let mut doc = reset_document(stored.map(|p| p.layout_mode).unwrap_or_default());
+    if let Some(p) = stored {
+        doc.ontology_constraints_enabled = p.ontology_constraints_enabled;
+    }
+    doc
 }
 
 /// The canonical physics defaults for a layout reset, keeping the active layout mode.
@@ -1850,7 +1917,15 @@ pub async fn reset_layout(
     // (natural fully-3D layout by default; dual-disc is opt-in). The layout mode is not a
     // tuning value: a reset re-settles in the mode that is active, as it did when the
     // compute actor held the mode itself (ADR-2140).
-    let reset_physics = reset_document_for(stored_physics(&state).await.as_ref());
+    let stored_before = stored_physics(&state).await;
+    let reset_physics = reset_document_for(stored_before.as_ref());
+    // A reset keeps the constraint switch and resets their strength (ADR-2192).
+    if let Err(e) = apply_ontology_constraint_policy(&state, &reset_physics).await {
+        warn!(
+            "Layout reset: ontology-constraint policy not applied: {}",
+            e
+        );
+    }
     let sim_params: crate::models::simulation_params::SimulationParams = (&reset_physics).into();
     info!(
         "Reset physics from canonical default (axis_compression_z={}, enable_dual_disc_layout={}, repel_k={}, center_gravity_k={})",
@@ -2361,6 +2436,53 @@ mod reset_layout_mode_tests {
             LayoutMode::default(),
             "no stored document: the default mode"
         );
+    }
+
+    /// ADR-2192: the node-filter broadcast carries every stored field, `maxNodes` included,
+    /// under the stored (camelCase) names, so a receiver replacing its object loses nothing.
+    #[test]
+    fn the_node_filter_broadcast_is_the_stored_document() {
+        let stored = NodeFilterSettings {
+            enabled: true,
+            server_remove: true,
+            max_nodes: 2500,
+            ..NodeFilterSettings::default()
+        };
+        let frame = node_filter_broadcast(&stored, "pk", 7);
+        assert_eq!(frame["category"], "nodeFilter");
+        assert_eq!(frame["settings"]["maxNodes"], 2500);
+        assert_eq!(frame["settings"], serde_json::to_value(&stored).unwrap());
+        let back: NodeFilterSettings = serde_json::from_value(frame["settings"].clone()).unwrap();
+        assert_eq!(back.max_nodes, 2500);
+    }
+
+    /// ADR-2192: only a patch naming a policy key reports a failed policy application.
+    #[test]
+    fn only_policy_patches_report_a_failed_application() {
+        use serde_json::json;
+        assert!(patch_touches_ontology_policy(
+            &json!({ "ontologyConstraintsEnabled": false })
+        ));
+        assert!(patch_touches_ontology_policy(
+            &json!({ "ontology_constraint_strength": 0.3 })
+        ));
+        assert!(!patch_touches_ontology_policy(&json!({ "repelK": 3.0 })));
+        assert!(!patch_touches_ontology_policy(&json!([1, 2])));
+    }
+
+    /// ADR-2192: a reset keeps the ontology-constraint switch (an operator choice) and resets
+    /// the strength (tuning).
+    #[test]
+    fn the_reset_keeps_the_constraint_switch_and_resets_its_strength() {
+        let stored = PhysicsSettings {
+            ontology_constraints_enabled: false,
+            ontology_constraint_strength: 0.2,
+            ..PhysicsSettings::default()
+        };
+        let doc = reset_document_for(Some(&stored));
+        assert!(!doc.ontology_constraints_enabled, "switched off stays off");
+        assert_eq!(doc.ontology_constraint_strength, 0.6);
+        assert!(reset_document_for(None).ontology_constraints_enabled);
     }
 
     #[test]

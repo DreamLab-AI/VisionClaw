@@ -54,9 +54,6 @@ pub struct QualityGateSettings {
     /// Enable GPU-accelerated physics computation (20-50x faster)
     pub gpu_acceleration: bool,
 
-    /// Enable ontology constraint forces in physics simulation
-    pub ontology_physics: bool,
-
     /// Layout mode: force-directed, dag-topdown, dag-radial, dag-leftright, type-clustering, spectral, clustered
     pub layout_mode: String,
 
@@ -78,20 +75,33 @@ pub struct QualityGateSettings {
     /// Auto-adjust quality based on performance
     pub auto_adjust: bool,
 
-    /// Global strength of ontology constraint forces (0.0 - 1.0)
-    #[serde(default = "default_ontology_strength")]
-    pub ontology_strength: f32,
+    /// Run the Whelk reasoner over the ontology store: once at start-up (so the ontology-agent
+    /// routes answer before the first sync lands) and after every sync (ADR-2192). Read by the
+    /// sync service when it runs, so a change applies at the next sync or restart. Off skips
+    /// both passes; what degrades is listed in ADR-2192.
+    #[serde(default = "default_on")]
+    pub ontology_reasoning: bool,
+
+    /// Keep one root node per populated domain, with a `domain_member` spoke to each member
+    /// (ADR-2192). Reconciled at each sync: off purges the stored roots and their spokes.
+    #[serde(default = "default_on")]
+    pub materialise_domain_roots: bool,
+
+    /// Write the reasoner's inferred SubClassOf parents into the graph as `inferred` edges
+    /// (ADR-2071, ADR-2192). On by default because the sync always did so; off stops writing
+    /// them and removes those already stored, at the next sync.
+    #[serde(default = "default_on")]
+    pub materialise_inferred_edges: bool,
 }
 
-fn default_ontology_strength() -> f32 {
-    0.5
+fn default_on() -> bool {
+    true
 }
 
 impl Default for QualityGateSettings {
     fn default() -> Self {
         Self {
-            gpu_acceleration: true,  // GPU on by default if available
-            ontology_physics: false, // Off by default (expensive)
+            gpu_acceleration: true, // GPU on by default if available
             layout_mode: "force-directed".to_string(),
             show_clusters: true,     // Show clustering by default
             show_anomalies: true,    // Show anomalies by default
@@ -99,7 +109,9 @@ impl Default for QualityGateSettings {
             ruvector_enabled: false, // Off by default (requires integration)
             min_fps_threshold: 30,
             auto_adjust: true, // Auto-adjust on by default
-            ontology_strength: 0.5,
+            ontology_reasoning: true,
+            materialise_domain_roots: true,
+            materialise_inferred_edges: true,
         }
     }
 }
@@ -151,7 +163,17 @@ pub struct NodeFilterSettings {
     /// like `min_connections`. One of [`MATURITY_STAGES`] or "off".
     #[serde(default = "default_min_maturity")]
     pub min_maturity: String,
+
+    /// Cap on the nodes the server streams to a desktop client that opted in to removal
+    /// (`enabled && serverRemove`), 0 = no cap (ADR-2192). The nodes that pass the predicates are
+    /// ranked by authored quality score (unscored last), then degree, then id, and the top
+    /// `maxNodes` are kept. Like `serverRemove` it thins the stream, not the GPU simulation.
+    #[serde(default)]
+    pub max_nodes: u32,
 }
+
+/// Largest accepted `maxNodes` (the initial-load sanity ceiling).
+pub const MAX_NODES_CEILING: u32 = 100_000;
 
 /// The maturity stages a `min_maturity` floor may name, lowest first (client MATURITY_RANK).
 pub const MATURITY_STAGES: [&str; 6] = [
@@ -184,6 +206,7 @@ impl Default for NodeFilterSettings {
             server_remove: false,
             min_connections: 0,
             min_maturity: default_min_maturity(),
+            max_nodes: 0,
         }
     }
 }
@@ -248,6 +271,24 @@ mod tests {
         assert_eq!(out["minMaturity"], "draft");
     }
 
+    /// ADR-2192: `maxNodes` round-trips, and a document stored before it existed reads as no cap.
+    #[test]
+    fn node_filter_max_nodes_round_trips_and_defaults_to_no_cap() {
+        let stored = serde_json::json!({
+            "enabled": true, "qualityThreshold": 0.4, "authorityThreshold": 0.5,
+            "filterByQuality": true, "filterByAuthority": false, "filterMode": "or",
+            "serverRemove": true
+        });
+        let f: NodeFilterSettings = serde_json::from_value(stored).unwrap();
+        assert_eq!(f.max_nodes, 0);
+        assert_eq!(NodeFilterSettings::default().max_nodes, 0);
+        let mut doc = serde_json::to_value(&f).unwrap();
+        doc["maxNodes"] = serde_json::json!(2500);
+        let capped: NodeFilterSettings = serde_json::from_value(doc).unwrap();
+        assert_eq!(capped.max_nodes, 2500);
+        assert_eq!(serde_json::to_value(&capped).unwrap()["maxNodes"], 2500);
+    }
+
     /// A document stored before the fields existed reads as "no degree floor, no maturity floor".
     #[test]
     fn node_filter_without_the_new_fields_reads_their_defaults() {
@@ -260,8 +301,11 @@ mod tests {
         assert_eq!(NodeFilterSettings::default().min_maturity, "off");
     }
 
-    /// ADR-2189: documents stored before `gnnPhysics` and `maxNodeCount` were removed, and PUTs
-    /// from older clients, still deserialise; the retired keys are dropped.
+    /// ADR-2189 and ADR-2192: documents stored before `gnnPhysics`, `maxNodeCount`,
+    /// `ontologyPhysics` and `ontologyStrength` were removed, and PUTs from older clients, still
+    /// deserialise; the retired keys are dropped. (`ontologyPhysics`/`ontologyStrength` never
+    /// governed the constraints, which were always on at 0.6; the stored physics keys
+    /// `ontologyConstraintsEnabled`/`ontologyConstraintStrength` now do.)
     #[test]
     fn quality_gates_with_retired_keys_still_deserialise() {
         let stored = serde_json::json!({
@@ -281,15 +325,45 @@ mod tests {
         let gates: QualityGateSettings =
             serde_json::from_value(stored).expect("old blob must still load");
         assert!(!gates.gpu_acceleration);
-        assert!(gates.ontology_physics);
         assert_eq!(gates.layout_mode, "spectral");
         assert!(!gates.show_clusters);
         assert!(gates.show_communities);
         assert!(gates.ruvector_enabled);
         assert_eq!(gates.min_fps_threshold, 45);
         assert!(!gates.auto_adjust);
-        assert_eq!(gates.ontology_strength, 0.25);
         let out = serde_json::to_value(&gates).unwrap();
-        assert!(out.get("gnnPhysics").is_none() && out.get("maxNodeCount").is_none());
+        for retired in [
+            "gnnPhysics",
+            "maxNodeCount",
+            "ontologyPhysics",
+            "ontologyStrength",
+        ] {
+            assert!(out.get(retired).is_none(), "{retired} must be dropped");
+        }
+    }
+
+    /// ADR-2192: a quality-gate document stored before the three sync switches existed loads
+    /// them on, which is what the sync did unconditionally; each round-trips when stored off.
+    #[test]
+    fn sync_switches_default_on_for_old_documents_and_round_trip() {
+        let stored = serde_json::json!({
+            "gpuAcceleration": true, "ontologyPhysics": false, "layoutMode": "force-directed",
+            "showClusters": true, "showAnomalies": true, "showCommunities": false,
+            "ruvectorEnabled": false, "minFpsThreshold": 30, "autoAdjust": true,
+            "ontologyStrength": 0.5
+        });
+        let gates: QualityGateSettings = serde_json::from_value(stored).unwrap();
+        assert!(gates.ontology_reasoning);
+        assert!(gates.materialise_domain_roots);
+        assert!(gates.materialise_inferred_edges);
+        assert_eq!(gates, QualityGateSettings::default());
+
+        let mut doc = serde_json::to_value(&gates).unwrap();
+        doc["ontologyReasoning"] = serde_json::json!(false);
+        doc["materialiseDomainRoots"] = serde_json::json!(false);
+        doc["materialiseInferredEdges"] = serde_json::json!(false);
+        let off: QualityGateSettings = serde_json::from_value(doc).unwrap();
+        assert!(!off.ontology_reasoning && !off.materialise_domain_roots);
+        assert!(!off.materialise_inferred_edges);
     }
 }

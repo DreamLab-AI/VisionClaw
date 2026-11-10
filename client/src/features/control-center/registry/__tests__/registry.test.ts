@@ -19,10 +19,10 @@ const { resolve } = getBuiltin('path') as typeof import('path');
 
 /** Fields per SOURCE group (the files that declare them), after the ADR-2189 deletions. */
 const EXPECTED_GROUP_COUNTS: Record<string, number> = {
-  motion: 84,
+  motion: 86, // + the two stored ontology-constraint keys (ADR-2192)
   look: 23,
   labels: 6, // Label Draw Distance retired (ADR-2186: no distance cull)
-  quality: 28, // RuVector Integration removed (dead, settings audit 2026-11-06)
+  quality: 33, // RuVector Integration removed (dead, settings audit 2026-11-06); + Max Nodes, Nodes Shown and the three Ontology Pipeline switches (ADR-2192)
   atmosphere: 32,
   ai: 2,
   system: 17, // Auth Enabled / Auth Required removed (dead)
@@ -34,12 +34,12 @@ const EXPECTED_GROUP_COUNTS: Record<string, number> = {
 /** Fields per SECTION (ADR-2189): what the rail, the dock and hotkeys 1..7 open. */
 const EXPECTED_SECTION_COUNTS: Record<string, number> = {
   layers: 14,
-  explore: 28,
+  explore: 30, // + Max Nodes and Nodes Shown (ADR-2192)
   encode: 18, // Label Draw Distance retired (ADR-2186); edge width, opacity and the three mode colours moved to Look › Edges
-  layout: 80,
+  layout: 82, // + Reasoner Constraints and their strength (ADR-2192)
   look: 50,
   agents: 30,
-  system: 24,
+  system: 27, // + the three Ontology Pipeline switches in Services (ADR-2192)
 };
 
 /**
@@ -131,7 +131,25 @@ const GRAPH_VIEW_PATHS: string[] = [
  * (ADR-2183 implementation notes, 2026-11-06). Routes to the nodeFilter bucket.
  * Asserted in (c8).
  */
-const NODE_FILTER_PATHS: string[] = ['nodeFilter.serverRemove'];
+const NODE_FILTER_PATHS: string[] = ['nodeFilter.serverRemove', 'nodeFilter.maxNodes'];
+
+/**
+ * ADR-2192: the operator's ontology switches. The two constraint keys are stored physics
+ * (shared, live); the three pipeline switches are quality gates the server reads at sync.
+ * Asserted in (c9).
+ */
+const ONTOLOGY_PHYSICS_PATHS: string[] = [
+  'visualisation.graphs.knowledge.physics.ontologyConstraintsEnabled',
+  'visualisation.graphs.knowledge.physics.ontologyConstraintStrength',
+];
+const ONTOLOGY_PIPELINE_PATHS: string[] = [
+  'qualityGates.ontologyReasoning',
+  'qualityGates.materialiseDomainRoots',
+  'qualityGates.materialiseInferredEdges',
+];
+
+/** Pathless readouts that post-date the baseline: the node-filter "Showing N of M" (ADR-2192). */
+const READOUT_FIELDS: string[] = ['nodeFilterCount'];
 
 const RETIRED_PATHS: string[] = [
   'visualisation.graphs.knowledge.physics.graphSeparationX',
@@ -162,7 +180,8 @@ const MERGE_ADDED_PATHS: string[] = ['visualisation.graphTypeVisuals.agent.edgeC
 const TOTAL_FIELDS =
   168 - RETIRED_PATHS.length - LEGACY_REMOVED.length + EXPECTED_GROUP_COUNTS.agents + EXPECTED_GROUP_COUNTS.provenance
   + WAVE1_LAYOUT_PATHS.length + MEMORY_EXPLORER_PATHS.length + NETWORK_PATHS.length + SEMANTIC_PATHS.length + TWEENING_PATHS.length
-  + LAYOUT_MODE_PATHS.length + GRAPH_VIEW_PATHS.length + MERGE_ADDED_PATHS.length + NODE_FILTER_PATHS.length;
+  + LAYOUT_MODE_PATHS.length + GRAPH_VIEW_PATHS.length + MERGE_ADDED_PATHS.length + NODE_FILTER_PATHS.length
+  + ONTOLOGY_PHYSICS_PATHS.length + ONTOLOGY_PIPELINE_PATHS.length + READOUT_FIELDS.length;
 
 /**
  * Frozen client-only paths introduced by the W-G phase-1 Decisions/Provenance
@@ -361,7 +380,7 @@ describe('control-center settings registry', () => {
     // post-date WP5 and are asserted independently.
     const migratedPaths = ALL_PATHS.filter(
       (p) =>
-        !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p) && !networkSet.has(p) && !semanticSet.has(p) && !tweeningSet.has(p) && !layoutModeSet.has(p) && !graphViewSet.has(p) && !MERGE_ADDED_PATHS.includes(p) && !NODE_FILTER_PATHS.includes(p),
+        !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p) && !networkSet.has(p) && !semanticSet.has(p) && !tweeningSet.has(p) && !layoutModeSet.has(p) && !graphViewSet.has(p) && !MERGE_ADDED_PATHS.includes(p) && !NODE_FILTER_PATHS.includes(p) && !ONTOLOGY_PHYSICS_PATHS.includes(p) && !ONTOLOGY_PIPELINE_PATHS.includes(p),
     );
     const migratedSet = new Set(migratedPaths);
 
@@ -385,6 +404,35 @@ describe('control-center settings registry', () => {
       expect(legacySet.has(p)).toBe(false);
       expect(serverBucketFor(p)).toBe('nodeFilter');
     }
+  });
+
+  it('(c9) the ontology switches: constraints are shared physics in Layout, the pipeline is quality gates in System (ADR-2192)', () => {
+    const legacySet = new Set(legacyPaths());
+    const placed = new Map(REGISTRY.flatMap((g) => g.fields.map((f) => [f.path, `${g.id}|${f.subgroup}`] as const)));
+    for (const p of ONTOLOGY_PHYSICS_PATHS) {
+      expect(ALL_PATHS).toContain(p);
+      expect(legacySet.has(p)).toBe(false);
+      expect(serverBucketFor(p)).toBe('physics');
+      expect(scopeFor(p)).toBe('shared');
+      expect(placed.get(p)).toBe('layout|Forces › Communities & constraints');
+    }
+    for (const p of ONTOLOGY_PIPELINE_PATHS) {
+      expect(ALL_PATHS).toContain(p);
+      expect(legacySet.has(p)).toBe(false);
+      expect(serverBucketFor(p)).toBe('qualityGates');
+      expect(placed.get(p)).toBe('system|Services');
+    }
+    // the retired quality gates are not controls
+    expect(ALL_PATHS).not.toContain('qualityGates.ontologyPhysics');
+    expect(ALL_PATHS).not.toContain('qualityGates.ontologyStrength');
+    const strength = ALL_FIELDS.find((f) => f.path === ONTOLOGY_PHYSICS_PATHS[1])!;
+    expect([strength.min, strength.max]).toEqual([0, 1]); // the server's physics_bounds
+    // "Showing N of M" sits with the filters, readonly, never a stored path
+    const count = REGISTRY.find((g) => g.id === 'explore')!.fields.find((f) => f.key === 'nodeFilterCount')!;
+    expect(count.type).toBe('readonly');
+    expect(count.readout).toBe('nodeFilterCount');
+    expect(count.path).toBeUndefined();
+    expect(count.subgroup).toBe('Filters');
   });
 
   it('(c1) the layout mode is the stored physics field, not a quality gate (ADR-2140)', () => {

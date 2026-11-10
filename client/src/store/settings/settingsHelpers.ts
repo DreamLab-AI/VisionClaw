@@ -23,6 +23,7 @@ export const ESSENTIAL_PATHS = [
   'nodeFilter.filterByAuthority',
   'nodeFilter.filterMode',
   'nodeFilter.serverRemove',
+  'nodeFilter.maxNodes',
 
   // Client-side tweening settings - needed for smooth node movement
   'clientTweening',

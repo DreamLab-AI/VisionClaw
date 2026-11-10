@@ -98,8 +98,16 @@ fn default_sssp_alpha() -> f32 {
     1.5
 }
 
+/// Default for `ssspEnabled`, the SSSP-driven spring rest-length adjustment: **off** (rework
+/// stage S1a, 2026-11-10). SSSP reads the same CSR `edge_weights` the springs use as stiffness
+/// as its path length, so a stiffer relation counts as a longer path and gets a longer rest
+/// length. The adjustment stays off by default until path length and spring stiffness are
+/// separate buffers (stage S3). A stored `true` is still honoured; in LinLog mode the term has
+/// no effect, because LinLog attraction has no rest length.
+pub const SSSP_SPRING_ADJUST_DEFAULT: bool = false;
+
 fn default_sssp_enabled() -> bool {
-    true
+    SSSP_SPRING_ADJUST_DEFAULT
 }
 
 fn default_constraint_ramp_frames() -> u32 {
@@ -108,6 +116,23 @@ fn default_constraint_ramp_frames() -> u32 {
 
 fn default_constraint_max_force_per_node() -> f32 {
     50.0
+}
+
+/// Default for `ontologyConstraintsEnabled`: on, which is what every deployment did before the
+/// switch existed (the reasoner-derived constraints were always applied).
+pub const ONTOLOGY_CONSTRAINTS_ENABLED_DEFAULT: bool = true;
+
+/// Default for `ontologyConstraintStrength`: 0.6, the strength the constraint actor applied
+/// before the value was stored. Full mapper weight (1.0) collapses the mostly attractive
+/// constraint set into one dense blob; 0.6 keeps the semantic structure visible.
+pub const ONTOLOGY_CONSTRAINT_STRENGTH_DEFAULT: f32 = 0.6;
+
+fn default_ontology_constraints_enabled() -> bool {
+    ONTOLOGY_CONSTRAINTS_ENABLED_DEFAULT
+}
+
+fn default_ontology_constraint_strength() -> f32 {
+    ONTOLOGY_CONSTRAINT_STRENGTH_DEFAULT
 }
 
 fn default_bounds_size() -> f32 {
@@ -365,8 +390,8 @@ pub struct PhysicsSettings {
 
     /// Whether the SSSP-derived spring rest-length adjustment is on. Stored here (ADR-2140
     /// decision 1) so `POST /sssp/toggle` writes the one definition instead of patching the
-    /// live parameters. Defaults on, which is what every document stored before this field
-    /// existed behaved as.
+    /// live parameters. Defaults to [`SSSP_SPRING_ADJUST_DEFAULT`] (off since S1a), including
+    /// for documents stored before this field existed.
     #[serde(default = "default_sssp_enabled", alias = "sssp_enabled")]
     pub sssp_enabled: bool,
 
@@ -394,6 +419,24 @@ pub struct PhysicsSettings {
         default = "default_constraint_max_force_per_node"
     )]
     pub constraint_max_force_per_node: f32,
+
+    /// Whether the reasoner-derived ontology constraints (subClassOf attraction, disjointWith
+    /// separation, sameAs colocation) act on the layout (ADR-2192). Off removes them from the
+    /// GPU; on re-applies the set the last sync produced, without re-reasoning. Not a
+    /// `SimParams` field: it reaches the constraint actor, not the kernel parameters.
+    #[serde(
+        alias = "ontology_constraints_enabled",
+        default = "default_ontology_constraints_enabled"
+    )]
+    pub ontology_constraints_enabled: bool,
+    /// Weight multiplier (0..=1) applied to the reasoner-derived constraints when they are on
+    /// (ADR-2192). This is the one stored definition: it replaces the constraint actor's
+    /// compiled-in 0.6 and the retired quality-gate `ontologyStrength`.
+    #[serde(
+        alias = "ontology_constraint_strength",
+        default = "default_ontology_constraint_strength"
+    )]
+    pub ontology_constraint_strength: f32,
 
     #[serde(alias = "clustering_algorithm")]
     pub clustering_algorithm: String,
@@ -581,6 +624,8 @@ impl Default for PhysicsSettings {
 
             constraint_ramp_frames: default_constraint_ramp_frames(),
             constraint_max_force_per_node: default_constraint_max_force_per_node(),
+            ontology_constraints_enabled: default_ontology_constraints_enabled(),
+            ontology_constraint_strength: default_ontology_constraint_strength(),
 
             clustering_algorithm: "leiden".to_string(),
             cluster_count: 5,
@@ -733,6 +778,39 @@ pub struct PhysicsUpdate {
 mod tests {
     use super::*;
 
+    /// ADR-2192: the two ontology-constraint keys default to what ran before they were stored
+    /// (on, 0.6), round-trip under their camelCase wire names, and a stored row without them
+    /// still loads, taking those defaults, so nobody's saved tuning is wiped at boot.
+    #[test]
+    fn ontology_constraint_keys_default_round_trip_and_load_from_rows_without_them() {
+        let d = PhysicsSettings::default();
+        assert!(d.ontology_constraints_enabled);
+        assert_eq!(d.ontology_constraint_strength, 0.6);
+
+        let mut doc = serde_json::to_value(&d).unwrap();
+        assert_eq!(doc["ontologyConstraintsEnabled"], serde_json::json!(true));
+        doc["ontologyConstraintsEnabled"] = serde_json::json!(false);
+        doc["ontologyConstraintStrength"] = serde_json::json!(0.25);
+        let back: PhysicsSettings = serde_json::from_value(doc.clone()).unwrap();
+        assert!(!back.ontology_constraints_enabled);
+        assert_eq!(back.ontology_constraint_strength, 0.25);
+
+        let obj = doc.as_object_mut().unwrap();
+        obj.remove("ontologyConstraintsEnabled");
+        obj.remove("ontologyConstraintStrength");
+        let old: PhysicsSettings = serde_json::from_value(doc).unwrap();
+        assert_eq!(
+            (
+                old.ontology_constraints_enabled,
+                old.ontology_constraint_strength
+            ),
+            (
+                ONTOLOGY_CONSTRAINTS_ENABLED_DEFAULT,
+                ONTOLOGY_CONSTRAINT_STRENGTH_DEFAULT
+            )
+        );
+    }
+
     /// The stream settings are physics settings with calibrated defaults; a blob persisted before
     /// they existed (it carried `broadcastFps`) still deserialises, taking the defaults.
     #[test]
@@ -846,17 +924,28 @@ mod tests {
     }
 
     #[test]
-    fn a_document_stored_before_sssp_enabled_existed_loads_enabled() {
+    fn sssp_spring_adjust_is_off_by_default_and_a_stored_value_is_honoured() {
+        assert!(
+            !PhysicsSettings::default().sssp_enabled,
+            "S1a: off by default"
+        );
         let mut stored = serde_json::to_value(PhysicsSettings::default()).unwrap();
         stored.as_object_mut().unwrap().remove("ssspEnabled");
         let loaded: PhysicsSettings = serde_json::from_value(stored).unwrap();
-        assert!(loaded.sssp_enabled, "old documents behaved as SSSP on");
+        assert!(
+            !loaded.sssp_enabled,
+            "a document without the key loads the default (off)"
+        );
+        let mut on = serde_json::to_value(PhysicsSettings::default()).unwrap();
+        on["ssspEnabled"] = serde_json::json!(true);
+        let loaded: PhysicsSettings = serde_json::from_value(on).unwrap();
+        assert!(loaded.sssp_enabled, "a stored true is honoured");
         let mut snake = serde_json::to_value(PhysicsSettings::default()).unwrap();
         let map = snake.as_object_mut().unwrap();
         map.remove("ssspEnabled");
-        map.insert("sssp_enabled".into(), serde_json::json!(false));
+        map.insert("sssp_enabled".into(), serde_json::json!(true));
         let loaded: PhysicsSettings = serde_json::from_value(snake).unwrap();
-        assert!(!loaded.sssp_enabled, "the snake_case alias is honoured");
+        assert!(loaded.sssp_enabled, "the snake_case alias is honoured");
     }
 
     #[test]

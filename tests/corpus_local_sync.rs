@@ -113,6 +113,8 @@ struct Harness {
     service: GitHubSyncService,
     kg_repo: Arc<OxigraphGraphRepository>,
     onto_repo: Arc<OxigraphOntologyRepository>,
+    sync_db: Arc<SqliteSettingsRepository>,
+    engine: Arc<tokio::sync::RwLock<WhelkInferenceEngine>>,
 }
 
 async fn harness() -> Harness {
@@ -144,12 +146,13 @@ async fn harness() -> Harness {
         ],
     ));
 
+    let engine = Arc::new(tokio::sync::RwLock::new(WhelkInferenceEngine::new()));
     let service = GitHubSyncService::new(
         source,
         kg_repo.clone() as Arc<dyn KnowledgeGraphRepository>,
         onto_repo.clone(),
-        sync_db,
-        Arc::new(tokio::sync::RwLock::new(WhelkInferenceEngine::new())),
+        sync_db.clone(),
+        engine.clone(),
     );
 
     Harness {
@@ -158,6 +161,103 @@ async fn harness() -> Harness {
         service,
         kg_repo,
         onto_repo,
+        sync_db,
+        engine,
+    }
+}
+
+/// Store the quality-gate document the sync reads its ADR-2192 switches from.
+async fn store_quality_gates(h: &Harness, gates: serde_json::Value) {
+    use visionclaw_server::ports::settings_repository::{SettingValue, SettingsRepository};
+    h.sync_db
+        .set_setting("quality_gates", SettingValue::Json(gates), None)
+        .await
+        .expect("store quality gates");
+}
+
+fn domain_roots(graph: &visionclaw_domain::models::graph::GraphData) -> usize {
+    graph
+        .nodes
+        .iter()
+        .filter(|n| {
+            n.node_type.as_deref() == Some("domain_root")
+                || n.metadata.get("type").map(String::as_str) == Some("domain_root")
+        })
+        .count()
+}
+
+/// ADR-2192, through the real sync over temporary stores: with `ontologyReasoning` and
+/// `materialiseDomainRoots` off the sync never loads Whelk and writes no domain roots (the
+/// start-up load is skipped too); switching the roots off after a sync that wrote them purges
+/// them, and switching them back on restores them.
+#[actix_rt::test]
+async fn adr_2192_sync_switches_skip_reasoning_and_purge_domain_roots() {
+    use visionclaw_domain::ports::inference_engine::InferenceEngine;
+
+    // Off from the start: nothing reasoned, no roots.
+    let off = harness().await;
+    store_quality_gates(
+        &off,
+        serde_json::json!({ "ontologyReasoning": false, "materialiseDomainRoots": false }),
+    )
+    .await;
+    assert_eq!(off.service.load_shared_inference().await.unwrap(), 0);
+    let stats = off.service.sync_graphs_with(true).await.expect("sync");
+    assert_no_stage_failed(&stats);
+    assert_eq!(domain_roots(&off.kg_repo.load_graph().await.unwrap()), 0);
+    let engine_stats = off.engine.read().await.get_statistics().await.unwrap();
+    assert_eq!(engine_stats.loaded_classes, 0, "Whelk never loaded");
+
+    // Default (no document): reasoning runs and roots are written.
+    let on = harness().await;
+    let stats = on.service.sync_graphs_with(true).await.expect("sync");
+    assert_no_stage_failed(&stats);
+    let roots = domain_roots(&on.kg_repo.load_graph().await.unwrap());
+    assert!(roots > 0, "the fixture populates at least one domain");
+    let engine_stats = on.engine.read().await.get_statistics().await.unwrap();
+    assert!(
+        engine_stats.loaded_classes > 0,
+        "Whelk ran over the fixture's classes"
+    );
+
+    // Roots switched off after a sync wrote them: the next sync purges them.
+    store_quality_gates(&on, serde_json::json!({ "materialiseDomainRoots": false })).await;
+    let stats = on.service.sync_graphs().await.expect("sync");
+    assert_no_stage_failed(&stats);
+    assert_eq!(domain_roots(&on.kg_repo.load_graph().await.unwrap()), 0);
+
+    // And back on: restored.
+    store_quality_gates(&on, serde_json::json!({ "materialiseDomainRoots": true })).await;
+    let stats = on.service.sync_graphs().await.expect("sync");
+    assert_no_stage_failed(&stats);
+    assert_eq!(domain_roots(&on.kg_repo.load_graph().await.unwrap()), roots);
+
+    // Reasoning switched off after a run: the closure and the stored results are forgotten,
+    // so nothing keeps serving the old inference.
+    {
+        use visionclaw_domain::ports::ontology_repository::OntologyRepository;
+        assert!(
+            on.engine.read().await.has_closure(),
+            "the earlier run left a closure"
+        );
+        assert!(on
+            .onto_repo
+            .get_inference_results()
+            .await
+            .unwrap()
+            .is_some());
+        store_quality_gates(&on, serde_json::json!({ "ontologyReasoning": false })).await;
+        let stats = on.service.sync_graphs().await.expect("sync");
+        assert_no_stage_failed(&stats);
+        assert!(!on.engine.read().await.has_closure(), "closure cleared");
+        assert!(
+            on.onto_repo
+                .get_inference_results()
+                .await
+                .unwrap()
+                .is_none(),
+            "stored inference results cleared"
+        );
     }
 }
 

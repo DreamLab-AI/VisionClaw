@@ -35,7 +35,6 @@ pub use graph_messages::{
 // --- physics_messages ---
 pub use physics_messages::{
     AddIsolationLayer,
-    AdjustConstraintWeights,
     ApplyConstraintsToNodes,
     // GPU position snapshot (REST API)
     BoundingBox,
@@ -44,6 +43,7 @@ pub use physics_messages::{
     ComputeForces,
     ConfigureStressMajorization,
     CurrentPositionsSnapshot,
+    DeviceConstraintCounts,
     EmitPhysicsEvent,
     ForceComputeActorReplaced,
     ForceResumePhysics,
@@ -54,6 +54,7 @@ pub use physics_messages::{
     GetConstraintBuffer,
     GetConstraints,
     GetCurrentPositions,
+    GetDeviceConstraintCounts,
     GetEquilibriumStatus,
     GetForceComputeActor,
     GetGPUMetrics,
@@ -95,6 +96,7 @@ pub use physics_messages::{
     SetAppGpuComputeAddr,
     SetComputeMode,
     SetForceComputeAddr,
+    SetOntologyConstraintPolicy,
     SetPhysicsOrchestratorAddr,
     SetPhysicsSettingsSource,
     SetPhysicsSettled,

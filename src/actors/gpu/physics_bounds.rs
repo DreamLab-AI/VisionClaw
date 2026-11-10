@@ -85,6 +85,13 @@ pub const CLUSTER_STRENGTH: Bound = (0.0, 0.02);
 /// SSSP rest-length adjustment strength (`sssp_alpha`). Canonical default 1.5.
 pub const SSSP_ALPHA: Bound = (0.0, 5.0);
 
+// --- Ontology constraints (ADR-2192) ---------------------------------------
+
+/// Weight multiplier on the reasoner-derived constraints (`ontology_constraint_strength`).
+/// Default 0.6. The constraint actor applies the stored value as stored; the old 0..1 clamp
+/// there is this bound, enforced once at the route.
+pub const ONTOLOGY_CONSTRAINT_STRENGTH: Bound = (0.0, 1.0);
+
 // --- Iterations (integer-valued, expressed as f32 for path-pattern reuse) -
 
 /// Physics solver iterations (`iterations`). Canonical default 50.

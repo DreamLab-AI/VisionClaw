@@ -7,7 +7,7 @@ implementation_status: none
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
 relates: [ADR-2174, ADR-2139, ADR-2157, ADR-2160, ADR-2170, ADR-2022, ADR-2115]
 verified_paths: [crates/relational-field/Cargo.toml, crates/relational-field/PREREGISTRATION.md, crates/relational-field/PREREGISTRATION-D2.md, src/services/semantic_type_registry.rs, crates/visionclaw-domain/src/utils/visibility_filter.rs, src/handlers/api_handler/graph/mod.rs, docs/DATA-authority-erasure.md]
 owner: jjohare
@@ -82,3 +82,11 @@ Governed-path changes since `809a859aa`:
 - `docs/DATA-authority-erasure.md` (`2ea01f6d8`, `42498d4c0`): the share-store citation is refreshed. The "share is the creator's frozen view" row is closed as accepted (`graph_export_handler.rs:111`, `:217-260`). **Citation drift, reported, not fixed here:** the doc cites `src/app_state.rs:475-482` for the share store. `57ba04beb` added the shared-engine fields after that edit, so the store is now built at `app_state.rs:483-489`.
 
 Nothing in the diff touches the learned relation law, its crates or its integration requirements. **Decision unaffected.** Re-run: `git diff 809a859aa..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`7a6adcc83`, ADR-2192)
+
+Governed-path change: `src/handlers/api_handler/graph/mod.rs`, where `GET /api/graph/data` takes `apply_node_filter` (the stored node filter's opt-in removal, ADR-2192). The visibility gate still runs first. **Decision unaffected.**
+
+## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
+
+`graph/mod.rs`: `GET /api/graph/data` takes the caller's own `node_filter` snapshot in place of the stored row, and still runs the visibility gate first. **Decision unaffected.**

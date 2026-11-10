@@ -407,14 +407,10 @@ pub(crate) fn handle_filter_update(
                         }));
                     }
 
-                    let response = serde_json::json!({
-                        "type": "filter_update_success",
-                        "enabled": update.enabled,
-                        "timestamp": chrono::Utc::now().timestamp_millis()
-                    });
-                    if let Ok(msg_str) = serde_json::to_string(&response) {
-                        ctx.text(msg_str);
-                    }
+                    // No reply here: the client coordinator answers with
+                    // `filter_update_success` carrying the visible / total counts
+                    // once its recompute is done (ADR-2192). The reply sent here
+                    // before carried no counts, so the client's count was never set.
                 } else {
                     let error_msg = serde_json::json!({
                         "type": "error",

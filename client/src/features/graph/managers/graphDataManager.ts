@@ -1,6 +1,7 @@
 import { createLogger, createErrorMetadata } from '../../../utils/loggerConfig';
 import { debugState } from '../../../utils/clientDebugState';
 import { useSettingsStore } from '../../../store/settingsStore';
+import { restNodeFilterSnapshot } from '../../../store/websocket/filterSync';
 import type { WebSocketAdapter } from '../../../store/websocketStore';
 import { binaryProtocol } from '../../../services/BinaryWebSocketProtocol';
 import { graphWorkerProxy } from './graphWorkerProxy';
@@ -223,6 +224,7 @@ class GraphDataManager {
       this.graphType,
       this.graphTypeFilter,
       !includeLinkedPages,
+      restNodeFilterSnapshot(),
     );
 
     await this.setGraphData(validatedData);

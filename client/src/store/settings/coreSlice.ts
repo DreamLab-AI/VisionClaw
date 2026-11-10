@@ -60,6 +60,7 @@ export type CoreSlice = Pick<
   | 'updateSettings'
   | 'notifyViewportUpdate'
   | 'ensureLoaded'
+  | 'reloadFromServer'
   | 'loadSection'
   | 'isLoaded'
   | 'updateComputeMode'
@@ -330,6 +331,15 @@ export const createCoreSlice: StateCreator<SettingsState, [], [], CoreSlice> = (
       logger.error('Failed to load paths:', createErrorMetadata(error));
       throw error;
     }
+  },
+
+  reloadFromServer: async (paths: string[]): Promise<void> => {
+    set(state => {
+      const loadedPaths = new Set(state.loadedPaths);
+      for (const p of paths) loadedPaths.delete(p);
+      return { loadedPaths };
+    });
+    await get().ensureLoaded(paths);
   },
 
   loadSection: async (section: string): Promise<void> => {

@@ -350,8 +350,6 @@ pub struct AppState {
     pub debug_enabled: bool,
     pub client_message_tx: mpsc::UnboundedSender<ClientMessage>,
     pub client_message_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<ClientMessage>>>,
-    pub ontology_pipeline_service:
-        Option<Arc<crate::services::ontology_pipeline_service::OntologyPipelineService>>,
     /// Health degradation reason. `None` means healthy; `Some(reason)` means degraded.
     /// Uses `std::sync::RwLock` (not tokio) so it can be read synchronously in health checks.
     pub degraded_reason: Arc<std::sync::RwLock<Option<String>>>,
@@ -520,19 +518,6 @@ impl AppState {
 
         info!("[AppState::new] Oxigraph + SQLite repositories initialized successfully");
         info!("[AppState::new] Database and settings service initialized successfully");
-
-        // Create ontology pipeline service with semantic physics
-        info!("[AppState::new] Creating ontology pipeline service");
-        let mut pipeline_service =
-            crate::services::ontology_pipeline_service::OntologyPipelineService::new(
-                crate::services::ontology_pipeline_service::SemanticPhysicsConfig::default(),
-            );
-
-        // CRITICAL: Set graph repository for IRI → node ID resolution (Oxigraph, ADR-11)
-        pipeline_service.set_graph_repository(graph_adapter.clone()
-            as Arc<dyn crate::ports::knowledge_graph_repository::KnowledgeGraphRepository>);
-
-        let ontology_pipeline_service = Some(Arc::new(pipeline_service));
 
         info!("[AppState::new] Initializing GitHubSyncService for data ingestion");
 
@@ -711,6 +696,8 @@ impl AppState {
                 default_physics
             };
 
+            // The quality-gate row to archive before a migration from it is written back.
+            let mut archive_gates: Option<serde_json::Value> = None;
             let resolved = match sqlite_settings_repository.get_setting("physics").await {
                 Ok(Some(SettingValue::Json(mut json))) => {
                     // ADR-2140: a document stored before `layoutMode` existed takes the mode
@@ -723,12 +710,22 @@ impl AppState {
                         &mut json,
                         gates.as_ref(),
                     );
+                    // ADR-2192: the retired quality-gate strength, when it was in force.
+                    let strength_migrated =
+                        crate::actors::gpu::physics_restore::migrate_ontology_strength(
+                            &mut json,
+                            gates.as_ref(),
+                        )
+                        .is_some();
+                    if strength_migrated {
+                        archive_gates = gates.clone();
+                    }
                     match serde_json::from_value::<crate::config::PhysicsSettings>(json) {
                         Ok(persisted) => {
                             info!("[AppState::new] Loaded persisted physics from SQLite (axis_compression_z={}, enable_dual_disc_layout={}, adaptive_speed={})", persisted.axis_compression_z, persisted.enable_dual_disc_layout, persisted.adaptive_speed);
                             // A migrated document is written back once, so every reader of
                             // the stored row sees the same layout mode as the device.
-                            (persisted, migrated.is_some())
+                            (persisted, migrated.is_some() || strength_migrated)
                         }
                         Err(e) => (
                             seed_canonical(&format!(
@@ -753,7 +750,21 @@ impl AppState {
                 ),
             };
 
-            let (physics, needs_seed) = resolved;
+            let (physics, mut needs_seed) = resolved;
+            // ADR-2192: archive the quality-gate row, unchanged, before the migrated strength
+            // is written back; if the archive cannot be written, the migration is not
+            // persisted (it is redone, in memory, at the next boot).
+            if let Some(gates) = archive_gates {
+                if let Err(e) = crate::actors::gpu::physics_restore::archive_quality_gates(
+                    sqlite_settings_repository.as_ref(),
+                    gates,
+                )
+                .await
+                {
+                    warn!("[AppState::new] Could not archive quality gates ({e}); ontologyStrength migration not persisted");
+                    needs_seed = false;
+                }
+            }
             if needs_seed {
                 match serde_json::to_value(&physics) {
                     Ok(physics_json) => {
@@ -1385,7 +1396,6 @@ impl AppState {
             debug_enabled,
             client_message_tx,
             client_message_rx: Arc::new(tokio::sync::Mutex::new(client_message_rx)),
-            ontology_pipeline_service,
             degraded_reason: Arc::new(std::sync::RwLock::new(None)),
             node_analytics,
         };
@@ -1518,15 +1528,6 @@ impl AppState {
             present: self.nostr_service.is_some(),
             severity: Severity::Info,
             reason: "Set later via set_nostr_service()".to_string(),
-        });
-
-        // Ontology pipeline service
-        report.add(ValidationItem {
-            name: "OntologyPipelineService".to_string(),
-            expected: true,
-            present: self.ontology_pipeline_service.is_some(),
-            severity: Severity::Warning,
-            reason: "Required for semantic physics".to_string(),
         });
 
         report

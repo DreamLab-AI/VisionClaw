@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 7a6adcc8383aca0742cb84f49916cc4f5c084af3
 verified_paths: [src/bin/generate_types.rs, crates/visionclaw-ontology/src/open_world.rs, crates/visionclaw-ontology/src/lib.rs, crates/visionclaw-ontology/src/types/ontology_tools.rs, src/services/ontology_query_service.rs, src/handlers/ontology_agent_handler.rs, tests/ontology_agent_integration_test.rs]
 owner: jjohare
 review_trigger: the first entailed-false result (ADR-2125 disjointness landing); a change to the ontology-agent response types; an agent decision traced to an empty ontology result
@@ -95,3 +95,7 @@ Governed-path changes since `93302275e`:
 - `2dc83e43a`, `abf32e984`, `dffbeceba`: deterministic discover ranking, canonicalised golden comparison, a release-timed load test; `ontology_agent_integration_test.rs` follows. `f93b560dd` touches `generate_types.rs` for a settings field only.
 
 **Decision unaffected.** Re-run: `git diff 93302275e..7bd25427e -- <verified_paths>`. Checked by reading that diff; the integration tests were not re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`7a6adcc83`, ADR-2192)
+
+Governed-path change: `crates/visionclaw-ontology/src/lib.rs` changes one doc line (the deleted `ontology_pipeline_service` is no longer listed). With `qualityGates.ontologyReasoning` off (default on), the shared engine holds no inferred closure, so answers come from asserted axioms only; the not-asserted versus false distinction is unchanged. **Decision unaffected.**

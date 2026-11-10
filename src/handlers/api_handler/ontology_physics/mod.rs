@@ -10,35 +10,30 @@
 //! - OntologyActor -> OntologyConstraintActor -> ForceComputeActor
 //! - Constraints are uploaded to GPU and applied during physics simulation
 
-use crate::{bad_request, error_json, ok_json, service_unavailable};
+use crate::{error_json, ok_json, service_unavailable};
 use actix_web::{web, HttpResponse, Responder};
-use log::{error, info, warn};
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::actors::messages::{
-    AdjustConstraintWeights, ApplyOntologyConstraints, ConstraintMergeMode,
-    GetOntologyConstraintStats,
-};
+use crate::actors::messages::GetOntologyConstraintStats;
+use crate::adapters::SqliteSettingsRepository;
+use crate::settings::api::settings_routes::apply_physics_patch;
 use crate::AppState;
+use std::sync::Arc;
 use visionclaw_adapters::provenance_emitter;
-use visionclaw_domain::models::constraints::ConstraintSet;
 
 // ============================================================================
 // REQUEST/RESPONSE DTOs
 // ============================================================================
 
-/// Enable ontology physics forces
-#[derive(Debug, Deserialize)]
+/// Body of `POST /api/ontology-physics/enable`. Every field is optional; older clients still
+/// send `ontologyId` and `mergeMode`, which are accepted and ignored: the constraints come from
+/// the last sync's reasoning, not from a named ontology (ADR-2192).
+#[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnableOntologyPhysicsRequest {
-    /// Ontology ID to source constraints from
-    pub ontology_id: String,
-
-    /// Constraint merge mode (replace, merge, add_if_no_conflict)
-    pub merge_mode: Option<String>,
-
-    /// Force weight (0.0 to 1.0)
+    /// Also store this strength (0.0 to 1.0); absent keeps the stored strength.
     pub strength: Option<f32>,
 }
 
@@ -52,24 +47,51 @@ pub struct ConstraintListResponse {
     pub ontology_id: Option<String>,
 }
 
-/// Weight adjustment request
+/// Body of `PUT /api/ontology-physics/weights`.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdjustWeightsRequest {
-    /// Global strength multiplier (0.0 to 1.0)
+    /// The strength to store (0.0 to 1.0). Required.
     pub global_strength: Option<f32>,
-
-    /// Per-constraint-type weights
-    pub constraint_weights: Option<std::collections::HashMap<String, f32>>,
 }
 
-/// Weight adjustment response
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WeightsResponse {
-    pub success: bool,
-    pub applied_strength: f32,
-    pub active_constraints: u32,
+/// The physics patch `POST /enable` applies: constraints on, and the strength if one was given.
+pub(crate) fn enable_patch(strength: Option<f32>) -> serde_json::Value {
+    let mut patch = json!({ "ontologyConstraintsEnabled": true });
+    if let Some(s) = strength {
+        patch["ontologyConstraintStrength"] = json!(s);
+    }
+    patch
+}
+
+/// The physics patch `POST /disable` applies.
+pub(crate) fn disable_patch() -> serde_json::Value {
+    json!({ "ontologyConstraintsEnabled": false })
+}
+
+/// The physics patch `PUT /weights` applies, or why there is none. Out-of-range values are left
+/// to the central physics validator, which answers 400 rather than clamping (ADR-2140).
+pub(crate) fn weights_patch(global_strength: Option<f32>) -> Result<serde_json::Value, String> {
+    global_strength
+        .map(|s| json!({ "ontologyConstraintStrength": s }))
+        .ok_or_else(|| "globalStrength is required".to_string())
+}
+
+/// Write `patch` through the one physics write path and answer with the stored policy.
+async fn store_policy(
+    state: &web::Data<AppState>,
+    settings_repo: &Arc<SqliteSettingsRepository>,
+    patch: serde_json::Value,
+    pubkey: &str,
+) -> HttpResponse {
+    match apply_physics_patch(state, settings_repo, patch, pubkey).await {
+        Ok(stored) => HttpResponse::Ok().json(json!({
+            "success": true,
+            "enabled": stored.ontology_constraints_enabled,
+            "appliedStrength": stored.ontology_constraint_strength,
+        })),
+        Err(e) => e.into_response(),
+    }
 }
 
 // ============================================================================
@@ -85,187 +107,29 @@ async fn check_ontology_feature() -> Result<(), actix_web::Error> {
 // REST ENDPOINTS
 // ============================================================================
 
-/// POST /api/ontology-physics/enable - Enable ontology forces
-/// Activates ontology-derived constraint forces in the physics simulation.
-/// Constraints are sourced from the specified ontology and uploaded to GPU memory.
-/// ## Request Body
-/// ```json
-/// {
-///   "ontologyId": "university-ontology",
-///   "mergeMode": "replace",
-///   "strength": 0.8
-/// }
-/// ```
-/// ## Response
-/// ```json
-/// {
-///   "success": true,
-///   "activeConstraints": 42,
-///   "message": "Ontology forces enabled"
-/// }
-/// ```
+/// POST /api/ontology-physics/enable - switch the reasoner-derived constraints on.
+///
+/// Stores `physics.ontologyConstraintsEnabled = true` (and `ontologyConstraintStrength` when
+/// `strength` is given) through the physics write path, which re-applies the set the last sync
+/// produced (ADR-2192). The body is optional.
 pub async fn enable_ontology_physics(
-    _auth: crate::settings::auth_extractor::AuthenticatedUser,
+    auth: crate::settings::auth_extractor::AuthenticatedUser,
     state: web::Data<AppState>,
-    req: web::Json<EnableOntologyPhysicsRequest>,
+    settings_repo: web::Data<Arc<SqliteSettingsRepository>>,
+    req: Option<web::Json<EnableOntologyPhysicsRequest>>,
 ) -> impl Responder {
+    let strength = req.and_then(|r| r.strength);
     info!(
-        "POST /api/ontology-physics/enable - Ontology: {}",
-        req.ontology_id
+        "POST /api/ontology-physics/enable (strength {:?})",
+        strength
     );
-
-    check_ontology_feature().await?;
-
-    // Parse merge mode
-    let merge_mode = match req.merge_mode.as_deref() {
-        Some("replace") | None => ConstraintMergeMode::Replace,
-        Some("merge") => ConstraintMergeMode::Merge,
-        Some("add_if_no_conflict") => ConstraintMergeMode::AddIfNoConflict,
-        Some(other) => {
-            return bad_request!(json!({
-                "error": "Invalid merge mode",
-                "validModes": ["replace", "merge", "add_if_no_conflict"],
-                "provided": other
-            }));
-        }
-    };
-
-    // Get the ontology actor address
-    let Some(ref ontology_addr) = state.ontology_actor_addr else {
-        return service_unavailable!(json!({
-            "error": "Ontology actor not available",
-            "message": "Ontology system not initialized"
-        }));
-    };
-
-    // Retrieve the most recent validation report for this ontology
-    use crate::actors::messages::GetOntologyReport;
-    let report_result = ontology_addr
-        .send(GetOntologyReport {
-            report_id: Some(req.ontology_id.clone()),
-        })
-        .await;
-
-    match report_result {
-        Ok(Ok(Some(report))) => {
-            info!(
-                "Retrieved validation report with {} constraints",
-                report.constraint_summary.total_constraints
-            );
-
-            // Convert the report's reasoning constraints into a ConstraintSet
-            // The report contains ontology axioms and inferences that were validated
-            // We need to apply these as physics constraints
-
-            // Get OntologyConstraintActor address from GPU Manager
-            let Some(ref gpu_manager_addr) = state.gpu_manager_addr else {
-                return service_unavailable!(json!({
-                    "error": "GPU manager not available",
-                    "message": "GPU acceleration not initialized"
-                }));
-            };
-
-            // Build constraint set from validation report violations
-            let mut constraint_set = ConstraintSet::new();
-            for violation in &report.violations {
-                // Each violation maps to a semantic constraint that enforces the ontology rule
-                let constraint = visionclaw_domain::models::constraints::Constraint {
-                    kind: visionclaw_domain::models::constraints::ConstraintKind::Semantic,
-                    node_indices: vec![], // GPU will resolve from ontology IDs
-                    params: vec![1.0],    // Default force strength
-                    weight: match violation.severity {
-                        crate::services::owl_validator::Severity::Error => 1.0,
-                        crate::services::owl_validator::Severity::Warning => 0.6,
-                        crate::services::owl_validator::Severity::Info => 0.3,
-                    },
-                    active: true,
-                };
-                constraint_set.add_to_group(&violation.rule, constraint);
-            }
-            // Also use constraint_summary counts as semantic constraints when no violations
-            if constraint_set.constraints.is_empty()
-                && report.constraint_summary.total_constraints > 0
-            {
-                info!(
-                    "No violations but {} constraints in summary, creating semantic constraints",
-                    report.constraint_summary.total_constraints
-                );
-                for _ in 0..report.constraint_summary.semantic_constraints {
-                    constraint_set.add(visionclaw_domain::models::constraints::Constraint {
-                        kind: visionclaw_domain::models::constraints::ConstraintKind::Semantic,
-                        node_indices: vec![],
-                        params: vec![0.8],
-                        weight: 0.5,
-                        active: true,
-                    });
-                }
-            }
-
-            // Apply constraints to OntologyConstraintActor
-            use crate::actors::messages::ApplyOntologyConstraints;
-
-            // Clone merge_mode for display later (moved into message)
-            let merge_mode_display = format!("{:?}", merge_mode);
-
-            let apply_msg = ApplyOntologyConstraints {
-                constraint_set,
-                merge_mode,
-                graph_id: 0, // Default graph
-            };
-
-            // Forward to GPU Manager which will route to OntologyConstraintActor
-            match gpu_manager_addr.send(apply_msg).await {
-                Ok(Ok(())) => {
-                    ok_json!(json!({
-                        "success": true,
-                        "activeConstraints": report.constraint_summary.total_constraints,
-                        "message": "Ontology forces enabled",
-                        "ontologyId": req.ontology_id,
-                        "mergeMode": merge_mode_display
-                    }))
-                }
-                Ok(Err(e)) => {
-                    error!("Failed to apply ontology constraints: {}", e);
-                    error_json!(json!({
-                        "error": "Constraint application failed",
-                        "details": e
-                    }))
-                }
-                Err(e) => {
-                    error!("GPU Manager mailbox error: {}", e);
-                    error_json!(json!({
-                        "error": "Actor communication failed",
-                        "details": e.to_string()
-                    }))
-                }
-            }
-        }
-        Ok(Ok(None)) => {
-            warn!(
-                "No validation report found for ontology: {}",
-                req.ontology_id
-            );
-            bad_request!(json!({
-                "error": "Ontology not found",
-                "message": "Run validation first to generate constraints",
-                "ontologyId": req.ontology_id
-            }))
-        }
-        Ok(Err(e)) => {
-            error!("Failed to retrieve ontology report: {}", e);
-            error_json!(json!({
-                "error": "Report retrieval failed",
-                "details": e
-            }))
-        }
-        Err(e) => {
-            error!("Ontology actor mailbox error: {}", e);
-            error_json!(json!({
-                "error": "Actor communication failed",
-                "details": e.to_string()
-            }))
-        }
-    }
+    store_policy(
+        &state,
+        settings_repo.get_ref(),
+        enable_patch(strength),
+        &auth.pubkey,
+    )
+    .await
 }
 
 /// GET /api/ontology-physics/constraints - List active ontology constraints
@@ -290,15 +154,29 @@ pub async fn get_constraints(state: web::Data<AppState>) -> impl Responder {
         }));
     };
 
+    // What the device writer holds (ADR-2192): ForceComputeActor keeps the ontology set
+    // apart from the user set, so this is the ontology count actually uploaded (or about
+    // to be: `deviceSynced` false means an upload is pending for the next step).
+    let device = match state.get_gpu_compute_addr().await {
+        Some(addr) => addr
+            .send(crate::actors::messages::GetDeviceConstraintCounts)
+            .await
+            .ok(),
+        None => None,
+    };
+
     // Get ontology constraint stats
     match gpu_manager_addr.send(GetOntologyConstraintStats).await {
         Ok(Ok(stats)) => {
+            let on_device = device.map_or(stats.active_ontology_constraints, |d| d.ontology as u32);
             ok_json!(json!({
-                "activeConstraints": stats.active_ontology_constraints,
+                "activeConstraints": on_device,
                 // Constraints currently driving GPU forces. Post-dispatch every
                 // uploaded constraint is active, so total == active here; the
                 // distinct axiom input count is surfaced as `axiomsProcessed`.
-                "totalConstraints": stats.active_ontology_constraints,
+                "totalConstraints": on_device,
+                "userConstraintsOnDevice": device.map(|d| d.user),
+                "deviceSynced": device.map(|d| d.synced),
                 "axiomsProcessed": stats.total_axioms_processed,
                 "constraintEvaluationCount": stats.constraint_evaluation_count,
                 "lastUpdateTimeMs": stats.last_update_time_ms,
@@ -344,89 +222,36 @@ pub async fn get_constraints(state: web::Data<AppState>) -> impl Responder {
 /// }
 /// ```
 pub async fn adjust_weights(
-    _auth: crate::settings::auth_extractor::AuthenticatedUser,
+    auth: crate::settings::auth_extractor::AuthenticatedUser,
     state: web::Data<AppState>,
+    settings_repo: web::Data<Arc<SqliteSettingsRepository>>,
     req: web::Json<AdjustWeightsRequest>,
-) -> Result<impl Responder, actix_web::Error> {
+) -> impl Responder {
     info!("PUT /api/ontology-physics/weights");
-
-    check_ontology_feature().await?;
-
-    let global_strength = req.global_strength.unwrap_or(1.0).clamp(0.0, 1.0);
-
-    let Some(ref gpu_manager_addr) = state.gpu_manager_addr else {
-        return Ok(HttpResponse::ServiceUnavailable().json(json!({
-            "error": "GPU manager not available"
-        })));
-    };
-
-    match gpu_manager_addr
-        .send(AdjustConstraintWeights { global_strength })
-        .await
-    {
-        Ok(Ok(result)) => Ok(HttpResponse::Ok().json(result)),
-        Ok(Err(e)) => {
-            error!("Failed to adjust constraint weights: {}", e);
-            Ok(HttpResponse::InternalServerError().json(json!({
-                "error": "Weight adjustment failed",
-                "details": e
-            })))
-        }
-        Err(e) => {
-            error!("GPU Manager mailbox error: {}", e);
-            Ok(HttpResponse::InternalServerError().json(json!({
-                "error": "Actor communication failed",
-                "details": e.to_string()
-            })))
-        }
+    match weights_patch(req.global_strength) {
+        Ok(patch) => store_policy(&state, settings_repo.get_ref(), patch, &auth.pubkey).await,
+        Err(e) => HttpResponse::BadRequest().json(json!({ "error": e })),
     }
 }
 
-/// POST /api/ontology-physics/disable - Disable ontology forces
-/// Removes all ontology-derived constraints from the physics simulation.
+/// POST /api/ontology-physics/disable - switch the reasoner-derived constraints off.
+///
+/// Stores `physics.ontologyConstraintsEnabled = false` through the physics write path, which
+/// removes the constraints from the GPU (ADR-2192). The reasoned set is kept, so `/enable`
+/// re-applies it without a sync.
 pub async fn disable_ontology_physics(
-    _auth: crate::settings::auth_extractor::AuthenticatedUser,
+    auth: crate::settings::auth_extractor::AuthenticatedUser,
     state: web::Data<AppState>,
+    settings_repo: web::Data<Arc<SqliteSettingsRepository>>,
 ) -> impl Responder {
     info!("POST /api/ontology-physics/disable");
-
-    check_ontology_feature().await?;
-
-    let Some(ref gpu_manager_addr) = state.gpu_manager_addr else {
-        return service_unavailable!(json!({
-            "error": "GPU manager not available"
-        }));
-    };
-
-    // Clear constraints by applying empty set
-    let apply_msg = ApplyOntologyConstraints {
-        constraint_set: ConstraintSet::new(),
-        merge_mode: ConstraintMergeMode::Replace,
-        graph_id: 0,
-    };
-
-    match gpu_manager_addr.send(apply_msg).await {
-        Ok(Ok(())) => {
-            ok_json!(json!({
-                "success": true,
-                "message": "Ontology forces disabled"
-            }))
-        }
-        Ok(Err(e)) => {
-            error!("Failed to disable ontology forces: {}", e);
-            error_json!(json!({
-                "error": "Disable failed",
-                "details": e
-            }))
-        }
-        Err(e) => {
-            error!("GPU Manager mailbox error: {}", e);
-            error_json!(json!({
-                "error": "Actor communication failed",
-                "details": e.to_string()
-            }))
-        }
-    }
+    store_policy(
+        &state,
+        settings_repo.get_ref(),
+        disable_patch(),
+        &auth.pubkey,
+    )
+    .await
 }
 
 // ============================================================================
@@ -510,19 +335,51 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
 
+    /// ADR-2192: the three legacy routes are thin writers of the two stored keys.
     #[test]
-    fn test_merge_mode_parsing() {
-        let modes = vec!["replace", "merge", "add_if_no_conflict"];
-        for mode in modes {
-            assert!(matches!(mode, "replace" | "merge" | "add_if_no_conflict"));
-        }
+    fn the_routes_patch_only_the_stored_policy_keys() {
+        assert_eq!(
+            enable_patch(None),
+            json!({ "ontologyConstraintsEnabled": true })
+        );
+        assert_eq!(
+            enable_patch(Some(0.3)),
+            json!({ "ontologyConstraintsEnabled": true, "ontologyConstraintStrength": 0.3_f32 })
+        );
+        assert_eq!(
+            disable_patch(),
+            json!({ "ontologyConstraintsEnabled": false })
+        );
+        assert_eq!(
+            weights_patch(Some(0.8)).unwrap(),
+            json!({ "ontologyConstraintStrength": 0.8_f32 })
+        );
+        assert!(weights_patch(None).is_err());
     }
 
+    /// The patches merge onto a stored document and pass the central validator; an
+    /// out-of-range strength is refused there, not clamped.
     #[test]
-    fn test_strength_clamping() {
-        let values: Vec<f32> = vec![-0.5, 0.0, 0.5, 1.0, 1.5];
-        let clamped: Vec<f32> = values.iter().map(|v| v.clamp(0.0, 1.0)).collect();
-        assert_eq!(clamped, vec![0.0, 0.0, 0.5, 1.0, 1.0]);
+    fn the_patches_merge_and_validate_and_out_of_range_is_refused() {
+        use crate::settings::api::settings_routes::{
+            merge_physics_patch, validate_physics_settings,
+        };
+        let base = serde_json::to_value(crate::config::PhysicsSettings::default()).unwrap();
+        let off = merge_physics_patch(base.clone(), disable_patch())
+            .unwrap()
+            .unwrap();
+        assert!(!off.ontology_constraints_enabled);
+        assert!(validate_physics_settings(&off).is_ok());
+        let on = merge_physics_patch(serde_json::to_value(&off).unwrap(), enable_patch(Some(0.4)))
+            .unwrap()
+            .unwrap();
+        assert!(on.ontology_constraints_enabled);
+        assert_eq!(on.ontology_constraint_strength, 0.4);
+        let too_strong = merge_physics_patch(base, weights_patch(Some(1.5)).unwrap())
+            .unwrap()
+            .unwrap();
+        assert!(validate_physics_settings(&too_strong).is_err());
     }
 }

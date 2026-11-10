@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
 verified_paths: [src/uri/mod.rs, crates/visionclaw-domain/src/uri.rs, src/services/github_sync_service.rs, src/adapters/oxigraph_graph_repository.rs]
 owner: jjohare
 review_trigger: any new persisted identifier namespace, or a decision to rewrite/retire the legacy urn:ngm:* scheme
@@ -137,3 +137,11 @@ Reported to the lead. The product code is not changed here. **Decision unaffecte
 ## Note — 2026-11-07: the corpus-sync activity id defect is fixed (`adf382ea4`)
 
 The contradiction recorded in the amendment above is closed in code. `corpus_sync_activity_urn` (`src/services/corpus_history.rs:131`) now mints through `uri::execution("corpus-sync:<YYYYMMDDTHHMMSSZ>")`, so every new id parses as `ParsedUri::Execution`. Canonical ids are content addresses, so ownership is no longer read from the URN. Each corpus-sync activity carries `dl:writer "corpus-sync"` (`:75-78`, `:388`). The writer lookup matches that marker **or** the legacy `corpus-sync-` prefix (`LEGACY_CORPUS_SYNC_ACTIVITY_PREFIX`, `:70`; `STRSTARTS … || EXISTS`, `:210`), so the malformed ids already in the append-only graph stay owned. `uri::parse` is unchanged: no reader parses stored activity IRIs, so no legacy branch was added to the grammar. Tests in `services::corpus_history::tests`: `the_activity_urn_parses_as_a_canonical_execution_id` (red at `0e847fd5a`, green at `adf382ea4`), `legacy_corpus_sync_versions_are_still_owned_and_closed`, `legacy_and_canonical_versions_are_owned_together`, `a_canonical_activity_from_another_writer_is_not_owned`, `a_new_sync_marks_its_activity_as_the_corpus_writer`, `a_plan_whose_activity_cannot_be_built_writes_nothing`. **Decision unaffected**; `verified_paths` untouched, so `verified_commit` is not moved.
+
+## Re-verification — 2026-11-10 (`7a6adcc83`, ADR-2192)
+
+Governed-path change: `src/services/github_sync_service.rs` (ADR-2192 sync switches). Domain-root and edge IRIs are still minted through `uri::ngm`, and the byte-identity test is unchanged and passes. **Decision unaffected.**
+
+## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
+
+`github_sync_service.rs`: `forget_inference` (ADR-2192). It mints nothing. **Decision unaffected.**
