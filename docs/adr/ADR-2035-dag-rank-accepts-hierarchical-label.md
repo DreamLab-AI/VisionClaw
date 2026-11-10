@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7a6adcc8383aca0742cb84f49916cc4f5c084af3
+verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
 verified_paths: [src/actors/gpu/force_compute_actor.rs, crates/visionclaw-domain/src/models/edge.rs, src/services/github_sync_service.rs, src/services/inferred_edge_materialiser.rs, src/services/semantic_type_registry.rs]
 owner: jjohare
 review_trigger: a producer that writes a 'hierarchical' subclass edge without rdfs:subClassOf in owl_property_iri (it would silently stop ranking), a store path that drops vc:owlProperty, or a new producer of explicit subclass_of labels
@@ -407,3 +407,7 @@ Governed-path changes since `ff849f2ba`:
 ## Re-verification — 2026-11-10 (`7a6adcc83`, ADR-2192)
 
 Governed-path change: `src/services/github_sync_service.rs`, where `plan_domain_roots` takes the `materialiseDomainRoots` switch (off purges the roots), and `src/actors/gpu/force_compute_actor.rs`, where the constraint sync clears the device on an emptied cache. Domain spokes are still `domain_member`, not `hierarchical`, and no rank code moved. **Decision unaffected.**
+
+## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
+
+`force_compute_actor.rs` keeps the ontology and user constraint sources apart and uploads their union. `github_sync_service.rs` adds `forget_inference`. Domain spokes and rank code are unchanged. **Decision unaffected.**

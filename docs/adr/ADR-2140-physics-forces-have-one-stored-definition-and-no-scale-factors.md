@@ -9,7 +9,7 @@ evidence_class: source+test
 acceptance_boundary: local runs only, not deployed to any running server or headset. The GPU receipt (adr_2140_layout_mode_gpu_tests) drives merge_physics_patch, not the HTTP handler, because apply_physics_patch needs a live AppState; no test builds an AppState, so the quality-gate handler's decision is tested as a pure function (layout_mode_to_forward) and reset_layout's as reset_document_for, not through the HTTP handlers. The boot path is tested at the repository load (load_all_settings against a store holding only the physics row, and one with frozen leaves) which is what the settings actor calls at startup; OptimizedSettingsActor and AppState::new are not booted. The client round trip is pinned by unit tests, not a browser against a live backend; the removed sssp/params routes are shown absent by a routing test, not by a deployed 404.
 supersedes: []
 superseded_by: []
-verified_commit: fd7525907eb3f1eddc8db1d9e32b29a5c5021564
+verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
 verified_paths: [src/handlers/layout_handler.rs, src/actors/gpu/force_compute_actor.rs, src/actors/gpu/physics_restore.rs, crates/visionclaw-domain/src/types/layout.rs, src/utils/unified_gpu_compute/execution.rs, src/adapters/sqlite_settings_repository.rs, src/handlers/api_handler/analytics/sssp_handlers.rs, src/settings/api/settings_routes.rs, crates/visionclaw-domain/src/types/physics_config.rs, src/models/simulation_params.rs, crates/visionclaw-domain/src/models/simulation_params.rs, docs/reference/physics-parameters.md]
 owner: jjohare
 review_trigger: any new force, any new place that holds a physics value, any multiplier or clamp between the settings store and the GPU
@@ -219,3 +219,11 @@ The operator decided that stored settings are migrated, with the old row archive
 - **Sink.** Like the clustering and stream settings, the pair is not a `SimParams` field. `apply_physics_patch` sends `SetOntologyConstraintPolicy` to the constraint actor, only when the pair changed, because each application re-uploads the set and restarts its ramp-in. The layout reset and `restore_saved_physics` (boot and every supervisor restart) send it too.
 - **Residual clamp, listed.** `scale_constraint_buffer` still clamps to the stored bound, and maps a non-finite value to 0. The route already refuses out-of-range values; the clamp guards only a boot row that was never validated. It is in the S-15 class: harmless while the bound matches.
 - **Re-verification of the governed paths.** `physics_config.rs` adds the two fields with serde defaults. A stored row without them loads (domain test, and the captured live row in `physics_restore::policy_key_compat_tests`). `force_compute_actor.rs` clears the device on an emptied cache. `settings_routes.rs` validates the strength and sends the policy. `physics_restore.rs` adds the compat test. Decisions 1 to 6 are unaffected.
+
+## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
+
+Further ADR-2192 changes:
+- The policy is now sent on every physics write, before `SimParams`, because the constraint actor answers an unchanged policy without re-uploading. A write naming a policy key reports a failed application.
+- `physics_restore.rs` migrates the retired `qualityGates.ontologyStrength` into `ontologyConstraintStrength`, when it was in force, archiving the quality-gate row first. This is the second stored-settings migration, alongside ADR-2191 decision 10.
+- The merge with main keeps both `physics_config.rs` changes: ADR-2191's `ssspEnabled` default and ADR-2192's two keys.
+- Decisions 1 to 6 are unaffected.

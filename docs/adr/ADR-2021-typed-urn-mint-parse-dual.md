@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7a6adcc8383aca0742cb84f49916cc4f5c084af3
+verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
 verified_paths: [src/uri/mod.rs, crates/visionclaw-domain/src/uri.rs, src/services/github_sync_service.rs, src/adapters/oxigraph_graph_repository.rs]
 owner: jjohare
 review_trigger: any new persisted identifier namespace, or a decision to rewrite/retire the legacy urn:ngm:* scheme
@@ -141,3 +141,7 @@ The contradiction recorded in the amendment above is closed in code. `corpus_syn
 ## Re-verification — 2026-11-10 (`7a6adcc83`, ADR-2192)
 
 Governed-path change: `src/services/github_sync_service.rs` (ADR-2192 sync switches). Domain-root and edge IRIs are still minted through `uri::ngm`, and the byte-identity test is unchanged and passes. **Decision unaffected.**
+
+## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
+
+`github_sync_service.rs`: `forget_inference` (ADR-2192). It mints nothing. **Decision unaffected.**

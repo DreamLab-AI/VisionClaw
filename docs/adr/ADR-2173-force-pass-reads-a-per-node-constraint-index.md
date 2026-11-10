@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: fd7525907eb3f1eddc8db1d9e32b29a5c5021564
+verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
 relates: [ADR-2169]
 verified_paths: [src/utils/unified_gpu_compute/constraint_index.rs, src/utils/unified_gpu_compute/memory.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, src/utils/unified_gpu_compute/execution.rs, src/actors/gpu/force_compute_actor.rs]
 owner: jjohare
@@ -84,3 +84,7 @@ Governed-path change since `e2afd65d6`: `src/actors/gpu/force_compute_actor.rs` 
 - **Still open.** `ConstraintActor` still writes the engine directly. When it does, `ForceComputeActor` re-uploads its union at the next step whose resident count differs.
 - **Renamed.** `AdjustConstraintWeights` is replaced by `SetOntologyConstraintPolicy { enabled, strength }`, which still re-uploads, then notifies the actor.
 - **Evidence.** `constraint_sync_action_tests` (CPU). A device test, `switching_the_ontology_source_off_and_on_leaves_the_user_set_on_the_device` in `constraint_schedule_tests`, is `#[ignore]` without a device. It passed on an RTX 6000 Ada (`CUDA_VISIBLE_DEVICES=2`, `CUDA_ARCH=89`), together with the module's three other device tests. `constraint_source_tests` covers the split on the CPU.
+
+## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
+
+This stamp covers the ADR-2192 amendment above at the merge with main. `constraint_schedule_tests` (4) pass on an RTX 6000 Ada (`CUDA_VISIBLE_DEVICES=2`, `CUDA_ARCH=89`). **Decision unaffected.**

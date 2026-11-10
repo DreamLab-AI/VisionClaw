@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: fd7525907eb3f1eddc8db1d9e32b29a5c5021564
+verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
 verified_paths: [src/actors/gpu/gpu_manager_actor.rs, src/actors/gpu/mod.rs, src/actors/gpu/context_bus.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: a new GPU subsystem that does not fit the four-supervisor split, or a change to SharedGPUContext distribution
@@ -200,3 +200,7 @@ Re-stamped 2026-11-10 at `fd7525907`: `docs/GPU-wire-abi.md` 0.1.10 widens invar
 ## Re-verification — 2026-11-10 (`7a6adcc83`, ADR-2192)
 
 Governed-path change: `src/actors/gpu/gpu_manager_actor.rs` routes `SetOntologyConstraintPolicy` (which replaces `AdjustConstraintWeights`) to the physics supervisor exactly as before. The supervisor structure is unchanged. **Decision unaffected.** Checked by reading the diff.
+
+## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
+
+`gpu_manager_actor.rs` routes `SetOntologyConstraintPolicy` to the physics supervisor; this stamp is the merge of main (ADR-2191) with ADR-2192. The supervisor structure is unchanged. **Decision unaffected.**

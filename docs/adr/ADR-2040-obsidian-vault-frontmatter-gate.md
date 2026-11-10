@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: [ADR-2014]
 superseded_by: [ADR-2112]
-verified_commit: 7a6adcc8383aca0742cb84f49916cc4f5c084af3
+verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
 verified_paths: [crates/visionclaw-domain/src/vault/mod.rs, crates/visionclaw-domain/src/vault/link.rs, src/services/file_service.rs, src/services/github_sync_service.rs, src/services/parsers/knowledge_graph_parser.rs, src/services/github/content_enhanced.rs, src/services/ontology_mutation_service.rs, src/services/decision_elevation.rs, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: "the first GitHub sync run after the corpus repo is converted in place, or 2026-12-01, whichever is earlier — at which point the Logseq `key:: value` tolerance is removed"
@@ -221,3 +221,7 @@ Governed-path changes since `974daf5d2`:
 ## Re-verification — 2026-11-10 (`7a6adcc83`, ADR-2192)
 
 Governed-path change: `src/services/github_sync_service.rs` (ADR-2192 sync switches). The frontmatter gate is untouched. **Decision unaffected.**
+
+## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
+
+`github_sync_service.rs`: `forget_inference` (ADR-2192). The frontmatter gate is untouched. **Decision unaffected.**

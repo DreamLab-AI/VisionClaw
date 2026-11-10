@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7a6adcc8383aca0742cb84f49916cc4f5c084af3
+verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
 verified_paths: [src/services/data_reconciliation.rs, src/services/github_sync_service.rs, scripts/backup-sqlite.sh, scripts/backup-secrets.sh]
 owner: jjohare
 review_trigger: an Oxigraph/RocksDB PITR or backup requirement, a cross-store consistency incident, or wiring RuVector delete-propagation
@@ -276,3 +276,7 @@ The full-sync gate is unchanged: `force_full_sync` (`:389`), `clear_graph()` (`:
 ## Re-verification — 2026-11-10 (`7a6adcc83`, ADR-2192)
 
 Governed-path change: `src/services/github_sync_service.rs` reads the ADR-2192 sync switches, gates reasoning, domain roots and inferred edges, and can purge stored roots and inferred edges at sync. No backup, write-master or persistence posture changed. **Decision unaffected.** Checked by reading the diff.
+
+## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
+
+`github_sync_service.rs`: with `qualityGates.ontologyReasoning` off, a sync clears the shared Whelk closure and the stored inferred graph (`forget_inference`). Backup and write-master posture are unchanged. **Decision unaffected.**

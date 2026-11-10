@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 7a6adcc8383aca0742cb84f49916cc4f5c084af3
+verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
 verified_paths: [crates/visionclaw-domain/src/types/physics_config.rs, src/actors/gpu/ontology_constraint_actor.rs, src/actors/gpu/force_compute_actor.rs, src/actors/gpu/physics_supervisor.rs, src/actors/messages/physics_messages.rs, src/settings/models.rs, src/settings/api/settings_routes.rs, src/services/github_sync_service.rs, src/handlers/api_handler/ontology_physics/mod.rs, src/actors/client_filter.rs, src/actors/client_coordinator_actor.rs, src/handlers/api_handler/graph/mod.rs, client/src/features/control-center/registry/groups/quality.ts, client/src/features/control-center/registry/groups/motion.ts, client/src/features/ontology/components/OntologyForcesPanel.tsx]
 relates: [ADR-2140, ADR-2183, ADR-2189, ADR-2173, ADR-2071, ADR-098]
 owner: jjohare
