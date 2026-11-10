@@ -23,16 +23,8 @@ name: XR Godot CI
 # already a blocking crate in ci.yml rust-cpu.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'xr-client/**'
-      - 'crates/visionclaw-xr-presence/**'
-      - 'crates/visionclaw-tri-layout/**'
-      - 'crates/visionclaw-splat/**'
-      - 'crates/visionclaw-wire/**'
-      - 'Cargo.lock'
-      - '.github/workflows/xr-godot-ci.yml'
+  # push-to-main trigger removed 2026-11-10 to cut run volume while Actions is restricted;
+  # restore the `push:` block from git history to re-enable. Runs on pull requests and on demand.
   pull_request:
     branches: [main]
     paths:
