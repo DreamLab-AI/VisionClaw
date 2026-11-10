@@ -79,6 +79,8 @@ export const DEFAULT_PHYSICS_SETTINGS: Partial<PhysicsSettings> = {
   // --- Constraints ---
   constraintRampFrames: 60,
   constraintMaxForcePerNode: 50.0,
+  ontologyConstraintsEnabled: true,
+  ontologyConstraintStrength: 0.6,
   clusterStrength: 0.0,
 
   // --- Misc ---
@@ -169,7 +171,6 @@ export const DEFAULT_CLUSTER_HULLS = {
 // default. Absent defaults made the whole analytics subsystem invisible.
 export const DEFAULT_QUALITY_GATES: QualityGateSettings = {
   gpuAcceleration: true,
-  ontologyPhysics: false,
   layoutMode: 'force-directed',
   showAnomalies: true,
   showCentrality: true,
@@ -177,7 +178,9 @@ export const DEFAULT_QUALITY_GATES: QualityGateSettings = {
   ruvectorEnabled: false,
   minFpsThreshold: 30,
   autoAdjust: true,
-  ontologyStrength: 0.5,
+  ontologyReasoning: true,
+  materialiseDomainRoots: true,
+  materialiseInferredEdges: true,
 };
 
 export const DEFAULT_PROVENANCE_SETTINGS = {

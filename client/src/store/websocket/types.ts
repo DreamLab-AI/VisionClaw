@@ -72,6 +72,8 @@ export interface FilterUpdateParams {
   includeLinkedPages?: boolean;
   /** Opt-in: the server also removes non-matching nodes (default false). */
   serverRemove?: boolean;
+  /** With removal on, the server streams at most this many nodes; 0 = no cap (ADR-2192). */
+  maxNodes?: number;
 }
 
 export interface NodePositionUpdate {
@@ -102,6 +104,7 @@ export interface FilterSnapshot {
   filterMode?: string;
   includeLinkedPages?: boolean;
   serverRemove?: boolean;
+  maxNodes?: number;
 }
 
 // Store state interface

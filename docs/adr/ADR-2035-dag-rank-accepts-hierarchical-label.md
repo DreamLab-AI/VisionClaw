@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
 verified_paths: [src/actors/gpu/force_compute_actor.rs, crates/visionclaw-domain/src/models/edge.rs, src/services/github_sync_service.rs, src/services/inferred_edge_materialiser.rs, src/services/semantic_type_registry.rs]
 owner: jjohare
 review_trigger: a producer that writes a 'hierarchical' subclass edge without rdfs:subClassOf in owl_property_iri (it would silently stop ranking), a store path that drops vc:owlProperty, or a new producer of explicit subclass_of labels
@@ -403,3 +403,11 @@ Governed-path changes since `ff849f2ba`:
 - `src/services/github_sync_service.rs` (corpus history, commit-history stamping, shared Whelk engine; see ADR-2017's 2026-11-07 note). The domain-root spokes are untouched: `materialise_domain_roots` `:907` and `domain_membership_edge` `:2540`, still labelled `domain_member`. The only matching diff line is an `AxiomType::SubClassOf` in the corpus-history projection, not an edge label.
 
 **Decision unaffected.** Re-run: `git diff ff849f2ba..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`7a6adcc83`, ADR-2192)
+
+Governed-path change: `src/services/github_sync_service.rs`, where `plan_domain_roots` takes the `materialiseDomainRoots` switch (off purges the roots), and `src/actors/gpu/force_compute_actor.rs`, where the constraint sync clears the device on an emptied cache. Domain spokes are still `domain_member`, not `hierarchical`, and no rank code moved. **Decision unaffected.**
+
+## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
+
+`force_compute_actor.rs` keeps the ontology and user constraint sources apart and uploads their union. `github_sync_service.rs` adds `forget_inference`. Domain spokes and rank code are unchanged. **Decision unaffected.**

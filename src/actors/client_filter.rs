@@ -21,10 +21,24 @@ use visionclaw_domain::models::graph::GraphData;
 /// Recomputes which node IDs this client receives.
 ///
 /// Called when the client authenticates, updates its filter, or the graph
-/// changes. Scope removal always applies; predicate removal only when
-/// `filter.enabled && filter.server_remove`.
+/// changes. Scope removal always applies; predicate removal, and the
+/// `max_nodes` cap (ADR-2192), only when `filter.enabled && filter.server_remove`.
 pub fn recompute_filtered_nodes(filter: &mut ClientFilter, graph_data: &GraphData) {
+    recompute_filtered_nodes_admitting(filter, graph_data, &|_| true);
+}
+
+/// [`recompute_filtered_nodes`] with an extra population predicate, `admit`, applied with the
+/// scope gate and before predicate removal and the `max_nodes` cap. The `/wss` stream admits
+/// every node; a REST load admits its `graph_type` population, so the cap picks the best N of
+/// what the caller asked for rather than of the whole graph (ADR-2192). One function, one
+/// order: visibility (by the caller), scope, admit, predicates, cap.
+pub fn recompute_filtered_nodes_admitting(
+    filter: &mut ClientFilter,
+    graph_data: &GraphData,
+    admit: &dyn Fn(&visionclaw_domain::models::node::Node) -> bool,
+) {
     filter.filtered_node_ids.clear();
+    filter.considered_nodes = 0;
     let remove_by_predicate = filter.enabled && filter.server_remove;
 
     for node in &graph_data.nodes {
@@ -34,16 +48,14 @@ pub fn recompute_filtered_nodes(filter: &mut ClientFilter, graph_data: &GraphDat
         if !filter.include_linked_pages && node.population_type() == Some("linked_page") {
             continue;
         }
+        if !admit(node) {
+            continue;
+        }
+        // In scope: what this client would receive with no removal (the "of M").
+        filter.considered_nodes += 1;
         if remove_by_predicate {
+            let quality = node_quality(node, graph_data);
             let meta = graph_data.metadata.get(&node.metadata_id);
-            let quality = node
-                .metadata
-                .get("quality_score")
-                // The ontology-entity sync path stores the same signal camelCase
-                // (`qualityScore`, from vc:qualityScore): accept both keys.
-                .or_else(|| node.metadata.get("qualityScore"))
-                .and_then(|s| s.parse::<f64>().ok())
-                .or_else(|| meta.and_then(|m| m.quality_score));
             let authority = node
                 .metadata
                 .get("authority_score")
@@ -56,15 +68,105 @@ pub fn recompute_filtered_nodes(filter: &mut ClientFilter, graph_data: &GraphDat
         filter.filtered_node_ids.insert(node.id);
     }
 
+    if remove_by_predicate {
+        if let Some(cap) = filter.max_nodes.filter(|&c| c > 0) {
+            if filter.filtered_node_ids.len() > cap {
+                let keep = top_nodes(&filter.filtered_node_ids, graph_data, cap);
+                filter.filtered_node_ids = keep;
+            }
+        }
+    }
+
     debug!(
-        "Recomputed filtered nodes: {} of {} visible (enabled={}, server_remove={}, quality_threshold={}, mode={:?})",
+        "Recomputed filtered nodes: {} of {} visible (enabled={}, server_remove={}, quality_threshold={}, mode={:?}, max_nodes={:?})",
         filter.filtered_node_ids.len(),
         graph_data.nodes.len(),
         filter.enabled,
         filter.server_remove,
         filter.quality_threshold,
-        filter.filter_mode
+        filter.filter_mode,
+        filter.max_nodes
     );
+}
+
+/// Apply a `filter_update` to a client's filter: the one mapping from the wire message,
+/// used by the `/wss` coordinator and by the REST load's `node_filter` snapshot (ADR-2192).
+pub fn apply_filter_update(
+    filter: &mut ClientFilter,
+    msg: &crate::actors::messages::UpdateClientFilter,
+) -> Result<(), String> {
+    let filter_mode = msg
+        .filter_mode
+        .parse::<FilterMode>()
+        .map_err(|e| format!("Invalid filter mode: {}", e))?;
+    filter.enabled = msg.enabled;
+    filter.quality_threshold = msg.quality_threshold;
+    filter.authority_threshold = msg.authority_threshold;
+    filter.filter_by_quality = msg.filter_by_quality;
+    filter.filter_by_authority = msg.filter_by_authority;
+    filter.filter_mode = filter_mode;
+    filter.include_linked_pages = msg.include_linked_pages;
+    filter.server_remove = msg.server_remove;
+    filter.max_nodes = msg
+        .max_nodes
+        .and_then(|n| usize::try_from(n).ok())
+        .filter(|&n| n > 0);
+    Ok(())
+}
+
+/// A node's authored quality score, as the quality predicate reads it: node
+/// metadata `quality_score`, or `qualityScore` (the ontology-entity sync path
+/// stores the same signal camelCase, from vc:qualityScore), then the page
+/// metadata row.
+pub fn node_quality(
+    node: &visionclaw_domain::models::node::Node,
+    graph: &GraphData,
+) -> Option<f64> {
+    node.metadata
+        .get("quality_score")
+        .or_else(|| node.metadata.get("qualityScore"))
+        .and_then(|s| s.parse::<f64>().ok())
+        .or_else(|| {
+            graph
+                .metadata
+                .get(&node.metadata_id)
+                .and_then(|m| m.quality_score)
+        })
+}
+
+/// The `cap` best of `candidates` for the `max_nodes` cap (ADR-2192): higher
+/// authored quality first (unscored nodes after every scored one), then higher
+/// degree in `graph`, then lower id, so the result is deterministic.
+pub fn top_nodes(
+    candidates: &std::collections::HashSet<u32>,
+    graph: &GraphData,
+    cap: usize,
+) -> std::collections::HashSet<u32> {
+    use std::cmp::Ordering;
+    let mut degree: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
+    for e in &graph.edges {
+        *degree.entry(e.source).or_default() += 1;
+        *degree.entry(e.target).or_default() += 1;
+    }
+    let mut ranked: Vec<(Option<f64>, usize, u32)> = graph
+        .nodes
+        .iter()
+        .filter(|n| candidates.contains(&n.id))
+        .map(|n| {
+            let q = node_quality(n, graph).filter(|q| q.is_finite());
+            (q, degree.get(&n.id).copied().unwrap_or(0), n.id)
+        })
+        .collect();
+    ranked.sort_by(|a, b| {
+        let by_quality = match (a.0, b.0) {
+            (Some(x), Some(y)) => y.partial_cmp(&x).unwrap_or(Ordering::Equal),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => Ordering::Equal,
+        };
+        by_quality.then(b.1.cmp(&a.1)).then(a.2.cmp(&b.2))
+    });
+    ranked.into_iter().take(cap).map(|(_, _, id)| id).collect()
 }
 
 /// Whether a node passes the enabled quality / authority predicates.
@@ -139,6 +241,70 @@ mod tests {
         graph.metadata.insert("node3.md".to_string(), meta3);
 
         graph
+    }
+
+    /// ADR-2192: `max_nodes` keeps the best `cap` of the nodes that pass, ranked by quality
+    /// (unscored last), then degree; it applies only with `enabled && server_remove`, and the
+    /// recompute records the size of the view it was given for "showing N of M".
+    #[test]
+    fn max_nodes_caps_only_an_opted_in_removal_and_keeps_the_best_ranked() {
+        // Nodes 1..4: qualities 0.9, 0.4, 0.85, unscored (create_test_graph).
+        let mut graph = create_test_graph();
+        // Node 4 (unscored) has the most edges; degree must not lift it above scored nodes.
+        for (a, b) in [(4, 1), (4, 2), (4, 3), (2, 3)] {
+            graph
+                .edges
+                .push(visionclaw_domain::models::edge::Edge::new(a, b, 1.0));
+        }
+        let mut filter = ClientFilter {
+            enabled: true,
+            server_remove: true,
+            filter_by_quality: false,
+            max_nodes: Some(2),
+            ..Default::default()
+        };
+        recompute_filtered_nodes(&mut filter, &graph);
+        assert_eq!(filter.considered_nodes, 4);
+        let mut kept: Vec<u32> = filter.filtered_node_ids.iter().copied().collect();
+        kept.sort_unstable();
+        assert_eq!(kept, vec![1, 3], "the two highest quality scores");
+
+        filter.max_nodes = Some(3);
+        recompute_filtered_nodes(&mut filter, &graph);
+        let mut kept: Vec<u32> = filter.filtered_node_ids.iter().copied().collect();
+        kept.sort_unstable();
+        assert_eq!(
+            kept,
+            vec![1, 2, 3],
+            "every scored node before the unscored one"
+        );
+
+        // Not opted in to removal: the cap is ignored, nothing is removed.
+        filter.server_remove = false;
+        filter.max_nodes = Some(1);
+        recompute_filtered_nodes(&mut filter, &graph);
+        assert_eq!(filter.filtered_node_ids.len(), 4);
+        filter.server_remove = true;
+        filter.enabled = false;
+        recompute_filtered_nodes(&mut filter, &graph);
+        assert_eq!(filter.filtered_node_ids.len(), 4);
+    }
+
+    #[test]
+    fn top_nodes_breaks_quality_ties_by_degree_then_id() {
+        let mut graph = GraphData::new();
+        for id in 1..=4u32 {
+            let mut n = Node::new_with_id(format!("n{id}"), Some(id));
+            n.metadata.insert("quality_score".into(), "0.5".into());
+            graph.nodes.push(n);
+        }
+        graph
+            .edges
+            .push(visionclaw_domain::models::edge::Edge::new(3, 4, 1.0));
+        let all: std::collections::HashSet<u32> = [1, 2, 3, 4].into_iter().collect();
+        let mut top: Vec<u32> = top_nodes(&all, &graph, 3).into_iter().collect();
+        top.sort_unstable();
+        assert_eq!(top, vec![1, 3, 4], "degree first, then the lower id");
     }
 
     #[test]
@@ -400,6 +566,8 @@ mod tests {
         }
         // The linked_page population scope (ADR-2183 D4) still removes.
         assert!(!filter.filtered_node_ids.contains(&10));
+        // ADR-2192: "of M" counts what is in scope, so with nothing removed N == M ("all").
+        assert_eq!(filter.considered_nodes, filter.filtered_node_ids.len());
     }
 
     #[test]
@@ -448,6 +616,7 @@ mod tests {
         );
         assert_eq!(serde_json::json!(c.server_remove), f["serverRemove"]);
         assert_eq!(c.max_nodes, None);
+        assert_eq!(s.max_nodes, 0, "no cap by default (ADR-2192)");
         assert!(c.filtered_node_ids.is_empty());
     }
 

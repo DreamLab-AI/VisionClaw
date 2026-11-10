@@ -9,7 +9,7 @@ supersedes: []
 superseded_by: []
 amends: [ADR-2140]
 relates: [ADR-2028, ADR-2029, ADR-2143, ADR-2169, ADR-2173]
-verified_commit: 5db82ff06c3e9f27a4bdfc559d824345501d23ad
+verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
 verified_paths: [src/adapters/sqlite_settings_repository.rs, src/handlers/api_handler/analytics/pathfinding.rs, scripts/gpu-physics-gate.sh, crates/visionclaw-gpu/tests/force_kernel_baseline/harness.rs, src/utils/unified_gpu_compute/buffers.rs, src/utils/unified_gpu_compute/construction.rs, src/utils/unified_gpu_compute/memory.rs, src/utils/unified_gpu_compute/sssp.rs, src/utils/unified_gpu_compute/community.rs, src/utils/unified_gpu_compute/execution.rs, src/utils/unified_gpu_compute/lifecycle_gpu_tests.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, crates/visionclaw-domain/src/types/physics_config.rs, src/handlers/settings_handler/types.rs, src/handlers/api_handler/analytics/sssp_handlers.rs]
 owner: jjohare
 review_trigger: a new device buffer on UnifiedGPUCompute; stage S3 of the physics rework (separate path-length and stiffness buffers), which decides whether SSSP spring adjustment comes back on; any change to relaxation_step_kernel or the SSSP host loop
@@ -81,3 +81,7 @@ An independent review of the first implementation found one regression and five 
 - CPU tests pass: three handler tests (`sssp_delta_validation_tests`), two migration tests, and the scanner fixture.
 - On the pre-round code, the same-count rename and the shrink both kept degree weights and community labels.
 - `cargo test --lib`: 1980 passed, 0 failed.
+
+## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
+
+`physics_config.rs` gains ADR-2192's `ontologyConstraintsEnabled` / `ontologyConstraintStrength` beside this record's `ssspEnabled` default, which is unchanged. **Decision unaffected.**

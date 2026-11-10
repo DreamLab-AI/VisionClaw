@@ -943,11 +943,15 @@ impl Handler<RecalculateHierarchy> for GPUManagerActor {
     }
 }
 
-/// Adjust constraint weights - routes to PhysicsSupervisor -> OntologyConstraintActor
-impl Handler<AdjustConstraintWeights> for GPUManagerActor {
+/// Ontology-constraint policy (ADR-2192) - routes to PhysicsSupervisor -> OntologyConstraintActor
+impl Handler<SetOntologyConstraintPolicy> for GPUManagerActor {
     type Result = ResponseActFuture<Self, Result<serde_json::Value, String>>;
 
-    fn handle(&mut self, msg: AdjustConstraintWeights, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: SetOntologyConstraintPolicy,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
         let supervisors = match self.get_supervisors(ctx) {
             Ok(s) => s.clone(),
             Err(e) => return Box::pin(async move { Err(e) }.into_actor(self)),

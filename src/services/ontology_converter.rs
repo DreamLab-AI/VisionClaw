@@ -185,4 +185,4 @@ impl OntologyConverter {
 // - EL++ tractable reasoning via CustomReasoner
 // - Infers class hierarchy (SubClassOf relationships)
 // - Detects disjoint classes for separation forces
-// - Class inference integrated into OntologyPipelineService
+// - Class inference runs on the post-sync Whelk path (GitHubSyncService)

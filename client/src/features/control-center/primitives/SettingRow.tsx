@@ -23,6 +23,7 @@ import { SettingText } from './SettingText';
 import { SettingAction } from './SettingAction';
 import { NostrAuthControl } from './NostrAuthControl';
 import { RendererInfo } from './RendererInfo';
+import { NodeFilterCount } from './NodeFilterCount';
 import '../styles/control-center.css';
 
 export interface SettingRowProps {
@@ -168,7 +169,9 @@ export const SettingRow: React.FC<SettingRowProps> = ({ field, groupId, localVal
       case 'nostr-button':
         return <NostrAuthControl field={field} testId={testId} />;
       case 'readonly':
-        return <RendererInfo field={field} testId={testId} />;
+        return field.readout === 'nodeFilterCount'
+          ? <NodeFilterCount field={field} testId={testId} />
+          : <RendererInfo field={field} testId={testId} />;
       default:
         return null;
     }

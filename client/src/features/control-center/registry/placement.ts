@@ -135,6 +135,8 @@ export const SUBGROUP_PLACEMENT: Record<string, Placement> = {
   'quality|Node Filtering': ['explore', 'Filters'],
   'quality|Run Grouping': ['explore', 'Grouping'],
   'quality|GPU & Quality Gates': ['system', 'Performance'],
+  // ADR-2192: server sync-time switches for the ontology pipeline.
+  'quality|Ontology Pipeline': ['system', 'Services'],
   'quality|Cluster Visualisation': ['encode', 'Analytic overlays'],
   'quality|Cluster Hulls': ['layers', 'Cluster hulls'],
 

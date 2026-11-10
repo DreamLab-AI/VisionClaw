@@ -9,7 +9,7 @@ supersedes: []
 superseded_by: []
 amends: [ADR-2140]
 relates: [ADR-2141, ADR-2172]
-verified_commit: 212465a0dd3fcc7981984a185b1f5bf0d0bd4e9a
+verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
 verified_paths: [src/utils/unified_gpu_compute/hold_overlay.rs, src/utils/unified_gpu_compute/execution.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, src/actors/gpu/hold_registry.rs, src/actors/gpu/force_compute_actor.rs, src/actors/physics_orchestrator_actor.rs, src/handlers/socket_flow_handler/position_updates.rs, src/handlers/socket_flow_handler/types.rs, src/handlers/layout_handler.rs, scripts/drag-physics-acceptance.mjs]
 owner: jjohare
 review_trigger: the first headset session after the server carrying this change is deployed (does the graph answer the hand, does it rest about two seconds after release), or any change to the FA2 integrator or the stored `globalSpeed`.
@@ -115,3 +115,11 @@ No hold, pin, release or settle line is in the diff; the single grep hit is the 
 ## Re-verification — 2026-11-10 (ADR-2191, `212465a0d`)
 
 **Decision unaffected.** `resize_buffers` now replaces every graph-sized buffer from one registered table (ADR-2191), and still unbinds `g_edge_rest_snapshot` (`bind_edge_rest(0)`) before the old `edge_rest_snapshot` is freed and invalidates the overlay afterwards; `edge_rest_snapshot` is a registered per-edge buffer sized to `allocated_edges`. The `.cu` change is confined to two analytics kernels; `edge_spring_scale` and both force kernels are untouched. Re-run on the RTX 6000 Ada (bus 0xAF) at `3f6c5faeb`, whose governed files are identical to `212465a0d`: `scripts/gpu-physics-gate.sh` (lib suite 1974 passed, harness 40 of 40), then the lib test binary that run built, filtered by name (`visionclaw_server-<hash> <filter> --test-threads=4`): `cargo test --lib hold` (55, 1 ignored) passes, and the `hold_overlay_*` goldens pass in the harness.
+
+## Re-verification — 2026-11-10 (`7a6adcc83`, ADR-2192)
+
+Governed-path change: `src/actors/gpu/force_compute_actor.rs`, where `sync_constraints` clears the device when a writer empties the cache (`constraint_sync_action`). Hold and release are untouched. **Decision unaffected.**
+
+## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
+
+`force_compute_actor.rs`: two constraint sources (ontology, user), uploaded as their union (ADR-2192). Hold and release are untouched; the four `constraint_schedule_tests` pass on the device. **Decision unaffected.**

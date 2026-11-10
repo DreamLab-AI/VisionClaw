@@ -178,6 +178,8 @@ over the first frames after a constraint set is applied, avoiding a snap.
 |---|---|---|---|
 | `constraintRampFrames` | u32 | **60** | Frames over which constraint force ramps from 0 to full |
 | `constraintMaxForcePerNode` | f32 | **50.0** | Per-node cap on constraint force, preventing a constraint from overpowering the base layout |
+| `ontologyConstraintsEnabled` | bool | **true** | Apply the reasoner-derived ontology constraints (subClassOf attraction, disjointWith separation, sameAs colocation). Off removes them from the GPU; on re-applies the last sync's set without re-reasoning (ADR-2192). Not a `SimParams` field: sent to the constraint actor. Kept by a layout reset |
+| `ontologyConstraintStrength` | f32 | **0.6** | Weight multiplier on those constraints, 0–1 (`physics_bounds::ONTOLOGY_CONSTRAINT_STRENGTH`). Applied live; each change re-uploads the set and restarts the ramp (ADR-2192) |
 
 ---
 

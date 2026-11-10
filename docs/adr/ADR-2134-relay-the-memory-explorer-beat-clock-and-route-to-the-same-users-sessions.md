@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
 verified_paths: [src/handlers/socket_flow_handler/session_relay.rs, src/handlers/socket_flow_handler/message_routing.rs, src/actors/client_coordinator_actor.rs, crates/visionclaw-protocol/src/socket_flow_messages.rs, client/src/features/visualisation/memoryCloud/xrRelay.ts, xr-client/rust/src/beat.rs, xr-client/rust/src/pulse.rs, xr-client/scripts/beat_pulse.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): a desktop and headset filmed side by side with phase error below 30 ms. Review: a second consumer of beatClock or memoryRoute; any request to relay across users or rooms; a headset receipt showing desktop/headset phase error above 30 ms; a change to RECORD_AUDIO policy"
@@ -136,3 +136,11 @@ Governed-path changes since `15acb9219`:
 - `xr-client/scripts/beat_pulse.gd` (`75c94eeda`): the beat's haptic tick honours the System › Headset haptics switch (`_scene._haptics_on`). The beat clock's visual pulse and its clock handling are unchanged.
 
 **Decision unaffected.** Re-run: `git diff 15acb9219..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`7a6adcc83`, ADR-2192)
+
+Governed-path change: `src/actors/client_coordinator_actor.rs` applies the parsed `max_nodes`, records `considered_nodes`, and sends `filter_update_success` with counts after a filter recompute. Same-user relay is untouched. **Decision unaffected.**
+
+## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
+
+`client_coordinator_actor.rs` recomputes every client's filter and sends its counts on each graph change, sends `filter_update_error` when the graph cannot be read, and maps `filter_update` through `apply_filter_update`. Same-user relay is untouched. **Decision unaffected.**

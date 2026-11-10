@@ -8,7 +8,7 @@
 
 import React from 'react';
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import type { LucideIcon } from 'lucide-react';
 import { SettingRow } from '../SettingRow';
 import type { RegistryField } from '../../registry/types';
@@ -152,6 +152,24 @@ describe('SettingRow control dispatch', () => {
 
     const info = screen.getByTestId('setting-system.rendererInfo');
     expect(info.getAttribute('role')).toBe('status');
+  });
+
+  it('renders the node-filter count readout from the server counts (ADR-2192)', async () => {
+    const { useNodeFilterCountStore } = await import('../../../graph/explore/nodeFilterCountStore');
+    useNodeFilterCountStore.getState().reset();
+    const field = fieldFor({
+      key: 'nodeFilterCount',
+      label: 'Nodes Shown',
+      type: 'readonly',
+      localKey: 'nodeFilterCount',
+      readout: 'nodeFilterCount',
+    });
+    render(<SettingRow field={field} groupId="quality" />);
+    const readout = screen.getByTestId('setting-quality.nodeFilterCount');
+    expect(readout.getAttribute('role')).toBe('status');
+    expect(readout.textContent).toBe('Node count arrives with the next filter update');
+    act(() => useNodeFilterCountStore.getState().setCounts(2500, 9688));
+    expect(readout.textContent).toBe('Showing 2,500 of 9,688 nodes');
   });
 
   it('hides a field whose showWhen condition is not met', () => {

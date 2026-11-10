@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: fd7525907eb3f1eddc8db1d9e32b29a5c5021564
+verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
 relates: [ADR-2169]
 verified_paths: [src/utils/unified_gpu_compute/constraint_index.rs, src/utils/unified_gpu_compute/memory.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, src/utils/unified_gpu_compute/execution.rs, src/actors/gpu/force_compute_actor.rs]
 owner: jjohare
@@ -77,3 +77,14 @@ Governed-path change since `e2afd65d6`: `src/actors/gpu/force_compute_actor.rs` 
 ## Re-verification — 2026-11-10 (ADR-2191 review round 1)
 
 **Decision unaffected.** `resize_buffers` now carries positions into the fresh buffer set before installing it, and clears node-indexed host state on every call. The constraint-index rebuild after a node-capacity growth, and its unbind-and-drop path on failure, are unchanged and still run after the counts are updated. `initialize_graph` does not touch the constraint index. Re-run on the RTX 6000 Ada (bus 0xAF): `cargo test --lib constraint_index` (6) passes, and the `constraints` golden passes in the gate's harness step.
+
+## Amended by ADR-2192 (2026-11-10, `7a6adcc83`)
+
+- **Part of the end state is done.** `ForceComputeActor` is now the one writer of the ontology set. It keeps two host sources, ontology and user (`UpdateConstraints`, `UploadConstraintsToGPU`), and uploads their union, so the stored ontology switch removes only the ontology set and an empty `UpdateConstraints` only the user set. `sync_constraints` clears the device only when a writer has emptied both sources and the engine still holds constraints (`constraint_sync_action`: empty, pending and resident > 0 gives `Clear`). An empty cache that is not pending never clears. `OntologyConstraintActor` hands its set to `ForceComputeActor` instead of writing the engine.
+- **Still open.** `ConstraintActor` still writes the engine directly. When it does, `ForceComputeActor` re-uploads its union at the next step whose resident count differs.
+- **Renamed.** `AdjustConstraintWeights` is replaced by `SetOntologyConstraintPolicy { enabled, strength }`, which still re-uploads, then notifies the actor.
+- **Evidence.** `constraint_sync_action_tests` (CPU). A device test, `switching_the_ontology_source_off_and_on_leaves_the_user_set_on_the_device` in `constraint_schedule_tests`, is `#[ignore]` without a device. It passed on an RTX 6000 Ada (`CUDA_VISIBLE_DEVICES=2`, `CUDA_ARCH=89`), together with the module's three other device tests. `constraint_source_tests` covers the split on the CPU.
+
+## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
+
+This stamp covers the ADR-2192 amendment above at the merge with main. `constraint_schedule_tests` (4) pass on an RTX 6000 Ada (`CUDA_VISIBLE_DEVICES=2`, `CUDA_ARCH=89`). **Decision unaffected.**

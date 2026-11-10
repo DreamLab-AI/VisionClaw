@@ -448,6 +448,12 @@ export interface FilterConfirmedMessage extends BaseWebSocketMessage {
   };
 }
 
+/** The server could not read the graph for this client's filter recompute (ADR-2192). */
+export interface FilterErrorMessage extends BaseWebSocketMessage {
+  type: 'filter_update_error';
+  data: { error: string };
+}
+
 export interface InitialGraphLoadMessage extends BaseWebSocketMessage {
   type: 'initialGraphLoad';
   nodes: Array<{
@@ -511,6 +517,8 @@ export interface SettingsUpdatedWireMessage extends BaseWebSocketMessage {
     filterMode?: string;
     includeLinkedPages?: boolean;
     serverRemove?: boolean;
+    /** Server-removal cap, 0 = none (ADR-2192). */
+    maxNodes?: number;
   };
 }
 
@@ -551,6 +559,7 @@ export type WebSocketMessage =
   | ConnectionEstablishedMessage
   | ErrorMessage
   | FilterConfirmedMessage
+  | FilterErrorMessage
   | InitialGraphLoadMessage
   | MemoryFlashMessage;
 

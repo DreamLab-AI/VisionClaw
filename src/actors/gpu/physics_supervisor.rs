@@ -197,9 +197,10 @@ impl PhysicsSupervisor {
         info!("PhysicsSupervisor: All child actors spawned successfully");
     }
 
-    /// Give the current ForceComputeActor the saved physics settings (if a
-    /// source is set). Runs after every restart, so the new actor does not sit
-    /// on compiled-in defaults until the next settings PUT.
+    /// Give the current ForceComputeActor the saved physics settings, and the
+    /// OntologyConstraintActor the saved ontology-constraint policy (ADR-2192),
+    /// if a source is set. Runs after every restart, so neither actor sits on
+    /// compiled-in defaults until the next settings PUT.
     fn restore_saved_physics(&self, ctx: &mut Context<Self>) {
         let (Some(repo), Some(actor)) = (
             self.settings_source.clone(),
@@ -207,9 +208,13 @@ impl PhysicsSupervisor {
         ) else {
             return;
         };
+        let ontology = self.ontology_constraint_actor.clone();
         ctx.spawn(actix::fut::wrap_future(async move {
             if let Some(physics) = super::physics_restore::load_saved_physics(repo.as_ref()).await {
                 super::physics_restore::push_physics(&actor, &physics);
+                if let Some(ontology) = ontology {
+                    ontology.do_send(SetOntologyConstraintPolicy::from_physics(&physics));
+                }
             }
         }));
     }
@@ -1011,10 +1016,14 @@ impl Handler<RecalculateHierarchy> for PhysicsSupervisor {
     }
 }
 
-impl Handler<AdjustConstraintWeights> for PhysicsSupervisor {
+impl Handler<SetOntologyConstraintPolicy> for PhysicsSupervisor {
     type Result = ResponseActFuture<Self, Result<serde_json::Value, String>>;
 
-    fn handle(&mut self, msg: AdjustConstraintWeights, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: SetOntologyConstraintPolicy,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
         let addr = match &self.ontology_constraint_actor {
             Some(a) if self.ontology_constraint_state.is_running => a.clone(),
             _ => {

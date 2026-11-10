@@ -26,12 +26,10 @@ use visionclaw_domain::models::constraints::{Constraint, ConstraintSet};
 use visionclaw_domain::ports::owl_types::OwlAxiom as DomainOwlAxiom;
 use visionclaw_ontology::services::iri_node_resolver::IriNodeResolver;
 
-/// Default global force strength applied to the mapper output at dispatch.
-/// Full mapper weight (1.0) collapses the 18k+ mostly-attractive constraints
-/// into a single dense blob; 0.6 keeps the semantic structure visible while the
-/// base repulsion still spreads the graph. The global-strength slider rescales
-/// from the unscaled base, so the user can return to 1.0 or push lower live.
-pub const DEFAULT_GLOBAL_STRENGTH: f32 = 0.6;
+/// Strength applied before the stored policy arrives: the stored default
+/// (`physics.ontologyConstraintStrength`, ADR-2192), defined once in the domain crate.
+pub const DEFAULT_GLOBAL_STRENGTH: f32 =
+    visionclaw_domain::types::physics_config::ONTOLOGY_CONSTRAINT_STRENGTH_DEFAULT;
 
 /// ADR-070 D2.3 — input-edge NaN guard.
 ///
@@ -73,8 +71,16 @@ fn reject_nonfinite_constraints(
 /// Scale a copy of the mapper's unscaled constraint buffer by `strength`.
 /// Weight is the only field the global strength touches; node indices, kind,
 /// params (rest-length / min-distance) and activation frame are preserved.
+/// The clamp is the stored bound (`physics_bounds::ONTOLOGY_CONSTRAINT_STRENGTH`), which the
+/// physics route already enforces; it only guards a boot row that was never validated, so a
+/// non-finite or out-of-range weight can never reach the kernel.
 fn scale_constraint_buffer(base: &[ConstraintData], strength: f32) -> Vec<ConstraintData> {
-    let s = strength.clamp(0.0, 1.0);
+    let (lo, hi) = super::physics_bounds::ONTOLOGY_CONSTRAINT_STRENGTH;
+    let s = if strength.is_finite() {
+        strength.clamp(lo, hi)
+    } else {
+        lo
+    };
     base.iter()
         .map(|c| {
             let mut scaled = *c;
@@ -82,6 +88,21 @@ fn scale_constraint_buffer(base: &[ConstraintData], strength: f32) -> Vec<Constr
             scaled
         })
         .collect()
+}
+
+/// The live buffer the GPU should hold under the stored policy (ADR-2192): nothing when the
+/// constraints are switched off, otherwise the unscaled base at `strength`. The base is kept
+/// either way, so switching back on re-applies the last sync's set without re-reasoning.
+pub(crate) fn live_constraint_buffer(
+    base: &[ConstraintData],
+    enabled: bool,
+    strength: f32,
+) -> Vec<ConstraintData> {
+    if enabled {
+        scale_constraint_buffer(base, strength)
+    } else {
+        Vec::new()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,9 +152,17 @@ pub struct OntologyConstraintActor {
     constraint_buffer_base: Vec<ConstraintData>,
 
     /// Current global force strength (0..1) applied to `constraint_buffer_base`
-    /// to produce the live buffer. Default keeps the semantic layout legible
-    /// rather than collapsed into one dense blob at full mapper weight.
+    /// to produce the live buffer: the stored `physics.ontologyConstraintStrength`.
     global_strength: f32,
+
+    /// Whether the constraints act on the layout: the stored
+    /// `physics.ontologyConstraintsEnabled` (ADR-2192). Off, the live buffer is empty.
+    constraints_enabled: bool,
+
+    /// The policy last handed to the device writer (ForceComputeActor), or `None` until one
+    /// has been delivered. An identical policy is answered without re-uploading; anything
+    /// else (including the first policy after a restart) is applied (ADR-2192).
+    applied_policy: Option<SetOntologyConstraintPolicy>,
 
     gpu_state: GPUState,
 
@@ -158,6 +187,9 @@ impl OntologyConstraintActor {
             constraint_buffer: Vec::new(),
             constraint_buffer_base: Vec::new(),
             global_strength: DEFAULT_GLOBAL_STRENGTH,
+            constraints_enabled:
+                visionclaw_domain::types::physics_config::ONTOLOGY_CONSTRAINTS_ENABLED_DEFAULT,
+            applied_policy: None,
             gpu_state: GPUState::default(),
             stats: OntologyConstraintStats::default(),
             last_update: Instant::now(),
@@ -218,13 +250,17 @@ impl OntologyConstraintActor {
                 .saturating_add(rejected as u32);
         }
         self.constraint_buffer_base = clean;
-        self.constraint_buffer =
-            scale_constraint_buffer(&self.constraint_buffer_base, self.global_strength);
+        self.constraint_buffer = live_constraint_buffer(
+            &self.constraint_buffer_base,
+            self.constraints_enabled,
+            self.global_strength,
+        );
         self.stats.total_axioms_processed += domain_axioms.len() as u32;
         let produced = self.constraint_buffer.len();
-        // The materialised-axiom path uploads the full buffer to the GPU live
-        // kernel, so every produced constraint is active. Without this the stats
-        // endpoint reported `activeConstraints: 0` despite 18k+ uploaded.
+        // The materialised-axiom path uploads the live buffer to the GPU live
+        // kernel, so every constraint in it is active (none while the stored
+        // policy has them off). Without this the stats endpoint reported
+        // `activeConstraints: 0` despite 18k+ uploaded.
         self.stats.active_ontology_constraints = produced as u32;
 
         info!(
@@ -234,30 +270,8 @@ impl OntologyConstraintActor {
             resolver.unresolved_count()
         );
 
-        if self.gpu_initialized && self.shared_context.is_some() {
-            match self.upload_constraints_to_gpu() {
-                Ok(_) => {
-                    info!(
-                        "OntologyConstraintActor: Uploaded {} live-kernel constraints to GPU",
-                        produced
-                    );
-                }
-                Err(e) => {
-                    warn!(
-                        "OntologyConstraintActor: GPU upload failed, deferring to next physics step: {}",
-                        e
-                    );
-                    self.stats.gpu_failure_count += 1;
-                    self.stats.cpu_fallback_count += 1;
-                }
-            }
-        } else {
-            debug!(
-                "OntologyConstraintActor: GPU not available, constraints cached for next physics step"
-            );
-            self.stats.cpu_fallback_count += 1;
-        }
-
+        // The device write happens in ForceComputeActor (notified below), which
+        // uploads this set together with the user and analytics constraints.
         self.last_update = Instant::now();
         self.stats.last_update_time_ms = start_time.elapsed().as_secs_f32() * 1000.0;
         self.stats.constraint_evaluation_count += 1;
@@ -268,7 +282,10 @@ impl OntologyConstraintActor {
     }
 
     /// Send the updated constraint buffer to ForceComputeActor
-    fn notify_force_compute_actor(&self) {
+    /// Hand the live buffer to ForceComputeActor, the one device writer (ADR-2192): it keeps
+    /// this set apart from the user and analytics constraints and uploads their union.
+    /// Returns whether there was a writer to hand it to.
+    fn notify_force_compute_actor(&self) -> bool {
         if let Some(ref addr) = self.force_compute_addr {
             info!(
                 "OntologyConstraintActor: Sending {} constraints to ForceComputeActor",
@@ -277,10 +294,12 @@ impl OntologyConstraintActor {
             addr.do_send(UpdateOntologyConstraintBuffer {
                 constraint_buffer: self.constraint_buffer.clone(),
             });
+            true
         } else {
             debug!(
                 "OntologyConstraintActor: ForceComputeActor address not set, skipping notification"
             );
+            false
         }
     }
 
@@ -298,31 +317,16 @@ impl OntologyConstraintActor {
         Ok(())
     }
 
+    /// Put the live buffer on the device. This actor no longer writes the engine itself
+    /// (ADR-2192): a direct write replaced the whole device set, user and analytics
+    /// constraints included. It hands the buffer to ForceComputeActor, which uploads the union
+    /// of the ontology set and the user set on its next step.
     fn upload_constraints_to_gpu(&self) -> Result<(), String> {
-        let shared_context = self
-            .shared_context
-            .as_ref()
-            .ok_or("GPU context not available")?;
-
-        let mut unified_compute = shared_context
-            .unified_compute
-            .lock()
-            .map_err(|e| format!("Failed to acquire GPU compute lock: {}", e))?;
-
-        if self.constraint_buffer.is_empty() {
-            debug!("OntologyConstraintActor: No constraints to upload, clearing GPU constraints");
-            unified_compute
-                .clear_constraints()
-                .map_err(|e| format!("Failed to clear GPU constraints: {}", e))?;
+        if self.notify_force_compute_actor() {
+            Ok(())
         } else {
-            // ADR-098 break #4: LOSSLESS writer — preserves all 4 node_idx + 8
-            // params and stamps activation_frame for the progressive ramp.
-            unified_compute
-                .set_constraints(self.constraint_buffer.clone())
-                .map_err(|e| format!("Failed to upload constraints to GPU: {}", e))?;
+            Err("ForceComputeActor not wired: the ontology constraints wait for it".to_string())
         }
-
-        Ok(())
     }
 
     fn get_ontology_stats(&self) -> OntologyConstraintStats {
@@ -643,51 +647,60 @@ impl Handler<InitializeGPU> for OntologyConstraintActor {
     }
 }
 
-impl Handler<AdjustConstraintWeights> for OntologyConstraintActor {
+impl Handler<SetOntologyConstraintPolicy> for OntologyConstraintActor {
     type Result = Result<serde_json::Value, String>;
 
-    fn handle(&mut self, msg: AdjustConstraintWeights, _ctx: &mut Self::Context) -> Self::Result {
-        let global_strength = msg.global_strength.clamp(0.0, 1.0);
+    fn handle(
+        &mut self,
+        msg: SetOntologyConstraintPolicy,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
         info!(
-            "OntologyConstraintActor: Adjusting constraint weights with global_strength={:.3}",
-            global_strength
+            "OntologyConstraintActor: stored constraint policy enabled={} strength={:.3}",
+            msg.enabled, msg.strength
         );
 
         // The live constraints come from the canonical mapper path
         // (`ingest_domain_axioms`), which fills `constraint_buffer_base` — NOT
-        // the legacy `ontology_constraints` Vec (empty on the mapper path).
-        // Scale the live buffer from that unscaled base so adjustments are
-        // reversible; the previous code multiplied `ontology_constraints`
-        // (0 entries) and re-uploaded an empty buffer, wiping all 18k+
-        // constraints off the GPU on the first slider move.
-        self.global_strength = global_strength;
-        self.constraint_buffer =
-            scale_constraint_buffer(&self.constraint_buffer_base, global_strength);
-        let adjusted_count = self.constraint_buffer.len() as u32;
-
-        // Re-upload to GPU if initialized
-        if self.gpu_initialized && self.shared_context.is_some() {
-            if let Err(e) = self.upload_constraints_to_gpu() {
-                warn!(
-                    "OntologyConstraintActor: GPU re-upload after weight adjustment failed: {}",
-                    e
-                );
-                self.stats.gpu_failure_count += 1;
-            }
+        // the legacy `ontology_constraints` Vec. The live buffer is rebuilt from
+        // that unscaled base, so strength changes are reversible and switching
+        // the constraints back on needs no re-reasoning.
+        if self.applied_policy == Some(msg) {
+            return Ok(serde_json::json!({
+                "success": true,
+                "unchanged": true,
+                "enabled": self.constraints_enabled,
+                "appliedStrength": self.global_strength,
+                "activeConstraints": self.constraint_buffer.len()
+            }));
         }
+        self.constraints_enabled = msg.enabled;
+        self.global_strength = msg.strength;
+        self.constraint_buffer = live_constraint_buffer(
+            &self.constraint_buffer_base,
+            self.constraints_enabled,
+            self.global_strength,
+        );
+        let live = self.constraint_buffer.len() as u32;
 
-        // Notify ForceComputeActor about the updated buffer
-        self.notify_force_compute_actor();
-
-        // Strength does not change how many constraints are active — every base
-        // constraint stays in the buffer, only its weight scales.
-        self.stats.active_ontology_constraints = self.constraint_buffer.len() as u32;
+        // ForceComputeActor is the one device writer: it replaces only its ontology
+        // source (the user and analytics set stays) and uploads the union next step.
+        // Without a writer the policy is not applied, so the next push retries it.
+        if !self.notify_force_compute_actor() {
+            self.applied_policy = None;
+            return Err(
+                "ForceComputeActor not wired: ontology-constraint policy not applied".into(),
+            );
+        }
+        self.applied_policy = Some(msg);
+        self.stats.active_ontology_constraints = live;
 
         Ok(serde_json::json!({
             "success": true,
-            "appliedStrength": global_strength,
-            "adjustedConstraints": adjusted_count,
-            "activeConstraints": self.stats.active_ontology_constraints
+            "enabled": self.constraints_enabled,
+            "appliedStrength": self.global_strength,
+            "retainedConstraints": self.constraint_buffer_base.len(),
+            "activeConstraints": live
         }))
     }
 }
@@ -702,6 +715,142 @@ mod tests {
         assert_eq!(actor.ontology_constraints.len(), 0);
         assert_eq!(actor.constraint_buffer.len(), 0);
         assert!(!actor.gpu_initialized);
+    }
+
+    fn class_node(id: u32, iri: &str, x: f32) -> visionclaw_domain::models::node::Node {
+        let mut n = visionclaw_domain::models::node::Node::new_with_id(iri.to_string(), Some(id));
+        n.owl_class_iri = Some(iri.to_string());
+        n.set_x(x);
+        n.set_y(0.0);
+        n.set_z(0.0);
+        n
+    }
+
+    fn sub_class_of(child: &str, parent: &str) -> DomainOwlAxiom {
+        DomainOwlAxiom {
+            id: None,
+            axiom_type: visionclaw_domain::ports::owl_types::AxiomType::SubClassOf,
+            subject: child.to_string(),
+            object: parent.to_string(),
+            annotations: std::collections::HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn the_live_buffer_is_empty_when_off_and_the_base_at_strength_when_on() {
+        let base = vec![ConstraintData {
+            kind: 0,
+            count: 2,
+            node_idx: [1, 2, -1, -1],
+            params: [10.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            weight: 2.0,
+            activation_frame: 0,
+        }];
+        assert!(live_constraint_buffer(&base, false, 0.6).is_empty());
+        let on = live_constraint_buffer(&base, true, 0.25);
+        assert_eq!(on.len(), 1);
+        assert_eq!(on[0].weight, 0.5);
+        assert_eq!(on[0].node_idx, base[0].node_idx);
+        // An unvalidated boot value can never put a non-finite or out-of-range weight on the
+        // device.
+        assert_eq!(live_constraint_buffer(&base, true, f32::NAN)[0].weight, 0.0);
+        assert_eq!(live_constraint_buffer(&base, true, 7.0)[0].weight, 2.0);
+    }
+
+    /// ADR-2192, at the actor: with no device writer wired the policy is refused, and the
+    /// same policy is applied once a writer is there (a failed push is retried, not skipped
+    /// as "unchanged"); an identical policy after that is a no-op; switching off empties the
+    /// writer's ontology source and leaves its user source; switching on re-applies the set
+    /// at the new strength, without another sync.
+    #[actix::test]
+    async fn the_stored_policy_switches_the_live_set_off_and_on_without_re_reasoning() {
+        use crate::actors::gpu::force_compute_actor::ForceComputeActor;
+        use crate::actors::messages::{
+            ApplyMaterializedAxioms, GetConstraintBuffer, GetDeviceConstraintCounts,
+            SetForceComputeAddr, UpdateConstraints,
+        };
+        let mut graph = visionclaw_domain::models::graph::GraphData::new();
+        graph.nodes = vec![
+            class_node(1, "urn:vc:class:Dog", 0.0),
+            class_node(2, "urn:vc:class:Animal", 40.0),
+        ];
+        let addr = OntologyConstraintActor::new().start();
+        let off = SetOntologyConstraintPolicy {
+            enabled: false,
+            strength: 0.6,
+        };
+        assert!(
+            addr.send(off).await.unwrap().is_err(),
+            "no device writer: refused"
+        );
+
+        let force = ForceComputeActor::headless().start();
+        // A user constraint the ontology switch must never remove.
+        force
+            .send(UpdateConstraints {
+                constraint_data: serde_json::json!([{
+                    "kind": 0, "count": 2, "node_idx": [5, 6, -1, -1],
+                    "params": [10.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                    "weight": 1.0, "activation_frame": 0
+                }]),
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        addr.send(SetForceComputeAddr {
+            addr: force.clone(),
+        })
+        .await
+        .unwrap();
+
+        // Back on (the default), then a sync's axioms arrive at the default strength.
+        let on = SetOntologyConstraintPolicy {
+            enabled: true,
+            strength: DEFAULT_GLOBAL_STRENGTH,
+        };
+        addr.send(on).await.unwrap().unwrap();
+        let produced = addr
+            .send(ApplyMaterializedAxioms {
+                axioms: vec![sub_class_of("urn:vc:class:Dog", "urn:vc:class:Animal")],
+                graph_data: graph,
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(produced, 1);
+        let at_default = addr.send(GetConstraintBuffer).await.unwrap().unwrap();
+        let unscaled = at_default[0].weight / DEFAULT_GLOBAL_STRENGTH;
+        let d = force.send(GetDeviceConstraintCounts).await.unwrap();
+        assert_eq!((d.ontology, d.user), (1, 1));
+
+        let same = addr.send(on).await.unwrap().unwrap();
+        assert_eq!(same["unchanged"], true, "identical policy: no re-upload");
+
+        // The earlier refused "off" is applied now that a writer exists.
+        let applied = addr.send(off).await.unwrap().unwrap();
+        assert_eq!(applied["activeConstraints"], 0);
+        assert_eq!(applied["retainedConstraints"], 1);
+        let d = force.send(GetDeviceConstraintCounts).await.unwrap();
+        assert_eq!(
+            (d.ontology, d.user),
+            (0, 1),
+            "off keeps the user constraint"
+        );
+        let stats = addr.send(GetOntologyStats).await.unwrap().unwrap();
+        assert_eq!(stats.active_ontology_constraints, 0);
+
+        addr.send(SetOntologyConstraintPolicy {
+            enabled: true,
+            strength: 0.3,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        let back = addr.send(GetConstraintBuffer).await.unwrap().unwrap();
+        assert_eq!(back.len(), 1);
+        assert!((back[0].weight - unscaled * 0.3).abs() < 1e-6);
+        let d = force.send(GetDeviceConstraintCounts).await.unwrap();
+        assert_eq!((d.ontology, d.user), (1, 1));
     }
 
     #[test]

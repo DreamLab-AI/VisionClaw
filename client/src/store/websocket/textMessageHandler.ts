@@ -17,6 +17,7 @@ import type { WebSocketErrorFrame, SettingsUpdatedMessage } from './types';
 import { emit, notifyMessageHandlers } from './connectionManager';
 import { handleErrorFrame } from './binaryProtocol';
 import { isFilterResponseExpected, clearFilterResponseExpectation } from './filterSync';
+import { useNodeFilterCountStore, parseFilterCounts } from '../../features/graph/explore/nodeFilterCountStore';
 
 const logger = createLogger('WebSocketStore');
 
@@ -104,10 +105,19 @@ export function handleTextMessage(
     return;
   }
 
+  if (message.type === 'filter_update_error') {
+    // ADR-2192: the server could not read the graph for this client's recompute.
+    const reason = typeof message.data?.error === 'string' ? message.data.error : 'unknown error';
+    useNodeFilterCountStore.getState().setError(reason);
+  }
+
   if (message.type === 'filter_update_success') {
     if (debugState.isEnabled()) {
       logger.info(`Filter applied: ${message.data?.visible_nodes}/${message.data?.total_nodes} nodes visible`);
     }
+    // ADR-2192: the server sends the counts once it has recomputed this client's filter.
+    const counts = parseFilterCounts(message.data);
+    if (counts) useNodeFilterCountStore.getState().setCounts(counts.visible, counts.total);
     emit('filterApplied', {
       visibleNodes: message.data?.visible_nodes,
       totalNodes: message.data?.total_nodes

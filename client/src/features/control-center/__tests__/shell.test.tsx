@@ -1,7 +1,7 @@
 /**
  * Shell smoke test (jsdom). Verifies the WP2 composition:
  *  - the dock renders at rest,
- *  - hotkey '4' opens the Layout section (ADR-2189) and its 80 controls appear in the DOM,
+ *  - hotkey '4' opens the Layout section (ADR-2189) and its 82 controls appear in the DOM,
  *  - opening a group triggers ensureLoaded(group.loadPaths),
  *  - Esc closes the panel,
  *  - a `controlcenter:reveal` event opens the group and focuses the target control.
@@ -77,7 +77,7 @@ describe('ControlCenter shell', () => {
     expect(countSettings()).toBe(0);
   });
 
-  it('hotkey "4" opens Layout and renders its 80 controls, ensureLoaded fired for its paths', async () => {
+  it('hotkey "4" opens Layout and renders its 82 controls, ensureLoaded fired for its paths', async () => {
     render(<ControlCenter showStats={false} enableBloom={false} />);
 
     act(() => {
@@ -85,7 +85,7 @@ describe('ControlCenter shell', () => {
     });
 
     await waitFor(() => expect(countSettings()).toBe(LAYOUT.fields.length));
-    expect(LAYOUT.fields.length).toBe(80);
+    expect(LAYOUT.fields.length).toBe(82); // + the two ontology-constraint keys (ADR-2192)
     expect(useControlCenterUI.getState().activeGroup).toBe('layout');
     expect(ensureSpy).toHaveBeenCalledWith(LAYOUT.loadPaths);
   });
@@ -96,7 +96,7 @@ describe('ControlCenter shell', () => {
     act(() => {
       fireEvent.keyDown(window, { key: '4' });
     });
-    await waitFor(() => expect(countSettings()).toBe(80));
+    await waitFor(() => expect(countSettings()).toBe(82));
 
     act(() => {
       fireEvent.keyDown(window, { key: 'Escape' });

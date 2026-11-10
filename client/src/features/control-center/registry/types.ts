@@ -18,6 +18,9 @@ export type ControlType =
   | 'nostr-button'
   | 'readonly';
 
+/** What a `readonly` field displays (default: the renderer capabilities). */
+export type ReadoutKind = 'renderer' | 'nodeFilterCount';
+
 export interface RegistryField {
   /** unique within its group */
   key: string;
@@ -52,6 +55,8 @@ export interface RegistryField {
   sourceGroup?: string;
   /** Storage scope for a pathless action whose effect is stored (e.g. reset_layout → shared). */
   scope?: SettingScope;
+  /** For `readonly` fields: what the row displays (default `renderer`). */
+  readout?: ReadoutKind;
 }
 
 /**

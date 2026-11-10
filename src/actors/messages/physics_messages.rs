@@ -280,6 +280,21 @@ pub struct GetConstraints;
 #[rtype(result = "Result<Vec<crate::models::constraints::ConstraintData>, String>")]
 pub struct GetConstraintBuffer;
 
+/// What the device writer holds per constraint source (ADR-2192), answered by
+/// ForceComputeActor: the ontology and user counts in its cache, and whether the
+/// engine holds that cache (`synced`: no upload or clear is pending).
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[rtype(result = "DeviceConstraintCounts")]
+pub struct GetDeviceConstraintCounts;
+
+/// Answer to [`GetDeviceConstraintCounts`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, actix::MessageResponse)]
+pub struct DeviceConstraintCounts {
+    pub ontology: usize,
+    pub user: usize,
+    pub synced: bool,
+}
+
 /// Update cached ontology constraint buffer in ForceComputeActor
 #[derive(Message)]
 #[rtype(result = "()")]
@@ -429,10 +444,26 @@ pub struct SetRelationshipTable {
 #[rtype(result = "Result<(), String>")]
 pub struct RecalculateHierarchy;
 
-#[derive(Message, Debug, Clone, Serialize, Deserialize)]
+/// Apply the stored ontology-constraint policy (ADR-2192): `physics.ontologyConstraintsEnabled`
+/// and `physics.ontologyConstraintStrength`. Sent by the physics write path and at every
+/// physics-supervisor (re)start; routed GPUManagerActor -> PhysicsSupervisor ->
+/// OntologyConstraintActor. Off empties the live constraint buffer, so the GPU holds none; on
+/// rebuilds it from the retained unscaled set at `strength`, without re-reasoning.
+#[derive(Message, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[rtype(result = "Result<serde_json::Value, String>")]
-pub struct AdjustConstraintWeights {
-    pub global_strength: f32,
+pub struct SetOntologyConstraintPolicy {
+    pub enabled: bool,
+    pub strength: f32,
+}
+
+impl SetOntologyConstraintPolicy {
+    /// The policy a stored physics document holds.
+    pub fn from_physics(physics: &crate::config::PhysicsSettings) -> Self {
+        Self {
+            enabled: physics.ontology_constraints_enabled,
+            strength: physics.ontology_constraint_strength,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
