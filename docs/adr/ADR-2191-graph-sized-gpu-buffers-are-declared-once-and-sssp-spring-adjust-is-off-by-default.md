@@ -1,5 +1,5 @@
 ---
-id: ADR-2190
+id: ADR-2191
 title: Graph-sized GPU buffers are declared once and resized together; SSSP results never outlive their graph; SSSP spring adjustment is off by default
 date: 2026-11-10
 decision_status: accepted
@@ -19,7 +19,7 @@ evidence_class: test
 acceptance_boundary: GPU tests in the development container on one RTX 6000 Ada (sm_89, PCI bus 0xAF), driven through UnifiedGPUCompute exactly as the actors call it, plus compute-sanitizer memcheck over those tests. Not established by this record - a product build, a host smoke run, a deployed server, or the actor message path (ShortestPathActor, ForceComputeActor) end to end. Stored settings rows are not migrated, so a row holding ssspEnabled=true keeps the adjustment on.
 ---
 
-# ADR-2190 — Graph-sized GPU buffers are declared once; SSSP results never outlive their graph; SSSP spring adjustment is off by default
+# ADR-2191 — Graph-sized GPU buffers are declared once; SSSP results never outlive their graph; SSSP spring adjustment is off by default
 
 Stage S1a of the physics rework (operator-approved plan, 10 November 2026).
 

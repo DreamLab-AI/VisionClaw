@@ -189,6 +189,6 @@ Re-read against `docs/GPU-wire-abi.md` at this commit: the four supervisors are 
 
 Governed-path change (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `gpu_manager_actor.rs` loses its `SetNodeSSSP` forward (the `node_sssp` map is removed). The coordinator/supervisor shape is unchanged. Not re-stamped: `docs/GPU-wire-abi.md` changed before this branch. **Decision unaffected.**
 
-## Re-verification — 2026-11-10 (ADR-2190, `83b405941`)
+## Re-verification — 2026-11-10 (ADR-2191, `83b405941`)
 
 **Decision unaffected.** Governed change: `docs/GPU-wire-abi.md` 0.1.9 (`3f6c5faeb`, `83b405941`) adds invariants 8 (one graph-sized buffer table) and 9 (SSSP results do not outlive their graph), an SSSP row in the kernel trust table, a buffer-lifecycle section, and corrects path 2 (it follows the stored `ssspEnabled`). The coordinator, supervisors and context bus this record governs are untouched; the per-kernel evidence cross-reference still resolves to "Analytics kernel trust status". One fact from that change bears on this record: every supervisor hands its actors the same `Arc<SharedGPUContext>`, so SSSP and the force pass share one engine (established by reading the context distribution; not executed through the actors). Checked by reading `git diff 809a859aa..83b405941 -- docs/GPU-wire-abi.md`; no test re-run for this stamp.

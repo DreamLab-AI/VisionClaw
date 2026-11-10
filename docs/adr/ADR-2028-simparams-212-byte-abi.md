@@ -223,6 +223,6 @@ Comment-only change since `8f796ad86` (the commit the tests and measurements in 
 
 Re-read against `visionclaw_unified.cu` at `e2afd65d6`: the file gains `constraint_ramp_multiplier` and a POSITION branch plus the ramp in `force_pass_with_stability_kernel`. No `c_params` field, no `SimParams` offset and no kernel signature changed: `force_pass_kernel` 30, `force_pass_with_stability_kernel` 29, `c_params[212]` in the built PTX; `static_assert(sizeof(SimParams) == 212)` unchanged. Re-run: `git diff --stat 7fbcd997b e2afd65d6 -- crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu`.
 
-## Re-verification — 2026-11-10 (ADR-2190, `212465a0d`)
+## Re-verification — 2026-11-10 (ADR-2191, `212465a0d`)
 
 **Decision unaffected.** The governed change in `visionclaw_unified.cu` is in two analytics kernels only: `relaxation_step_kernel` records every SSSP improvement and queues only those inside the bucket, and `relabel_communities_kernel` sends a label `>= num_nodes` to -1. Neither signature changed, `SimParams` and its static assertion are untouched, and no field moved. Re-run on the RTX 6000 Ada (bus 0xAF) at `3f6c5faeb`, whose governed files are identical to `212465a0d`: `scripts/gpu-physics-gate.sh` (lib suite 1974 passed, harness 40 of 40), then the lib test binary that run built, filtered by name (`visionclaw_server-<hash> <filter> --test-threads=4`): `cargo test --lib adr_2028` (11) and `codescape_abi` (2: arities 30/29, `c_params[212]`) pass; the force-kernel harness passes 40 of 40, unchanged.
