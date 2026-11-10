@@ -12,6 +12,7 @@ class FakeClient:
 	signal connection_changed(connected: bool)
 	signal topology_updated(edge_count: int)
 	signal text_message(json: String)
+	signal stream_live()
 	var calls: Array = []
 	var aabb := PackedFloat32Array()
 	var ids := PackedInt32Array()
@@ -57,6 +58,8 @@ class FakeClient:
 
 func _conn(id: StringName, mode: String, fake: FakeClient) -> Node:
 	var c: Node = BackendConnection.make(id, mode, "ws://10.0.0.1:4000/", "", fake)
+	# Exact backoff timings in these tests; the jitter has its own test.
+	c.reconnect_jitter = 0.0
 	add_child_autofree(c)
 	return c
 
@@ -187,10 +190,92 @@ func test_drop_schedules_backoff_and_poll_redials() -> void:
 	assert_eq(fake.sent("connect_to_url"), 2, "redialled after the backoff")
 	assert_eq(vc.generation, gen + 1, "+1 on reconnect")
 	assert_gt(fake.sent("poll"), 1, "poll pumps the client")
-	# A connect resets the backoff.
+	# A connect alone cancels the timer but keeps the count (audit D3): only the
+	# first applied position frame proves the server is really serving us.
 	fake.connection_changed.emit(true)
-	assert_eq(vc.reconnect_attempts(), 0)
 	assert_false(vc.reconnect_pending())
+	assert_eq(vc.reconnect_attempts(), 1, "the upgrade alone does not reset the backoff")
+	fake.stream_live.emit()
+	assert_eq(vc.reconnect_attempts(), 0, "the first applied frame resets it")
+
+
+func test_a_server_that_accepts_then_closes_backs_off_instead_of_hammering() -> void:
+	# Audit D3: the old FSM reset the count on every upgrade, so a server that
+	# accepted and then closed (auth reject, frame too big) was redialled every 2 s
+	# for ever, each time rebuilding a full snapshot.
+	var fake := FakeClient.new()
+	var vc: Node = _conn(&"visionclaw", "visionclaw", fake)
+	vc.open()
+	var delays: Array = []
+	for i: int in 6:
+		fake.connection_changed.emit(true)
+		fake.connection_changed.emit(false)
+		delays.append(vc._reconnect_timer)
+		vc.poll(vc._reconnect_timer + 0.01)
+	assert_eq(delays, [2.0, 4.0, 8.0, 16.0, 32.0, 60.0], "doubling to the cap, not 2 s each time")
+	assert_eq(fake.sent("connect_to_url"), 7)
+
+
+func test_backoff_jitter_stays_within_twenty_percent_below_the_cap() -> void:
+	var fake := FakeClient.new()
+	var vc: Node = _conn(&"visionclaw", "visionclaw", fake)
+	vc.reconnect_jitter = 0.2
+	vc.set_jitter_seed(12345)
+	vc.open()
+	var seen := {}
+	for i: int in 40:
+		fake.connection_changed.emit(false)
+		var d: float = vc._reconnect_timer
+		var nominal: float = BackendConnection.backoff_delay(vc.reconnect_attempts())
+		assert_between(d, nominal * 0.8, nominal, "attempt %d: %.3f within [0.8, 1.0] x %.1f" % [vc.reconnect_attempts(), d, nominal])
+		assert_true(d <= BackendConnection.RECONNECT_MAX_DELAY_SEC)
+		seen[snappedf(d / nominal, 0.01)] = true
+		vc.poll(d + 0.01)
+	assert_gt(seen.size(), 5, "the jitter actually varies")
+	assert_eq(BackendConnection.jittered_delay(3, 0.2, 0.0), 8.0)
+	assert_almost_eq(BackendConnection.jittered_delay(3, 0.2, 1.0), 6.4, 0.0001)
+	assert_eq(BackendConnection.jittered_delay(30, 0.2, 0.0), 60.0)
+
+
+func test_resume_dials_at_once_when_down_and_resets_the_backoff() -> void:
+	# Headset doffed while the network was away: the backoff may have grown to
+	# 32 s or more. Putting it back on must not wait that out.
+	var fake := FakeClient.new()
+	var vc: Node = _conn(&"visionclaw", "visionclaw", fake)
+	vc.open()
+	for i: int in 5:
+		fake.connection_changed.emit(false)
+		vc.poll(vc._reconnect_timer + 0.01)
+	fake.connection_changed.emit(false)
+	assert_eq(vc.reconnect_attempts(), 6)
+	assert_eq(vc._reconnect_timer, 60.0)
+	var dials: int = fake.sent("connect_to_url")
+	assert_true(vc.resume(), "a down connection redials on resume")
+	assert_eq(fake.sent("connect_to_url"), dials + 1, "dialled now, not in 60 s")
+	assert_false(vc.reconnect_pending())
+	assert_eq(vc.reconnect_attempts(), 0)
+	assert_false(vc.resume(), "no second dial while the first is in flight")
+	assert_eq(fake.sent("connect_to_url"), dials + 1)
+
+
+func test_resume_leaves_a_live_connection_alone() -> void:
+	# A healthy socket is not redialled (a redial costs a full snapshot); a dead one
+	# that still looks connected is caught by the client's read deadline.
+	var fake := FakeClient.new()
+	var vc: Node = _conn(&"visionclaw", "visionclaw", fake)
+	vc.open()
+	fake.connection_changed.emit(true)
+	assert_false(vc.resume())
+	assert_eq(fake.sent("connect_to_url"), 1)
+
+
+func test_resume_does_nothing_on_a_closed_connection() -> void:
+	var fake := FakeClient.new()
+	var vc: Node = _conn(&"visionclaw", "visionclaw", fake)
+	vc.open()
+	vc.close()
+	assert_false(vc.resume())
+	assert_eq(fake.sent("connect_to_url"), 1)
 
 
 func test_closed_connection_never_redials() -> void:

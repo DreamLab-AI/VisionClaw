@@ -25,6 +25,9 @@ const GRAPH_STREAM_PATH := "/wss"
 const CODESCAPE_PATH := "/codescape"
 const RECONNECT_BASE_DELAY_SEC: float = 2.0
 const RECONNECT_MAX_DELAY_SEC: float = 60.0
+## Each scheduled delay is shortened by up to this fraction at random, so headsets
+## that dropped together do not redial a recovering server in lockstep.
+const RECONNECT_JITTER: float = 0.2
 const BACKEND_NAMES := {"visionclaw": "VisionClaw", "codescape": "Codescape"}
 
 signal connected_changed(conn_id: StringName, connected: bool)
@@ -46,6 +49,12 @@ var _connected: bool = false
 var _open: bool = false
 var _reconnect_attempts: int = 0
 var _reconnect_timer: float = -1.0
+## True from a dial until the client reports the socket up or down: resume()
+## never stacks a second dial on one in flight.
+var _dialling: bool = false
+## Fraction of jitter applied to each backoff delay (tests set 0 for exact timings).
+var reconnect_jitter: float = RECONNECT_JITTER
+var _rng := RandomNumberGenerator.new()
 ## Node ids this connection pinned explicitly on its server (A6 hygiene: released on
 ## close). Nothing writes it until a client-side Pin sender exists (ADR-2172 F5):
 ## a drag end no longer records a pin.
@@ -64,6 +73,7 @@ static func make(id: StringName, backend_mode: String, base: String, nostr_secre
 	conn.ws_base = with_backend_prefix(base, backend_mode)
 	conn.caps = BackendCaps.for_mode(backend_mode)
 	conn._nostr_secret_hex = nostr_secret_hex
+	conn._rng.randomize()
 	var c: RefCounted = client_override
 	if c == null and ClassDB.class_exists("BinaryProtocolClient"):
 		c = BinaryProtocolClient.create()
@@ -84,6 +94,17 @@ static func backoff_delay(attempts: int) -> float:
 	return minf(RECONNECT_BASE_DELAY_SEC * pow(2.0, float(maxi(attempts, 1) - 1)), RECONNECT_MAX_DELAY_SEC)
 
 
+## Pure: `backoff_delay(attempts)` shortened by `jitter × u01` of itself
+## (u01 in [0, 1]), so it never exceeds the nominal delay or the cap.
+static func jittered_delay(attempts: int, jitter: float, u01: float) -> float:
+	return backoff_delay(attempts) * (1.0 - clampf(jitter, 0.0, 1.0) * clampf(u01, 0.0, 1.0))
+
+
+## Seed the jitter (tests); production seeds randomly in make().
+func set_jitter_seed(seed_value: int) -> void:
+	_rng.seed = seed_value
+
+
 func _bind_client(c: RefCounted) -> void:
 	client = c
 	if client == null:
@@ -94,6 +115,8 @@ func _bind_client(c: RefCounted) -> void:
 		client.connect("topology_updated", _on_client_topology_updated)
 	if client.has_signal("text_message"):
 		client.connect("text_message", _on_client_text)
+	if client.has_signal("stream_live"):
+		client.connect("stream_live", _on_client_stream_live)
 
 
 func graph_ws_url() -> String:
@@ -118,6 +141,7 @@ func open() -> void:
 ## Disconnected event, so the state change is announced here.
 func close() -> void:
 	_open = false
+	_dialling = false
 	_reconnect_timer = -1.0
 	_reconnect_attempts = 0
 	for req: HTTPRequest in _http:
@@ -152,6 +176,21 @@ func reconnect_pending() -> bool:
 
 func reconnect_attempts() -> int:
 	return _reconnect_attempts
+
+
+## The app or the XR session came back (headset on again, app resumed or
+## refocused). A connection that is down redials now, whatever its backoff had
+## grown to while the headset was off, and starts its backoff again. A connection
+## that looks up is left alone: a redial costs a full snapshot, and one that is
+## really dead is closed by the client's read deadline (transport.rs, liveness.rs)
+## and then redialled here. True when a dial went out.
+func resume() -> bool:
+	if not _open or _connected or _dialling:
+		return false
+	_reconnect_attempts = 0
+	_reconnect_timer = -1.0
+	_dial()
+	return true
 
 
 func supports(cap: String) -> bool:
@@ -350,6 +389,7 @@ func code_refs() -> Array:
 func _dial() -> void:
 	if client == null:
 		return
+	_dialling = true
 	if client.has_method("close"):
 		client.close()
 	if client.has_method("connect_to_url"):
@@ -371,13 +411,16 @@ func _set_connected(on: bool) -> void:
 
 func _schedule_reconnect() -> void:
 	_reconnect_attempts += 1
-	_reconnect_timer = backoff_delay(_reconnect_attempts)
+	_reconnect_timer = jittered_delay(_reconnect_attempts, reconnect_jitter, _rng.randf())
 	push_warning("BackendConnection %s: reconnect attempt %d in %.1fs" % [conn_id, _reconnect_attempts, _reconnect_timer])
 
 
 func _on_client_connection_changed(on: bool) -> void:
+	_dialling = false
 	if on:
-		_reconnect_attempts = 0
+		# The upgrade alone does not reset the backoff (audit D3): a server that
+		# accepts and then closes would otherwise be redialled every 2 s for ever.
+		# _on_client_stream_live resets it once a position frame is applied.
 		_reconnect_timer = -1.0
 		_set_connected(true)
 		return
@@ -386,6 +429,12 @@ func _on_client_connection_changed(on: bool) -> void:
 	# reconnect to the same server, so it is still ours to release on close().
 	if _open and _reconnect_timer < 0.0:
 		_schedule_reconnect()
+
+
+## The client applied this connection's first position frame: the server is
+## really serving us, so the next failure starts the backoff from 2 s again.
+func _on_client_stream_live() -> void:
+	_reconnect_attempts = 0
 
 
 func _on_client_topology_updated(_edge_count: int) -> void:

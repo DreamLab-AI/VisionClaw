@@ -1677,6 +1677,11 @@ func _start_native_shim() -> void:
 	var xr: XRInterface = XRServer.find_interface("OpenXR")
 	if xr != null and xr.has_signal("session_stopping"):
 		xr.session_stopping.connect(_on_xr_session_stopping)
+	# Headset back on (session begins or regains focus): redial whatever is down
+	# without waiting for its grown backoff or a press of Reconnect (audit D2).
+	for sig: String in ["session_begun", "session_focussed", "session_visible"]:
+		if xr != null and xr.has_signal(sig):
+			xr.connect(sig, _resume_connections.bind(sig))
 
 
 func _openxr_ready() -> bool:
@@ -1692,6 +1697,24 @@ func _on_shim_fallback(reason: String) -> void:
 
 func _on_xr_session_stopping() -> void:
 	print("GraphScene: XR session stopping; backend connections kept")
+
+
+# App resumed or refocused (Android pause/resume, desktop focus): same as the XR
+# session coming back.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_RESUMED:
+		_resume_connections("app_resumed")
+	elif what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		_resume_connections("app_focus_in")
+
+
+# Redial every graph connection that is down, now (BackendConnection.resume). A
+# connection that is up is left alone; a half-open one is closed by the client's
+# read deadline and redialled through its backoff.
+func _resume_connections(reason: String) -> void:
+	for conn: Node in _conns.values():
+		if conn != null and conn.has_method("resume") and conn.resume():
+			print("GraphScene: %s; redialling %s" % [reason, conn.conn_id])
 
 
 # §7.4: each visible volume ticks (its fit re-reads the source extent every
@@ -2979,7 +3002,10 @@ func _attempt_connect() -> void:
 
 func _connect_graph() -> void:
 	# (Re)open both graph connections. Each tears down its own prior socket and
-	# owns its own backoff from here on (BackendConnection).
+	# owns its own backoff from here on (BackendConnection). A socket swap emits no
+	# Disconnected, so release held nodes here, while the old socket can still
+	# carry the nodeDragEnd (audit D11): no node stays pinned by a dead connection.
+	_release_grab()
 	_clear_graph_mirror()
 	for conn: Node in _conns.values():
 		conn.open()

@@ -1276,6 +1276,9 @@ pub struct BinaryProtocolClient {
     heat_epoch: Instant,
     /// Last heat sweep, so cold entries are dropped at ~1 Hz.
     last_heat_sweep: Instant,
+    /// Latches once this connection has applied its first position frame, so
+    /// `stream_live` fires once per connection. Cleared on connect, close and drop.
+    stream_live: bool,
     base: Base<RefCounted>,
 }
 
@@ -1304,6 +1307,13 @@ impl BinaryProtocolClient {
     #[signal]
     fn text_message(json: GString);
 
+    /// Fired once per connection, when the first position frame passes the
+    /// freshness gate and is applied. A socket that upgrades and then closes never
+    /// fires it, so the scene's reconnect backoff resets on this, not on
+    /// `connection_changed(true)` (audit D3).
+    #[signal]
+    fn stream_live();
+
     #[func]
     fn create() -> Gd<Self> {
         Gd::from_init_fn(|base| Self {
@@ -1331,6 +1341,7 @@ impl BinaryProtocolClient {
             last_edge_pack_cpu: std::time::Duration::ZERO,
             heat_epoch: Instant::now(),
             last_heat_sweep: Instant::now(),
+            stream_live: false,
             base,
         })
     }
@@ -1361,6 +1372,7 @@ impl BinaryProtocolClient {
         // owes a fresh initialGraphLoad cooldown.
         self.freshness.reconnect();
         self.refetch.reset_connection();
+        self.stream_live = false;
         let (handle, outbound) = crate::transport::spawn_graph_stream(
             url.to_string(),
             nostr_secret_hex.to_string(),
@@ -1376,6 +1388,7 @@ impl BinaryProtocolClient {
             h.abort();
         }
         self.outbound = None;
+        self.stream_live = false;
         // Drop whatever the closed socket queued: nothing from it may surface after close.
         self.inbox = Arc::new(Mutex::new(VecDeque::new()));
     }
@@ -1404,6 +1417,7 @@ impl BinaryProtocolClient {
                     // A new connection gets a fresh initialGraphLoad and a fresh
                     // server-side requestInitialData cooldown.
                     self.refetch.reset_connection();
+                    self.stream_live = false;
                     self.base_mut()
                         .emit_signal("connection_changed", &[Variant::from(false)]);
                 }
@@ -2848,8 +2862,8 @@ impl BinaryProtocolClient {
             let class = node_class_code(u.kind);
             self.store.set_node_kind(u.node_id, class);
             self.node_class.insert(u.node_id, class);
-            // Visuals still surface to GDScript (throttled to quantised-key changes)
-            // so the scene keeps its centrality mirror for the LOD/edge selection.
+            // Visuals still surface to GDScript, throttled to quantised-key changes
+            // (the scene no longer mirrors them; the signal stays for consumers).
             let key = VisualsKey::of(&u);
             if self.visuals.insert(u.node_id, key) != Some(key) {
                 self.base_mut().emit_signal(
@@ -2866,6 +2880,10 @@ impl BinaryProtocolClient {
         // Applied: tell the server, which then builds this client's next chunk (ADR-2141).
         if let (Some(ack), Some(tx)) = (ack, self.outbound.as_ref()) {
             let _ = tx.send(crate::transport::Outbound::Binary(ack));
+        }
+        if !self.stream_live {
+            self.stream_live = true;
+            self.base_mut().emit_signal("stream_live", &[]);
         }
     }
 }
