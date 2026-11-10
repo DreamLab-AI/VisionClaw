@@ -696,6 +696,8 @@ impl AppState {
                 default_physics
             };
 
+            // The quality-gate row to archive before a migration from it is written back.
+            let mut archive_gates: Option<serde_json::Value> = None;
             let resolved = match sqlite_settings_repository.get_setting("physics").await {
                 Ok(Some(SettingValue::Json(mut json))) => {
                     // ADR-2140: a document stored before `layoutMode` existed takes the mode
@@ -708,12 +710,22 @@ impl AppState {
                         &mut json,
                         gates.as_ref(),
                     );
+                    // ADR-2192: the retired quality-gate strength, when it was in force.
+                    let strength_migrated =
+                        crate::actors::gpu::physics_restore::migrate_ontology_strength(
+                            &mut json,
+                            gates.as_ref(),
+                        )
+                        .is_some();
+                    if strength_migrated {
+                        archive_gates = gates.clone();
+                    }
                     match serde_json::from_value::<crate::config::PhysicsSettings>(json) {
                         Ok(persisted) => {
                             info!("[AppState::new] Loaded persisted physics from SQLite (axis_compression_z={}, enable_dual_disc_layout={}, adaptive_speed={})", persisted.axis_compression_z, persisted.enable_dual_disc_layout, persisted.adaptive_speed);
                             // A migrated document is written back once, so every reader of
                             // the stored row sees the same layout mode as the device.
-                            (persisted, migrated.is_some())
+                            (persisted, migrated.is_some() || strength_migrated)
                         }
                         Err(e) => (
                             seed_canonical(&format!(
@@ -738,7 +750,21 @@ impl AppState {
                 ),
             };
 
-            let (physics, needs_seed) = resolved;
+            let (physics, mut needs_seed) = resolved;
+            // ADR-2192: archive the quality-gate row, unchanged, before the migrated strength
+            // is written back; if the archive cannot be written, the migration is not
+            // persisted (it is redone, in memory, at the next boot).
+            if let Some(gates) = archive_gates {
+                if let Err(e) = crate::actors::gpu::physics_restore::archive_quality_gates(
+                    sqlite_settings_repository.as_ref(),
+                    gates,
+                )
+                .await
+                {
+                    warn!("[AppState::new] Could not archive quality gates ({e}); ontologyStrength migration not persisted");
+                    needs_seed = false;
+                }
+            }
             if needs_seed {
                 match serde_json::to_value(&physics) {
                     Ok(physics_json) => {

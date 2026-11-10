@@ -53,6 +53,70 @@ pub fn migrate_layout_mode(
     }
 }
 
+/// Storage key under which the quality-gate row is archived, unchanged, before its
+/// `ontologyStrength` is migrated into the physics document (ADR-2192).
+pub const QUALITY_GATES_ARCHIVE_KEY: &str = "quality_gates.archive.adr-2192";
+
+/// ADR-2192: migrate the retired `qualityGates.ontologyStrength` into a stored physics document
+/// that does not yet have `ontologyConstraintStrength`. The old value was applied (on each
+/// quality-gate save) only while `qualityGates.ontologyPhysics` was true, so only then is it
+/// carried over; otherwise the strength in force was the actor's 0.6, which is the new key's
+/// default. A value outside 0..=1 or not finite is not carried over. Never fails. Returns the
+/// strength written, if any.
+pub fn migrate_ontology_strength(
+    physics: &mut serde_json::Value,
+    quality_gates: Option<&serde_json::Value>,
+) -> Option<f32> {
+    let doc = physics.as_object_mut()?;
+    if doc.contains_key("ontologyConstraintStrength")
+        || doc.contains_key("ontology_constraint_strength")
+    {
+        return None;
+    }
+    let gates = quality_gates?;
+    if gates
+        .get("ontologyPhysics")
+        .and_then(serde_json::Value::as_bool)
+        != Some(true)
+    {
+        return None;
+    }
+    let strength = gates.get("ontologyStrength")?.as_f64()? as f32;
+    let (lo, hi) = super::physics_bounds::ONTOLOGY_CONSTRAINT_STRENGTH;
+    if !strength.is_finite() || !(lo..=hi).contains(&strength) {
+        warn!("qualityGates.ontologyStrength {strength} is out of range; not migrated");
+        return None;
+    }
+    doc.insert(
+        "ontologyConstraintStrength".into(),
+        serde_json::json!(strength),
+    );
+    info!(
+        "migrated qualityGates.ontologyStrength {strength} into physics.ontologyConstraintStrength"
+    );
+    Some(strength)
+}
+
+/// Archive `gates` (the quality-gate row, unchanged) under [`QUALITY_GATES_ARCHIVE_KEY`]
+/// before a migration from it is persisted (ADR-2192). Writes once: an existing archive is
+/// kept, so a later boot never overwrites the original. `Err` means nothing was archived and
+/// the caller must not persist the migration.
+pub async fn archive_quality_gates(
+    repo: &dyn SettingsRepository,
+    gates: serde_json::Value,
+) -> Result<(), String> {
+    if let Ok(Some(_)) = repo.get_setting(QUALITY_GATES_ARCHIVE_KEY).await {
+        return Ok(());
+    }
+    repo.set_setting(
+        QUALITY_GATES_ARCHIVE_KEY,
+        SettingValue::Json(gates),
+        Some("Quality gates before ADR-2192 moved ontologyStrength into physics"),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// The stored quality-gate settings document, if there is a readable one.
 pub async fn load_quality_gates_json(repo: &dyn SettingsRepository) -> Option<serde_json::Value> {
     match repo.get_setting(QUALITY_GATES_KEY).await {
@@ -66,7 +130,9 @@ pub async fn load_quality_gates_json(repo: &dyn SettingsRepository) -> Option<se
 pub async fn load_saved_physics(repo: &dyn SettingsRepository) -> Option<PhysicsSettings> {
     match repo.get_setting(PHYSICS_SETTINGS_KEY).await {
         Ok(Some(SettingValue::Json(mut json))) => {
-            migrate_layout_mode(&mut json, load_quality_gates_json(repo).await.as_ref());
+            let gates = load_quality_gates_json(repo).await;
+            migrate_layout_mode(&mut json, gates.as_ref());
+            migrate_ontology_strength(&mut json, gates.as_ref());
             match serde_json::from_value(json) {
                 Ok(physics) => Some(physics),
                 Err(e) => {
@@ -203,5 +269,73 @@ mod policy_key_compat_tests {
             "stored repelK survives (compared at the stored f32 width)"
         );
         assert!(crate::settings::api::settings_routes::validate_physics_settings(&loaded).is_ok());
+    }
+}
+
+/// ADR-2192: the retired quality-gate strength moves into the stored physics key, once, and
+/// only when it was in force.
+#[cfg(test)]
+mod ontology_strength_migration_tests {
+    use super::migrate_ontology_strength;
+    use serde_json::json;
+
+    #[test]
+    fn an_in_force_strength_moves_into_a_document_without_the_key() {
+        // The captured live row, which predates the key.
+        let mut doc: serde_json::Value =
+            serde_json::from_str(include_str!("test_fixtures/live_physics_settings.json")).unwrap();
+        let gates = json!({ "ontologyPhysics": true, "ontologyStrength": 0.25 });
+        assert_eq!(
+            migrate_ontology_strength(&mut doc, Some(&gates)),
+            Some(0.25)
+        );
+        assert_eq!(doc["ontologyConstraintStrength"], json!(0.25_f32));
+        let loaded: crate::config::PhysicsSettings = serde_json::from_value(doc.clone()).unwrap();
+        assert_eq!(loaded.ontology_constraint_strength, 0.25);
+        // Once: a document that has the key is left alone.
+        let other = json!({ "ontologyPhysics": true, "ontologyStrength": 0.9 });
+        assert_eq!(migrate_ontology_strength(&mut doc, Some(&other)), None);
+        assert_eq!(doc["ontologyConstraintStrength"], json!(0.25_f32));
+    }
+
+    #[test]
+    fn a_strength_that_was_never_in_force_or_is_out_of_range_is_not_moved() {
+        for gates in [
+            json!({ "ontologyPhysics": false, "ontologyStrength": 0.25 }),
+            json!({ "ontologyStrength": 0.25 }),
+            json!({ "ontologyPhysics": true, "ontologyStrength": 1.5 }),
+            json!({ "ontologyPhysics": true }),
+        ] {
+            let mut doc = json!({});
+            assert_eq!(
+                migrate_ontology_strength(&mut doc, Some(&gates)),
+                None,
+                "{gates}"
+            );
+            assert!(doc.get("ontologyConstraintStrength").is_none());
+        }
+        let mut doc = json!({});
+        assert_eq!(migrate_ontology_strength(&mut doc, None), None);
+    }
+
+    #[tokio::test]
+    async fn the_quality_gate_row_is_archived_once_and_never_overwritten() {
+        use super::{archive_quality_gates, QUALITY_GATES_ARCHIVE_KEY};
+        use crate::ports::settings_repository::{SettingValue, SettingsRepository};
+        let repo =
+            crate::adapters::SqliteSettingsRepository::open(std::path::Path::new(":memory:"))
+                .await
+                .expect("repo");
+        let original = json!({ "ontologyPhysics": true, "ontologyStrength": 0.25 });
+        archive_quality_gates(&repo, original.clone())
+            .await
+            .unwrap();
+        archive_quality_gates(&repo, json!({ "later": true }))
+            .await
+            .unwrap();
+        match repo.get_setting(QUALITY_GATES_ARCHIVE_KEY).await.unwrap() {
+            Some(SettingValue::Json(v)) => assert_eq!(v, original),
+            other => panic!("archive missing: {other:?}"),
+        }
     }
 }
