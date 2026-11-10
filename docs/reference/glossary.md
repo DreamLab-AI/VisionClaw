@@ -35,7 +35,7 @@ In OWL ontologies, a statement that defines relationships between classes, prope
 An approximation algorithm used in force-directed graph layouts. It reduces computation complexity from O(n^2) to O(n log n) by grouping distant nodes. Controlled by the `theta` parameter.
 
 ### Binary Protocol
-VisionClaw's compact wire format for WebSocket communication. Version 2 uses 36 bytes per node, achieving 80% bandwidth reduction compared to JSON. See [Binary WebSocket Protocol](./binary-protocol.md).
+VisionClaw's compact wire format for the `/wss` position stream: frozen 52-byte V3 node records, streamed in the sequenced V5 envelope and acknowledged per frame. See [Binary WebSocket Protocol](./binary-protocol.md).
 
 ---
 
