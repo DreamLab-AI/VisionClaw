@@ -1,0 +1,83 @@
+{
+ "paragraphs": 5250,
+ "cheap_only": {
+  "recall": 69.2,
+  "ba_two": 68.0,
+  "cost_vs_teacher": 0.168
+ },
+ "teacher_all": {
+  "recall": 86.1,
+  "ba_two": 84.2,
+  "cost_vs_teacher": 1.168
+ },
+ "budgets": {
+  "0.1": {
+   "reasoner": {
+    "recall": 71.6,
+    "ba_two": 68.9,
+    "cost_vs_teacher": 0.28
+   },
+   "coverage": {
+    "recall": 72.2,
+    "ba_two": 69.3,
+    "cost_vs_teacher": 0.267
+   },
+   "random": {
+    "recall": 70.8,
+    "ba_two": 69.825,
+    "cost_vs_teacher": 0.269
+   }
+  },
+  "0.2": {
+   "reasoner": {
+    "recall": 73.8,
+    "ba_two": 69.9,
+    "cost_vs_teacher": 0.387
+   },
+   "coverage": {
+    "recall": 74.1,
+    "ba_two": 70.3,
+    "cost_vs_teacher": 0.367
+   },
+   "random": {
+    "recall": 72.445,
+    "ba_two": 71.695,
+    "cost_vs_teacher": 0.369
+   }
+  },
+  "0.3": {
+   "reasoner": {
+    "recall": 75.9,
+    "ba_two": 73.6,
+    "cost_vs_teacher": 0.495
+   },
+   "coverage": {
+    "recall": 76.0,
+    "ba_two": 71.2,
+    "cost_vs_teacher": 0.468
+   },
+   "random": {
+    "recall": 74.045,
+    "ba_two": 73.095,
+    "cost_vs_teacher": 0.468
+   }
+  },
+  "0.5": {
+   "reasoner": {
+    "recall": 79.6,
+    "ba_two": 75.8,
+    "cost_vs_teacher": 0.693
+   },
+   "coverage": {
+    "recall": 79.1,
+    "ba_two": 73.5,
+    "cost_vs_teacher": 0.669
+   },
+   "random": {
+    "recall": 77.39,
+    "ba_two": 76.065,
+    "cost_vs_teacher": 0.669
+   }
+  }
+ }
+}

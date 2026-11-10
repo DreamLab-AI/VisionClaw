@@ -1,0 +1,10 @@
+{
+  "arm": "A0",
+  "attention_kl": null,
+  "lr": 0.0001,
+  "seed": 0,
+  "train_rows": 25438,
+  "train_seconds": 2075.133574333,
+  "validation_accuracy": 0.7415,
+  "validation_rows": 2000
+}

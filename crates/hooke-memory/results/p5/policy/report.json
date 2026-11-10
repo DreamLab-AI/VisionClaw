@@ -1,0 +1,17 @@
+{
+  "train_examples": 282803,
+  "val_examples": 249626,
+  "candidates": [
+    {
+      "lr": 0.001,
+      "val_grouped_spearman": 0.0078
+    },
+    {
+      "lr": 0.0003,
+      "val_grouped_spearman": 0.0082
+    }
+  ],
+  "chosen_lr": 0.0003,
+  "val_grouped_spearman_similarity": 0.0129,
+  "val_grouped_spearman_attention": -0.0058
+}

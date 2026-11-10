@@ -1,0 +1,64 @@
+# Preregistration P10 (H1): confirmation of the verifier on a fresh private-fact corpus
+
+Recorded 9 November 2026, before any P10 embedding, training or scoring. Committed before `scripts/h1_*.py` are run;
+the commit timestamp is the evidence. P9 (commit 812dad36e) was exploratory and not preregistered; P10 repeats it
+on data never seen, with every arm on identical embeddings and per-claim outputs saved.
+
+## Data (frozen now)
+* Generator `scripts/p9_corpus.py` unchanged. Training corpus: seed 1021, 40,000 claims. Validation corpus (the
+  scored set): seed 2027, 4,000 claims (2,000 single-step, 2,000 two-step). Neither seed was used before.
+* Embeddings: Qwen3-Embedding-4B, bf16, last-token pooling, L2-normalised, claim queries with the instruction prefix in
+  `scripts/h1_embed.py`, documents raw. All arms use these embeddings.
+
+## Arms (all trained on the 40,000 training claims, labels only, scored once on the 4,000 validation claims)
+1. verifier: two-layer transformer (d=256, 4 heads), claim plus top-16 documents by cosine to the claim, 30 epochs,
+   AdamW lr 3e-4, batch 64, training seeds 0, 1, 2.
+2. similarity, three variants sim1, sim4, sim16: a learned true/false classifier (MLP) over [q*g, |q-g|], g = unit
+   mean of the top-k documents by cosine to the claim, k = 1, 4, 16, same seeds.
+3. probe (ceiling): the same classifier with g = unit mean of the gold documents, trained on training gold.
+4. swap (negative control): the verifier scored on another claim's collection; expected near chance.
+5. plain text: Qwen3-8B, thinking off, full collection in the prompt, first-token True/False logit
+   (`scripts/h1_text.py`), all 4,000 claims; and the same model with no documents.
+6. verifier2 (H3 pilot, exploratory; not part of H1): the verifier over a second-hop set (top 8 by cosine to the claim
+   plus top 8 by cosine to each of the two documents nearest the claim, up to 24).
+
+## Criterion (fixed now)
+H1 passes if, in every one of the three seeds, the verifier beats the strongest of sim1, sim4 and sim16 (strongest in
+that seed on the validation set, an adversarial choice) on two-step claims by at least 5 percentage points, with exact
+McNemar p < 0.01 on the paired per-claim outcomes. Single-step results, the plain-text comparison and the ceiling are
+reported without a pass mark. A seed that fails is reported as a failure; the thresholds are not changed.
+
+## Diagnostic (reported, no pass mark)
+The share of two-step claims whose two gold documents are both in the top-16, and verifier accuracy on each subset,
+to say whether the gap to the ceiling is retrieval or composition.
+
+## Outputs
+`results/p10/arms-seed{0,1,2}.json` (per-claim predictions for every arm), `results/p10/text-*.json`, the score table
+from `scripts/h1_score.py`, and the record of any deviation in `DEVIATIONS.md` before the affected stage runs.
+
+## Amendment 1 (9 November 2026, before any P10 embedding, training or scoring)
+An independent audit found that `p9_corpus.py` lets a surface count decide every two-step claim: the claimed place
+appears in two documents when the claim is true and one when it is false. On a 4,000-claim P9-style corpus the rule
+"true iff the claimed place appears at least twice" scores 100.0% on two-step claims (50.6% single-step). P9's two-step
+results therefore do not show composition across documents and are not used as evidence.
+* P10 uses `scripts/p10_corpus.py`: identical except for one extra decoy located in the false place, so both places
+  appear exactly twice. Precondition, checked with `scripts/shortcut_check.py` before embedding: the count rule
+  scores 50.5% (two-step) and 50.9% (single-step) on the seed-2027 validation corpus, 50.2% and 50.3% on the
+  seed-1021 training corpus. Seeds and sizes are unchanged.
+* Protocol differences from P9 are acknowledged: the encoder is run through Hugging Face with last-token pooling and
+  an instruction prefix on the claim text; similarity is the best of three variants; the probe is an MLP trained on
+  training gold. P10 is a modified protocol, not a rerun of P9.
+* Swap control pass mark: at most 60% in each stratum, in every seed; a failure fails H1.
+* The 5-point margin is computed on unrounded accuracies. The diagnostic is reported for all three seeds.
+* Code fixes before any run: cache keyed by corpus and embedding identity; top-k guarded for small collections.
+
+## Result (9 November 2026, scored once after all arms completed)
+H1 FAILS. The verifier does not beat the strongest similarity variant (sim4) on two-step claims in any seed (margins
+-4.3, -6.5, -3.5 points). Verifier two-step 51.3% (49.5-52.6), at chance; single-step 89.7%, below similarity top-1
+(94.5%). Swap control at chance (passes). Probe ceiling with gold documents 95.7% / 88.6%. Plain text, Qwen3-8B with
+the collection in the prompt, 79.2% / 52.6% (answers True on 96.5% of two-step claims); no documents 50.8% / 49.5%.
+Second-hop pilot (verifier2, exploratory) 57.6% two-step. Both gold documents are in the top-16 for 68.0% of two-step
+claims; the verifier is 50.7-56.5% on that subset, so the failure is composition, not only retrieval.
+Reading: per-fact verification over the owner's embeddings works (single-step); neither the learned verifier nor an 8B
+model reading the text composes two private facts across documents once the count shortcut is removed. Full table:
+`results/p10/score.md`; per-claim outputs for every arm in `results/p10/`.

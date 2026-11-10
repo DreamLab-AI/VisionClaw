@@ -1,0 +1,120 @@
+{
+"threshold": -33.12,
+"admit_all": {
+"precision": 91.3,
+"recall": 77.0,
+"single-step": 90.0,
+"two-step": 91.0,
+"single-hop_true": "31/41",
+"single-hop_false": "59/59",
+"two-hop_true": "43/52",
+"two-hop_false": "48/48"
+},
+"threshold_dev_tuned": {
+"precision": 91.3,
+"recall": 77.0,
+"single-step": 90.0,
+"two-step": 91.0,
+"single-hop_true": "31/41",
+"single-hop_false": "59/59",
+"two-hop_true": "43/52",
+"two-hop_false": "48/48"
+},
+"schema_checked": {
+"precision": 94.4,
+"recall": 77.0,
+"single-step": 90.0,
+"two-step": 91.0,
+"single-hop_true": "31/41",
+"single-hop_false": "59/59",
+"two-hop_true": "43/52",
+"two-hop_false": "48/48"
+},
+"oracle": {
+"precision": 100.0,
+"recall": 100.0,
+"single-step": 100.0,
+"two-step": 100.0,
+"single-hop_true": "41/41",
+"single-hop_false": "59/59",
+"two-hop_true": "52/52",
+"two-hop_false": "48/48"
+},
+"score_auc": 0.733,
+"wrong_by_relation": {
+"supplies": 570,
+"located-in": 31,
+"has-capability": 124,
+"certified-for": 26,
+"partners-with": 759
+},
+"missed_by_relation": {
+"supplies": 1378,
+"located-in": 510,
+"has-capability": 1730,
+"certified-for": 963,
+"partners-with": 0
+},
+"wrong_examples": [
+[
+"Nudrerun Works",
+"supplies",
+"vusoth testing"
+],
+[
+"Riokiokaeth Systems",
+"supplies",
+"nougu testing"
+],
+[
+"Vaethounaex Industries",
+"supplies",
+"Thaestexstead"
+],
+[
+"Vaethounaex Industries",
+"supplies",
+"Fekrirstead"
+],
+[
+"Vaethounaex Industries",
+"supplies",
+"Moufouthmoor"
+],
+[
+"Krothoubeth Systems",
+"partners-with",
+"Vriosiotun Systems"
+],
+[
+"Krothoubeth Systems",
+"partners-with",
+"Vriosiotun Systems"
+],
+[
+"Fecefoul Dynamics",
+"partners-with",
+"Putupion Works"
+],
+[
+"Krioliogior Labs",
+"partners-with",
+"Riokiozion Dynamics"
+],
+[
+"Riokiozion Dynamics",
+"partners-with",
+"Soumatho Systems"
+],
+[
+"Krakaekrax Engineering",
+"partners-with",
+"Riokiozion Dynamics"
+],
+[
+"Krioliogior Labs",
+"partners-with",
+"Soumatho Systems"
+]
+]
+}

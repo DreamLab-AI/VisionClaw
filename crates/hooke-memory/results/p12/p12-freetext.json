@@ -1,0 +1,128 @@
+{
+ "n": 400,
+ "threshold_value": -33.12499940395372,
+ "candidates": 16954,
+ "admit_all": {
+  "precision": 88.0,
+  "recall": 74.3,
+  "single-hop": 88.0,
+  "two-hop": 91.0
+ },
+ "threshold_f1": {
+  "precision": 88.0,
+  "recall": 74.3,
+  "single-hop": 88.0,
+  "two-hop": 91.0
+ },
+ "oracle": {
+  "precision": 100.0,
+  "recall": 100.0,
+  "single-hop": 100.0,
+  "two-hop": 100.0
+ },
+ "examples": [
+  [
+   "Zunura Systems is based in Sononholm. It is based in Stedrethwick. Bubaevrir Dynamics buys parts from Zunura Systems. It is based in Moustixford. Zunura Systems provides ziozoun telemetry services. Among Culovran Systems's suppliers is Zunura Systems. Zunura Systems's works are in Voufolmoor. Sutostaeth Labs buys parts from Zunura Systems. It is certified to ME-9517.",
+   "Krokular Engineering has lovruth telemetry capability. Krokular Engineering operates from Voufolmoor. It has sathex casting capability. Krokular Engineering has been approved under TOU-3264. Krokular Engineering's works are in Moustixford. Zunura Systems sources components from Krokular Engineering. Krokular Engineering's works are in Sononholm.",
+   "Bubaevrir Dynamics provides ciodir assembly services. Bubaevrir Dynamics's works are in Moustixford. Bubaevrir Dynamics does not supply Zunura Systems. It is certified to GI-3645. Bubaevrir Dynamics provides ziozoun telemetry services. It is certified to CE-8956. Bubaevrir Dynamics operates from Sononholm. Bubaevrir Dynamics is based in Voufolmoor."
+  ],
+  [
+   "Fuvioster Works | located-in | Thumalford  \nFuvioster Works | certified-for | TI-868  \nFuvioster Works | supplies | Cepevrath Labs  \nFuvioster Works | has-capability | pigioth telemetry",
+   "Cepevrath Labs | certified-for | ZA-2862  \nCepevrath Labs | located-in | Fepoulwick  \nCepevrath Labs | has-capability | lusoth assembly",
+   "Toutizae Works | located-in | Stilaewick  \nToutizae Works | located-in | Fepoulwick  \nToutizae Works | has-capability | pigioth telemetry"
+  ]
+ ],
+ "score_auc": 0.639,
+ "wrong_from_nonfact_paragraph": 30.6,
+ "wrong_by_relation": {
+  "supplies": 570,
+  "located-in": 31,
+  "has-capability": 667,
+  "certified-for": 28,
+  "partners-with": 759
+ },
+ "missed_by_relation": {
+  "supplies": 1378,
+  "located-in": 510,
+  "has-capability": 2272,
+  "certified-for": 965,
+  "partners-with": 0
+ },
+ "wrong_examples": [
+  [
+   "Nudrerun Works",
+   "supplies",
+   "vusoth testing"
+  ],
+  [
+   "Riokiokaeth Systems",
+   "supplies",
+   "nougu testing services"
+  ],
+  [
+   "Vaethounaex Industries",
+   "supplies",
+   "Thaestexstead"
+  ],
+  [
+   "Vaethounaex Industries",
+   "supplies",
+   "Fekrirstead"
+  ],
+  [
+   "Vaethounaex Industries",
+   "supplies",
+   "Moufouthmoor"
+  ],
+  [
+   "Vaethounaex Industries",
+   "has-capability",
+   "thioraen testing services"
+  ],
+  [
+   "Vaethounaex Industries",
+   "has-capability",
+   "vebou testing services"
+  ],
+  [
+   "Vriosiotun Systems",
+   "partners-with",
+   "Krothoubeth Systems"
+  ],
+  [
+   "Krothoubeth Systems",
+   "partners-with",
+   "Vriosiotun Systems"
+  ],
+  [
+   "Fecefoul Dynamics",
+   "has-capability",
+   "vebou testing services"
+  ],
+  [
+   "Fecefoul Dynamics",
+   "has-capability",
+   "cikio machining services"
+  ],
+  [
+   "Fecefoul Dynamics",
+   "has-capability",
+   "zostiol assembly services"
+  ],
+  [
+   "Putupion Works",
+   "partners-with",
+   "Fecefoul Dynamics"
+  ],
+  [
+   "Riokiozion Dynamics",
+   "partners-with",
+   "Krioliogior Labs"
+  ],
+  [
+   "Soumatho Systems",
+   "partners-with",
+   "Riokiozion Dynamics"
+  ]
+ ]
+}

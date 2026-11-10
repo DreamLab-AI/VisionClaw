@@ -1,0 +1,62 @@
+{
+ "accuracy": {
+  "learned_0.25": 81.3405596726026,
+  "learned_0.10": 79.54872248645061
+ },
+ "comparisons": {
+  "similarity_0.25": {
+   "learned": 81.3405596726026,
+   "other": 83.91770821811747,
+   "gain_points": -2.5771485455148735,
+   "gains": 316,
+   "losses": 549,
+   "p": 2.087801895049774e-15
+  },
+  "similarity_0.10": {
+   "learned": 79.54872248645061,
+   "other": 83.05497179515541,
+   "gain_points": -3.5062493087047955,
+   "gains": 385,
+   "losses": 702,
+   "p": 4.752912730934639e-22
+  },
+  "attention_0.25": {
+   "learned": 81.3405596726026,
+   "other": 83.1766397522398,
+   "gain_points": -1.836080079637199,
+   "gains": 287,
+   "losses": 453,
+   "p": 1.1261659597393484e-09
+  },
+  "attention_0.10": {
+   "learned": 79.54872248645061,
+   "other": 82.67890720053092,
+   "gain_points": -3.1301847140803005,
+   "gains": 320,
+   "losses": 603,
+   "p": 8.279157097868638e-21
+  },
+  "random_0.25": {
+   "learned": 81.3405596726026,
+   "other": 82.3913283928769,
+   "gain_points": -1.0507687202743057,
+   "gains": 313,
+   "losses": 408,
+   "p": 0.0004560501787095445
+  },
+  "random_0.10": {
+   "learned": 79.54872248645061,
+   "other": 80.75434133392324,
+   "gain_points": -1.2056188474726213,
+   "gains": 364,
+   "losses": 473,
+   "p": 0.00018559112303168283
+  }
+ },
+ "verdict": "fail",
+ "claim": "on this benchmark a learned policy does not beat embedding similarity",
+ "rows": {
+  "0.25": 9041,
+  "0.10": 9041
+ }
+}
