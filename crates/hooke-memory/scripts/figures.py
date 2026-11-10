@@ -77,11 +77,12 @@ cost = {k: (0.6 if k.startswith("0.6") else 8.0) * (v["prompt_tokens"] + v["gene
 tf = R / "p15/p15-think.jsonl.tokens.json"
 if tf.exists():
     v = json.loads(tf.read_text()); cost["8B with reasoning"] = 8.0 * (v["prompt_tokens"] + v["generated_tokens"]) / v["paragraphs"]
+gen3 = dict(gen); gen3["8B with reasoning"] = load("p15/p15-score.json")  # recall from the same run as its tokens
 fig, ax = plt.subplots(figsize=(5.6, 2.6))
 for name, c in series:
     if name in cost:
-        ax.scatter(cost[name], gen[name][1], s=60, color=c, edgecolor=SURF, linewidth=2, zorder=3)
-        ax.annotate(f"{name}\n{cost[name]:,.0f} B-param·tokens", (cost[name], gen[name][1]), textcoords="offset points", xytext=(6, -14), fontsize=7, color=INK)
+        ax.scatter(cost[name], gen3[name][1], s=60, color=c, edgecolor=SURF, linewidth=2, zorder=3)
+        ax.annotate(f"{name}\n{cost[name]:,.0f} B-param·tokens", (cost[name], gen3[name][1]), textcoords="offset points", xytext=(6, -14), fontsize=7, color=INK)
 ax.set_xscale("log"); ax.set_xlim(80, 60000); ax.set_xlabel("Computation per paragraph (billion parameters × tokens, log)"); ax.set_ylabel("Fact recall (%)")
 ax.set_ylim(70, 103); ax.grid(color=GRID, lw=0.6); ax.set_axisbelow(True)
 fig.tight_layout(); fig.savefig(OUT / "fig3-computation.pdf"); fig.savefig(OUT / "fig3-computation.png"); plt.close(fig)
