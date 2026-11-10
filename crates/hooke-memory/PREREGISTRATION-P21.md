@@ -48,3 +48,10 @@ restricted to pull requests whose diff matches the gated patch.
 ## Limits
 One reviewer who is the project lead; one estate; five weeks of nights; diff-only review without test results is
 harder than normal review and may raise disagreement; INCONCLUSIVE candidates are nearly absent (2).
+
+## Note added 10 November 2026, before any human review exists
+The engine log shows that on 10 November two checkouts without a git identity failed their candidate commit, and a
+gate ACCEPT was recorded as BLOCKED-ENV for that reason. Six of the seven BLOCKED-ENV candidates in the review set
+come from those two checkouts, so their non-ACCEPT verdict may reflect an environment fault and not the gate's
+judgement of the change. The primary analysis is unchanged (ACCEPT against the rest). A sensitivity analysis excluding
+all BLOCKED-ENV candidates is reported beside it, and the headroom statement is made only if both agree.
