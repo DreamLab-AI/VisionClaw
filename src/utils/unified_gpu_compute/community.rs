@@ -77,6 +77,23 @@ impl UnifiedGPUCompute {
         let _ctx = Context::new(self.device)
             .map_err(|e| anyhow!("Failed to set CUDA context for community detection: {}", e))?;
 
+        // Every buffer the kernels below index by node must cover the live graph (S1a, L1).
+        self.require_graph_capacity(&[
+            "rand_states",
+            "labels_current",
+            "labels_next",
+            "label_counts",
+            "label_mapping",
+            "node_degrees",
+            "community_sizes",
+            "edge_row_offsets",
+            "edge_col_indices",
+            "edge_weights",
+        ])?;
+        // Labels start as node indices, so the label space is the registered label capacity
+        // (at least num_nodes); `community_sizes` and `label_mapping` share that extent.
+        let max_labels = self.label_mapping.len().min(self.community_sizes.len());
+
         let block_size = 256;
         let grid_size = self.num_nodes.div_ceil(block_size);
         let stream = &self.stream;
@@ -89,7 +106,7 @@ impl UnifiedGPUCompute {
 
         let init_random_kernel = unified_mod.get_function("init_random_states_kernel")?;
         // SAFETY: Random state initialization kernel is safe because:
-        // 1. rand_states buffer is allocated for num_nodes curandState elements
+        // 1. rand_states holds at least num_nodes curandState elements (require_graph_capacity)
         // 2. Each thread initializes its own random state using seed + thread_id
         // 3. curandState is repr(C) and can be safely written from GPU
         unsafe {
@@ -167,7 +184,7 @@ impl UnifiedGPUCompute {
                         self.edge_weights.as_device_ptr(),
                         self.label_counts.as_device_ptr(),
                         self.num_nodes as i32,
-                        self.max_labels as i32,
+                        max_labels as i32,
                         self.rand_states.as_device_ptr().as_raw()
                     )
                 )?;
@@ -217,7 +234,7 @@ impl UnifiedGPUCompute {
             total_weight,
         );
 
-        let zero_communities = vec![0i32; self.max_labels];
+        let zero_communities = vec![0i32; max_labels];
         safe_upload(&mut self.community_sizes, &zero_communities)?;
 
         let count_communities_kernel = unified_mod.get_function("count_community_sizes_kernel")?;
@@ -231,7 +248,7 @@ impl UnifiedGPUCompute {
                     self.labels_current.as_device_ptr(),
                     self.community_sizes.as_device_ptr(),
                     self.num_nodes as i32,
-                    self.max_labels as i32
+                    max_labels as i32
                 )
             )?;
         }
@@ -239,9 +256,9 @@ impl UnifiedGPUCompute {
         self.stream.synchronize()?;
 
         let mut labels = safe_download(&self.labels_current, self.num_nodes)?;
-        let community_sizes_host = safe_download(&self.community_sizes, self.max_labels)?;
+        let community_sizes_host = safe_download(&self.community_sizes, max_labels)?;
 
-        let mut label_map = vec![-1i32; self.max_labels];
+        let mut label_map = vec![-1i32; max_labels];
         let mut compact_community_sizes = Vec::new();
         let mut num_communities = 0;
 
@@ -253,7 +270,7 @@ impl UnifiedGPUCompute {
             }
         }
 
-        if num_communities < self.max_labels {
+        if num_communities < max_labels {
             safe_upload(&mut self.label_mapping, &label_map)?;
 
             let relabel_kernel = unified_mod.get_function("relabel_communities_kernel")?;

@@ -895,12 +895,15 @@ extern "C" __global__ void relaxation_step_kernel(
         int v = d_col_indices[e];
         float w = d_weights[e];
         float nd = du + w;
-        
-        if (nd < B) {
-            float old = atomicMinFloat(&d_dist[v], nd);
-            if (nd < old) {
-                d_next_frontier_flags[v] = 1; // Mark for next frontier
-            }
+
+        // Every improvement is recorded. Only one inside the current bucket (nd < B) puts v
+        // in the next frontier; a node at or beyond B keeps its tentative distance and is
+        // expanded when the host moves the bucket bound past it. Before S1a an improvement
+        // with nd >= B was dropped, so delta-stepping left every node at distance >= delta
+        // unreachable. With B = INFINITY (plain frontier relaxation) nothing changes.
+        float old = atomicMinFloat(&d_dist[v], nd);
+        if (nd < old && nd < B) {
+            d_next_frontier_flags[v] = 1; // Mark for next frontier
         }
     }
 }
@@ -2018,8 +2021,13 @@ __global__ void relabel_communities_kernel(
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= num_nodes) return;
     
+    // Labels are node indices, so a valid label is below num_nodes, and the host sizes
+    // label_mapping to at least num_nodes. Anything else is not indexed: it becomes -1
+    // (unassigned), which every consumer skips.
     int old_label = labels[idx];
-    if (old_label >= 0) {
+    if (old_label >= num_nodes) {
+        labels[idx] = -1;
+    } else if (old_label >= 0) {
         labels[idx] = label_mapping[old_label];
     }
 }

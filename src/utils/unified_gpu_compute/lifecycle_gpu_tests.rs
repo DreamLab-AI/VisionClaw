@@ -295,7 +295,13 @@ fn l1_sssp_after_the_graph_changes_size() {
 }
 
 /// Label propagation on a graph larger than the construction size: it must finish, return
-/// one label per node, keep components apart, and report labels inside `0..num_communities`.
+/// one label per node, keep components apart, report labels inside `0..num_communities`, and
+/// find real structure (six disjoint components of about 250 nodes).
+///
+/// A physics step runs first, as in production: the vote weight `weight_precision_multiplier`
+/// lives in the `c_params` device constant, which only `execute` uploads (finding L13). On a
+/// fresh engine every vote is zero and label propagation returns 1500 singletons, "converged"
+/// after one iteration; the structure assertions below would catch that.
 #[test]
 #[ignore = "needs GPU: run with --ignored --test-threads=1"]
 fn l1_label_propagation_after_growth() {
@@ -305,6 +311,12 @@ fn l1_label_propagation_after_growth() {
     let fixture = graph(1500, 6, 2.0, 1.0, 1.0, 21);
     let mut engine = production_engine(&g);
     load(&mut engine, &fixture);
+    engine
+        .execute_physics_step_with_bypass(
+            &SimulationParams::from(&PhysicsSettings::default()),
+            true,
+        )
+        .expect("physics step");
     let outcome = catch_unwind(AssertUnwindSafe(|| {
         engine.run_community_detection(50, 1234)
     }));
@@ -319,6 +331,14 @@ fn l1_label_propagation_after_growth() {
     );
     assert_eq!(labels.len(), fixture.n, "one label per node");
     assert!(communities >= 6, "six disjoint components need six labels");
+    assert!(
+        communities <= fixture.n / 10,
+        "{communities} communities for six components of ~250 nodes: no labels propagated"
+    );
+    assert!(
+        modularity > 0.3,
+        "modularity {modularity} shows no community structure"
+    );
     assert_eq!(
         sizes.iter().sum::<i32>() as usize,
         fixture.n,
@@ -477,10 +497,13 @@ fn c1b_stale_sssp_distances_do_not_reach_the_force_pass() {
         engine.sssp_device_distances.as_ref().map(|b| b.len())
     );
 
-    let mut physics = PhysicsSettings::default();
-    physics.sssp_enabled = true;
-    physics.lin_log_mode = false; // Hooke: both du and dv are read
-    let params = SimulationParams::from(&physics);
+    let physics = PhysicsSettings {
+        sssp_enabled: true,
+        lin_log_mode: false, // Hooke: both du and dv are read
+        ..PhysicsSettings::default()
+    };
+    let mut params = SimulationParams::from(&physics);
+    params.warmup_iterations = 0; // the ramp scales every force by iteration / warmup
     engine
         .execute_physics_step_with_bypass(&params, true)
         .expect("physics step");
@@ -543,4 +566,97 @@ fn l6_relabel_rejects_an_out_of_range_label() {
     labels.copy_to(&mut out).expect("read labels");
     println!("relabelled: {out:?}");
     assert_eq!(out, vec![7, 8, -1, -1]);
+}
+
+/// The path the C1b crash masked, now reachable: SSSP on a graph that is not the construction
+/// size succeeds, and its distances (one per live node) reach the force pass. Two identical
+/// engines take one Hooke step from the same state, one with SSSP spring adjustment on and one
+/// off; the SSSP rest-length term must change the result. The term's law itself is checked
+/// against the CPU reference by the `springs_hooke_sssp` golden in the kernel harness.
+#[test]
+#[ignore = "needs GPU: run with --ignored --test-threads=1"]
+fn c1b_fresh_sssp_distances_reach_the_force_pass() {
+    let Some(g) = gpu("c1b_fresh_sssp_distances_reach_the_force_pass") else {
+        return;
+    };
+    let fixture = graph(1500, 1, 1.0, 0.5, 3.0, 41);
+    let step = |sssp_on: bool| -> Vec<f32> {
+        let mut engine = production_engine(&g);
+        load(&mut engine, &fixture);
+        let distances = engine.run_sssp(0, Some(2.0)).expect("SSSP after growth");
+        assert_eq!(distances.len(), fixture.n);
+        assert!(!engine.sssp_distances_for_force_pass().is_null());
+        let physics = PhysicsSettings {
+            sssp_enabled: sssp_on,
+            lin_log_mode: false,
+            sssp_alpha: 5.0,
+            ..PhysicsSettings::default()
+        };
+        let mut params = SimulationParams::from(&physics);
+        params.warmup_iterations = 0; // the ramp scales every force by iteration / warmup
+        engine
+            .execute_physics_step_with_bypass(&params, true)
+            .expect("physics step");
+        let (x, y, z) = engine.get_node_positions().expect("positions");
+        let n = fixture.n;
+        let out: Vec<f32> = x[..n]
+            .iter()
+            .chain(&y[..n])
+            .chain(&z[..n])
+            .copied()
+            .collect();
+        assert!(out.iter().all(|v| v.is_finite()), "non-finite positions");
+        let [ix, iy, iz] = positions(n, 7);
+        let start: Vec<f32> = ix.iter().chain(&iy).chain(&iz).copied().collect();
+        let stepped = out
+            .iter()
+            .zip(&start)
+            .filter(|(a, b)| (*a - *b).abs() > 1e-6)
+            .count();
+        assert!(stepped > 0, "the step moved no node (sssp_on={sssp_on})");
+        out
+    };
+    let with = step(true);
+    let without = step(false);
+    let moved = with
+        .iter()
+        .zip(&without)
+        .filter(|(a, b)| (*a - *b).abs() > 1e-6)
+        .count();
+    println!(
+        "coordinates changed by the SSSP rest-length term: {moved} of {}",
+        with.len()
+    );
+    assert!(moved > 0, "SSSP distances did not reach the force pass");
+}
+
+/// A negative weight is a negative cycle in the symmetric CSR, so the relaxation never
+/// settles. Before S1a the round cap ended the loop and the garbage distances were returned
+/// as a result (and kept for the force pass); now it is an error and nothing is kept.
+#[test]
+#[ignore = "needs GPU: run with --ignored --test-threads=1"]
+fn sssp_with_a_negative_weight_is_an_error() {
+    let Some(g) = gpu("sssp_with_a_negative_weight_is_an_error") else {
+        return;
+    };
+    let mut fixture = graph(64, 1, 1.0, 0.5, 3.0, 51);
+    fixture.weights[0] = -1.0;
+    // Keep the CSR symmetric: give the reverse slot the same weight.
+    let (a, b) = (0usize, fixture.cols[0] as usize);
+    let back = (fixture.offsets[b] as usize..fixture.offsets[b + 1] as usize)
+        .find(|&e| fixture.cols[e] as usize == a)
+        .expect("reverse slot");
+    fixture.weights[back] = -1.0;
+    let mut engine = production_engine(&g);
+    load(&mut engine, &fixture);
+    for delta in [None, Some(2.0)] {
+        let outcome = engine.run_sssp(0, delta);
+        assert!(
+            outcome.is_err(),
+            "delta={delta:?}: negative cycle returned distances"
+        );
+        println!("delta={delta:?}: {:#}", outcome.unwrap_err());
+        assert!(!engine.sssp_available);
+        assert!(engine.sssp_distances_for_force_pass().is_null());
+    }
 }
