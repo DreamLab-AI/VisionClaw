@@ -231,6 +231,34 @@ async fn adr_2192_sync_switches_skip_reasoning_and_purge_domain_roots() {
     let stats = on.service.sync_graphs().await.expect("sync");
     assert_no_stage_failed(&stats);
     assert_eq!(domain_roots(&on.kg_repo.load_graph().await.unwrap()), roots);
+
+    // Reasoning switched off after a run: the closure and the stored results are forgotten,
+    // so nothing keeps serving the old inference.
+    {
+        use visionclaw_domain::ports::ontology_repository::OntologyRepository;
+        assert!(
+            on.engine.read().await.has_closure(),
+            "the earlier run left a closure"
+        );
+        assert!(on
+            .onto_repo
+            .get_inference_results()
+            .await
+            .unwrap()
+            .is_some());
+        store_quality_gates(&on, serde_json::json!({ "ontologyReasoning": false })).await;
+        let stats = on.service.sync_graphs().await.expect("sync");
+        assert_no_stage_failed(&stats);
+        assert!(!on.engine.read().await.has_closure(), "closure cleared");
+        assert!(
+            on.onto_repo
+                .get_inference_results()
+                .await
+                .unwrap()
+                .is_none(),
+            "stored inference results cleared"
+        );
+    }
 }
 
 fn assert_no_stage_failed(stats: &SyncStatistics) {

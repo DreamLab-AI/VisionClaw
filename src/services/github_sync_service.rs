@@ -1475,6 +1475,7 @@ impl GitHubSyncService {
 
         if !switches.ontology_reasoning {
             info!("Post-sync reasoning skipped: ontology reasoning is off (qualityGates.ontologyReasoning)");
+            self.forget_inference(stats).await;
             self.purge_inferred_edges(stats).await;
             self.dispatch_asserted_constraints_only().await;
             return Ok(0);
@@ -1615,6 +1616,28 @@ impl GitHubSyncService {
             inferred_edge_count
         );
         Ok(inferred_edge_count)
+    }
+
+    /// With reasoning off (ADR-2192), drop every earlier inference so nothing serves it: the
+    /// shared Whelk closure (the ontology-agent routes and the full-access hierarchy read it)
+    /// and the stored inferred graph, which holds the persisted inference results and their
+    /// run id (`/api/ontology/inference/results`, `/inferred`). With no closure and no stored
+    /// run the gated per-view reads have nothing to intersect and do not reason. Non-fatal.
+    async fn forget_inference(&self, stats: &mut SyncStatistics) {
+        if let Err(e) = self.inference_engine.write().await.clear().await {
+            warn!(
+                "Reasoning off: clearing the shared Whelk closure failed: {}",
+                e
+            );
+            stats.errors.push(format!("inference_clear: {}", e));
+        }
+        if let Err(e) = self.onto_repo.clear_inferred_graph().await {
+            warn!(
+                "Reasoning off: clearing the stored inferred graph failed: {}",
+                e
+            );
+            stats.errors.push(format!("inferred_graph_clear: {}", e));
+        }
     }
 
     /// Remove the stored `inferred:true` edges (ADR-2192): run when a sync is

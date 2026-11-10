@@ -688,8 +688,13 @@ async fn view_inference_results(
     reasoner: &ViewReasoner,
     hidden: &HiddenClasses,
 ) -> Result<Arc<Option<InferenceResults>>, String> {
-    let view = reasoner.closure(repo.as_ref(), hidden).await?;
     let run_id = repo.inference_run_id_stored().await.map_err(unavailable)?;
+    // No stored run (reasoning off, ADR-2192, or never run): nothing to serve, so the view is
+    // not reasoned over.
+    if run_id.is_none() {
+        return Ok(Arc::new(None));
+    }
+    let view = reasoner.closure(repo.as_ref(), hidden).await?;
     reasoner
         .derived()
         .inference_results(&view, run_id.as_deref(), || async {
@@ -1166,8 +1171,16 @@ async fn view_inferred_graph(
     reasoner: &ViewReasoner,
     hidden: &HiddenClasses,
 ) -> Result<Arc<serde_json::Value>, String> {
-    let view = reasoner.closure(repo.as_ref(), hidden).await?;
     let run_id = repo.inference_run_id_stored().await.map_err(unavailable)?;
+    // No stored run reads as the empty graph, without reasoning over the view (ADR-2192).
+    if run_id.is_none() {
+        let store = oxigraph::store::Store::new().map_err(unavailable)?;
+        let empty = OxigraphOntologyRepository::from_store(Arc::new(store));
+        return Ok(Arc::new(
+            empty.read_inferred_graph().await.map_err(unavailable)?,
+        ));
+    }
+    let view = reasoner.closure(repo.as_ref(), hidden).await?;
     reasoner
         .derived()
         .inferred_graph(&view, run_id.as_deref(), || async {
@@ -1995,6 +2008,26 @@ pub(crate) mod per_view_reasoning_tests {
         .await;
         assert_eq!(results, stored_results);
         assert_eq!(reasoner.runs(), 0);
+    }
+
+    /// ADR-2192: with no stored run (reasoning off clears it), a gated caller's inference
+    /// reads answer "none" and the empty graph without a per-view Whelk run.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn with_no_stored_run_the_gated_reads_do_not_reason() {
+        let store = oxigraph::store::Store::new().expect("store");
+        let repo = Arc::new(OxigraphOntologyRepository::from_store(Arc::new(store)));
+        let reasoner = ViewReasoner::new();
+        let hidden = HiddenClasses::from(HashSet::from(["urn:test:Hidden".to_string()]));
+        let results = view_inference_results(&repo, &reasoner, &hidden)
+            .await
+            .expect("answers");
+        assert!(results.is_none());
+        let graph = view_inferred_graph(&repo, &reasoner, &hidden)
+            .await
+            .expect("answers");
+        let empty = repo.read_inferred_graph().await.expect("reads");
+        assert_eq!(graph.as_ref(), &empty);
+        assert_eq!(reasoner.runs(), 0, "no per-view Whelk run");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
