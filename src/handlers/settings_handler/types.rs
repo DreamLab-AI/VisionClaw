@@ -3,9 +3,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// `ssspEnabled` defaults on (ADR-2140), so a body that predates the field still deserialises.
+/// A body without `ssspEnabled` still deserialises, with the stored document's default
+/// (off since rework stage S1a; ADR-2140).
 fn default_sssp_enabled() -> bool {
-    true
+    visionclaw_domain::types::physics_config::SSSP_SPRING_ADJUST_DEFAULT
 }
 
 pub fn value_type_name(value: &Value) -> &'static str {
@@ -698,13 +699,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_physics_body_without_sssp_enabled_deserialises_as_enabled() {
+    fn a_physics_body_without_sssp_enabled_deserialises_as_the_default_off() {
         let mut body = serde_json::to_value(PhysicsSettingsDTO::from(
             &crate::config::PhysicsSettings::default(),
         ))
         .unwrap();
         body.as_object_mut().unwrap().remove("ssspEnabled");
         let dto: PhysicsSettingsDTO = serde_json::from_value(body).unwrap();
-        assert!(dto.sssp_enabled);
+        assert!(!dto.sssp_enabled);
     }
 }

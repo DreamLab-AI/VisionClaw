@@ -1,5 +1,6 @@
 //! Memory management, buffer resizing, and data upload/download operations.
 
+use super::buffers::{Extent, GraphSizedBuffers};
 use super::construction::UnifiedGPUCompute;
 use super::types::ComputeMode;
 use crate::models::constraints::ConstraintData;
@@ -47,6 +48,16 @@ fn checked_copy_to<T: cust::memory::DeviceCopy>(
     }
     src.copy_to(dest)
         .map_err(|e| anyhow!("copy_to CUDA error in {}: {}", label, e))
+}
+
+/// Fingerprint of a CSR topology. Equal fingerprints with equal counts are treated as the same
+/// graph by `initialize_graph`; a relabelled graph with an identical CSR is indistinguishable.
+fn csr_fingerprint(row_offsets: &[i32], col_indices: &[i32]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    row_offsets.hash(&mut h);
+    col_indices.hash(&mut h);
+    h.finish()
 }
 
 impl UnifiedGPUCompute {
@@ -207,6 +218,8 @@ impl UnifiedGPUCompute {
         col_indices: &[i32],
         weights: &[f32],
     ) -> Result<()> {
+        // New topology: anything computed from the old CSR no longer describes this graph.
+        self.invalidate_graph_derived_state();
         if row_offsets.len() != self.num_nodes + 1 {
             return Err(anyhow!(
                 "Row offsets size mismatch: expected {} (num_nodes + 1), got {}",
@@ -263,6 +276,15 @@ impl UnifiedGPUCompute {
         self.num_edges = col_indices.len();
         // The CSR changed, so any captured rest lengths no longer line up with its slots.
         self.hold_overlay.invalidate();
+        self.graph_fingerprint = Some(csr_fingerprint(row_offsets, col_indices));
+        self.sssp_edge_weight_range = weights
+            .iter()
+            .copied()
+            .filter(|w| w.is_finite())
+            .fold(None, |range: Option<(f32, f32)>, w| {
+                Some(range.map_or((w, w), |(lo, hi)| (lo.min(w), hi.max(w))))
+            })
+            .unwrap_or((0.0, 0.0));
         Ok(())
     }
 
@@ -434,7 +456,23 @@ impl UnifiedGPUCompute {
         Ok(())
     }
 
+    /// Fits the engine to a graph of `new_num_nodes` nodes and `new_num_edges` CSR slots.
+    ///
+    /// Every graph-sized buffer is registered in one table (`buffers.rs`); a growth replaces all
+    /// of them at once with a fresh set from the same allocator `new` uses, so no buffer can be
+    /// left at an old length. The fresh set is allocated in full before anything is replaced, so
+    /// a failed allocation leaves the engine as it was. Positions and velocities are carried
+    /// across; every other registered buffer returns to its default and the actor re-uploads
+    /// it. A shrink keeps the allocation and only lowers the live counts.
+    ///
+    /// Any call is a graph change: everything indexed by the previous graph's nodes is
+    /// discarded first (`invalidate_node_indexed_state`), because node indices may have moved
+    /// even when capacity has not. A failed growth leaves buffers, counts and capacities as they
+    /// were; only that derived state is lost.
     pub fn resize_buffers(&mut self, new_num_nodes: usize, new_num_edges: usize) -> Result<()> {
+        self.invalidate_node_indexed_state();
+        self.graph_fingerprint = None;
+
         if new_num_nodes <= self.num_nodes && new_num_edges <= self.num_edges {
             self.num_nodes = new_num_nodes;
             self.num_edges = new_num_edges;
@@ -449,142 +487,79 @@ impl UnifiedGPUCompute {
         let actual_new_nodes = ((new_num_nodes as f32 * 1.5) as usize).max(self.num_nodes);
         let actual_new_edges = ((new_num_edges as f32 * 1.5) as usize).max(self.num_edges);
 
-        // Use allocated_nodes (not num_nodes) to match actual device buffer size,
-        // which may be larger due to 1.5x overallocation from a previous resize.
+        // Read positions and velocities at the current allocation (which may exceed num_nodes
+        // after an earlier 1.5x growth), to carry them into the new buffers.
         let copy_size = self.allocated_nodes;
-        let mut pos_x_data = vec![0.0f32; copy_size];
-        let mut pos_y_data = vec![0.0f32; copy_size];
-        let mut pos_z_data = vec![0.0f32; copy_size];
-        let mut vel_x_data = vec![0.0f32; copy_size];
-        let mut vel_y_data = vec![0.0f32; copy_size];
-        let mut vel_z_data = vec![0.0f32; copy_size];
+        let mut carried: [Vec<f32>; 6] = std::array::from_fn(|_| vec![0.0f32; copy_size]);
+        checked_copy_to(&self.pos_in_x, &mut carried[0], "pos_in_x")?;
+        checked_copy_to(&self.pos_in_y, &mut carried[1], "pos_in_y")?;
+        checked_copy_to(&self.pos_in_z, &mut carried[2], "pos_in_z")?;
+        checked_copy_to(&self.vel_in_x, &mut carried[3], "vel_in_x")?;
+        checked_copy_to(&self.vel_in_y, &mut carried[4], "vel_in_y")?;
+        checked_copy_to(&self.vel_in_z, &mut carried[5], "vel_in_z")?;
 
-        checked_copy_to(&self.pos_in_x, &mut pos_x_data, "pos_in_x")?;
-        checked_copy_to(&self.pos_in_y, &mut pos_y_data, "pos_in_y")?;
-        checked_copy_to(&self.pos_in_z, &mut pos_z_data, "pos_in_z")?;
-        checked_copy_to(&self.vel_in_x, &mut vel_x_data, "vel_in_x")?;
-        checked_copy_to(&self.vel_in_y, &mut vel_y_data, "vel_in_y")?;
-        checked_copy_to(&self.vel_in_z, &mut vel_z_data, "vel_in_z")?;
+        let mut fresh = GraphSizedBuffers::allocate(actual_new_nodes, actual_new_edges)?;
 
-        pos_x_data.resize(actual_new_nodes, 0.0);
-        pos_y_data.resize(actual_new_nodes, 0.0);
-        pos_z_data.resize(actual_new_nodes, 0.0);
-        vel_x_data.resize(actual_new_nodes, 0.0);
-        vel_y_data.resize(actual_new_nodes, 0.0);
-        vel_z_data.resize(actual_new_nodes, 0.0);
+        // Carry positions and velocities into the fresh set *before* installing it, so a
+        // failure here drops the fresh set and leaves the engine exactly as it was (counts,
+        // capacities and buffers all old and mutually consistent).
+        let new_capacity = Extent::Nodes.capacity(actual_new_nodes, actual_new_edges);
+        let keep = copy_size.min(new_capacity);
+        let [px, py, pz, vx, vy, vz] = &carried;
+        #[cfg(test)]
+        let inject_failure = std::mem::take(&mut self.inject_resize_carry_failure);
+        for (i, (buf, data, name)) in [
+            (&mut fresh.pos_in_x, px, "pos_in_x"),
+            (&mut fresh.pos_in_y, py, "pos_in_y"),
+            (&mut fresh.pos_in_z, pz, "pos_in_z"),
+            (&mut fresh.pos_out_x, px, "pos_out_x"),
+            (&mut fresh.pos_out_y, py, "pos_out_y"),
+            (&mut fresh.pos_out_z, pz, "pos_out_z"),
+            (&mut fresh.vel_in_x, vx, "vel_in_x"),
+            (&mut fresh.vel_in_y, vy, "vel_in_y"),
+            (&mut fresh.vel_in_z, vz, "vel_in_z"),
+            (&mut fresh.vel_out_x, vx, "vel_out_x"),
+            (&mut fresh.vel_out_y, vy, "vel_out_y"),
+            (&mut fresh.vel_out_z, vz, "vel_out_z"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            #[cfg(test)]
+            if inject_failure && i == 6 {
+                return Err(anyhow!(
+                    "carrying {name} across the resize: injected test failure"
+                ));
+            }
+            let _ = i;
+            buf.index(0..keep)
+                .copy_from(&data[..keep])
+                .map_err(|e| anyhow!("carrying {name} across the resize: {e}"))?;
+        }
 
-        self.pos_in_x = DeviceBuffer::from_slice(&pos_x_data)?;
-        self.pos_in_y = DeviceBuffer::from_slice(&pos_y_data)?;
-        self.pos_in_z = DeviceBuffer::from_slice(&pos_z_data)?;
-        self.vel_in_x = DeviceBuffer::from_slice(&vel_x_data)?;
-        self.vel_in_y = DeviceBuffer::from_slice(&vel_y_data)?;
-        self.vel_in_z = DeviceBuffer::from_slice(&vel_z_data)?;
-
-        self.pos_out_x = DeviceBuffer::from_slice(&pos_x_data)?;
-        self.pos_out_y = DeviceBuffer::from_slice(&pos_y_data)?;
-        self.pos_out_z = DeviceBuffer::from_slice(&pos_z_data)?;
-        self.vel_out_x = DeviceBuffer::from_slice(&vel_x_data)?;
-        self.vel_out_y = DeviceBuffer::from_slice(&vel_y_data)?;
-        self.vel_out_z = DeviceBuffer::from_slice(&vel_z_data)?;
-
-        self.mass = DeviceBuffer::from_slice(&vec![1.0f32; actual_new_nodes])?;
-        self.node_graph_id = DeviceBuffer::zeroed(actual_new_nodes)?;
-        self.edge_row_offsets = DeviceBuffer::zeroed(actual_new_nodes + 1)?;
-        self.edge_col_indices = DeviceBuffer::zeroed(actual_new_edges)?;
-        self.edge_weights = DeviceBuffer::zeroed(actual_new_edges)?;
-        // The overlay's rest lengths are per CSR slot; a resize invalidates them (and the
-        // buffer must track allocated_edges or the force pass would read out of bounds).
-        // The force kernels hold the old buffer's address in `g_edge_rest_snapshot`; unbind it
-        // before that buffer is freed. The next step binds the new one.
+        // The force kernels hold the old edge_rest_snapshot address in `g_edge_rest_snapshot`;
+        // unbind it before that buffer is freed. The next step binds the new one. The overlay's
+        // rest lengths are per CSR slot, so a resize invalidates them.
         self.bind_edge_rest(0)?;
-        self.edge_rest_snapshot = DeviceBuffer::zeroed(actual_new_edges)?;
+        self.install_graph_sized(fresh);
         self.hold_overlay.invalidate();
-        self.force_x = DeviceBuffer::zeroed(actual_new_nodes)?;
-        self.force_y = DeviceBuffer::zeroed(actual_new_nodes)?;
-        self.force_z = DeviceBuffer::zeroed(actual_new_nodes)?;
 
-        self.cell_keys = DeviceBuffer::zeroed(actual_new_nodes)?;
-        let sorted_indices: Vec<i32> = (0..actual_new_nodes as i32).collect();
-        self.sorted_node_indices = DeviceBuffer::from_slice(&sorted_indices)?;
+        // Node-indexed host state was discarded at the top (invalidate_node_indexed_state).
+        self.aabb_num_blocks = self.aabb_block_results.len();
 
-        // Persistent Thrust grid-sort output buffers must track allocated_nodes.
-        self.sort_keys_out = DeviceBuffer::zeroed(actual_new_nodes)?;
-        self.sort_values_out = DeviceBuffer::zeroed(actual_new_nodes)?;
-
+        self.num_nodes = new_num_nodes;
+        self.num_edges = new_num_edges;
+        self.allocated_nodes = new_capacity;
+        self.allocated_edges = Extent::Edges.capacity(actual_new_nodes, actual_new_edges);
         self.total_memory_allocated = Self::calculate_memory_usage(
             self.allocated_nodes,
             self.allocated_edges,
             self.max_grid_cells,
         );
 
-        // Class metadata buffers must be resized with positions to avoid
-        // stale CUDA device pointers after the position buffers are reallocated.
-        self.class_id = DeviceBuffer::zeroed(actual_new_nodes)?;
-        self.class_charge = DeviceBuffer::from_slice(&vec![1.0f32; actual_new_nodes])?;
-        self.class_mass = DeviceBuffer::from_slice(&vec![1.0f32; actual_new_nodes])?;
-        self.spring_scale = DeviceBuffer::from_slice(&vec![1.0f32; actual_new_nodes])?;
-        // Pinned mask resized with positions; a resize (node add/remove) drops all
-        // pins — the actor re-uploads the mask on the next step via its dirty flag.
-        self.pinned_mask = DeviceBuffer::zeroed(actual_new_nodes)?;
-        // DAG rank buffer resized with positions; reset to -1 (unranked) — the
-        // actor recomputes and re-uploads ranks after a graph upload.
-        self.node_rank = DeviceBuffer::from_slice(&vec![-1.0f32; actual_new_nodes])?;
-        // Stratified-plane buffer resized with positions; reset to NaN (unassigned)
-        // — the actor recomputes and re-uploads planes after a graph upload.
-        self.node_plane = DeviceBuffer::from_slice(&vec![f32::NAN; actual_new_nodes])?;
-
-        // Degree weight buffer must be resized with positions
-        self.degree_weight = DeviceBuffer::from_slice(&vec![1.0f32; actual_new_nodes])?;
-        self.degree_weights_available = false;
-
-        // FA2 adaptive speed: prev_force buffers reset to zero on resize
-        self.prev_force_x = DeviceBuffer::zeroed(actual_new_nodes)?;
-        self.prev_force_y = DeviceBuffer::zeroed(actual_new_nodes)?;
-        self.prev_force_z = DeviceBuffer::zeroed(actual_new_nodes)?;
-
-        // ADR-070 D2.2 / D3.1: constraint-force telemetry + sparse compute mask.
-        // The mask is invalidated on resize (node indices may have moved); it is
-        // rebuilt from the persona/filter on the next set_compute_mask call.
-        self.node_constraint_force = DeviceBuffer::zeroed(actual_new_nodes)?;
-        self.compute_mask = DeviceBuffer::zeroed(actual_new_nodes.max(1))?;
-        self.compute_mask_len = 0;
-
-        self.cluster_assignments = DeviceBuffer::zeroed(actual_new_nodes)?;
-        self.distances_to_centroid = DeviceBuffer::zeroed(actual_new_nodes)?;
-
-        // Louvain cohesion buffers track node count; labels are invalidated on
-        // resize so the next force step re-runs detection before applying cohesion.
-        self.community_centroids_x = DeviceBuffer::zeroed(actual_new_nodes.max(1))?;
-        self.community_centroids_y = DeviceBuffer::zeroed(actual_new_nodes.max(1))?;
-        self.community_centroids_z = DeviceBuffer::zeroed(actual_new_nodes.max(1))?;
-        self.community_sizes = DeviceBuffer::zeroed(actual_new_nodes.max(1))?;
-        self.community_count_active = 0;
-        self.last_cohesion_refresh_iter = 0;
-
-        let new_num_blocks = actual_new_nodes.div_ceil(256);
-        self.partial_inertia = DeviceBuffer::zeroed(new_num_blocks)?;
-        self.min_distances = DeviceBuffer::zeroed(actual_new_nodes)?;
-
-        self.lof_scores = DeviceBuffer::zeroed(actual_new_nodes)?;
-        self.local_densities = DeviceBuffer::zeroed(actual_new_nodes)?;
-        self.zscore_values = DeviceBuffer::zeroed(actual_new_nodes)?;
-        self.feature_values = DeviceBuffer::zeroed(actual_new_nodes)?;
-        self.partial_sums = DeviceBuffer::zeroed(new_num_blocks)?;
-        self.partial_sq_sums = DeviceBuffer::zeroed(new_num_blocks)?;
-
-        self.aabb_num_blocks = new_num_blocks;
-        self.aabb_block_results = DeviceBuffer::zeroed(new_num_blocks)?;
-        self.partial_kinetic_energy = DeviceBuffer::zeroed(new_num_blocks)?;
-        self.node_degrees = DeviceBuffer::zeroed(actual_new_nodes)?;
-
-        self.num_nodes = new_num_nodes;
-        self.num_edges = new_num_edges;
-        self.allocated_nodes = actual_new_nodes;
-        self.allocated_edges = actual_new_edges;
-
         info!(
             "Successfully resized GPU buffers to {}/{} allocated nodes/edges",
-            actual_new_nodes, actual_new_edges
+            self.allocated_nodes, self.allocated_edges
         );
         // The index is sized by node capacity, which just changed, so the old one must not be read
         // again. If it cannot be rebuilt, leave the engine with no constraints at all (index
@@ -786,7 +761,13 @@ impl UnifiedGPUCompute {
             // grow defensively rather than truncate silently.
             self.compute_mask = DeviceBuffer::from_slice(&filtered)?;
         } else {
-            checked_copy_from(&mut self.compute_mask, &filtered, "compute_mask")?;
+            // A sparse mask is shorter than the buffer's capacity: fill only its prefix (the
+            // kernel reads `compute_mask_len` entries). A whole-buffer copy demanded equal
+            // lengths, so every sparse mask failed before S1a's review round.
+            self.compute_mask
+                .index(0..filtered.len())
+                .copy_from(&filtered[..])
+                .map_err(|e| anyhow!("uploading compute_mask: {e}"))?;
         }
         self.compute_mask_len = filtered.len();
         debug!(
@@ -871,6 +852,9 @@ impl UnifiedGPUCompute {
     ) -> Result<()> {
         if num_nodes != self.num_nodes || num_edges != self.num_edges {
             self.resize_buffers(num_nodes, num_edges)?;
+        } else if self.graph_fingerprint != Some(csr_fingerprint(row_offsets, col_indices)) {
+            // Same counts, different graph: node indices may now name other nodes.
+            self.invalidate_node_indexed_state();
         }
 
         self.upload_edges_csr(row_offsets, col_indices, edge_weights)?;
@@ -907,14 +891,16 @@ impl UnifiedGPUCompute {
         self.num_nodes
     }
 
-    /// Returns the raw device pointer to the persisted SSSP distance buffer,
-    /// or a null pointer if no SSSP has been computed yet.
-    ///
-    /// This pointer is suitable for passing as `d_sssp_dist` to CUDA kernels.
-    pub fn get_sssp_device_ptr(&self) -> cust::memory::DevicePointer<f32> {
+    /// The `d_sssp_dist` argument for the force kernels: the persisted SSSP distances when they
+    /// were computed for the current graph and hold one entry per live node, otherwise null
+    /// (the kernels then skip the SSSP rest-length term). The force kernels' signature is part
+    /// of the Codescape ABI and carries no length, so the bound is enforced here: the distances
+    /// are discarded on every graph change (`invalidate_graph_derived_state`), and the length
+    /// check makes a stale buffer unreachable even if that invariant were broken.
+    pub(crate) fn sssp_distances_for_force_pass(&self) -> cust::memory::DevicePointer<f32> {
         match &self.sssp_device_distances {
-            Some(buf) => buf.as_device_ptr(),
-            None => cust::memory::DevicePointer::null(),
+            Some(buf) if self.sssp_available && buf.len() >= self.num_nodes => buf.as_device_ptr(),
+            _ => cust::memory::DevicePointer::null(),
         }
     }
 
