@@ -10,8 +10,11 @@ const ConnScript := preload("res://scripts/backend_connection.gd")
 class ClientStub:
 	extends RefCounted
 	var sent: Array[String] = []
+	var local: Array = []
 	func send_text(json: String) -> void:
 		sent.append(json)
+	func set_local_quality_filter(enabled: bool, threshold: float) -> void:
+		local.append([enabled, threshold])
 
 
 func _conn_with_stub() -> Array:
@@ -54,3 +57,19 @@ func test_no_client_means_nothing_is_sent_and_false_is_returned() -> void:
 	var conn: Node = ConnScript.new()
 	add_child_autofree(conn)
 	assert_false(conn.send_filter_update(true))
+
+
+func test_set_quality_filter_greys_locally_and_tells_the_server() -> void:
+	# Audit A4: the toggle used to send only, so nothing on the headset changed.
+	var pair := _conn_with_stub()
+	var conn: Node = pair[0]
+	var stub: ClientStub = pair[1]
+	assert_true(conn.set_quality_filter(true))
+	assert_eq(stub.local.size(), 1, "applied to the local render store")
+	assert_true(bool(stub.local[0][0]))
+	assert_almost_eq(float(stub.local[0][1]), 0.4, 0.0001, "the same threshold the frame carries")
+	var frame: Dictionary = JSON.parse_string(stub.sent[0])
+	assert_almost_eq(float(frame.get("quality_threshold")), float(stub.local[0][1]), 0.0001)
+	conn.set_quality_filter(false)
+	assert_false(bool(stub.local[1][0]), "off restores locally")
+	assert_false(bool(JSON.parse_string(stub.sent[1]).get("enabled")))

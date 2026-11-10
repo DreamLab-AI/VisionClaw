@@ -113,8 +113,11 @@ Compatibility (OpenGL 3) renderer** (README "Version note" and VIVE bring-up
 2026-08-22). Do not read the 4.3 string as the runtime.
 
 **Godot 4.8-beta2 target (ADR-2165, 2026-10-30).** The client targets
-`4.8.beta2.official.cafc17a19` (HP `~/godot48b2/`); 4.6.1-stable is the
-rollback. Evidence on HP, in `~/mce-xr/godot48/xr-client/tests/report/{base461,b48}`:
+`4.8.beta2.official.cafc17a19` (HP `~/godot48b2/`). **Single engine since
+2026-11-10** (operator decision: splats and spatial zones need 4.8, and it runs
+well on the headset): `scripts/xr-gate.sh`, headless runs and the XR CI workflow
+target exactly 4.8-beta2; 4.6.1 is no longer a rollback or a comparison baseline,
+and the 4.6.1 figures below are history. Evidence on HP, in `~/mce-xr/godot48/xr-client/tests/report/{base461,b48}`:
 the unchanged gdext crate (`godot` 0.2.4) initialises with `API
 v4.3.stable.official, runtime v4.8.beta2.official`; `--headless --quit` logs the
 same errors as 4.6.1 plus a benign GameMode-daemon warning; GUT is 33/33
@@ -326,6 +329,14 @@ call races the compositor), and the launch call must carry `XAUTHORITY` so Godot
 can open the X11 display for the SteamVR compositor — the process has no
 inherited session. SteamVR must be running with the VIVE Pro tracked and
 `~/.config/openxr/1/active_runtime.json` pointed at SteamVR.
+
+Since the 2026-11-10 slice the deployed tree is a versioned export
+(`xr-client/tools/export.sh <ref> <dest-root>` → `vc-<sha9>/` with a
+`build_stamp.json`), the backend URL is pinned in `live.env` beside the exports
+and read by `tools/live.sh`, and the HUD Session header shows the exported
+commit, the export and library build times and the backend in use. The steps
+are in `xr-client/README.md` ("Versioned export and deploy"). `scripts/xr-gate.sh`
+is the pre-merge check (GitHub Actions is off for this repository).
 
 ### Identity and signing (NIP-98)
 `NostrAuth.create(OS.get_environment("XR_NOSTR_SECRET"))` always returns a signer

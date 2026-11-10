@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: eba81532aced55cd53edc37655571a49e3846c04
 verified_paths: [xr-client/scenes/GraphScene.tscn, xr-client/scenes/HUD.tscn, xr-client/scripts/spatial_environment.gd, xr-client/scripts/xr_theme.gd, xr-client/scripts/hud.gd, xr-client/scripts/radial_menu.gd, xr-client/scripts/dwell_reticle.gd, xr-client/scripts/agent_avatar.gd, xr-client/materials/spatial_floor.gdshader, xr-client/materials/edge_flow.gdshader, xr-client/tests/spatial_visual_fixture.gd, xr-client/tests/unit/test_xr_visual_accessibility.gd]
 owner: jjohare
 review_trigger: Headset acceptance, a renderer change, or a change to graph instance channels and world-radius compensation.
@@ -181,3 +181,7 @@ Governed-path changes since `5c94c3cbd`:
 - `xr-client/scripts/spatial_environment.gd` (`75c94eeda`): the comfort choices persist. An explicit `XR_REDUCED_MOTION`/`XR_VISUAL_QUALITY` still wins. Otherwise the stored HUD choice applies (`XrPrefs.KEY_REDUCED_MOTION`/`KEY_LOW_COST`, `user://xr_prefs.cfg`). Otherwise the defaults apply, **reduced motion on** and full visuals (`:76-87`), and HUD toggles write the choice back (`:192-198`). The reduced-motion default holds for a fresh install.
 
 **Decision holds, with the tab count superseded by ADR-2189; status stays `partial`/`staged`** (no new headset session). Re-run: `git diff 5c94c3cbd..7bd25427e -- <verified_paths>`. Checked by reading that diff; GUT was not re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`eba81532a`)
+
+Governed-path change since `7bd25427e`: `xr-client/scripts/hud.gd` gains the build stamp in the Session header row (`_build_session_page` `:1568`, `set_build_info` `:2081`; `614f0b9b6`). It shares the header's row, so the page keeps its height, and it changes no colour, glow, material or comfort setting this record governs. **Decision unaffected.** Re-run: `git diff 7bd25427e..eba81532a -- <verified_paths>`. Checked by reading that diff; `scripts/xr-gate.sh` passed at `eba81532a` (both XR crates' fmt, clippy and tests; headless Godot 4.8-beta2 parse check and GUT, 676 of 679 passing, 3 pending for want of a GL renderer).

@@ -226,6 +226,9 @@ var _room_entry: LineEdit = null
 var _mute_toggle: CheckButton = null
 var _debug_stats: Label = null
 var _conn_status_label: Label = null
+# What is deployed (BuildStamp.line): commit, export and library times, backend.
+var _build_label: Label = null
+var _build_text: String = ""
 # Volume row (ADR-2159): one show/hide button per volume and a focus button.
 # The focused volume's connection decides which global controls are live.
 const VOLUME_IDS: Array[StringName] = [&"knowledge", &"ontology", &"codescape"]
@@ -1565,7 +1568,19 @@ static func query_swatch(slot: int) -> Color:
 func _build_session_page() -> VBoxContainer:
 	var page := VBoxContainer.new()
 	page.add_theme_constant_override("separation", 8)
-	page.add_child(_group_header("Session"))
+	# The build stamp shares the header's row, so the page keeps its height.
+	var header_row := HBoxContainer.new()
+	header_row.name = "SessionHeaderRow"
+	header_row.add_child(_group_header("Session"))
+	_build_label = _mk_label(_build_text, "What is deployed: commit, export and library build times, backend in use")
+	_build_label.name = "BuildStamp"
+	_build_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_build_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_build_label.clip_text = true
+	_build_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_build_label.add_theme_font_size_override("font_size", 13)
+	header_row.add_child(_build_label)
+	page.add_child(header_row)
 	_room_label = _mk_label("Room: -", "Current room")
 	page.add_child(_room_label)
 	_room_entry = LineEdit.new()
@@ -2060,6 +2075,17 @@ func set_cross_links(on: bool) -> void:
 ## Link layer counts for the debug strip: drawn / unresolved / over the cap.
 func set_link_counts(drawn: int, unresolved: int, overflow: int) -> void:
 	_link_counts = Vector3i(drawn, unresolved, overflow)
+
+
+## The build stamp line (scripts/build_stamp.gd), shown in the Session header.
+func set_build_info(text: String) -> void:
+	_build_text = text
+	if _build_label != null:
+		_build_label.text = text
+
+
+func build_info() -> String:
+	return _build_text
 
 
 func _update_conn_status_label() -> void:

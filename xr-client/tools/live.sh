@@ -3,6 +3,11 @@
 # after tools/gdext-fresh.sh has built the library the Godot editor binary
 # loads and confirmed it is not older than the Rust source.
 #
+# Configuration: the first of LIVE_ENV, LIVE_DIR/live.env and the parent of
+# LIVE_DIR/live.env (the export root when LIVE_DIR is an export's vc-<sha9>/) is
+# read first; a variable already set in the environment wins. KEY=value lines,
+# optional surrounding quotes. tools/live.env.example lists the keys. This is
+# where the deployed build's backend URL is pinned.
 # Environment:
 #   XR_BACKEND_WS   backend WebSocket, e.g. ws://<backend-host>:4000 (required)
 #   GODOT           Godot 4 editor binary (default: godot4, then godot, on PATH)
@@ -14,7 +19,24 @@
 set -uo pipefail
 project="${LIVE_PROJECT:-$(cd "$(dirname "$0")/.." && pwd)}"
 live_dir="${LIVE_DIR:-$(dirname "$project")}"
-[ -n "${XR_BACKEND_WS:-}" ] || { echo "live.sh: set XR_BACKEND_WS (ws://<backend-host>:4000)" >&2; exit 2; }
+env_file="${LIVE_ENV:-}"
+if [ -z "$env_file" ]; then
+  for candidate in "$live_dir/live.env" "$(dirname "$live_dir")/live.env"; do
+    if [ -f "$candidate" ]; then env_file="$candidate"; break; fi
+  done
+  env_file="${env_file:-$live_dir/live.env}"
+fi
+if [ -f "$env_file" ]; then
+  # Load the file without letting it override what the caller already set.
+  while IFS='=' read -r key value; do
+    case "$key" in ''|\#*) continue ;; esac
+    [[ "$key" =~ ^[A-Z_][A-Z0-9_]*$ ]] || continue
+    value="${value%$'\r'}"
+    if [[ "$value" =~ ^\"(.*)\"$ ]] || [[ "$value" =~ ^\'(.*)\'$ ]]; then value="${BASH_REMATCH[1]}"; fi
+    [ -n "${!key:-}" ] || export "$key=$value"
+  done < "$env_file"
+fi
+[ -n "${XR_BACKEND_WS:-}" ] || { echo "live.sh: set XR_BACKEND_WS (ws://<backend-host>:4000), or put it in $env_file" >&2; exit 2; }
 godot="${GODOT:-$(command -v godot4 || command -v godot || true)}"
 [ -x "$godot" ] || { echo "live.sh: Godot editor binary not found; set GODOT" >&2; exit 2; }
 
@@ -34,5 +56,6 @@ cd "$project" || exit 2
 setsid nohup "$godot" --path . --rendering-driver opengl3 --display-driver x11 \
   --xr-mode on --verbose --print-fps > "$log" 2>&1 < /dev/null &
 pid=$!
-printf 'pid=%s\nlog=%s\nstarted=%s\nbackend=%s\n' "$pid" "$log" "$(date -Is)" "$XR_BACKEND_WS" > "$live_dir/RUNNING"
+stamp="$(sed -n 's/.*"sha": *"\([0-9a-f]*\)".*/\1/p' "$project/build_stamp.json" 2>/dev/null || true)"
+printf 'pid=%s\nlog=%s\nstarted=%s\nbackend=%s\nbuild=%s\n' "$pid" "$log" "$(date -Is)" "$XR_BACKEND_WS" "${stamp:-unstamped}" > "$live_dir/RUNNING"
 cat "$live_dir/RUNNING"

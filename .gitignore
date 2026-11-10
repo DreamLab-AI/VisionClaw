@@ -262,6 +262,8 @@ data/sqlite/
 agentbox/.env.solid-pods
 # Godot editor cache (xr-client)
 xr-client/.godot/
+# Written by xr-client/tools/export.sh into an exported tree; never tracked.
+xr-client/build_stamp.json
 nntp-stack/
 
 # agentdb RVF init-rot: empty stores touched by agentdb-enabled tooling; removed 2026-07-22 (audit C10), ruvector-postgres is the only memory store

@@ -10,9 +10,10 @@ name: XR Godot CI
 #                        close-out) + visionclaw-xr-presence (adversarial +
 #                        property). Both CUDA-free; run anywhere Rust runs.
 #     * gut-headless   — GUT GDScript suite (vendored GUT 9.6.1) under
-#                        Godot 4.6.1 GL on Xvfb — the runtime the headset
-#                        actually uses (docs/XR-client.md). Same invocation
-#                        as the HP rig (118/118 on 2026-10-07).
+#                        Godot 4.8-beta2 GL on Xvfb — the one engine the
+#                        headset client runs (operator decision 2026-11-10;
+#                        docs/XR-client.md). Locally, scripts/xr-gate.sh runs
+#                        the same suite headless (Actions is off on this repo).
 #   NON-BLOCKING (never executed end-to-end yet):
 #     * quest3-android — full NDK r26d + cargo-ndk + export-template APK
 #                        pipeline from PRD-008 §5.7 steps 2–6 & 9. Kept
@@ -47,7 +48,9 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: "1"
-  GODOT_VERSION: 4.6.1-stable
+  GODOT_VERSION: 4.8-beta2
+  # SHA-512 of Godot_v4.8-beta2_linux.x86_64.zip (godot-builds SHA512-SUMS.txt).
+  GODOT_SHA512: 77470f53a9039cd22837935380230220167e098324e82ec448ee4b1f943f00afc424885f7d6631f385123d7a630a9399b3cc1b0e1dad1a4ac45c6356b3a0aa45
 
 jobs:
   # ── BLOCKING ──────────────────────────────────────────────────────────────
@@ -76,7 +79,7 @@ jobs:
         run: cargo test -p visionclaw-xr-presence
 
   gut-headless:
-    name: GUT GDScript suite under Godot 4.6.1 GL (blocking)
+    name: GUT GDScript suite under Godot 4.8-beta2 GL (blocking)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -102,14 +105,15 @@ jobs:
       - name: Install Godot ${{ env.GODOT_VERSION }}
         run: |
           curl -fsSL -o /tmp/godot.zip \
-            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+            "https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          echo "${GODOT_SHA512}  /tmp/godot.zip" | sha512sum -c -
           unzip -q /tmp/godot.zip -d /tmp/godot
           sudo mv /tmp/godot/Godot_v${GODOT_VERSION}_linux.x86_64 /usr/local/bin/godot
           godot --version
       - name: Check vendored GUT pin
-        # GUT is committed under addons/gut (9.6.1 = the Godot 4.6 line, see
-        # addons/README.md); 9.3.x does not compile on Godot >= 4.5 and 9.7.x
-        # (the 4.7 line) logs parse errors on 4.6. Fail loudly if the pin drifts.
+        # GUT is committed under addons/gut (9.6.1, see addons/README.md); it
+        # parses and runs clean on 4.8-beta2 (2026-11-10: 679 tests, 676 pass,
+        # 3 pending for want of GL). Fail loudly if the pin drifts.
         run: grep -q 'version="9.6.1"' addons/gut/plugin.cfg
       - name: Run GUT unit suite (canonical close-out invocation)
         run: |
@@ -168,7 +172,7 @@ jobs:
       - name: Install Godot export templates (${{ env.GODOT_VERSION }})
         run: |
           curl -fsSL -o /tmp/templates.tpz \
-            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz"
+            "https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz"
           unzip -q /tmp/templates.tpz -d /tmp/tpl
           template_version=$(cat /tmp/tpl/templates/version.txt)
           template_dir="$HOME/.local/share/godot/export_templates/$template_version"
@@ -182,7 +186,8 @@ jobs:
         working-directory: xr-client
         run: |
           curl -fsSL -o /tmp/godot.zip \
-            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+            "https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          echo "${GODOT_SHA512}  /tmp/godot.zip" | sha512sum -c -
           unzip -q /tmp/godot.zip -d /tmp/godot
           mkdir -p export
           /tmp/godot/Godot_v${GODOT_VERSION}_linux.x86_64 --headless \

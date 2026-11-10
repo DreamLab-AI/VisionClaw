@@ -9,7 +9,8 @@ Install via Godot AssetLib at first project open. Pinned versions:
 | Godot OpenXR Loaders (Khronos + Meta + Pico) | bundled with Vendors plugin | (same) |
 
 GUT is committed so the suite runs against the pinned version on the runtime
-actually used (Godot 4.6.1). Pick the GUT line for the engine: 9.6.x (`main`)
+actually used: Godot 4.8-beta2, the one engine since 2026-11-10, where GUT 9.6.1
+parses and runs clean (679 tests, 676 pass, 3 pending for want of GL, headless). Pick the GUT line for the engine: 9.6.x (`main`)
 targets Godot 4.6, 9.7.x (`godot_4_7`) targets Godot 4.7. GUT 9.3.x fails to
 compile on Godot ≥ 4.5 (its `Logger` shadows the engine's new native class), and
 9.7.1 logs Parse Errors on 4.6.1 (`godot_singletons.gd:5` names the 4.7-only

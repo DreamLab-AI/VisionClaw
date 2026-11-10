@@ -26,6 +26,12 @@ class FakeClient:
 	func send_node_unpin(id: int) -> void:
 		calls.append(["unpin", id])
 
+	func connect_to_url(url: String, _secret: String) -> void:
+		calls.append(["dial", url])
+
+	func close() -> void:
+		calls.append(["close"])
+
 	func node_position(id: int) -> Vector3:
 		return pos.get(id, Vector3.ZERO)
 
@@ -730,3 +736,36 @@ func test_the_shader_comment_states_the_true_trough() -> void:
 	var t := _inc_text()
 	assert_false(t.contains("dim to a fifth"), "the old claim: a fifth of peak is wrong under blend_mix")
 	assert_true(t.contains("0.04"), "(1 - 0.8)^2: albedo and alpha both fall to a fifth, so the trough is ~0.04 of peak")
+
+
+# --- reconnect and resume (audit D11, D2) ------------------------------------------
+
+func test_a_reconnect_releases_held_grabs_on_the_old_socket_first() -> void:
+	# HUD Reconnect swaps the socket without a Disconnected event, so the
+	# release-on-disconnect path never ran and the new socket got drag updates
+	# for a node it never saw start (audit D11).
+	var scene: Node3D = await _make_scene()
+	var fake := _fake(scene)
+	assert_true(scene._begin_grab(0, &"knowledge", 11, Vector3.ZERO))
+	assert_true(scene._begin_grab(1, &"ontology", 22, Vector3.ZERO))
+	scene._connect_graph()
+	assert_eq(scene._held_ids(), [], "no node stays pinned to a dead connection")
+	var kinds: Array = fake.calls.map(func(c: Array) -> String: return c[0])
+	assert_eq(kinds.count("end"), 2, "each hold released")
+	assert_lt(kinds.rfind("end"), kinds.find("close"), "released before the old socket closes")
+	await _free(scene)
+
+
+func test_resume_redials_a_down_connection_at_once() -> void:
+	var scene: Node3D = await _make_scene()
+	var fake := _fake(scene)
+	var vc: Node = scene._vc_conn
+	vc._open = true
+	vc._connected = false
+	vc._dialling = false
+	vc._reconnect_attempts = 6
+	vc._reconnect_timer = 60.0
+	scene._resume_connections("test")
+	assert_eq(fake.of_kind("dial").size(), 1, "dialled on resume, not after the 60 s backoff")
+	assert_eq(vc.reconnect_attempts(), 0)
+	await _free(scene)

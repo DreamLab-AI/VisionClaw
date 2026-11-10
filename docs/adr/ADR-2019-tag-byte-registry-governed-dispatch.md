@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: eba81532aced55cd53edc37655571a49e3846c04
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs, src/protocols/binary_settings_protocol.rs, crates/visionclaw-xr-presence/src/wire.rs, crates/visionclaw-xr-presence/src/agent_presence.rs]
 owner: jjohare
 review_trigger: allocation of a new opcode/version tag on any binary socket, or a proposal to share one demultiplexer across sockets
@@ -314,3 +314,7 @@ Re-run: `git diff abcf36db1..81e711267 -- src/utils/binary_protocol.rs xr-client
 ## Re-verification — 2026-11-07 (`7bd25427e`)
 
 Governed-path change since `81e711267`: `xr-client/rust/src/binary_protocol.rs` (`d4e5da63d`, `415c0d6d3`, ADR-2188 overview path). Its hunks sit at `:515`, `:1631`, `:2423`, `:2484` and in tests. They add the edge helpers `neighbours_in` and `edge_count_for_class_mask`, which read decoded state, and the highlight and label `#[func]`s. No tag byte, opcode constant, dispatch arm or registry entry is allocated or changed; a grep of the diff for `PROTOCOL_`, `OPCODE_`, `MSG_` and hex tag literals returns nothing. Current dispatch anchors: `decode_position_frame_with_sequence` `:646`, `OPCODE_BROADCAST_ACK` `:698`, `FreshnessGate` `:795`, `MSG_AGENT_ACTION = 0x23` `:998`. The tolerant `0x23` prefix parse `decode_agent_action_frame` (cited at `:861-900` on 2026-10-19) is now `:1107`. **Decision unaffected.** Re-run: `git diff 81e711267..7bd25427e -- <verified_paths>`. Checked by reading that diff; the tests were not re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`eba81532a`)
+
+Governed-path change since `7bd25427e`: `xr-client/rust/src/binary_protocol.rs`: `cargo fmt` (`05a057268`, layout only) and the clippy clean-up (`f3d5acc43`), the `stream_live` signal (`:1315`) and `set_local_quality_filter` (`:1749`). No tag byte, opcode constant, dispatch arm or registry entry is allocated or changed; a grep of the diff for `PROTOCOL_`, `OPCODE_`, `MSG_` and hex tag literals returns nothing. Current dispatch anchors: `decode_position_frame_with_sequence` `:671`, `OPCODE_BROADCAST_ACK` `:723`, `MSG_AGENT_ACTION` `:1028`, the agent-action route at the head of `emit_frame` `:2812`. `docs/reference/binary-protocol.md` was rewritten in the same slice (`eba81532a`) to describe only the dispatch this record governs (V5/V3, `0x23`, `0x34`). **Decision unaffected.** Re-run: `git diff 7bd25427e..eba81532a -- <verified_paths>`. Checked by reading that diff; `scripts/xr-gate.sh` passed at `eba81532a` (both XR crates' fmt, clippy and tests; headless Godot 4.8-beta2 parse check and GUT, 676 of 679 passing, 3 pending for want of a GL renderer).

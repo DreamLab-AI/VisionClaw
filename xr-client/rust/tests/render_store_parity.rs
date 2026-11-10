@@ -156,7 +156,9 @@ fn node_filter_hides_nodes_and_clearing_restores_them() {
     s.build_node_buffer(&all, 1.0, 0.7, 1.9);
     assert_eq!(s.render_ids(), &[1, 2, 3, 4], "filtered nodes stay drawn");
     assert_eq!(
-        (1..=4).map(|id| s.highlight_level_of(id)).collect::<Vec<_>>(),
+        (1..=4)
+            .map(|id| s.highlight_level_of(id))
+            .collect::<Vec<_>>(),
         vec![1, 0, 0, 1],
         "low quality and linked_page greyed; agents exempt"
     );

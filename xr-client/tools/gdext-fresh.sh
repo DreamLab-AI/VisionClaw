@@ -38,6 +38,8 @@ if [ "${GDEXT_SKIP_BUILD:-0}" != 1 ]; then
     release) args+=(--release) ;;
     *) args+=(--profile "$profile") ;;
   esac
+  # A tracked lockfile pins the dependency versions; never let a build float them.
+  [ -f "$crate/Cargo.lock" ] && args+=(--locked)
   echo "gdext-fresh: cargo ${args[*]} (for $entry → $rel)"
   # pin the target dir: a caller's CARGO_TARGET_DIR would build somewhere Godot never looks
   if ! (cd "$crate" && CARGO_TARGET_DIR="$target_dir" cargo "${args[@]}"); then

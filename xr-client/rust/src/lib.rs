@@ -8,6 +8,7 @@
 //!   `visionclaw_xr_presence::agent_presence`, driven by `avatar_state`
 //! - BIP-340 Schnorr challenge signing (`signer`)
 //! - tokio-tungstenite sockets + main-thread inbox pumps (`transport`, `runtime`)
+//!   and the graph socket's client ping and read deadline (`liveness`)
 //! - hand-tracking ray cast + pinch detection (`interaction`)
 //! - unified head/eye gaze ray with one-euro smoothing (`gaze`)
 //! - three-resolver selection arbiter (`selection`)
@@ -24,6 +25,11 @@
 //! GDScript drives scene composition only; this crate owns every byte that
 //! crosses the wire and every threshold that gates a pose / hit / level.
 
+// `chunks_exact(N)` with a constant N is kept over `as_chunks::<N>()`: the HP
+// builds with whatever toolchain it has, and `as_chunks` needs Rust 1.88.
+// `unknown_lints` keeps an older clippy from failing on the newer lint name.
+#![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
+
 pub mod attention;
 pub mod avatar_state;
 pub mod beat;
@@ -37,6 +43,7 @@ pub mod hulls;
 pub mod interaction;
 pub mod link_index;
 pub mod link_packer;
+pub mod liveness;
 pub mod lod;
 pub mod memory_cloud;
 pub mod memory_query;

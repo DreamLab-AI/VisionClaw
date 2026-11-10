@@ -59,7 +59,6 @@ pub(super) struct EdgePlanEntry {
     style: f32,
 }
 
-
 #[derive(Default)]
 pub(super) struct EdgePlan {
     valid: bool,
@@ -238,7 +237,8 @@ impl RenderStore {
             self.live_tint(e.id, e.slot as usize, &mut col);
             // Highlight mask (ADR-2188 D4) on the per-frame path, after the plan has
             // recorded the unmasked instance: a mask write never invalidates a plan.
-            let m = crate::highlight::apply(&self.highlight, e.slot as usize, &mut col, &mut custom);
+            let m =
+                crate::highlight::apply(&self.highlight, e.slot as usize, &mut col, &mut custom);
             let dst: &mut [f32] = if e.faded {
                 &mut self.faded_buf
             } else {
@@ -456,7 +456,8 @@ impl RenderStore {
                     .extend_from_slice(&[grey, 0.0, 0.0, e.style]);
             } else {
                 self.ribbon_buf.extend_from_slice(&tf);
-                self.ribbon_buf.extend_from_slice(&[grey, 0.0, 0.0, e.style]);
+                self.ribbon_buf
+                    .extend_from_slice(&[grey, 0.0, 0.0, e.style]);
                 sc.ribbon_entry.push(i as u32);
             }
         }

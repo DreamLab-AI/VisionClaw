@@ -70,6 +70,22 @@ fn num(v: Option<&Value>) -> Option<f32> {
 }
 
 impl NodeFilter {
+    /// The filter the headset's quality toggle applies locally (audit A4): the same
+    /// predicate its `filter_update` asks the server for
+    /// (`backend_connection.gd::send_filter_update`): quality at or above
+    /// `quality_threshold`, authority not checked, AND mode, linked pages excluded.
+    pub fn headset_quality(quality_threshold: f32) -> Self {
+        Self {
+            enabled: true,
+            quality_threshold,
+            authority_threshold: 0.5,
+            filter_by_quality: true,
+            filter_by_authority: false,
+            mode_and: true,
+            include_linked_pages: false,
+        }
+    }
+
     /// Build from a `settings` object. Missing or wrongly-typed fields take the
     /// desktop default rather than failing the whole frame.
     pub fn from_settings(v: &Value) -> Self {

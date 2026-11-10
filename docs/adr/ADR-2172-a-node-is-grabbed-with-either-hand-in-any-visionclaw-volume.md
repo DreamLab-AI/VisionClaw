@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158, ADR-2166]
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: f6fcca7e80f844a914ead0170c64ebf07017870a
 verified_paths: [xr-client/scripts/graph_scene.gd, xr-client/scripts/spatial_environment.gd, xr-client/scripts/backend_connection.gd, xr-client/scripts/connection_volume_source.gd, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs, xr-client/materials/edge_flow_common.gdshaderinc, xr-client/materials/edge_flow.tres]
 owner: jjohare
 review_trigger: the first headset session grabbing in the Ontology volume and inside an entered room (reach, depth feel, two-hand comfort); or the server's drag-release unpin (stream GS) merging
@@ -122,3 +122,19 @@ The grab model is untouched:
 - `send_drag_end` (`backend_connection.gd:299`) still records no pin.
 
 **Decision unaffected; status stays `partial`/`inactive`.** Re-run: `git diff 81e711267..7bd25427e -- <verified_paths>`. Checked by reading that diff; GUT and the xr-client tests were not re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`f6fcca7e8`)
+
+Governed-path changes since `7bd25427e` (slice 1 of the XR upgrade):
+- **A socket swap releases grabs** (audit D11, `4a87ce14b`). HUD Reconnect and the new resume redial replace the socket without a Disconnected event, so the release-on-disconnect path never ran. `_connect_graph` (`graph_scene.gd:3022`) now calls `_release_grab` (`:164`) first, while the old socket can still carry `nodeDragEnd`. GUT: `test_a_reconnect_releases_held_grabs_on_the_old_socket_first`.
+- **Reconnect** (`backend_connection.gd`): the backoff resets on the first applied position frame (`_on_client_stream_live` `:446`), with 20% jitter; `resume` (`:187`) redials a down connection at once. The client pings and has a 10 s read deadline (`transport.rs`, `liveness.rs`).
+- **Quality toggle** (`set_quality_filter` `:300`; `render_store.rs:2560`; `binary_protocol.rs:1749`): greys locally at once, then sends `filter_update` as before, still never `server_remove`.
+- `graph_scene.gd`: the dead edge re-rank is deleted; `render_store.rs` and `binary_protocol.rs` also carry `cargo fmt` (`05a057268`, layout only) and the clippy clean-up (`f3d5acc43`).
+
+The grab model is untouched:
+- `claim_blocks_drag` is `graph_scene.gd:311` and `grab_volume_allowed` is `:322`.
+- `hunt_grabs` (`binary_protocol.rs:2045`) still pins each held node.
+- `_merge_grab_candidates` is `graph_scene.gd:3771`.
+- `send_drag_end` (`backend_connection.gd:348`) still records no pin.
+
+**Decision unaffected; status stays `partial`/`inactive`.** Re-run: `git diff 7bd25427e..f6fcca7e8 -- <verified_paths>`; `f6fcca7e8` itself only corrects two `graph_scene.gd` comments (`_topo_ids` sizes the HUD's node readout, not a draw domain). Checked by reading that diff; `scripts/xr-gate.sh` passed at `f6fcca7e8` (both XR crates' fmt, clippy and tests; headless Godot 4.8-beta2 parse check and GUT, 676 of 679 passing, 3 pending for want of a GL renderer).

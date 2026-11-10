@@ -174,5 +174,32 @@ out="$(env PATH="$p/bin:$PATH" FAKE_CARGO_LOG="$p/cargo.log" FAKE_GODOT_LOG="$p/
   XR_BACKEND_WS=ws://backend.test:4000 LIVE_PROJECT="$p" bash "$here/tools/capture.sh" tests/visual/x.gd -- typed="a b" 2>&1)"; rc=$?
 check "capture.sh runs the script with --xr-mode off and the arguments" "$(if [ $rc = 0 ] && grep -q -- "--xr-mode off .*--script tests/visual/x.gd -- typed=a b" "$p/godot.log"; then echo 0; else echo 1; fi)"
 
+# 15. live.sh reads the backend from live.env in LIVE_DIR (the pinned deployment
+#     configuration), and the caller's environment still wins over the file
+p="$(make_project live-envfile)"; fake_godot "$p"
+touch "$p/rust/target/debug/libdemo.so"
+mkdir -p "$p/live"
+printf '# pinned backend\nXR_BACKEND_WS=ws://from-file.test:4000\n' > "$p/live/live.env"
+launch "$p" live.sh GDEXT_SKIP_BUILD=1 XR_BACKEND_WS=
+check "live.sh takes XR_BACKEND_WS from live.env" "$(if [ $rc = 0 ] && grep -q '^backend=ws://from-file.test:4000$' "$p/live/RUNNING"; then echo 0; else echo 1; fi)"
+check "RUNNING says unstamped for a tree that was not exported" "$(if grep -q '^build=unstamped$' "$p/live/RUNNING"; then echo 0; else echo 1; fi)"
+rm -f "$p/live/RUNNING" "$p/godot.log"
+printf '{\n  "sha": "0123456789abcdef0123456789abcdef01234567",\n  "ref": "t",\n  "exported_at": "2026-11-10T00:00:00Z"\n}\n' > "$p/build_stamp.json"
+launch "$p" live.sh GDEXT_SKIP_BUILD=1
+check "the caller's XR_BACKEND_WS wins over live.env" "$(if [ $rc = 0 ] && grep -q '^backend=ws://backend.test:4000$' "$p/live/RUNNING"; then echo 0; else echo 1; fi)"
+check "RUNNING records the exported commit" "$(if grep -q '^build=0123456789abcdef0123456789abcdef01234567$' "$p/live/RUNNING"; then echo 0; else echo 1; fi)"
+
+# 16. with LIVE_DIR unset (the documented launch), live.env in the export root, one
+#     level above the export, is found; a quoted value loses its quotes
+root="$work/export-root"; mkdir -p "$root"
+p="$(make_project vc-0123456789)"; fake_godot "$p"
+touch "$p/rust/target/debug/libdemo.so"
+mkdir -p "$root/vc-0123456789"; mv "$p" "$root/vc-0123456789/xr-client"; p="$root/vc-0123456789/xr-client"
+printf 'XR_BACKEND_WS="ws://export-root.test:4000"\n' > "$root/live.env"
+out="$(env PATH="$p/bin:$PATH" FAKE_CARGO_LOG="$p/cargo.log" FAKE_GODOT_LOG="$p/godot.log" GODOT="$p/bin/godot" \
+  GDEXT_SKIP_BUILD=1 XR_BACKEND_WS= LIVE_DIR= LIVE_PROJECT="$p" bash "$here/tools/live.sh" 2>&1)"; rc=$?
+sleep 0.3
+check "live.sh finds live.env in the export root without LIVE_DIR" "$(if [ $rc = 0 ] && grep -q '^backend=ws://export-root.test:4000$' "$root/vc-0123456789/RUNNING"; then echo 0; else echo 1; fi)"
+
 echo "gdext-fresh: $pass passed, $fail failed"
 [ "$fail" = 0 ]

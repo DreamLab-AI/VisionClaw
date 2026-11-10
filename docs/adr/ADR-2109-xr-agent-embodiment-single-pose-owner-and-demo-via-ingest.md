@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: f6fcca7e80f844a914ead0170c64ebf07017870a
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs, xr-client/scripts/spatial_volume.gd]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -261,3 +261,13 @@ None of these moves agent pose ownership.
 - The agent task line still wins the label (`graph_scene.gd`, label pool).
 
 **Decision unaffected.** Re-run: `git diff 5c94c3cbd..7bd25427e -- <verified_paths>`. Checked by reading that diff and grepping for agent, beam, anchor and choreography lines in it; the tests were not re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`f6fcca7e8`)
+
+Governed-path changes since `7bd25427e`, in `graph_scene.gd`, `render_store.rs` and `binary_protocol.rs` (slice 1 of the XR upgrade): the dead GDScript edge re-rank and its centrality mirror are deleted (`881b5cd43`; the scene no longer connects `node_visuals_updated`), `cargo fmt` (`05a057268`, layout only) and the clippy clean-up (`f3d5acc43`), the `stream_live` signal, resume redial and grab release on a socket swap (`4a87ce14b`), the local quality toggle (`d969c2142`) and the build stamp (`614f0b9b6`). None of these moves agent pose ownership.
+- `AgentsRoot` and `AgentEffectsRoot` are still scene roots outside `GraphRoot` (`graph_scene.gd:1169-1171`).
+- `_reconcile_embodiment` is `graph_scene.gd:4238`.
+- `build_beam_buffer` (`binary_protocol.rs:1964`) still reads only `set_agent_anchors` (`:1973`).
+- The local quality toggle goes through the same filter pass, which still skips agents (`render_store.rs:2603`), so it cannot dim or hide an embodiment.
+
+**Decision unaffected.** Re-run: `git diff 7bd25427e..f6fcca7e8 -- <verified_paths>`; `f6fcca7e8` itself only corrects two `graph_scene.gd` comments (`_topo_ids` sizes the HUD's node readout, not a draw domain). Checked by reading that diff; `scripts/xr-gate.sh` passed at `f6fcca7e8` (both XR crates' fmt, clippy and tests; headless Godot 4.8-beta2 parse check and GUT, 676 of 679 passing, 3 pending for want of a GL renderer).
