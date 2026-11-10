@@ -208,3 +208,7 @@ Governed-path changes since `e2afd65d6`:
 `docs/reference/physics-parameters.md` (governed) changed in `5589cfec2` to match: `ssspEnabled` default **off**, and documents without the key load the default. No code changed between `212465a0d` and `5589cfec2`.
 
 Re-stamped 2026-11-10 at `6b4caafdc`: the only change to the governed docs since the previous stamp is renumbering ADR-2190 to ADR-2191 (number collision with agentbox); checked with `git diff` of the governed paths, no content change, no test re-run.
+
+## Exception to decision 2: one migration of `ssspEnabled` (2026-11-10, ADR-2191 decision 10)
+
+The operator decided that stored settings are migrated, with the old row archived first. For this key only: `SqliteSettingsRepository::open` runs migration `0003_sssp_spring_adjust_off` once (marker in `schema_migrations`). It archives every stored `physics` row whose `ssspEnabled` (or `sssp_enabled`) is true to `settings_archive`, then sets that key to false and logs a warning. Decision 2 otherwise stands: after the migration, stored values are applied as stored, and a user who turns `ssspEnabled` back on keeps it. No other stored key is migrated. Verified by `sssp_default_migration_tests` (2 passed) and `cargo test --lib sqlite_settings_repository` (11 passed), `settings_handler` (3), `sssp_patch` (6) and `adr_2029` (15) on the binary built from these commits; `cargo test -p visionclaw-domain sssp` (5).

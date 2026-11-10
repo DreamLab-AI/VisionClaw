@@ -1,10 +1,11 @@
 ---
 title: GPU & Wire ABI
 doc_id: VC-GPU-ABI
-version: 0.1.9
+version: 0.1.10
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.10 (2026-11-10): ADR-2191 review round 1 — SSSP `delta` validated (HTTP 400; engine minimum 1/4096 of the largest edge weight) and the bucket loop bounded (64 buckets, then plain relaxation); invariant 9 widened to all node-indexed state on any graph change; a failed growth leaves the engine intact; stored `ssspEnabled: true` migrated once to false with the row archived"
   - "0.1.9 (2026-11-10): ADR-2191 (physics rework stage S1a) — every graph-sized device buffer is declared once in `buffers.rs` and replaced together on resize (eight were never resized before); SSSP distances are discarded on every graph change and reach the force kernels only when current and at least `num_nodes` long; SSSP delta-stepping corrected and output-verified against CPU Dijkstra; `relabel_communities_kernel` bounds its label; `ENABLE_SSSP_SPRING_ADJUST` is off by default (`ssspEnabled` defaults to false). Kernel arities, `SimParams` (212 B) and the feature word are unchanged"
   - "0.1.8 (2026-11-01): ADR-2169 amendment (spring mode while held) and the integration of the two physics branches — the hold overlay's rest-length buffer reaches the force kernels through the `__device__` global `g_edge_rest_snapshot` (null = overlay off), not a kernel parameter; the constraint index is ONE global struct `g_constraint_index` {offsets, ids} written in a single 16-byte copy (null offsets = no constraints, there is no unindexed walk); both force kernels share one `edge_spring_scale` device function; the unlaunched `blend_semantic_physics_forces` kernel is deleted. New `edge_rest_snapshot` device buffer (one float per CSR edge slot, sized to `allocated_edges`) and `snapshot_edge_rest_kernel`. Kernel arities (`force_pass_kernel` 30, `force_pass_with_stability_kernel` 29), `SimParams` (212 B), the feature word and its 7 bits are unchanged"
   - "0.1.7 (2026-11-01): ADR-2173 per-node constraint index — a `__device__` index global bound from the host; kernel arities and c_params unchanged"
@@ -209,7 +210,7 @@ against that crate's CPU reference at fixed tolerances. Results below were measu
 | **DBSCAN** | **TRUSTED** | `adr_2061_dbscan_matches_oracle` | labelling matches `dbscan` **exactly** up to cluster-id permutation, noise set included; the border point joins its core's cluster (the ADR-031 D7 contract) |
 | **Louvain / community detection** | **TRUSTED** | `adr_2061_louvain_matches_oracle` | `two_clique` → 2 communities, exactly `two_clique_optimal_partition` up to permutation, Q **0.4524** = optimal; `triangle`/`star` → 1; `canonical_live_scale` → **16** communities (the planted count), Q **0.8960** vs reference 0.9146, deficit **0.0186** (bar: 0.05) |
 | **LOF / anomaly** | **TRUSTED on the ADR-2061 fixture (2026-09-07)** | `adr_2061_lof_matches_oracle` | A6000, compiled CUDA 12.9 PTX: max per-point \|Δ\| **4.759e-7** vs `lof(points, 3)`, original **1e-3** bar and exact >95th-percentile set pass. Neighbour k-distance and kth-distance ties corrected. |
-| **SSSP** (`relaxation_step_kernel` + the host loop in `sssp.rs`) | **output-checked, not yet in the ADR-2061 suite (2026-11-10)** | `lifecycle_gpu_tests::f1_sssp_matches_dijkstra` (ADR-2191), against a Dijkstra written in that test module, not the `visionclaw-analytics-oracle` crate | RTX 6000 Ada, sm_89: agreement (relative 1e-4) with an f64 Dijkstra on light, heavy (empty buckets) and three/four-component graphs at 64 and 1500 nodes, plain and delta-stepping, three repeats each. Before the fix delta-stepping returned infinity for every node at distance >= delta (974 of 1500 wrong). Negative weights are refused with an error |
+| **SSSP** (`relaxation_step_kernel` + the host loop in `sssp.rs`) | **output-checked, not yet in the ADR-2061 suite (2026-11-10)** | `lifecycle_gpu_tests::f1_sssp_matches_dijkstra` (ADR-2191), against a Dijkstra written in that test module, not the `visionclaw-analytics-oracle` crate | RTX 6000 Ada, sm_89: agreement (relative 1e-4) with an f64 Dijkstra on light, heavy (empty buckets) and three/four-component graphs at 64 and 1500 nodes, plain and delta-stepping, three repeats each. Before the fix delta-stepping returned infinity for every node at distance >= delta (974 of 1500 wrong). Negative weights are refused with an error. `delta` must be finite, positive and at least 1/4096 of the largest edge weight (HTTP 400 otherwise); at most 64 buckets, then plain relaxation (`sssp_delta_edge_cases_match_dijkstra`, `sssp_tiny_delta_terminates`) |
 | **Landmark APSP** | not covered — no live output | — | compile-quarantined (`gpu_landmark_apsp.cu:25` `#if 0`, `#endif` at `:65`), refused at `shortest_path_actor.rs:353-360` under NFR-7 |
 | **Node embeddings** (legacy ADR-072) | not applicable | — | no embedding kernels exist in the tree; the "random noise" hash bag-of-characters path is gone as a GPU concern |
 | **Ontology constraints** (legacy ADR-098) | not covered by this suite | — | fixed and live (keystone wiring above); the oracle crate carries no constraint reference to compare against |
@@ -307,8 +308,11 @@ race-free single launch. A three-pass implementation remains a performance optio
    `DeviceBuffer` on the engine is listed in `FIXED_EXTENT` with the reason;
    `buffers::registry_tests` fails otherwise. Analytics paths check the buffers they index
    against the registered extent before launching (ADR-2191).
-9. Results derived from a graph do not outlive it. Every graph change (any `resize_buffers`
-   call, every CSR upload) discards the SSSP distances, and the force kernels receive
+9. Results derived from a graph do not outlive it. Every CSR upload discards the SSSP
+   distances; every graph change (any `resize_buffers` call, and any `initialize_graph` whose
+   counts or CSR topology changed) also discards the compute mask, community labels, degree
+   weights, the hold overlay's rest lengths and `SemanticGpu` until the actor re-uploads them
+   (`invalidate_node_indexed_state`). The force kernels receive
    `d_sssp` only from `sssp_distances_for_force_pass` (current, available, at least
    `num_nodes` entries), otherwise null. The kernels carry no length for it, so this host
    check is the bound (ADR-2191).
