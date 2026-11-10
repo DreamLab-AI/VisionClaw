@@ -167,7 +167,8 @@ pub async fn toggle_sssp(
     }
 }
 
-/// The stored `physics.ssspEnabled`; the default (on) when the settings actor cannot answer.
+/// The stored `physics.ssspEnabled`; the document default (off since S1a) when the settings
+/// actor cannot answer.
 pub(crate) async fn stored_sssp_enabled(app_state: &AppState) -> bool {
     match app_state
         .settings_addr
@@ -175,7 +176,7 @@ pub(crate) async fn stored_sssp_enabled(app_state: &AppState) -> bool {
         .await
     {
         Ok(Ok(settings)) => settings.visualisation.graphs.knowledge.physics.sssp_enabled,
-        _ => true,
+        _ => visionclaw_domain::types::physics_config::SSSP_SPRING_ADJUST_DEFAULT,
     }
 }
 

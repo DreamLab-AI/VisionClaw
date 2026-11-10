@@ -115,6 +115,90 @@ CREATE TABLE IF NOT EXISTS sync_config (
 INSERT OR IGNORE INTO schema_migrations (id) VALUES ('0002_sync_metadata');
 "#;
 
+/// Marker of the one-time migration that turns stored `ssspEnabled: true` off (ADR-2191).
+pub const SSSP_SPRING_ADJUST_MIGRATION: &str = "0003_sssp_spring_adjust_off";
+
+/// One-time migration for the `ssspEnabled` default change (ADR-2191, operator decision of
+/// 10 November 2026). For every stored `physics` row (every owner layer) whose document has
+/// `ssspEnabled` (or its alias `sssp_enabled`) set to true, the row is first copied verbatim to
+/// `settings_archive`, then that key alone is set to false. No other key or row is touched;
+/// `physics_profiles` are not migrated. The run is one transaction, recorded in
+/// `schema_migrations`, so it happens once: a user who turns the setting back on afterwards
+/// keeps it on. A row that does not decode as a JSON document is left as it is.
+///
+/// Returns the owner pubkey of each migrated row (`""` for the global layer).
+fn migrate_sssp_spring_adjust_off(c: &mut rusqlite::Connection) -> rusqlite::Result<Vec<String>> {
+    let tx = c.transaction()?;
+    let done: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE id = ?1)",
+        [SSSP_SPRING_ADJUST_MIGRATION],
+        |r| r.get(0),
+    )?;
+    if done {
+        return Ok(Vec::new());
+    }
+    tx.execute_batch(
+        "CREATE TABLE IF NOT EXISTS settings_archive (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            key           TEXT    NOT NULL,
+            owner_pubkey  TEXT    NOT NULL,
+            value         TEXT    NOT NULL,
+            archived_at   INTEGER NOT NULL DEFAULT (unixepoch()),
+            reason        TEXT    NOT NULL
+        );",
+    )?;
+    let rows: Vec<(String, String)> = {
+        let mut stmt =
+            tx.prepare("SELECT owner_pubkey, value FROM settings WHERE key = 'physics'")?;
+        let mapped = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        mapped.collect::<rusqlite::Result<_>>()?
+    };
+    let mut migrated = Vec::new();
+    for (owner, stored) in rows {
+        let Ok(SettingValue::Json(mut doc)) = decode_setting_value(&stored) else {
+            continue;
+        };
+        let Some(map) = doc.as_object_mut() else {
+            continue;
+        };
+        let keys = ["ssspEnabled", "sssp_enabled"];
+        if !keys
+            .iter()
+            .any(|k| map.get(*k) == Some(&serde_json::Value::Bool(true)))
+        {
+            continue;
+        }
+        for key in keys {
+            if map.contains_key(key) {
+                map.insert(key.to_string(), serde_json::Value::Bool(false));
+            }
+        }
+        let updated = encode_setting_value(&SettingValue::Json(doc))
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+        tx.execute(
+            "INSERT INTO settings_archive (key, owner_pubkey, value, reason)
+             VALUES ('physics', ?1, ?2, ?3)",
+            rusqlite::params![
+                &owner,
+                &stored,
+                format!("{SSSP_SPRING_ADJUST_MIGRATION}: ssspEnabled true -> false (ADR-2191)")
+            ],
+        )?;
+        tx.execute(
+            "UPDATE settings SET value = ?1, updated_at = unixepoch()
+             WHERE key = 'physics' AND owner_pubkey = ?2",
+            rusqlite::params![&updated, &owner],
+        )?;
+        migrated.push(owner);
+    }
+    tx.execute(
+        "INSERT INTO schema_migrations (id) VALUES (?1)",
+        [SSSP_SPRING_ADJUST_MIGRATION],
+    )?;
+    tx.commit()?;
+    Ok(migrated)
+}
+
 tokio::task_local! {
     /// Per-request owner pubkey for layered resolution (ADR-11 §D5).
     /// Set by NIP-98 middleware (Section 6) before any handler runs.
@@ -238,14 +322,32 @@ pub struct SqliteSettingsRepository {
 impl SqliteSettingsRepository {
     /// Open (or create) a SQLite database at `db_path`, apply the embedded
     /// [`CREATE_SCHEMA`], and return a new adapter handle.
+    ///
+    /// Also applies the one-time stored-settings migrations, each behind its
+    /// `schema_migrations` marker, before any reader can see the rows.
     pub async fn open(db_path: &Path) -> RepoResult<Self> {
         let conn = Connection::open(db_path).await.map_err(map_db_err)?;
-        conn.call(|c| {
-            c.execute_batch(CREATE_SCHEMA)?;
-            Ok(())
-        })
-        .await
-        .map_err(map_db_err)?;
+        let migrated = conn
+            .call(|c| {
+                c.execute_batch(CREATE_SCHEMA)?;
+                Ok(migrate_sssp_spring_adjust_off(c)?)
+            })
+            .await
+            .map_err(map_db_err)?;
+        for owner in migrated {
+            let layer = if owner.is_empty() { "global" } else { "user" };
+            log::warn!(
+                "settings migration {SSSP_SPRING_ADJUST_MIGRATION}: the stored {layer} physics \
+                 row{} had ssspEnabled=true; archived it to settings_archive and set \
+                 ssspEnabled=false (the new default; ADR-2191). Set it to true again to restore \
+                 SSSP spring adjustment.",
+                if owner.is_empty() {
+                    String::new()
+                } else {
+                    format!(" for {owner}")
+                }
+            );
+        }
         Ok(Self {
             conn: Arc::new(conn),
         })
@@ -1316,5 +1418,143 @@ mod layout_mode_snapshot_tests {
             loaded.visualisation.rendering.background_color,
             crate::config::RenderingSettings::default().background_color
         );
+    }
+}
+
+#[cfg(test)]
+mod sssp_default_migration_tests {
+    use super::*;
+
+    fn store(c: &rusqlite::Connection, key: &str, owner: &str, value: serde_json::Value) {
+        c.execute(
+            "INSERT INTO settings (key, owner_pubkey, value) VALUES (?1, ?2, ?3)",
+            rusqlite::params![
+                key,
+                owner,
+                encode_setting_value(&SettingValue::Json(value)).unwrap()
+            ],
+        )
+        .unwrap();
+    }
+
+    fn physics(c: &rusqlite::Connection, owner: &str) -> serde_json::Value {
+        let text: String = c
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'physics' AND owner_pubkey = ?1",
+                [owner],
+                |r| r.get(0),
+            )
+            .unwrap();
+        match decode_setting_value(&text).unwrap() {
+            SettingValue::Json(v) => v,
+            other => panic!("not a document: {other:?}"),
+        }
+    }
+
+    fn archive(c: &rusqlite::Connection) -> Vec<(String, String)> {
+        let mut stmt = c
+            .prepare("SELECT owner_pubkey, value FROM settings_archive ORDER BY owner_pubkey")
+            .unwrap();
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        rows.map(|r| r.unwrap()).collect()
+    }
+
+    #[test]
+    fn stored_sssp_true_is_archived_then_turned_off_once_and_nothing_else_moves() {
+        let mut c = rusqlite::Connection::open_in_memory().unwrap();
+        c.execute_batch(CREATE_SCHEMA).unwrap();
+        let global = serde_json::json!({"ssspEnabled": true, "linLogMode": false, "springK": 3.5});
+        store(&c, "physics", "", global.clone());
+        store(
+            &c,
+            "physics",
+            "npub-off",
+            serde_json::json!({"ssspEnabled": false, "springK": 1.0}),
+        );
+        store(
+            &c,
+            "physics",
+            "npub-alias",
+            serde_json::json!({"sssp_enabled": true}),
+        );
+        store(
+            &c,
+            "quality_gates",
+            "",
+            serde_json::json!({"ssspEnabled": true}),
+        );
+        let before_global = physics(&c, "");
+
+        let mut migrated = migrate_sssp_spring_adjust_off(&mut c).unwrap();
+        migrated.sort();
+        assert_eq!(migrated, vec!["".to_string(), "npub-alias".to_string()]);
+
+        // Only the one key changed, on the rows that had it on.
+        let mut expected = before_global.clone();
+        expected["ssspEnabled"] = serde_json::json!(false);
+        assert_eq!(physics(&c, ""), expected);
+        assert_eq!(
+            physics(&c, "npub-alias"),
+            serde_json::json!({"sssp_enabled": false})
+        );
+        assert_eq!(
+            physics(&c, "npub-off"),
+            serde_json::json!({"ssspEnabled": false, "springK": 1.0})
+        );
+        let gates: String = c
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'quality_gates'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            decode_setting_value(&gates).unwrap(),
+            SettingValue::Json(serde_json::json!({"ssspEnabled": true})),
+            "another key was touched"
+        );
+
+        // The archive holds the rows exactly as they were stored.
+        let archived = archive(&c);
+        assert_eq!(archived.len(), 2);
+        assert_eq!(archived[0].0, "");
+        assert_eq!(
+            decode_setting_value(&archived[0].1).unwrap(),
+            SettingValue::Json(global)
+        );
+
+        // Once only: a user who turns it back on keeps it on.
+        c.execute(
+            "UPDATE settings SET value = ?1 WHERE key = 'physics' AND owner_pubkey = ''",
+            [encode_setting_value(&SettingValue::Json(
+                serde_json::json!({"ssspEnabled": true}),
+            ))
+            .unwrap()],
+        )
+        .unwrap();
+        assert!(migrate_sssp_spring_adjust_off(&mut c).unwrap().is_empty());
+        assert_eq!(physics(&c, "")["ssspEnabled"], serde_json::json!(true));
+        assert_eq!(archive(&c).len(), 2);
+    }
+
+    #[tokio::test]
+    async fn open_migrates_an_existing_database_before_settings_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.db");
+        {
+            let c = rusqlite::Connection::open(&path).unwrap();
+            c.execute_batch(CREATE_SCHEMA).unwrap();
+            c.execute(
+                "DELETE FROM schema_migrations WHERE id = ?1",
+                [SSSP_SPRING_ADJUST_MIGRATION],
+            )
+            .unwrap();
+            let mut doc = serde_json::to_value(crate::config::PhysicsSettings::default()).unwrap();
+            doc["ssspEnabled"] = serde_json::json!(true);
+            store(&c, "physics", "", doc);
+        }
+        let repo = SqliteSettingsRepository::open(&path).await.unwrap();
+        let settings = repo.load_all_settings().await.unwrap().expect("settings");
+        assert!(!settings.visualisation.graphs.knowledge.physics.sssp_enabled);
     }
 }

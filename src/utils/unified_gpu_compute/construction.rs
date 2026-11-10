@@ -1,5 +1,6 @@
 //! Construction and initialization of the `UnifiedGPUCompute` struct.
 
+use super::buffers::{Extent, GraphSizedBuffers};
 use super::types::{curandState, Aabb, GPUPerformanceMetrics};
 use crate::models::constraints::ConstraintData;
 pub use crate::models::simulation_params::SimParams;
@@ -7,7 +8,7 @@ use anyhow::{anyhow, Result};
 use cust::context::Context;
 use cust::device::Device;
 use cust::event::{Event, EventFlags};
-use cust::memory::{CopyDestination, DeviceBuffer};
+use cust::memory::DeviceBuffer;
 use cust::module::Module;
 use cust::stream::{Stream, StreamFlags};
 use log::{error, info};
@@ -126,7 +127,6 @@ pub struct UnifiedGPUCompute {
     pub dist: DeviceBuffer<f32>,
     pub current_frontier: DeviceBuffer<i32>,
     pub next_frontier_flags: DeviceBuffer<i32>,
-    pub parents: Option<DeviceBuffer<i32>>,
 
     pub(crate) sssp_stream: Option<Stream>,
 
@@ -144,6 +144,17 @@ pub struct UnifiedGPUCompute {
     pub(crate) constraint_node_ids: DeviceBuffer<i32>,
 
     pub sssp_available: bool,
+    /// Smallest and largest finite edge weight of the uploaded CSR, recorded by
+    /// `upload_edges_csr`; `run_sssp` checks `delta` and the weight sign against them.
+    pub(crate) sssp_edge_weight_range: (f32, f32),
+    /// Fingerprint of the uploaded CSR topology (`row_offsets`, `col_indices`). A graph upload
+    /// whose counts and fingerprint match the previous one is not a graph change, so the
+    /// node-indexed state other uploads set is kept (two actors upload the same graph).
+    pub(crate) graph_fingerprint: Option<u64>,
+    /// Test hook: makes the next growing `resize_buffers` fail while carrying positions, after
+    /// the fresh buffers are allocated, to prove a failed resize leaves the engine intact.
+    #[cfg(test)]
+    pub(crate) inject_resize_carry_failure: bool,
 
     /// Persistent device-side copy of SSSP distances for the force kernel's
     /// `d_sssp_dist` parameter.  Populated after each successful `run_sssp()`.
@@ -205,7 +216,6 @@ pub struct UnifiedGPUCompute {
     pub community_sizes: DeviceBuffer<i32>,
     pub label_mapping: DeviceBuffer<i32>,
     pub rand_states: DeviceBuffer<curandState>,
-    pub max_labels: usize,
 
     pub partial_kinetic_energy: DeviceBuffer<f32>,
     pub active_node_count: DeviceBuffer<i32>,
@@ -348,100 +358,90 @@ impl UnifiedGPUCompute {
 
         let stream = Stream::new(StreamFlags::NON_BLOCKING, None)?;
 
-        let pos_in_x = DeviceBuffer::zeroed(num_nodes)?;
-        let pos_in_y = DeviceBuffer::zeroed(num_nodes)?;
-        let pos_in_z = DeviceBuffer::zeroed(num_nodes)?;
-        let vel_in_x = DeviceBuffer::zeroed(num_nodes)?;
-        let vel_in_y = DeviceBuffer::zeroed(num_nodes)?;
-        let vel_in_z = DeviceBuffer::zeroed(num_nodes)?;
-
-        let pos_out_x = DeviceBuffer::zeroed(num_nodes)?;
-        let pos_out_y = DeviceBuffer::zeroed(num_nodes)?;
-        let pos_out_z = DeviceBuffer::zeroed(num_nodes)?;
-        let vel_out_x = DeviceBuffer::zeroed(num_nodes)?;
-        let vel_out_y = DeviceBuffer::zeroed(num_nodes)?;
-        let vel_out_z = DeviceBuffer::zeroed(num_nodes)?;
-
-        let mass = DeviceBuffer::from_slice(&vec![1.0f32; num_nodes])?;
-        let node_graph_id = DeviceBuffer::zeroed(num_nodes)?;
-
-        // Initialize ontology class metadata buffers
-        let class_id = DeviceBuffer::zeroed(num_nodes)?; // Default class ID = 0 (unknown)
-        let class_charge = DeviceBuffer::from_slice(&vec![1.0f32; num_nodes])?; // Default charge = 1.0
-        let class_mass = DeviceBuffer::from_slice(&vec![1.0f32; num_nodes])?; // Default mass = 1.0
-        let spring_scale = DeviceBuffer::from_slice(&vec![1.0f32; num_nodes])?; // Default spring multiplier = 1.0
-        let pinned_mask = DeviceBuffer::zeroed(num_nodes)?; // Default = 0 (no nodes pinned)
-        let node_rank = DeviceBuffer::from_slice(&vec![-1.0f32; num_nodes])?; // -1 = unranked
-        let node_plane = DeviceBuffer::from_slice(&vec![f32::NAN; num_nodes])?; // NaN = unassigned
-
-        let edge_row_offsets = DeviceBuffer::zeroed(num_nodes + 1)?;
-        let edge_col_indices = DeviceBuffer::zeroed(num_edges)?;
-        let edge_weights = DeviceBuffer::zeroed(num_edges)?;
-        let edge_rest_snapshot = DeviceBuffer::zeroed(num_edges)?;
-        let force_x = DeviceBuffer::zeroed(num_nodes)?;
-        let force_y = DeviceBuffer::zeroed(num_nodes)?;
-        let force_z = DeviceBuffer::zeroed(num_nodes)?;
-
-        let cell_keys = DeviceBuffer::zeroed(num_nodes)?;
-        let mut sorted_node_indices = DeviceBuffer::zeroed(num_nodes)?;
-
-        let initial_indices: Vec<i32> = (0..num_nodes as i32).collect();
-        sorted_node_indices.copy_from(&initial_indices)?;
-
-        // Persistent Thrust grid-sort output buffers (reused every frame).
-        let sort_keys_out = DeviceBuffer::zeroed(num_nodes)?;
-        let sort_values_out = DeviceBuffer::zeroed(num_nodes)?;
+        // Every graph-sized buffer comes from the one registered allocator (buffers.rs), the
+        // same one `resize_buffers` uses. The destructuring names every field, so a buffer
+        // added to the table and not to the engine (or the reverse) fails to compile.
+        let GraphSizedBuffers {
+            pos_in_x,
+            pos_in_y,
+            pos_in_z,
+            vel_in_x,
+            vel_in_y,
+            vel_in_z,
+            pos_out_x,
+            pos_out_y,
+            pos_out_z,
+            vel_out_x,
+            vel_out_y,
+            vel_out_z,
+            force_x,
+            force_y,
+            force_z,
+            prev_force_x,
+            prev_force_y,
+            prev_force_z,
+            mass,
+            node_graph_id,
+            class_id,
+            class_charge,
+            class_mass,
+            spring_scale,
+            pinned_mask,
+            node_rank,
+            node_plane,
+            degree_weight,
+            node_constraint_force,
+            compute_mask,
+            edge_row_offsets,
+            edge_col_indices,
+            edge_weights,
+            edge_rest_snapshot,
+            cell_keys,
+            sorted_node_indices,
+            sort_keys_out,
+            sort_values_out,
+            dist,
+            current_frontier,
+            next_frontier_flags,
+            cluster_assignments,
+            distances_to_centroid,
+            community_centroids_x,
+            community_centroids_y,
+            community_centroids_z,
+            community_sizes,
+            min_distances,
+            node_degrees,
+            labels_current,
+            labels_next,
+            label_counts,
+            label_mapping,
+            rand_states,
+            lof_scores,
+            local_densities,
+            zscore_values,
+            feature_values,
+            partial_inertia,
+            partial_sums,
+            partial_sq_sums,
+            partial_kinetic_energy,
+            aabb_block_results,
+        } = GraphSizedBuffers::allocate(num_nodes, num_edges)?;
+        let allocated_nodes = Extent::Nodes.capacity(num_nodes, num_edges);
+        let allocated_edges = Extent::Edges.capacity(num_nodes, num_edges);
 
         let max_grid_cells = 32 * 32 * 32;
         let cell_start = DeviceBuffer::zeroed(max_grid_cells)?;
         let cell_end = DeviceBuffer::zeroed(max_grid_cells)?;
 
-        let dist = DeviceBuffer::from_slice(&vec![f32::INFINITY; num_nodes])?;
-        let current_frontier = DeviceBuffer::zeroed(num_nodes)?;
-        let next_frontier_flags = DeviceBuffer::zeroed(num_nodes)?;
         let sssp_stream = Some(Stream::new(StreamFlags::NON_BLOCKING, None)?);
 
         let max_clusters = 50;
         let centroids_x = DeviceBuffer::zeroed(max_clusters)?;
         let centroids_y = DeviceBuffer::zeroed(max_clusters)?;
         let centroids_z = DeviceBuffer::zeroed(max_clusters)?;
-        let cluster_assignments = DeviceBuffer::zeroed(num_nodes)?;
-        let distances_to_centroid = DeviceBuffer::zeroed(num_nodes)?;
         let cluster_sizes = DeviceBuffer::zeroed(max_clusters)?;
-
-        // Louvain-driven cohesion: community centroids sized to num_nodes since
-        // Louvain may produce up to N communities (K-means is capped at 50).
-        let community_centroids_x = DeviceBuffer::zeroed(num_nodes.max(1))?;
-        let community_centroids_y = DeviceBuffer::zeroed(num_nodes.max(1))?;
-        let community_centroids_z = DeviceBuffer::zeroed(num_nodes.max(1))?;
-
-        let num_blocks = num_nodes.div_ceil(256);
-        let partial_inertia = DeviceBuffer::zeroed(num_blocks)?;
-        let min_distances = DeviceBuffer::zeroed(num_nodes)?;
         let selected_nodes = DeviceBuffer::zeroed(max_clusters)?;
-
-        let lof_scores = DeviceBuffer::zeroed(num_nodes)?;
-        let local_densities = DeviceBuffer::zeroed(num_nodes)?;
-        let zscore_values = DeviceBuffer::zeroed(num_nodes)?;
-        let feature_values = DeviceBuffer::zeroed(num_nodes)?;
-        let partial_sums = DeviceBuffer::zeroed(num_blocks)?;
-        let partial_sq_sums = DeviceBuffer::zeroed(num_blocks)?;
-
-        let labels_current = DeviceBuffer::zeroed(num_nodes)?;
-        let labels_next = DeviceBuffer::zeroed(num_nodes)?;
-        let label_counts = DeviceBuffer::zeroed(num_nodes)?;
         let convergence_flag = DeviceBuffer::from_slice(&[1i32])?;
-        let node_degrees = DeviceBuffer::zeroed(num_nodes)?;
-        let community_sizes = DeviceBuffer::zeroed(num_nodes)?;
-        let label_mapping = DeviceBuffer::zeroed(num_nodes)?;
-
-        let rand_states = DeviceBuffer::from_slice(&vec![
-            curandState {
-                _private: [0u8; 48]
-            };
-            num_nodes
-        ])?;
-        let max_labels = num_nodes;
 
         let kernel_module = module;
 
@@ -497,8 +497,8 @@ impl UnifiedGPUCompute {
             cell_end,
             num_nodes,
             num_edges,
-            allocated_nodes: num_nodes,
-            allocated_edges: num_edges,
+            allocated_nodes,
+            allocated_edges,
             max_grid_cells,
             iteration: 0,
             zero_buffer: vec![0i32; max_grid_cells],
@@ -506,7 +506,6 @@ impl UnifiedGPUCompute {
             dist,
             current_frontier,
             next_frontier_flags,
-            parents: None,
             sssp_stream,
 
             constraint_data: DeviceBuffer::from_slice(&[])?,
@@ -516,6 +515,10 @@ impl UnifiedGPUCompute {
             constraint_node_offsets: DeviceBuffer::from_slice(&[])?,
             constraint_node_ids: DeviceBuffer::from_slice(&[])?,
             sssp_available: false,
+            sssp_edge_weight_range: (0.0, 0.0),
+            graph_fingerprint: None,
+            #[cfg(test)]
+            inject_resize_carry_failure: false,
             sssp_device_distances: None,
             sssp_spring_adjust_enabled: false,
             performance_metrics: GPUPerformanceMetrics::default(),
@@ -560,14 +563,13 @@ impl UnifiedGPUCompute {
             community_sizes,
             label_mapping,
             rand_states,
-            max_labels,
 
             cell_buffer_growth_factor: 1.5,
             max_allowed_grid_cells: 128 * 128 * 128,
             resize_count: 0,
             total_memory_allocated: initial_memory,
 
-            partial_kinetic_energy: DeviceBuffer::zeroed(num_nodes.div_ceil(256))?,
+            partial_kinetic_energy,
             active_node_count: DeviceBuffer::zeroed(1)?,
             should_skip_physics: DeviceBuffer::zeroed(1)?,
             system_kinetic_energy: DeviceBuffer::zeroed(1)?,
@@ -604,21 +606,21 @@ impl UnifiedGPUCompute {
             pos_transfer_pending: false,
             vel_transfer_pending: false,
 
-            aabb_num_blocks: num_nodes.div_ceil(256),
-            aabb_block_results: DeviceBuffer::zeroed(num_nodes.div_ceil(256))?,
+            aabb_num_blocks: Extent::NodeBlocks.capacity(num_nodes, num_edges),
+            aabb_block_results,
 
-            degree_weight: DeviceBuffer::from_slice(&vec![1.0f32; num_nodes])?,
+            degree_weight,
             degree_weights_available: false,
             semantic: None,
             semantic_active: false,
 
-            prev_force_x: DeviceBuffer::zeroed(num_nodes)?,
-            prev_force_y: DeviceBuffer::zeroed(num_nodes)?,
-            prev_force_z: DeviceBuffer::zeroed(num_nodes)?,
+            prev_force_x,
+            prev_force_y,
+            prev_force_z,
 
             // ADR-070 D2.2 / D3.1 buffers (num_nodes-sized, mask inactive at start).
-            node_constraint_force: DeviceBuffer::zeroed(num_nodes)?,
-            compute_mask: DeviceBuffer::zeroed(num_nodes.max(1))?,
+            node_constraint_force,
+            compute_mask,
             compute_mask_len: 0,
         };
 

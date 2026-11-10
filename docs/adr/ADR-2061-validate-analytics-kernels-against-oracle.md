@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: fd7525907eb3f1eddc8db1d9e32b29a5c5021564
 verified_paths: [crates/visionclaw-gpu/src/cuda_sources/gpu_clustering_kernels.cu, crates/visionclaw-gpu/tests/analytics_oracle_conformance.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: Before any claim that Louvain, PageRank or DBSCAN output is trustworthy, or before a release that surfaces community/centrality/cluster values to users; activates when a rebuilt running backend serves Louvain/PageRank/DBSCAN output that is checked against the CPU oracle
@@ -292,3 +292,11 @@ Re-verified at `d184e89fb` after ADR-2173 added a section and an invariant to `d
 ## Re-verification — 2026-11-07 (`7bd25427e`)
 
 Governed-path change since `8f796ad86`: `docs/GPU-wire-abi.md` gains two preamble paragraphs (`:35-40`; `221d8b559`, `8c6b9541c`). The 2026-11-02 external-review reconciliation qualifies the numerical oracle results as **fixture conformance**, and a 2026-11-05 line records hold ownership at the orchestrator. Neither repeats a GPU test. That qualification matches this record: a kernel counts as trusted only on its fixture conformance test. The "Analytics kernel trust status" table (`:196` on), the kernels and `analytics_oracle_conformance.rs` are unchanged. **Decision unaffected.** Re-run: `git diff 8f796ad86..7bd25427e -- <verified_paths>`. Checked by reading that diff; the GPU suite was not re-run for this stamp (last run: the 2026-11-01 stamp above).
+
+## Re-verification — 2026-11-10 (ADR-2191, `83b405941`)
+
+**Decision unaffected.** Governed change: `docs/GPU-wire-abi.md` gained an SSSP row in the trust table. It is marked **output-checked, not yet in the ADR-2061 suite**: the check (`lifecycle_gpu_tests::f1_sssp_matches_dijkstra`) compares against a Dijkstra in that test module, not the `visionclaw-analytics-oracle` crate, so under this record's decision it is not "trusted". The PageRank, DBSCAN, Louvain and LOF rows are unchanged, as are `gpu_clustering_kernels.cu` and `analytics_oracle_conformance.rs`. Re-run at `83b405941` on the RTX 6000 Ada (bus 0xAF): `cargo test -p visionclaw-gpu --test analytics_oracle_conformance -- --ignored --test-threads=1` → 4 passed. Follow-on: move the Dijkstra into the oracle crate and add an `adr_2061_sssp_matches_oracle` test to make the row trusted.
+
+Re-stamped 2026-11-10 at `6b4caafdc`: the only change to the governed docs since the previous stamp is renumbering ADR-2190 to ADR-2191 (number collision with agentbox); checked with `git diff` of the governed paths, no content change, no test re-run.
+
+Re-stamped 2026-11-10 at `fd7525907`: `docs/GPU-wire-abi.md` 0.1.10 widens invariant 9 and adds the SSSP `delta` policy to the trust-table row (ADR-2191 review round 1). This record's claims are unaffected; checked by reading the diff, no test re-run for this stamp.
