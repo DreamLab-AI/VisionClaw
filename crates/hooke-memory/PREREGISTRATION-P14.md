@@ -30,3 +30,35 @@ Criteria failing are reported as failing. Recall by sentence form is reported wi
 Batch 32 ran out of GPU memory (151k-token vocabulary logits). Each step now accumulates four micro-batches of 8 with
 the loss summed over target tokens and divided by the step's target-token count: the same effective batch of 32 and the
 same objective. The first seed-0 attempt was stopped near step 0 and restarted with this code; all three seeds use it.
+
+## Deviation 2 (before any scoring)
+`p14_extract.py` crashed before writing output twice (an undefined `rows` after slicing `p12_freetext.py`; a
+`Path + str` join). Both fixed without changing prompts, decoding or data; all extractions were rerun from scratch.
+`p12d_score.py` gained an optional collection range and per-claim predictions; scoring rules are unchanged.
+
+## Result (10 November 2026, scored once)
+Collections 200-1999 (900 single-step, 900 two-step claims):
+
+| extractor | precision | recall | true 1-step | true 2-step | false rejected |
+|---|---|---|---|---|---|
+| 0.6B trained, seed 0 | 99.7 | 99.6 | 426/426 | 466/466 | 908/908 |
+| 0.6B trained, seed 1 | 99.8 | 99.7 | 426/426 | 466/466 | 908/908 |
+| 0.6B trained, seed 2 | 99.7 | 99.6 | 426/426 | 466/466 | 908/908 |
+| Qwen3-8B prompted, no reasoning | 91.6 | 77.7 | 286/426 | 384/466 | 908/908 |
+
+* Criterion 1 (>= 95% true, >= 98% false, each stratum, every seed): PASS.
+* Criterion 2 (more true two-step confirmed than the 8B extractor, McNemar p < 0.01, every seed): PASS; 82 claims
+  confirmed only by the small extractor, 0 only by the 8B, p = 4.1e-25 in each seed.
+* Criterion 3 (>= 20x less computation than the reasoning extractor): see `results/p15` once its measured tokens are
+  in; the small extractor uses 0.6B x 230 tokens per paragraph (142 prompt + 88 generated).
+
+## Validity check that overturns the reading (added after scoring; not a criterion)
+A no-learning rule (`scripts/p14_rule.py`: subject = the paragraph's company; relation from the object's type in the
+collection's records; keyword filter for non-facts) scores 100.0% precision, 100.0% recall and every claim correct on
+the same collections (`results/p14/p14-rule-score.json`). The evaluation renderer groups every fact under its subject's
+paragraph and the object's type fixes the relation, so the text gives the answer away by structure. P14 therefore
+shows that the small extractor learns this renderer family, not that it reads paraphrase. On a harder renderer
+(`results/p16`, mixed subjects and distractors, rule falls to 39.6 / 49.3) the same seed-1 checkpoint scores 51.2
+precision, 50.4 recall and confirms 123 of 466 true two-step claims. The criteria passed as written; the conclusion
+drawn from them is that generated-text evaluation must include a rule baseline, and that cheap acquisition from
+realistic text remains open.

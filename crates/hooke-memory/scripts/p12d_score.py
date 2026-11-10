@@ -31,6 +31,9 @@ for s_ in ("single-hop", "two-hop"):
     for lab in (1, 0):
         ids = [ci for ci in test if meta[ci]["stratum"] == s_ and int(meta[ci]["label"]) == lab]
         out[f"{s_}_{'true' if lab else 'false'}"] = f"{sum(verdict(ci, G.get(ci, set())) == lab for ci in ids)}/{len(ids)}"
+import os
+if os.environ.get("NO_FORMS"):
+    out["preds"] = {str(ci): verdict(ci, G.get(ci, set())) for ci in test}; OUT.write_text(json.dumps(out, indent=1)); print({k: v for k, v in out.items() if k != "preds"}); sys.exit(0)
 src = open(Path(__file__).with_name("p12_freetext.py")).read(); ns = {}
 exec(src[src.index("TPL = {"):src.index("def render")], ns); TPL, PRON, NONFACT = ns["TPL"], ns["PRON"], ns["NONFACT"]
 rng = random.Random(0); tot, hit = Counter(), Counter()
