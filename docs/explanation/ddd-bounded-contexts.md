@@ -147,8 +147,8 @@ graph LR
 ## BC7: Ontology & Reasoning
 **Aggregate Root**: `Ontology`
 **Entities**: `OntologyAxiom`, `InferredRelation`, `OntologyClass`
-**Services**: `OntologyPipelineService` (reasoning runs through `WhelkInferenceEngine`)
-**Key Files**: `ontology_pipeline_service.rs`, `ontology_actor.rs`
+**Services**: post-sync reasoning in `GitHubSyncService` (Whelk through `WhelkInferenceEngine`), constraint mapping in `OntologyConstraintActor`; switches in ADR-2192
+**Key Files**: `github_sync_service.rs`, `ontology_constraint_actor.rs`, `ontology_actor.rs`
 **Invariants**:
 - Depth/descendant computation has cycle detection
 - Single API surface (remove duplicate ontology handlers)

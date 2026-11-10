@@ -308,6 +308,7 @@ Retrieve the full graph (all nodes and edges). Optionally filter by graph type. 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `graph_type` | string | all | Filter: `knowledge`, `ontology`, `agent` |
+| `apply_node_filter` | bool | false | Apply the stored node filter's opt-in server removal (`nodeFilter.enabled && serverRemove`: failing predicates and `maxNodes`), as the `/wss` stream does (ADR-2192) |
 
 **Authentication**: Optional. Unauthenticated callers receive public nodes only. Authenticated callers receive public + own-private nodes. Other users' private nodes are opacified.
 
@@ -837,10 +838,10 @@ Configured in `api_handler/ontology_physics/mod.rs:477-484` (`configure_routes`)
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/api/ontology-physics/enable` | Yes | Enable ontology-derived physics constraints |
-| POST | `/api/ontology-physics/disable` | Yes | Disable ontology forces (clears constraints via `ApplyOntologyConstraints`) |
+| POST | `/api/ontology-physics/enable` | Yes | Store `physics.ontologyConstraintsEnabled = true` (optional body `{"strength": 0..1}` also stores the strength); re-applies the last sync's constraints (ADR-2192) |
+| POST | `/api/ontology-physics/disable` | Yes | Store `physics.ontologyConstraintsEnabled = false`; removes the constraints from the GPU, keeps the reasoned set (ADR-2192) |
 | GET | `/api/ontology-physics/constraints` | No | Get active physics constraints |
-| PUT | `/api/ontology-physics/weights` | Yes | Adjust constraint weights (`AdjustConstraintWeights` GPU actor message) |
+| PUT | `/api/ontology-physics/weights` | Yes | Store `physics.ontologyConstraintStrength = globalStrength` (required, 0..1; out of range is a 400) through the physics write path (ADR-2192) |
 | GET | `/api/ontology-physics/trust-status` | No | Get trust-weighted constraint status |
 
 There is no `POST /api/ontology-physics/constraints` (add-constraint) or `POST /api/ontology-physics/reset` — those are not registered.

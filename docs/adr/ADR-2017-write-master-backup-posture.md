@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 77305d3811a0e14d8d33d60c6b6d2178a94b9805
 verified_paths: [src/services/data_reconciliation.rs, src/services/github_sync_service.rs, scripts/backup-sqlite.sh, scripts/backup-secrets.sh]
 owner: jjohare
 review_trigger: an Oxigraph/RocksDB PITR or backup requirement, a cross-store consistency incident, or wiring RuVector delete-propagation
@@ -272,3 +272,7 @@ Re-verified 2026-10-30 at c75004696: `src/services/github_sync_service.rs` gains
 The full-sync gate is unchanged: `force_full_sync` (`:389`), `clear_graph()` (`:439-442`) and the `:assert` CLEAR+INSERT (`:654-658`). The Consequence "re-sync … reconstructs `:assert` but not derived/provenance graphs" now covers more data. Corpus history takes its valid and recorded time from the sync instant, not from commits (`corpus_history.rs` module doc, *Clocks*). Losing Oxigraph therefore loses that history, and no re-sync can rebuild it. That follows from this decision and is not a new defect. It does make an Oxigraph backup worth more if the review trigger is reached.
 
 **Decision holds; status stays `partial`.** Re-run: `git diff 8775359e3..7bd25427e -- <verified_paths>`. Checked by reading that diff; `backup_posture` was not re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`77305d381`, ADR-2192)
+
+Governed-path change: `src/services/github_sync_service.rs` reads the ADR-2192 sync switches, gates reasoning, domain roots and inferred edges, and can purge stored roots and inferred edges at sync. No backup, write-master or persistence posture changed. **Decision unaffected.** Checked by reading the diff.
