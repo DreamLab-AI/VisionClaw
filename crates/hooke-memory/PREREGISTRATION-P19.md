@@ -61,3 +61,26 @@ Target changed from symmetric difference to weighted teacher additions (disagree
 ablation). Comma count removed from the primary features; pronoun list made generic. Budget moved from paragraphs to
 cheap prompt tokens. Tie-breaking for the hand gate fixed. Primary metric narrowed to supplies and located-in recall.
 Second headroom condition added. The two-step guard removed as a pass condition.
+
+## Result (10 November 2026, scored once): partial
+Selector trained on collections 200-399 (2,597 paragraphs; 65% have a non-zero target), tested on 400-599 (2,653
+paragraphs, 100 two-step claims). `results/p19/p19.json`. Recall of supplies and located-in facts: cheap pass alone
+69.5; reasoning on every paragraph 88.0.
+
+| Budget | Learned | Hand gate | Random | Oracle-target | Oracle-gold | Learned minus hand (95% interval) |
+|---|---|---|---|---|---|---|
+| 10% | 73.8 | 72.2 | 71.2 | 76.7 | 77.8 | +1.5 (0.7 to 2.4) |
+| 20% | 76.5 | 74.7 | 72.8 | 80.9 | 83.1 | +1.8 (0.8 to 2.8) |
+| 30% | 78.4 | 76.6 | 74.4 | 84.0 | 87.7 | +1.8 (0.7 to 2.8) |
+
+* Headroom holds at 20%: oracle-gold minus hand gate 8.5 points, oracle-target minus hand gate 6.2.
+* Positive is not met: the learned selector beats the hand gate at every budget with the interval above zero, but by
+  1.8 points at 20%, under the 2.0 required, and it beats random by 3.7, under the 5.0 required. No support is not
+  met either (the difference exceeds 0.5). Verdict: partial. The learned selector closes 22% of the oracle-gold gap
+  at 20%.
+* Ablations at 20%: surface features only 75.9; expectation counts only 74.8 (the hand gate's level); ridge 76.3;
+  symmetric-difference target 75.1; with comma count 76.4. The gain over the hand gate comes from the surface
+  features and from learning the target; the expectation counts add about half a point.
+* Two-step balanced accuracy (100 claims, about +/-8 points, not a pass mark): learned 79.8 at 10% and 20%, hand
+  gate 70.7 and 72.8, reasoning on every paragraph 90.9.
+* P20's run condition holds (oracle-gold minus hand gate is at least 3.0), so P20 is run.
