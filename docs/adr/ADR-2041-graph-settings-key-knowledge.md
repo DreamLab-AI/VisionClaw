@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: 7a6adcc8383aca0742cb84f49916cc4f5c084af3
+verified_commit: 2a93efd1d8f1fa8a15b8e79767a487f55352e0ba
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -242,3 +242,7 @@ Governed-path change: `client/src/features/settings/config/settings.ts` gains `n
 ## Re-verification — 2026-11-10 (`f6fcca7e8`)
 
 This record remains superseded by ADR-2115. Since `7bd25427e` `xr-client/scripts/graph_scene.gd` changed for slice 1 of the XR upgrade: the dead GDScript edge re-rank is deleted (`881b5cd43`), resume redials and a socket swap releases grabs (`4a87ce14b`), the quality toggle greys locally (`d969c2142`), and the HUD shows a build stamp (`614f0b9b6`). None touches the key this record renamed: XR physics writes still target `?graph=knowledge` (`graph_scene.gd:2900`), and a grep of the diff for `logseq`, `graph_type`, `graphType` and `graph=` finds nothing. **Decision unaffected (superseded by ADR-2115).** Re-run: `git diff 7bd25427e..f6fcca7e8 -- <verified_paths>`; `f6fcca7e8` itself only corrects two `graph_scene.gd` comments (`_topo_ids` sizes the HUD's node readout, not a draw domain). Checked by reading that diff; `scripts/xr-gate.sh` passed at `f6fcca7e8` (both XR crates' fmt, clippy and tests; headless Godot 4.8-beta2 parse check and GUT, 676 of 679 passing, 3 pending for want of a GL renderer).
+
+## Re-verification — 2026-11-10 (`2a93efd1d`, merge of main into the XR slice-1 branch)
+
+The merge combines main's ADR-2192 changes (the two sections above it) with the XR slice-1 changes (the section above this one). The merge resolved without a conflict in any governed source file, only in this record's own text, and neither change touches the other's lines. **Decision unaffected.** Re-run: `git diff 2a93efd1d^1 2a93efd1d -- <verified_paths>` and `git diff 2a93efd1d^2 2a93efd1d -- <verified_paths>`.
