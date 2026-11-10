@@ -1206,26 +1206,11 @@ pub async fn update_node_filter_settings(
     // Propagate node filter changes to all connected clients via broadcast.
     // Clients receiving this message recompute which nodes pass the filter
     // and re-render the visible graph accordingly.
-    let broadcast_payload = serde_json::json!({
-        "type": "settingsUpdated",
-        "category": "nodeFilter",
-        "settings": {
-            "enabled": settings.enabled,
-            "qualityThreshold": settings.quality_threshold,
-            "authorityThreshold": settings.authority_threshold,
-            "filterByQuality": settings.filter_by_quality,
-            "filterByAuthority": settings.filter_by_authority,
-            "filterMode": settings.filter_mode,
-            "includeLinkedPages": settings.include_linked_pages,
-            "serverRemove": settings.server_remove,
-            // the receiver replaces its whole nodeFilter object with this payload, so a field
-            // left out here would be wiped on every other client
-            "minConnections": settings.min_connections,
-            "minMaturity": settings.min_maturity,
-        },
-        "updatedBy": auth.pubkey,
-        "timestamp": chrono::Utc::now().timestamp_millis()
-    });
+    let broadcast_payload = node_filter_broadcast(
+        &settings,
+        &auth.pubkey,
+        chrono::Utc::now().timestamp_millis(),
+    );
     if let Ok(msg_str) = serde_json::to_string(&broadcast_payload) {
         state
             .client_manager_addr
@@ -1243,6 +1228,24 @@ pub async fn update_node_filter_settings(
 // ============================================================================
 // Quality Gate Settings Routes
 // ============================================================================
+
+/// The `settingsUpdated` frame for a node-filter write. The receiver replaces its whole
+/// `nodeFilter` object with `settings`, so the payload is the stored document itself
+/// (serialised from [`NodeFilterSettings`]): a field cannot be left out and wiped on the other
+/// sessions, as `maxNodes` was (ADR-2192).
+pub(crate) fn node_filter_broadcast(
+    settings: &NodeFilterSettings,
+    updated_by: &str,
+    timestamp_ms: i64,
+) -> serde_json::Value {
+    serde_json::json!({
+        "type": "settingsUpdated",
+        "category": "nodeFilter",
+        "settings": serde_json::to_value(settings).unwrap_or_default(),
+        "updatedBy": updated_by,
+        "timestamp": timestamp_ms
+    })
+}
 
 /// GET /api/settings/quality-gates
 /// Loads quality gate settings from SQLite repository, falling back to defaults.
@@ -2433,6 +2436,24 @@ mod reset_layout_mode_tests {
             LayoutMode::default(),
             "no stored document: the default mode"
         );
+    }
+
+    /// ADR-2192: the node-filter broadcast carries every stored field, `maxNodes` included,
+    /// under the stored (camelCase) names, so a receiver replacing its object loses nothing.
+    #[test]
+    fn the_node_filter_broadcast_is_the_stored_document() {
+        let stored = NodeFilterSettings {
+            enabled: true,
+            server_remove: true,
+            max_nodes: 2500,
+            ..NodeFilterSettings::default()
+        };
+        let frame = node_filter_broadcast(&stored, "pk", 7);
+        assert_eq!(frame["category"], "nodeFilter");
+        assert_eq!(frame["settings"]["maxNodes"], 2500);
+        assert_eq!(frame["settings"], serde_json::to_value(&stored).unwrap());
+        let back: NodeFilterSettings = serde_json::from_value(frame["settings"].clone()).unwrap();
+        assert_eq!(back.max_nodes, 2500);
     }
 
     /// ADR-2192: only a patch naming a policy key reports a failed policy application.
