@@ -308,7 +308,7 @@ Retrieve the full graph (all nodes and edges). Optionally filter by graph type. 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `graph_type` | string | all | Filter: `knowledge`, `ontology`, `agent` |
-| `apply_node_filter` | bool | false | Apply the stored node filter's opt-in server removal (`nodeFilter.enabled && serverRemove`: failing predicates and `maxNodes`), as the `/wss` stream does (ADR-2192) |
+| `node_filter` | JSON string | — | The caller's own node-filter snapshot (the body of its `/wss` `filter_update`). With `enabled && server_remove` the response drops the nodes that client's stream drops (failing predicates, beyond `max_nodes`), through the same function, with `graph_type` admitted before the cap (ADR-2192). 400 if not JSON |
 
 **Authentication**: Optional. Unauthenticated callers receive public nodes only. Authenticated callers receive public + own-private nodes. Other users' private nodes are opacified.
 

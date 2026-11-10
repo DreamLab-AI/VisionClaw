@@ -73,5 +73,6 @@ None yet. Each decision has its own check:
 - **Max Nodes, counts and REST (ADR-2192, 2026-11-10).**
   - `nodeFilter.maxNodes` (default 0, no cap) is a second removal under the same opt-in as the predicates (`enabled && serverRemove`). Of the nodes that pass, `recompute_filtered_nodes` keeps the top `maxNodes`, ranked by the quality predicate's own score (unscored nodes last), then degree, then id. Without the opt-in it does nothing, so a fresh client is still never thinned.
   - The server answers a filter update with `filter_update_success { visible_nodes, total_nodes }` once it has recomputed. The panel shows "Showing N of M nodes".
-  - `GET /api/graph/data?apply_node_filter=true` applies the stored filter's removal through the same function. The desktop client sends it while removal is on, so a REST reload no longer re-expands the thinned view. The XR client never sends it.
+  - `GET /api/graph/data?node_filter=<json>` takes the caller's own filter snapshot (the same body as its `filter_update`) and applies its removal through the stream's function, with the request's `graph_type` admitted before the cap. The desktop client sends it while removal is on, so a REST reload keeps the stream's nodes. The XR client never sends it. `maxNodes` is per client: each browser sends its own.
+  - The counts are resent whenever the graph changes (a sync), and a recompute that cannot read the graph answers `filter_update_error`.
   - Removal still thins the stream and the render, not the shared GPU simulation (ADR-2192 decision 6).
