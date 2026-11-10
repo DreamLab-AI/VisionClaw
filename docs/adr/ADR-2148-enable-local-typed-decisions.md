@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 36c460528e169283a95ad5857f268c90d1a8193e
 verified_paths: [docker-compose.unified.yml, crates/visionclaw-jev/src/edge.rs, src/handlers/jev_handler.rs, crates/visionclaw-jev/src/wire.rs]
 owner: operator
 review_trigger: "labelled confidence calibration setting the automatic thresholds (VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE); the System One route moving off the shared agentbox proxy; any graph write or proposal approval driven by /api/jev/edge"
@@ -110,3 +110,7 @@ Re-run: `git diff 772039bd1..81e711267 -- docker-compose.unified.yml crates/visi
 ## Re-verification — 2026-11-07 (`7bd25427e`)
 
 Governed-path change since `81e711267`: `bd170e81a` only (`cargo fmt --all`) in `crates/visionclaw-jev/src/edge.rs`, `crates/visionclaw-jev/src/wire.rs` and `src/handlers/jev_handler.rs`. I re-ran `rustfmt --edition 2021` on each Rust file as of `bd170e81a^` and got byte-for-byte what `bd170e81a` committed, so no Rust token changed. The `low-confidence` path cited at `edge.rs:191-204` is now `:207-222`: `client.ask(Item::EdgeMeaning, …)` is at `:207-209`, and `Fallback::LowConfidence` is returned on an `unsupported` choice or a domain/range rejection at `:218-222`. **Decision unaffected.** Re-run: `git diff 81e711267..7bd25427e -- <verified_paths>`. Checked by reading that diff and re-running rustfmt; no test was re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`36c460528`)
+
+Governed-path change since `7bd25427e` (ADR-2191, per-relation spring weights, host only): `docker-compose.unified.yml` adds two keys to the `*common-environment` anchor, `VISIONCLAW_RELATION_WEIGHTS` (empty default, feature off) and `VISIONCLAW_RELATION_WEIGHTS_ALLOW_LEARNED` (default `false`), with a comment, after `VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE`; no other key, profile, port, volume, mount or build argument changes. The Jev keys and sources are unchanged. **Decision unaffected.** Re-run: `git diff 7bd25427e..36c460528 -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.

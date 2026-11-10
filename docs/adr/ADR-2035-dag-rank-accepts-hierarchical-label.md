@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 36c460528e169283a95ad5857f268c90d1a8193e
 verified_paths: [src/actors/gpu/force_compute_actor.rs, crates/visionclaw-domain/src/models/edge.rs, src/services/github_sync_service.rs, src/services/inferred_edge_materialiser.rs, src/services/semantic_type_registry.rs]
 owner: jjohare
 review_trigger: a producer that writes a 'hierarchical' subclass edge without rdfs:subClassOf in owl_property_iri (it would silently stop ranking), a store path that drops vc:owlProperty, or a new producer of explicit subclass_of labels
@@ -403,3 +403,7 @@ Governed-path changes since `ff849f2ba`:
 - `src/services/github_sync_service.rs` (corpus history, commit-history stamping, shared Whelk engine; see ADR-2017's 2026-11-07 note). The domain-root spokes are untouched: `materialise_domain_roots` `:907` and `domain_membership_edge` `:2540`, still labelled `domain_member`. The only matching diff line is an `AxiomType::SubClassOf` in the corpus-history projection, not an edge label.
 
 **Decision unaffected.** Re-run: `git diff ff849f2ba..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`36c460528`)
+
+Governed-path change since `7bd25427e` (ADR-2191, per-relation spring weights, host only): `src/actors/gpu/force_compute_actor.rs`: `try_upload_pending_graph_data` builds its CSR with the shared `build_csr` (`crates/visionclaw-domain/src/models/relation_weights.rs`) instead of an inline adjacency loop. Slot order, `row_offsets`, `col_indices` and `edge_weights` are the same (tested bit-for-bit against a verbatim copy of the old loop). After `initialize_graph` it calls `set_spring_edge_weights`, which binds nothing unless `VISIONCLAW_RELATION_WEIGHTS` names a valid table. `graph_adjacency` and the isolated-node shell now read the CSR's neighbour slices; their contents are unchanged. The DAG ranker still filters on `edge.asserts_subsumption()` (`force_compute_actor.rs:438`), and `compute_dag_ranks` is at `:451`; neither reads the CSR. **Decision unaffected.** Re-run: `git diff 7bd25427e..36c460528 -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.

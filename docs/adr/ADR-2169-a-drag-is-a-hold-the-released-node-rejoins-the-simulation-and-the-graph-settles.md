@@ -9,7 +9,7 @@ supersedes: []
 superseded_by: []
 amends: [ADR-2140]
 relates: [ADR-2141, ADR-2172]
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 36c460528e169283a95ad5857f268c90d1a8193e
 verified_paths: [src/utils/unified_gpu_compute/hold_overlay.rs, src/utils/unified_gpu_compute/execution.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, src/actors/gpu/hold_registry.rs, src/actors/gpu/force_compute_actor.rs, src/actors/physics_orchestrator_actor.rs, src/handlers/socket_flow_handler/position_updates.rs, src/handlers/socket_flow_handler/types.rs, src/handlers/layout_handler.rs, scripts/drag-physics-acceptance.mjs]
 owner: jjohare
 review_trigger: the first headset session after the server carrying this change is deployed (does the graph answer the hand, does it rest about two seconds after release), or any change to the FA2 integrator or the stored `globalSpeed`.
@@ -111,3 +111,7 @@ Governed-path changes since `81e711267`:
 - `src/handlers/socket_flow_handler/types.rs`: the visibility sweep (see ADR-2054's 2026-11-07 note).
 
 No hold, pin, release or settle line is in the diff; the single grep hit is the `slot_node_id` doc comment. **Decision unaffected.** Re-run: `git diff 81e711267..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`36c460528`)
+
+Governed-path change since `7bd25427e` (ADR-2191, per-relation spring weights, host only): `src/actors/gpu/force_compute_actor.rs`: `try_upload_pending_graph_data` builds its CSR with the shared `build_csr` (`crates/visionclaw-domain/src/models/relation_weights.rs`) instead of an inline adjacency loop. Slot order, `row_offsets`, `col_indices` and `edge_weights` are the same (tested bit-for-bit against a verbatim copy of the old loop). After `initialize_graph` it calls `set_spring_edge_weights`, which binds nothing unless `VISIONCLAW_RELATION_WEIGHTS` names a valid table. `graph_adjacency` and the isolated-node shell now read the CSR's neighbour slices; their contents are unchanged. `src/utils/unified_gpu_compute/execution.rs`: the two `force_pass_kernel` launches pass `force_pass_edge_weights()` in the existing `edge_weights` parameter, which is `edge_weights` unless a relation-weight table is bound. There is also one new GPU-gated test. No flag, `SimParams`, integrator or hold code changes. With no table bound, the overlay term `spring_k * (dist - rest) * edge_weight * spring_scale` reads the same buffer as before. With a table bound, `edge_weight` is the bound spring weight, so a scaled relation's hold spring scales with it (recorded in ADR-2191 item 5). No hold, pin, release, settle or snapshot line is in the diff. **Decision unaffected.** Re-run: `git diff 7bd25427e..36c460528 -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 36c460528e169283a95ad5857f268c90d1a8193e
 relates: [ADR-2169]
 verified_paths: [src/utils/unified_gpu_compute/constraint_index.rs, src/utils/unified_gpu_compute/memory.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, src/utils/unified_gpu_compute/execution.rs, src/actors/gpu/force_compute_actor.rs]
 owner: jjohare
@@ -69,3 +69,7 @@ New decision in this stamp: the owner's change-only upload and the always-active
 ## Re-verification — 2026-11-07 (`7bd25427e`)
 
 Governed-path change since `e2afd65d6`: `src/actors/gpu/force_compute_actor.rs` (`7c58d3e6e`, `ab05ee9d6`, `405edcfe1`): `GetCurrentPositions` (`:3246`) skips a GPU slot with no node id (`slot_node_id`, `:3226`) instead of labelling it with its own index, and averages KE over mapped slots only (review L2); the refusing `Handler<RunCommunityDetection>` stub is deleted (community detection is `ClusteringActor`'s). No force, kernel parameter, rank or constraint code moved. `sync_constraints` is `force_compute_actor.rs:1675`, unchanged. **Decision unaffected.** Re-run: `git diff e2afd65d6..7bd25427e -- src/actors/gpu/force_compute_actor.rs`. Checked by reading that diff; no test was re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`36c460528`)
+
+Governed-path change since `7bd25427e` (ADR-2191, per-relation spring weights, host only): `src/actors/gpu/force_compute_actor.rs`: `try_upload_pending_graph_data` builds its CSR with the shared `build_csr` (`crates/visionclaw-domain/src/models/relation_weights.rs`) instead of an inline adjacency loop. Slot order, `row_offsets`, `col_indices` and `edge_weights` are the same (tested bit-for-bit against a verbatim copy of the old loop). After `initialize_graph` it calls `set_spring_edge_weights`, which binds nothing unless `VISIONCLAW_RELATION_WEIGHTS` names a valid table. `graph_adjacency` and the isolated-node shell now read the CSR's neighbour slices; their contents are unchanged. `src/utils/unified_gpu_compute/execution.rs`: the two `force_pass_kernel` launches pass `force_pass_edge_weights()` in the existing `edge_weights` parameter, which is `edge_weights` unless a relation-weight table is bound. There is also one new GPU-gated test. No flag, `SimParams`, integrator or hold code changes. `src/utils/unified_gpu_compute/memory.rs`: adds `set_spring_edge_weights` and `force_pass_edge_weights`. `upload_edges_csr` and `resize_buffers` set `spring_edge_weights = None`. `bind_constraint_index` (`:728`) and `bind_edge_rest` (`:756`) are untouched. `sync_constraints` is at `force_compute_actor.rs:1680`. The constraint index binding is untouched. **Decision unaffected.** Re-run: `git diff 7bd25427e..36c460528 -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.

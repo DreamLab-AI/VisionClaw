@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 17e3cdda0c51ad84d942c469c77814d915753313
+verified_commit: 36c460528e169283a95ad5857f268c90d1a8193e
 verified_paths: [scripts/dev-entrypoint.sh, docker-compose.unified.yml, scripts/rust-backend-wrapper.sh, scripts/lib/dev-inputs.sh, scripts/launch.sh]
 owner: jjohare
 review_trigger: a dev-loop turnaround that makes on-start compilation intolerable, or a move to pre-baked dev binaries by default
@@ -223,3 +223,7 @@ The governed diff since `67086c29e` is the opt-in `codescape` compose service an
 Re-verified 2026-10-30 at c75004696: `docker-compose.unified.yml` gains the shared System One environment block and the Codescape estate mounts (ADR-2148 amendment, ADR-2143), and `scripts/launch.sh` gains the sidecar selection menu (`--sidecars=`, `--no-prompt`). The dev image recompile path is untouched. Anchors at HEAD: `target: development` `docker-compose.unified.yml:80`, `BUILD_TARGET` default `:83`, `.dev-inputs` mount `:186-187`, production `BUILD_TARGET: production` `:261`; `launch.sh` publishes `.dev-inputs` at `:640-648`, `redeploy_backend` `:679-683` and `redeploy_environment` (production refusal) `:690-692`. The `CODESCAPE=1` branch cited in the older Codescape note is now internal: `select_sidecars` exports it (`launch.sh:1508`) and an operator-set value has no effect. The decision holds.
 
 Re-verified 2026-10-30 at 17e3cdda0: `scripts/rust-backend-wrapper.sh` retry now cleans only the root package (`cargo clean --profile dev-runtime -p visionclaw-server`) instead of a full `cargo clean` — ADR-2156 amendment; the failure/retry path and build stamp handling are otherwise unchanged.
+
+## Re-verification — 2026-11-10 (`36c460528`)
+
+Governed-path change since `17e3cdda0` (ADR-2191, per-relation spring weights, host only): `docker-compose.unified.yml` adds two keys to the `*common-environment` anchor, `VISIONCLAW_RELATION_WEIGHTS` (empty default, feature off) and `VISIONCLAW_RELATION_WEIGHTS_ALLOW_LEARNED` (default `false`), with a comment, after `VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE`; no other key, profile, port, volume, mount or build argument changes. The dev image's recompile-on-start path is untouched. **Decision unaffected.** Re-run: `git diff 17e3cdda0..36c460528 -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.

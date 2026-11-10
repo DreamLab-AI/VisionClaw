@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 36c460528e169283a95ad5857f268c90d1a8193e
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -234,3 +234,7 @@ This record remains superseded by ADR-2115. Since `5c94c3cbd` the governed paths
 - `xr-client/scripts/graph_scene.gd`: the overview path, the filter grey-out and the HUD wiring.
 
 None of these touch the key this record renamed. `GraphsSettings` is still `{ knowledge, visionclaw }` with no `logseq` alias (`crates/visionclaw-domain/src/config/visualisation.rs:509-517`, unchanged). The client settings type still keys `knowledge: GraphSettings` (`settings.ts:409`). XR physics writes still target `?graph=knowledge` (`graph_scene.gd:2921`). A grep of the diff for `logseq`, `graph_type`, `graphType`, `graphs.` and `graph=knowledge` finds only a removed doc comment. **Decision unaffected (superseded by ADR-2115).** Re-run: `git diff 5c94c3cbd..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`36c460528`)
+
+Governed-path change since `7bd25427e` (ADR-2191, per-relation spring weights, host only): `src/config/mod.rs` adds `pub mod relation_weights;` (the ADR-2191 environment loader). No settings key or graph-type value changes. **Decision unaffected.** Re-run: `git diff 7bd25427e..36c460528 -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: c750046962749715a4efb1b6056c7f40d9865110
+verified_commit: 36c460528e169283a95ad5857f268c90d1a8193e
 verified_paths: [scripts/launch.sh, docker-compose.unified.yml, crates/visionclaw-integration-tests/tests/prod_ingress.rs]
 owner: jjohare
 review_trigger: "Activation (staged → live): the first prod-profile start on the Trust DGX Spark (NHS residential 2026-11-03..05), LAN-only with the tunnel down. Review: a third ingress (reverse proxy, VPN, public port), any change to the prod pre-flight in scripts/launch.sh, or the cloudflared service's profiles"
@@ -111,3 +111,7 @@ this decision governs moved, so it holds as written.
 - **Test wiring:** `prod_ingress.rs` still holds the nine named cases and CI runs it (`.github/workflows/ci.yml:120`). Not re-run here: no build was permitted.
 
 Re-verified 2026-10-30 at c75004696: `docker-compose.unified.yml` gains the shared System One block and Codescape estate mounts; `scripts/launch.sh` gains sidecar selection (dev `up`/`restart` only). The ingress decision is untouched. Anchors at HEAD: `PROD_INGRESS` default `launch.sh:25`, `resolve_prod_ingress` `:177`, required secrets `:215`, tunnel `COMPOSE_PROFILES="prod,tunnel"` `:297`, LAN stray-cloudflared removal `:885`, `down` `:907`; `cloudflared` service `docker-compose.unified.yml:339` with its profile at `:358`. Sidecar selection is dev-only (`main`: `ENVIRONMENT == dev`), so no prod path changed. The decision holds.
+
+## Re-verification — 2026-11-10 (`36c460528`)
+
+Governed-path change since `c75004696` (ADR-2191, per-relation spring weights, host only): `docker-compose.unified.yml` adds two keys to the `*common-environment` anchor, `VISIONCLAW_RELATION_WEIGHTS` (empty default, feature off) and `VISIONCLAW_RELATION_WEIGHTS_ALLOW_LEARNED` (default `false`), with a comment, after `VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE`; no other key, profile, port, volume, mount or build argument changes. Ingress declaration and ports are unchanged. **Decision unaffected.** Re-run: `git diff c75004696..36c460528 -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.

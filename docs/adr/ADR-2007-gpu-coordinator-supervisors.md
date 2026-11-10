@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 809a859aae9e3d96d4d6b99690378018e48e3ad8
+verified_commit: 36c460528e169283a95ad5857f268c90d1a8193e
 verified_paths: [src/actors/gpu/gpu_manager_actor.rs, src/actors/gpu/mod.rs, src/actors/gpu/context_bus.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: a new GPU subsystem that does not fit the four-supervisor split, or a change to SharedGPUContext distribution
@@ -188,3 +188,7 @@ Re-verified at `d184e89fb` after ADR-2173 added a section and an invariant to `d
 Re-read against `docs/GPU-wire-abi.md` at this commit: the four supervisors are still spawned in `gpu_manager_actor.rs` (`ResourceSupervisor`, `PhysicsSupervisor`, `AnalyticsSupervisor`, `GraphAnalyticsSupervisor`), `GPUContextBus::publish` is still at `context_bus.rs:92`, and no file under `src/actors/gpu/` that this record cites changed. The doc gained the constraint-index section, the hold-overlay section and invariant 7; its "Analytics kernel trust status" section, which this record cites, is unchanged. Re-run: `git diff --stat 531df5ef7 8f796ad86 -- src/actors/gpu/gpu_manager_actor.rs src/actors/gpu/mod.rs src/actors/gpu/context_bus.rs docs/GPU-wire-abi.md` → `1 file changed, 32 insertions(+), 1 deletion(-)`.
 
 Governed-path change (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `gpu_manager_actor.rs` loses its `SetNodeSSSP` forward (the `node_sssp` map is removed). The coordinator/supervisor shape is unchanged. Not re-stamped: `docs/GPU-wire-abi.md` changed before this branch. **Decision unaffected.**
+
+## Re-verification — 2026-11-10 (`36c460528`)
+
+Governed-path change since `809a859aa` (ADR-2191, per-relation spring weights, host only): `docs/GPU-wire-abi.md` 0.1.9 adds the ADR-2191 changelog entry, two `sources`, Invariant 8 and a "Per-relation spring weights" section. No existing section, invariant or figure changes. The coordinator and supervisor structure is not mentioned in the change. **Decision unaffected.** Re-run: `git diff 809a859aa..36c460528 -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.

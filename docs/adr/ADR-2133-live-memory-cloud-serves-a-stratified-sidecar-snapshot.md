@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: adf382ea4bc96992861f48797edfbbe9cc54f26a
+verified_commit: 36c460528e169283a95ad5857f268c90d1a8193e
 verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml, src/middleware/rate_limit.rs, tests/memory_cloud_auth_test.rs, client/src/features/visualisation/memoryCloud/api.ts, client/src/features/visualisation/memoryCloud/MemoryExplorerPanel.tsx, client/src/features/graph/components/GraphCanvas.tsx]
 owner: jjohare
 review_trigger: "a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context; the System One rerank egress (ADR-2148) being widened"
@@ -266,3 +266,7 @@ The snapshot, stratification, sidecar contract and routes are unchanged. **Decis
 ## Re-verification — 2026-11-07 (`adf382ea4`)
 
 **Governed change:** `client/src/features/graph/components/GraphCanvas.tsx` (`adf382ea4`): a comment-only change. The stale `:34` note this record's 2026-11-07 amendment flagged ("Memory explorer — HTML overlay … mounted with it") now says the explorer is not mounted by the canvas but is a tab of the control centre's right-hand drawer (`RightDrawer.tsx`, ADR-2189 §3). No import, mount or prop changed. `<EmbeddingCloudLayer>` is still mounted at `:366`. **Decision unaffected.** Re-run: `git diff 7bd25427e..adf382ea4 -- client/src/features/graph/components/GraphCanvas.tsx`. Checked by reading that diff; client `npx tsc --noEmit -p .` clean at `adf382ea4`, vitest not re-run.
+
+## Re-verification — 2026-11-10 (`36c460528`)
+
+Governed-path change since `adf382ea4` (ADR-2191, per-relation spring weights, host only): `docker-compose.unified.yml` adds two keys to the `*common-environment` anchor, `VISIONCLAW_RELATION_WEIGHTS` (empty default, feature off) and `VISIONCLAW_RELATION_WEIGHTS_ALLOW_LEARNED` (default `false`), with a comment, after `VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE`; no other key, profile, port, volume, mount or build argument changes. The memory-cloud keys and mounts are unchanged. **Decision unaffected.** Re-run: `git diff adf382ea4..36c460528 -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.

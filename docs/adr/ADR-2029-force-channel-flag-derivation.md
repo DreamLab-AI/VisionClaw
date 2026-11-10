@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: e2afd65d656977d082382e724198e86d2b8cabdf
+verified_commit: 36c460528e169283a95ad5857f268c90d1a8193e
 verified_paths: [src/models/force_channels.rs, src/utils/unified_gpu_compute/execution.rs, src/models/simulation_params.rs]
 owner: jjohare
 review_trigger: array-backed force-term refactor (deferred step 2), or any new host→GPU conversion path
@@ -269,3 +269,7 @@ Comment-only change since `8f796ad86` (the commit the tests and measurements in 
 ## Re-stamp — 2026-11-01 (constraint scheduling, `e2afd65d6`)
 
 Re-read against `execution.rs` at `e2afd65d6`: the change is test-only (the live-shape timing test steps through the actor's upload decision). `derive_dispatch_feature_flags` is still the single flag authority and `Constraints` is still read-only; the four `adr_2029_constraint_gpu_tests` and the oracle-index equality test pass. Re-run: `git diff --stat 7fbcd997b e2afd65d6 -- src/utils/unified_gpu_compute/execution.rs`.
+
+## Re-verification — 2026-11-10 (`36c460528`)
+
+Governed-path change since `e2afd65d6` (ADR-2191, per-relation spring weights, host only): `src/utils/unified_gpu_compute/execution.rs`: the two `force_pass_kernel` launches pass `force_pass_edge_weights()` in the existing `edge_weights` parameter, which is `edge_weights` unless a relation-weight table is bound. There is also one new GPU-gated test. No flag, `SimParams`, integrator or hold code changes. `derive_dispatch_feature_flags` is still the flag authority (`execution.rs:1144`). **Decision unaffected.** Re-run: `git diff e2afd65d6..36c460528 -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.

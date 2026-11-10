@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 36c460528e169283a95ad5857f268c90d1a8193e
 verified_paths: [crates/visionclaw-gpu/src/cuda_sources/gpu_clustering_kernels.cu, crates/visionclaw-gpu/tests/analytics_oracle_conformance.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: Before any claim that Louvain, PageRank or DBSCAN output is trustworthy, or before a release that surfaces community/centrality/cluster values to users; activates when a rebuilt running backend serves Louvain/PageRank/DBSCAN output that is checked against the CPU oracle
@@ -292,3 +292,7 @@ Re-verified at `d184e89fb` after ADR-2173 added a section and an invariant to `d
 ## Re-verification — 2026-11-07 (`7bd25427e`)
 
 Governed-path change since `8f796ad86`: `docs/GPU-wire-abi.md` gains two preamble paragraphs (`:35-40`; `221d8b559`, `8c6b9541c`). The 2026-11-02 external-review reconciliation qualifies the numerical oracle results as **fixture conformance**, and a 2026-11-05 line records hold ownership at the orchestrator. Neither repeats a GPU test. That qualification matches this record: a kernel counts as trusted only on its fixture conformance test. The "Analytics kernel trust status" table (`:196` on), the kernels and `analytics_oracle_conformance.rs` are unchanged. **Decision unaffected.** Re-run: `git diff 8f796ad86..7bd25427e -- <verified_paths>`. Checked by reading that diff; the GPU suite was not re-run for this stamp (last run: the 2026-11-01 stamp above).
+
+## Re-verification — 2026-11-10 (`36c460528`)
+
+Governed-path change since `7bd25427e` (ADR-2191, per-relation spring weights, host only): `docs/GPU-wire-abi.md` 0.1.9 adds the ADR-2191 changelog entry, two `sources`, Invariant 8 and a "Per-relation spring weights" section. No existing section, invariant or figure changes. Analytics kernels keep reading the unscaled `edge_weights` (Invariant 8). No trust status changes. **Decision unaffected.** Re-run: `git diff 7bd25427e..36c460528 -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.
