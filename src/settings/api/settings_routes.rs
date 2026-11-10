@@ -1848,9 +1848,16 @@ pub async fn delete_profile(
 // ============================================================================
 
 /// The document a layout reset writes: the canonical defaults with the mode of the stored
-/// document, or the default mode when the store cannot answer.
+/// document, or the default mode when the store cannot answer. The ontology-constraint on/off
+/// switch is kept too (ADR-2192): like the mode it is an operator choice, not a tuning value,
+/// and an operator who switched the constraints off and then reset a collapsed layout must not
+/// get them back. Their strength is tuning and resets.
 pub(crate) fn reset_document_for(stored: Option<&PhysicsSettings>) -> PhysicsSettings {
-    reset_document(stored.map(|p| p.layout_mode).unwrap_or_default())
+    let mut doc = reset_document(stored.map(|p| p.layout_mode).unwrap_or_default());
+    if let Some(p) = stored {
+        doc.ontology_constraints_enabled = p.ontology_constraints_enabled;
+    }
+    doc
 }
 
 /// The canonical physics defaults for a layout reset, keeping the active layout mode.
@@ -2399,6 +2406,21 @@ mod reset_layout_mode_tests {
             LayoutMode::default(),
             "no stored document: the default mode"
         );
+    }
+
+    /// ADR-2192: a reset keeps the ontology-constraint switch (an operator choice) and resets
+    /// the strength (tuning).
+    #[test]
+    fn the_reset_keeps_the_constraint_switch_and_resets_its_strength() {
+        let stored = PhysicsSettings {
+            ontology_constraints_enabled: false,
+            ontology_constraint_strength: 0.2,
+            ..PhysicsSettings::default()
+        };
+        let doc = reset_document_for(Some(&stored));
+        assert!(!doc.ontology_constraints_enabled, "switched off stays off");
+        assert_eq!(doc.ontology_constraint_strength, 0.6);
+        assert!(reset_document_for(None).ontology_constraints_enabled);
     }
 
     #[test]

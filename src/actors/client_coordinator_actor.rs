@@ -134,9 +134,9 @@ pub struct ClientFilter {
     /// this client's stream. Off, the predicates only grey on the client
     /// (ADR-2183 D2) and the server applies the population scope alone.
     pub server_remove: bool,
-    /// Nodes in the graph view the last recompute was given (after the
-    /// visibility gate, before scope and predicates): the "of M" in
-    /// "showing N of M" (ADR-2192).
+    /// Nodes the last recompute found in scope (after the visibility gate and
+    /// the population scope, before predicate removal and the cap): what this
+    /// client receives with no removal, the "of M" in "showing N of M" (ADR-2192).
     pub considered_nodes: usize,
 }
 

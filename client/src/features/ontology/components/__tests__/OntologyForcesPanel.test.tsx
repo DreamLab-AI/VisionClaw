@@ -37,6 +37,10 @@ vi.mock('../../store/useInferredEdgesStore', () => ({
   useInferredEdgesStore: (sel: (s: { report: { count: number }; refresh: () => void }) => unknown) =>
     sel({ report: { count: 0 }, refresh: vi.fn() }),
 }));
+const ensureLoaded = vi.fn().mockResolvedValue(undefined);
+vi.mock('@/store/settingsStore', () => ({
+  useSettingsStore: { getState: () => ({ ensureLoaded }) },
+}));
 const resync = vi.fn().mockResolvedValue(true);
 vi.mock('../../services/ontologyPhysicsService', () => ({ resyncReasoning: () => resync() }));
 
@@ -54,6 +58,14 @@ describe('OntologyForcesPanel', () => {
   beforeEach(() => {
     for (const k of Object.keys(stored)) delete stored[k];
     for (const k of Object.keys(setters)) delete setters[k];
+  });
+
+  it('hydrates the two stored keys on mount, even if Layout was never opened', () => {
+    render(<OntologyForcesPanel />);
+    expect(ensureLoaded).toHaveBeenCalledWith([
+      `${P}ontologyConstraintsEnabled`,
+      `${P}ontologyConstraintStrength`,
+    ]);
   });
 
   it('shows the stored defaults (on, 60%) before settings load', () => {

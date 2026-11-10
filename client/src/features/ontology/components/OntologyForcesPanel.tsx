@@ -20,7 +20,7 @@
  * controls wired to the real engine.
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Card } from '@/features/design-system/components/Card';
 import { Switch } from '@/features/design-system/components/Switch';
 import { Slider } from '@/features/design-system/components/Slider';
@@ -33,11 +33,17 @@ import { useConstraintStats } from '../hooks/useConstraintStats';
 import { useInferredEdgesStore } from '../store/useInferredEdgesStore';
 import { resyncReasoning } from '../services/ontologyPhysicsService';
 import { useSettingField } from '@/features/control-center/hooks/useSettingField';
+import { useSettingsStore } from '@/store/settingsStore';
 
 const PHYSICS = 'visualisation.graphs.knowledge.physics.';
 /** The stored defaults (crates/visionclaw-domain physics_config.rs), shown until settings load. */
 const DEFAULT_ENABLED = true;
 const DEFAULT_STRENGTH = 0.6;
+/** Physics settings load lazily (per control-center section); this panel needs these two. */
+export const ONTOLOGY_POLICY_PATHS = [
+  `${PHYSICS}ontologyConstraintsEnabled`,
+  `${PHYSICS}ontologyConstraintStrength`,
+];
 
 /** Semantic relation → GPU force legend (mirrors ontology_constraint_mapper). */
 const FORCE_LEGEND: Array<{ icon: React.ReactNode; relation: string; force: string; color: string }> = [
@@ -56,6 +62,16 @@ export function OntologyForcesPanel() {
   // which the server applies to the constraint actor; there is no local copy to drift.
   const [storedEnabled, setStoredEnabled] = useSettingField<boolean>(`${PHYSICS}ontologyConstraintsEnabled`);
   const [storedStrength, setStoredStrength] = useSettingField<number>(`${PHYSICS}ontologyConstraintStrength`);
+  // Hydrate the stored values even if the Layout section was never opened, so the panel
+  // shows (and a first toggle starts from) what is stored, not the defaults.
+  useEffect(() => {
+    void useSettingsStore
+      .getState()
+      .ensureLoaded(ONTOLOGY_POLICY_PATHS)
+      .catch(() => {
+        /* fail-open: the row stays on the default until the store answers */
+      });
+  }, []);
   const enabled = storedEnabled ?? DEFAULT_ENABLED;
   const strength = storedStrength ?? DEFAULT_STRENGTH;
   const [resyncState, setResyncState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');

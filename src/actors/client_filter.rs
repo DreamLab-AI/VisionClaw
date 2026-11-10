@@ -25,7 +25,7 @@ use visionclaw_domain::models::graph::GraphData;
 /// `max_nodes` cap (ADR-2192), only when `filter.enabled && filter.server_remove`.
 pub fn recompute_filtered_nodes(filter: &mut ClientFilter, graph_data: &GraphData) {
     filter.filtered_node_ids.clear();
-    filter.considered_nodes = graph_data.nodes.len();
+    filter.considered_nodes = 0;
     let remove_by_predicate = filter.enabled && filter.server_remove;
 
     for node in &graph_data.nodes {
@@ -35,6 +35,8 @@ pub fn recompute_filtered_nodes(filter: &mut ClientFilter, graph_data: &GraphDat
         if !filter.include_linked_pages && node.population_type() == Some("linked_page") {
             continue;
         }
+        // In scope: what this client would receive with no removal (the "of M").
+        filter.considered_nodes += 1;
         if remove_by_predicate {
             let quality = node_quality(node, graph_data);
             let meta = graph_data.metadata.get(&node.metadata_id);
@@ -542,6 +544,8 @@ mod tests {
         }
         // The linked_page population scope (ADR-2183 D4) still removes.
         assert!(!filter.filtered_node_ids.contains(&10));
+        // ADR-2192: "of M" counts what is in scope, so with nothing removed N == M ("all").
+        assert_eq!(filter.considered_nodes, filter.filtered_node_ids.len());
     }
 
     #[test]

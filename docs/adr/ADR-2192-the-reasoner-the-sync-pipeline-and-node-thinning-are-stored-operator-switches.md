@@ -30,7 +30,8 @@ acceptance_boundary: "Local runs only: not built into or deployed on the dev sta
 1. **The reasoner-derived constraints are two stored physics keys** (ADR-2140 decision 1):
    - `physics.ontologyConstraintsEnabled` (default `true`) and `physics.ontologyConstraintStrength` (default `0.6`, bound 0..=1 in `physics_bounds`). Both carry serde defaults, so a stored row without them loads today's behaviour.
    - They are not `SimParams` fields. `SetOntologyConstraintPolicy` carries them to the constraint actor, sent from three places: `apply_physics_patch` (only when the policy changed, because each application re-uploads the set and restarts its ramp), the layout reset, and every physics-supervisor (re)start (`restore_saved_physics`).
-   - Off empties the live buffer and keeps the unscaled set, so on re-applies it without a sync. `ForceComputeActor` clears the device when a writer replaces its cache with the empty set (`constraint_sync_action`: an empty, pending cache over a non-empty engine is `Clear`). An empty cache nobody asked for never clears.
+   - A layout reset keeps `ontologyConstraintsEnabled`, as it keeps `layoutMode`: the switch is an operator choice, not tuning. An operator who switched the constraints off and then reset a collapsed layout does not get them back. The strength is tuning, so it resets to 0.6.
+   - Off empties the live buffer and keeps the unscaled set, so on re-applies it without a sync. `ForceComputeActor` clears the device when a writer replaces its cache with the empty set (`constraint_sync_action`: an empty, pending cache over a non-empty engine is `Clear`). That one clear removes everything the engine holds, including any set `ConstraintActor` wrote to it directly. An empty cache nobody asked for never clears.
 2. **The sync pipeline has three stored quality gates**, read key by key from the global settings layer each time a sync, or the start-up reasoning load, runs. They take effect at the next sync or restart, not live. Each defaults to `true`, which is what the sync did, and a missing key reads as on.
    - `qualityGates.ontologyReasoning` gates the start-up Whelk load and post-sync reasoning.
    - `qualityGates.materialiseDomainRoots`: when off, `plan_domain_roots` has no live domain, so the stored roots and every edge on them are purged.
@@ -45,7 +46,11 @@ acceptance_boundary: "Local runs only: not built into or deployed on the dev sta
    - `/api/ontology-physics/{enable,disable,weights}` are thin writers of the two physics keys through `apply_physics_patch`. Out-of-range strength is a 400, not a clamp.
    - The Ontology panel reads and writes the same keys.
    - `OntologyPipelineService` (636 lines) and its orphan test are deleted.
-5. **Not in the semantic `FIELDS` table.** That table is the GPU `SemanticConfig` constant-memory image: its packer reads every field, and it is under a directory reserved by another change. None of these five values is a constant-memory force. They followed the stored-settings path instead.
+5. **Not in the semantic `FIELDS` table.** These five values follow the stored-settings path instead, for four reasons:
+   - `semantic_config.rs` defines that group as the mirror of the device struct `SemanticConfig` ("adding a field here is a change to both").
+   - Any change to `semantic` re-uploads constant memory and reheats through the GPU change gate.
+   - The packer (`unified_gpu_compute/semantic.rs`) and the device struct sit in directories reserved by another open change.
+   - None of the five is a constant-memory force: two are a constraint-buffer policy, and three are sync-time switches.
 6. **Node thinning reuses the ADR-2183 filter:**
    - `nodeFilter.maxNodes` (default 0, no cap; ceiling 100,000) is applied in `recompute_filtered_nodes` under the same opt-in as predicate removal (`enabled && serverRemove`). The nodes that pass are ranked by the predicate's own quality signal (unscored nodes after scored ones), then by degree, then by id.
    - After the recompute, the coordinator answers `filter_update` with `filter_update_success { visible_nodes, total_nodes }`.

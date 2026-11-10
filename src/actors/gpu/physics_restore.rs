@@ -198,9 +198,9 @@ mod policy_key_compat_tests {
         );
         // The operator's own tuning in the row is kept, not replaced by defaults.
         assert_eq!(
-            serde_json::to_value(loaded.repel_k).unwrap(),
-            row["repelK"],
-            "stored repelK survives"
+            loaded.repel_k,
+            row["repelK"].as_f64().expect("repelK is a number") as f32,
+            "stored repelK survives (compared at the stored f32 width)"
         );
         assert!(crate::settings::api::settings_routes::validate_physics_settings(&loaded).is_ok());
     }

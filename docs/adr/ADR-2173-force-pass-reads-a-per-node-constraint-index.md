@@ -72,7 +72,7 @@ Governed-path change since `e2afd65d6`: `src/actors/gpu/force_compute_actor.rs` 
 
 ## Amended by ADR-2192 (2026-11-10, `77305d381`)
 
-- **Part of the end state is done.** `sync_constraints` now clears the device when a writer replaces the cache with the empty set and the engine still holds constraints (`constraint_sync_action`: empty, pending and resident > 0 gives `Clear`). An empty cache that is not pending never clears, so a set another writer owns is left alone. This is what makes the stored ontology-constraint switch off stick. Before, the cached copy came back on the next step, because the resident count differed.
+- **Part of the end state is done.** `sync_constraints` now clears the device when a writer replaces the cache with the empty set and the engine still holds constraints (`constraint_sync_action`: empty, pending and resident > 0 gives `Clear`). This is what makes the stored ontology-constraint switch off stick. That clear removes everything the engine holds, including any set `ConstraintActor` wrote directly. An empty cache that is not pending never clears. Before, the cached copy came back on the next step, because the resident count differed.
 - **Still open.** `OntologyConstraintActor` and `ConstraintActor` still write the engine directly. That part of the end state is not done.
 - **Renamed.** `AdjustConstraintWeights` is replaced by `SetOntologyConstraintPolicy { enabled, strength }`, which still re-uploads, then notifies the actor.
 - **Evidence.** `constraint_sync_action_tests` (CPU). A device test, `a_set_replaced_by_the_empty_set_leaves_the_engine_and_stays_off`, is in `constraint_schedule_tests`; it skips without a GPU and was not run.

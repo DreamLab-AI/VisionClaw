@@ -511,6 +511,8 @@ export interface SettingsUpdatedWireMessage extends BaseWebSocketMessage {
     filterMode?: string;
     includeLinkedPages?: boolean;
     serverRemove?: boolean;
+    /** Server-removal cap, 0 = none (ADR-2192). */
+    maxNodes?: number;
   };
 }
 
