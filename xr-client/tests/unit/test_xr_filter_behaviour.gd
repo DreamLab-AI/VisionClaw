@@ -125,3 +125,48 @@ func test_selection_outranks_the_filter_and_search_does_not() -> void:
 	assert_eq(int(client.highlight_level_of(2)), 2, "the selected node is emphasised even when filtered")
 	assert_false(client.set_highlight_ids(8, PackedInt32Array([1])), "FILTERED_OUT is the filters' bit")
 	assert_eq(int(client.highlight_level_of(1)), 1)
+
+
+func test_headset_quality_toggle_greys_on_the_next_pack_and_off_restores() -> void:
+	# Audit A4 against the real client: no server reply is involved, so the grey
+	# lands on the very next node pack (well within a second at 90 Hz).
+	var client := _client()
+	_seed(client)
+	_nodes(client)
+	assert_eq(int(client.highlight_level_of(2)), 1, "unfiltered")
+	assert_false(client.local_quality_filter_on())
+	client.set_local_quality_filter(true, 0.4)
+	assert_true(client.local_quality_filter_on())
+	assert_true(client.has_node_filter())
+	var buf: PackedFloat32Array = client.build_node_buffer(PackedInt32Array([1, 2, 3]), 1.0, 0.7, 1.9)
+	assert_eq(buf.size() / 20, 3, "greyed, not removed (ADR-2183)")
+	assert_eq(int(client.highlight_level_of(2)), 0, "quality 0.1 < 0.4 greys")
+	assert_eq(_custom_a(buf, 1), 0.0)
+	assert_eq(int(client.highlight_level_of(1)), 1)
+	assert_eq(int(client.highlight_level_of(3)), 1)
+	client.set_local_quality_filter(false, 0.4)
+	_nodes(client)
+	assert_eq(int(client.highlight_level_of(2)), 1, "off restores")
+	assert_false(client.has_node_filter())
+
+
+func test_toggle_off_falls_back_to_the_received_filter() -> void:
+	var client := _client()
+	_seed(client)
+	client.handle_settings_text(_quality_filter())
+	client.set_local_quality_filter(true, 0.95)
+	_nodes(client)
+	assert_eq(int(client.highlight_level_of(1)), 0, "the toggle's 0.95 greys 0.9")
+	client.set_local_quality_filter(false, 0.95)
+	_nodes(client)
+	assert_eq(int(client.highlight_level_of(1)), 1, "back under the received 0.5")
+	assert_eq(int(client.highlight_level_of(2)), 0, "which still greys 0.1")
+
+
+func test_stream_live_fires_once_on_the_first_applied_position_frame() -> void:
+	var client := _client()
+	watch_signals(client)
+	_seed(client)
+	assert_signal_emit_count(client, "stream_live", 1)
+	client.ingest(_v3([{"id": 1, "pos": Vector3(1, 0, 0)}]))
+	assert_signal_emit_count(client, "stream_live", 1, "once per connection")

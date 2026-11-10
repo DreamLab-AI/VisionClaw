@@ -2321,7 +2321,7 @@ func _on_volume_action(action: String) -> void:
 func send_quality_filter(enabled: bool) -> int:
 	var sent := 0
 	for conn in _conns.values():
-		if conn != null and conn.has_method("send_filter_update") and conn.send_filter_update(enabled):
+		if conn != null and conn.has_method("set_quality_filter") and conn.set_quality_filter(enabled):
 			sent += 1
 	return sent
 
@@ -2331,9 +2331,10 @@ func _on_hud_control(action: String) -> void:
 	if action.begins_with("type_toggle:"):
 		_apply_type_toggle(action.substr(12))
 		return
-	# ADR-2183 D1 / ADR-2188 D4: the quality filter greys nodes out via the server.
-	# "quality_filter:<1|0>". The reply arrives as filter_update_success + a
-	# filtered initialGraphLoad, both handled in graph_parity.gd.
+	# ADR-2183 D1 / ADR-2188 D4: the quality filter greys nodes out locally at once
+	# and tells the server. "quality_filter:<1|0>". The reply arrives as
+	# filter_update_success + a filtered initialGraphLoad, both handled in
+	# graph_parity.gd.
 	if action.begins_with("quality_filter:"):
 		send_quality_filter(action.ends_with(":1"))
 		return

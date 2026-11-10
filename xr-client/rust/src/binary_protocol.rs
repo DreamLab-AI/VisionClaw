@@ -1734,10 +1734,28 @@ impl BinaryProtocolClient {
         self.store.highlight_version() as i64
     }
 
-    /// Whether a received `nodeFilter` is active (`enabled` or the linked_page gate).
+    /// Whether a node filter is active: the headset's quality toggle, or a received
+    /// `nodeFilter` (`enabled` or the linked_page gate).
     #[func]
     fn has_node_filter(&self) -> bool {
         self.store.node_filter().is_some()
+    }
+
+    /// The headset's quality toggle, applied locally (audit A4): `enabled` greys
+    /// nodes scored below `quality_threshold` (and linked pages) on the next node
+    /// pack, with no server round trip; off restores the received filter, or none.
+    /// Kept across reconnects. The scene still sends `filter_update` for the server.
+    #[func]
+    fn set_local_quality_filter(&mut self, enabled: bool, quality_threshold: f32) {
+        let f =
+            enabled.then(|| crate::settings_sync::NodeFilter::headset_quality(quality_threshold));
+        self.store.set_local_quality_filter(f);
+    }
+
+    /// Whether the headset's quality toggle filter is on.
+    #[func]
+    fn local_quality_filter_on(&self) -> bool {
+        self.store.local_quality_filter().is_some()
     }
 
     /// Parse a `GET /api/settings/physics` body into the fields XR tracks

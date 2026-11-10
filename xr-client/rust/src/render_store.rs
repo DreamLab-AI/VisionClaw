@@ -638,9 +638,14 @@ pub struct RenderStore {
     color_mode: crate::domain_palette::ColorMode,
     domain_hex: HashMap<u32, &'static str>,
     domain_rgb_cache: HashMap<u32, [f32; 4]>,
-    // WP2 received node filter. `None` until a peer's `nodeFilter` arrives, so
-    // the headset's draw is unchanged until the server says otherwise.
+    // The node filter in force: the headset's own quality toggle when it is on,
+    // else the received one. `None` until either exists, so the headset's draw is
+    // unchanged until the operator or the server says otherwise.
     node_filter: Option<crate::settings_sync::NodeFilter>,
+    // WP2 received node filter (a peer's `nodeFilter` broadcast).
+    received_filter: Option<crate::settings_sync::NodeFilter>,
+    // The headset's quality toggle (audit A4). View state: kept across clear().
+    local_quality: Option<crate::settings_sync::NodeFilter>,
     filter_inputs: HashMap<u32, crate::settings_sync::FilterInputs>,
     filter_hidden: HashSet<u32>,
     filter_dirty: bool,
@@ -2540,10 +2545,35 @@ impl RenderStore {
     /// Apply (or with `None`, clear) the received `nodeFilter`. Takes effect on
     /// the next `build_node_buffer`; agents are never filtered (the desktop and
     /// server filter graph nodes only).
+    /// The filter received from the server (`settingsUpdated{nodeFilter}`). While the
+    /// headset's quality toggle is on it stays underneath and takes over again when
+    /// the toggle goes off.
     pub fn set_node_filter(&mut self, filter: Option<crate::settings_sync::NodeFilter>) {
-        self.touch();
-        self.node_filter = filter;
-        self.filter_dirty = true;
+        self.received_filter = filter;
+        self.apply_effective_filter();
+    }
+
+    /// The headset's own quality toggle (audit A4, ADR-2183: predicates grey, removal
+    /// is a separate opt-in). `Some` greys on the next node pack without waiting for
+    /// the server; `None` restores the received filter, or no filter. Survives
+    /// [`Self::clear`]: it is the operator's view state, not graph state.
+    pub fn set_local_quality_filter(&mut self, filter: Option<crate::settings_sync::NodeFilter>) {
+        self.local_quality = filter;
+        self.apply_effective_filter();
+    }
+
+    /// The headset's quality toggle filter, when on.
+    pub fn local_quality_filter(&self) -> Option<crate::settings_sync::NodeFilter> {
+        self.local_quality
+    }
+
+    fn apply_effective_filter(&mut self) {
+        let effective = self.local_quality.or(self.received_filter);
+        if effective != self.node_filter {
+            self.touch();
+            self.node_filter = effective;
+            self.filter_dirty = true;
+        }
     }
 
     pub fn node_filter(&self) -> Option<crate::settings_sync::NodeFilter> {
@@ -4258,6 +4288,99 @@ mod tests {
             mode_and: true,
             ..NodeFilter::default()
         }));
+    }
+
+    /// Three nodes: 1 scored high, 2 scored low, 3 a linked page scored high.
+    fn fill_quality(s: &mut RenderStore) {
+        use crate::settings_sync::FilterInputs;
+        for (id, q, linked) in [(1u32, 0.9f32, false), (2, 0.1, false), (3, 0.9, true)] {
+            s.upsert(id, [0.0, id as f32, 0.0], 0, 0.0, 0.0);
+            s.set_filter_inputs(
+                id,
+                FilterInputs {
+                    quality: Some(q),
+                    linked_page: linked,
+                    ..Default::default()
+                },
+            );
+        }
+    }
+
+    fn quality_store() -> RenderStore {
+        let mut s = RenderStore::new();
+        fill_quality(&mut s);
+        s
+    }
+
+    fn levels(s: &mut RenderStore) -> Vec<u8> {
+        let _ = s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9);
+        (1..=3).map(|id| s.highlight_level_of(id)).collect()
+    }
+
+    #[test]
+    fn the_quality_toggle_greys_low_quality_nodes_locally_and_off_restores() {
+        // Audit A4: the headset's own quality toggle used to send filter_update and
+        // grey nothing. It now greys on the next pack, with no server round trip.
+        use crate::highlight::{LEVEL_GREY, LEVEL_NORMAL};
+        use crate::settings_sync::NodeFilter;
+        let mut s = quality_store();
+        assert_eq!(levels(&mut s), vec![LEVEL_NORMAL; 3]);
+        s.set_local_quality_filter(Some(NodeFilter::headset_quality(0.4)));
+        assert_eq!(
+            levels(&mut s),
+            vec![LEVEL_NORMAL, LEVEL_GREY, LEVEL_GREY],
+            "low quality greys; a linked page greys as the sent filter_update asks"
+        );
+        assert_eq!(s.filtered_out_count(), 2);
+        assert!(s.node_filter().is_some());
+        s.set_local_quality_filter(None);
+        assert_eq!(levels(&mut s), vec![LEVEL_NORMAL; 3], "off restores");
+        assert!(s.node_filter().is_none());
+    }
+
+    #[test]
+    fn off_restores_the_received_filter_not_a_disabled_one() {
+        // A received nodeFilter (web broadcast) stays the fallback underneath the
+        // toggle, and arriving while the toggle is on does not override it.
+        use crate::highlight::{LEVEL_GREY, LEVEL_NORMAL};
+        use crate::settings_sync::NodeFilter;
+        let mut s = quality_store();
+        let received = NodeFilter {
+            enabled: false,
+            include_linked_pages: true,
+            ..NodeFilter::default()
+        };
+        s.set_node_filter(Some(received));
+        assert_eq!(levels(&mut s), vec![LEVEL_NORMAL; 3]);
+        s.set_local_quality_filter(Some(NodeFilter::headset_quality(0.4)));
+        assert_eq!(levels(&mut s), vec![LEVEL_NORMAL, LEVEL_GREY, LEVEL_GREY]);
+        // A peer re-broadcasts while the toggle is on: the toggle still governs.
+        s.set_node_filter(Some(received));
+        assert_eq!(levels(&mut s), vec![LEVEL_NORMAL, LEVEL_GREY, LEVEL_GREY]);
+        s.set_local_quality_filter(None);
+        assert_eq!(
+            levels(&mut s),
+            vec![LEVEL_NORMAL; 3],
+            "back to the received filter"
+        );
+        assert_eq!(s.node_filter(), Some(received));
+    }
+
+    #[test]
+    fn the_local_quality_filter_survives_a_store_clear() {
+        // A reconnect clears the store; the operator's toggle is view state and stays
+        // on, so the fresh snapshot greys as soon as its filter inputs land.
+        use crate::highlight::{LEVEL_GREY, LEVEL_NORMAL};
+        use crate::settings_sync::NodeFilter;
+        let mut s = quality_store();
+        s.set_local_quality_filter(Some(NodeFilter::headset_quality(0.4)));
+        s.clear();
+        assert!(
+            s.local_quality_filter().is_some(),
+            "clear() keeps the toggle"
+        );
+        fill_quality(&mut s);
+        assert_eq!(levels(&mut s), vec![LEVEL_NORMAL, LEVEL_GREY, LEVEL_GREY]);
     }
 
     #[test]

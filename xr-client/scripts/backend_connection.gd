@@ -293,6 +293,16 @@ func node_position(id: int) -> Vector3:
 ## Drag is server-authoritative on VisionClaw and unserved on Codescape (E9):
 ## a refused drag sends nothing. Only the start announces the refusal; update
 ## and end stay quiet so one gesture yields one notice.
+## The headset's quality toggle (audit A4): grey low-quality nodes in this
+## connection's render store at once (BinaryProtocolClient.set_local_quality_filter,
+## the same predicate as the frame below), then tell the server. Off restores the
+## filter received from the server, or none. True when the frame was handed over.
+func set_quality_filter(enabled: bool, quality_threshold: float = 0.4) -> bool:
+	if client != null and client.has_method("set_local_quality_filter"):
+		client.set_local_quality_filter(enabled, quality_threshold)
+	return send_filter_update(enabled, quality_threshold)
+
+
 ## Ask the server to grey out nodes below the quality threshold for this viewer
 ## (ADR-2183 D1, ADR-2188 D4). The payload mirrors the desktop's `filter_update`
 ## (client/src/store/websocket/index.ts) and the fallbacks in
