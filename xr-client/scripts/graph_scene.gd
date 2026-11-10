@@ -988,7 +988,7 @@ var _fold_staged_level: int = 0
 # the ceiling) rather than an arbitrary constant.
 var _node_budget: int = NODE_SAFETY_CEILING
 # Set of node ids that appear as an edge endpoint (built from the topology's edge
-# list on arrival). The level-of-detail draw domain is restricted to these.
+# list on arrival). Read only to size _node_budget for the HUD readout.
 var _topo_ids: Dictionary = {}
 # Last build stamp line shown (see _show_build_stamp).
 var _build_stamp_line: String = ""
@@ -4721,8 +4721,8 @@ func _on_topology_updated(_edge_count: int) -> void:
 	_manual_transform = false
 	_two_hand_active = false
 	_manip_session_base_scale = -1.0
-	# Endpoint-id set (built once here, not per frame): the level-of-detail draw
-	# domain is restricted to these. Edge selection is the Rust store's.
+	# Endpoint-id set (built once here, not per frame); it only sizes _node_budget
+	# for the HUD readout. Node and edge selection are the Rust store's.
 	var pairs: PackedInt32Array = _binary_client.get_edges()
 	_topo_ids = {}
 	for i: int in range(pairs.size()):

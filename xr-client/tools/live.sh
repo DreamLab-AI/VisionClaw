@@ -3,9 +3,11 @@
 # after tools/gdext-fresh.sh has built the library the Godot editor binary
 # loads and confirmed it is not older than the Rust source.
 #
-# Configuration: live.env in LIVE_DIR (or the file LIVE_ENV names) is read first;
-# a variable already set in the environment wins. tools/live.env.example lists
-# the keys. This is where the deployed build's backend URL is pinned.
+# Configuration: the first of LIVE_ENV, LIVE_DIR/live.env and the parent of
+# LIVE_DIR/live.env (the export root when LIVE_DIR is an export's vc-<sha9>/) is
+# read first; a variable already set in the environment wins. KEY=value lines,
+# optional surrounding quotes. tools/live.env.example lists the keys. This is
+# where the deployed build's backend URL is pinned.
 # Environment:
 #   XR_BACKEND_WS   backend WebSocket, e.g. ws://<backend-host>:4000 (required)
 #   GODOT           Godot 4 editor binary (default: godot4, then godot, on PATH)
@@ -17,12 +19,20 @@
 set -uo pipefail
 project="${LIVE_PROJECT:-$(cd "$(dirname "$0")/.." && pwd)}"
 live_dir="${LIVE_DIR:-$(dirname "$project")}"
-env_file="${LIVE_ENV:-$live_dir/live.env}"
+env_file="${LIVE_ENV:-}"
+if [ -z "$env_file" ]; then
+  for candidate in "$live_dir/live.env" "$(dirname "$live_dir")/live.env"; do
+    if [ -f "$candidate" ]; then env_file="$candidate"; break; fi
+  done
+  env_file="${env_file:-$live_dir/live.env}"
+fi
 if [ -f "$env_file" ]; then
   # Load the file without letting it override what the caller already set.
   while IFS='=' read -r key value; do
     case "$key" in ''|\#*) continue ;; esac
     [[ "$key" =~ ^[A-Z_][A-Z0-9_]*$ ]] || continue
+    value="${value%$'\r'}"
+    if [[ "$value" =~ ^\"(.*)\"$ ]] || [[ "$value" =~ ^\'(.*)\'$ ]]; then value="${BASH_REMATCH[1]}"; fi
     [ -n "${!key:-}" ] || export "$key=$value"
   done < "$env_file"
 fi

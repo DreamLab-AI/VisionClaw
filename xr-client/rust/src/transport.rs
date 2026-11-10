@@ -122,9 +122,10 @@ async fn connect_graph(
     if uri.scheme_str() != Some("ws") {
         return Err("graph socket: only ws:// is supported by this build (no TLS backend)".into());
     }
+    // `host()` keeps an IPv6 literal's brackets, which "host:port" resolution needs.
     let host = uri.host().ok_or("missing socket host")?.to_owned();
     let port = uri.port_u16().unwrap_or(80);
-    let tcp = TcpStream::connect((host.as_str(), port))
+    let tcp = TcpStream::connect(format!("{host}:{port}"))
         .await
         .map_err(|e| e.to_string())?;
     progress.touch(std::time::Instant::now());
