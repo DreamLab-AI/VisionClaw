@@ -1,0 +1,169 @@
+{
+  "corpus": "visionGraph knowledge/ at d8277151a",
+  "domains": 20,
+  "load_stats": {
+    "duplicates_dropped": 5063,
+    "link_mentions": 220906,
+    "pages": 9609,
+    "per_relation": {
+      "affects": 6,
+      "applies-to": 47,
+      "bridges-to": 8115,
+      "constrains": 2,
+      "contrasts-with": 5397,
+      "controls": 1,
+      "defines": 7,
+      "depends-on": 6910,
+      "describes": 12,
+      "detected-by": 3,
+      "detects": 2,
+      "disjoint-with": 3,
+      "enabled-by": 1,
+      "enables": 16829,
+      "enforced-by": 2,
+      "evaluates": 1,
+      "exploits": 1,
+      "feeds-into": 1,
+      "governs": 9,
+      "has-part": 9529,
+      "implemented-by": 3,
+      "implemented-in-layer": 1150,
+      "implements": 4675,
+      "improved-by": 2,
+      "improves": 4,
+      "influences": 2,
+      "informed-by": 11,
+      "informs": 6,
+      "is-a": 13006,
+      "links": 37729,
+      "manages": 3,
+      "measured-by": 14,
+      "mitigated-by": 8,
+      "mitigates": 1,
+      "part-of": 3502,
+      "precedes": 1,
+      "produces": 12,
+      "provides": 2,
+      "reduces": 6,
+      "regulated-by": 3,
+      "related-to": 23348,
+      "requires": 12440,
+      "same-as": 22,
+      "settled-on": 1,
+      "standardized-by": 3184,
+      "supported-by": 1,
+      "supports": 8586,
+      "underpins": 4,
+      "uses": 13755,
+      "verifies": 1
+    },
+    "resolved": 173536,
+    "self_loops_dropped": 113,
+    "triples": 168360,
+    "unresolved": 47370
+  },
+  "nodes": 9609,
+  "per_seed": [
+    {
+      "m2_fallbacks": 0,
+      "m3_chance": 0.22078853046594982,
+      "m3_chance_slice": 0.0035460992907801418,
+      "seed": 0,
+      "slice_test_pairs": 212,
+      "slice_test_triples": 282,
+      "test": 16740,
+      "test_pairs": 10866,
+      "train": 134910,
+      "val": 16710
+    },
+    {
+      "m2_fallbacks": 0,
+      "m3_chance": 0.2247520685405786,
+      "m3_chance_slice": 0.0,
+      "seed": 1,
+      "slice_test_pairs": 200,
+      "slice_test_triples": 274,
+      "test": 17041,
+      "test_pairs": 10866,
+      "train": 134426,
+      "val": 16893
+    },
+    {
+      "m2_fallbacks": 0,
+      "m3_chance": 0.22278117139777218,
+      "m3_chance_slice": 0.01818181818181818,
+      "seed": 2,
+      "slice_test_pairs": 207,
+      "slice_test_triples": 275,
+      "test": 16698,
+      "test_pairs": 10866,
+      "train": 134787,
+      "val": 16875
+    },
+    {
+      "m2_fallbacks": 0,
+      "m3_chance": 0.224867567406702,
+      "m3_chance_slice": 0.003816793893129771,
+      "seed": 3,
+      "slice_test_pairs": 190,
+      "slice_test_triples": 262,
+      "test": 16801,
+      "test_pairs": 10866,
+      "train": 134688,
+      "val": 16871
+    },
+    {
+      "m2_fallbacks": 0,
+      "m3_chance": 0.22574327933060354,
+      "m3_chance_slice": 0.010752688172043012,
+      "seed": 4,
+      "slice_test_pairs": 196,
+      "slice_test_triples": 279,
+      "test": 16851,
+      "test_pairs": 10866,
+      "train": 134758,
+      "val": 16751
+    }
+  ],
+  "relation_types": 50,
+  "slice_nodes": 1280,
+  "subsample": null,
+  "triples": 168360
+}
+seed 4 B2 done in 1.5s
+seed 2 B2 done in 1.5s
+seed 0 B2 done in 1.5s
+seed 1 B2 done in 1.5s
+seed 3 B2 done in 1.5s
+seed 3 B1 done in 5.5s
+seed 4 B1 done in 5.9s
+seed 0 B1 done in 7.5s
+seed 1 RewireRf done in 7.8s
+seed 0 RewireRf done in 7.8s
+seed 2 RewireRf done in 8.1s
+seed 1 B1 done in 8.1s
+seed 2 B1 done in 8.1s
+seed 4 RewireRf done in 10.8s
+seed 3 RewireRf done in 11.0s
+seed 3 RfAndSim done in 814.4s
+seed 2 RfAndSim done in 844.1s
+seed 4 RewireB0 done in 845.0s
+seed 1 RewireB0 done in 847.6s
+seed 2 B0 done in 848.2s
+seed 4 B0 done in 849.2s
+seed 3 RewireB0 done in 851.6s
+seed 0 RewireB0 done in 851.8s
+seed 3 B0 done in 852.3s
+seed 0 B0 done in 852.6s
+seed 1 RfAndSim done in 852.8s
+seed 1 PermRfAndSim done in 853.0s
+seed 1 B0 done in 853.1s
+seed 4 PermRfAndSim done in 853.6s
+seed 2 RewireB0 done in 853.7s
+seed 4 RfAndSim done in 853.8s
+seed 2 PermRfAndSim done in 853.8s
+seed 3 PermRfAndSim done in 854.2s
+seed 0 PermRfAndSim done in 854.3s
+seed 0 RfAndSim done in 854.5s
+exit 0
+2026-11-10T11:10:18Z

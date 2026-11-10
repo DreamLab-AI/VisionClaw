@@ -1,0 +1,67 @@
+{
+  "cases": 1311,
+  "cases_per_relation": {
+    "contrasts-with": 2,
+    "depends-on": 1,
+    "enables": 82,
+    "has-part": 2,
+    "implemented-in-layer": 11,
+    "is-subclass-of": 571,
+    "related-to": 550,
+    "requires": 88,
+    "supports": 1,
+    "uses": 3
+  },
+  "nodes": 2321,
+  "t0": {
+    "dir": "<scratch>/t0/knowledge/pages",
+    "stats": {
+      "link_mentions": 6338,
+      "name_collisions": 406,
+      "pages": 2321,
+      "per_relation": {
+        "bridges-to": 2,
+        "contrasts-with": 10,
+        "depends-on": 228,
+        "enables": 304,
+        "has-part": 255,
+        "implemented-in-layer": 120,
+        "implements": 13,
+        "is-subclass-of": 888,
+        "part-of": 182,
+        "requires": 310,
+        "supports": 2,
+        "uses": 71
+      },
+      "resolved": 2590,
+      "self_loops": 1
+    }
+  },
+  "t1": {
+    "dir": "<scratch>/t1/knowledge/pages",
+    "stats": {
+      "link_mentions": 11225,
+      "name_collisions": 775,
+      "pages": 2407,
+      "per_relation": {
+        "bridges-to": 38,
+        "contrasts-with": 13,
+        "depends-on": 278,
+        "enables": 496,
+        "has-part": 289,
+        "implemented-in-layer": 132,
+        "implements": 18,
+        "is-subclass-of": 2251,
+        "part-of": 200,
+        "related-to": 870,
+        "requires": 568,
+        "supports": 10,
+        "uses": 86
+      },
+      "resolved": 5467,
+      "self_loops": 1
+    }
+  },
+  "t1_triples_between_t0_pages": 3254,
+  "train_triples": 2385
+}

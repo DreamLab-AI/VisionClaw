@@ -32,13 +32,27 @@ pub struct RelParams {
 }
 
 impl RelParams {
-    pub fn kappa(&self) -> f32 { softplus(self.k_raw) }
-    pub fn rest(&self) -> f32 { self.l_log.exp() }
-    pub fn mu(&self) -> f32 { softplus(self.m_raw) }
+    pub fn kappa(&self) -> f32 {
+        softplus(self.k_raw)
+    }
+    pub fn rest(&self) -> f32 {
+        self.l_log.exp()
+    }
+    pub fn mu(&self) -> f32 {
+        softplus(self.m_raw)
+    }
 }
 
-fn softplus(x: f32) -> f32 { if x > 20.0 { x } else { x.exp().ln_1p() } }
-fn sigmoid(x: f32) -> f32 { 1.0 / (1.0 + (-x).exp()) }
+fn softplus(x: f32) -> f32 {
+    if x > 20.0 {
+        x
+    } else {
+        x.exp().ln_1p()
+    }
+}
+fn sigmoid(x: f32) -> f32 {
+    1.0 / (1.0 + (-x).exp())
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct FieldCfg {
@@ -52,8 +66,21 @@ pub struct FieldCfg {
 }
 
 /// Fixed in advance and shared by every seed (PREREGISTRATION.md: no tuning on validation).
-pub const RF: FieldCfg = FieldCfg { typed: true, learn_rest: true, axial: true, epochs: 60, negatives: 5, lr_pos: 0.05, lr_par: 0.01 };
-pub const B1: FieldCfg = FieldCfg { typed: false, learn_rest: false, axial: false, ..RF };
+pub const RF: FieldCfg = FieldCfg {
+    typed: true,
+    learn_rest: true,
+    axial: true,
+    epochs: 60,
+    negatives: 5,
+    lr_pos: 0.05,
+    lr_par: 0.01,
+};
+pub const B1: FieldCfg = FieldCfg {
+    typed: false,
+    learn_rest: false,
+    axial: false,
+    ..RF
+};
 
 pub struct Field {
     pub pos: Pos,
@@ -79,16 +106,29 @@ fn corrupt(t: &Triple, n: u32, rng: &mut StdRng) -> Triple {
     let mut c = *t;
     loop {
         let x = rng.gen_range(0..n);
-        if rng.gen_bool(0.5) { c.tail = x } else { c.head = x }
-        if c.head != c.tail { return c; }
+        if rng.gen_bool(0.5) {
+            c.tail = x
+        } else {
+            c.head = x
+        }
+        if c.head != c.tail {
+            return c;
+        }
     }
 }
 
-struct Eval { s: f32, d: f32, dz: f32, diff: [f32; 3] }
+struct Eval {
+    s: f32,
+    d: f32,
+    dz: f32,
+    diff: [f32; 3],
+}
 
 fn score(cfg: &FieldCfg, p: &RelParams, xi: &[f32; 3], xj: &[f32; 3]) -> Eval {
     let diff = [xi[0] - xj[0], xi[1] - xj[1], xi[2] - xj[2]];
-    let d = (diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2]).sqrt().max(1e-6);
+    let d = (diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2])
+        .sqrt()
+        .max(1e-6);
     let dz = xj[2] - xi[2];
     let l = if cfg.learn_rest { p.rest() } else { 0.0 };
     let mut s = p.b - p.kappa() * (d - l) * (d - l);
@@ -98,7 +138,13 @@ fn score(cfg: &FieldCfg, p: &RelParams, xi: &[f32; 3], xj: &[f32; 3]) -> Eval {
     Eval { s, d, dz, diff }
 }
 
-fn rel_of(cfg: &FieldCfg, t: &Triple) -> usize { if cfg.typed { t.rel as usize } else { 0 } }
+fn rel_of(cfg: &FieldCfg, t: &Triple) -> usize {
+    if cfg.typed {
+        t.rel as usize
+    } else {
+        0
+    }
+}
 
 /// Mean logistic loss over `ts` against seeded corruptions; used only for early stopping.
 fn loss(cfg: &FieldCfg, pos: &Pos, rels: &[RelParams], ts: &[Triple], seed: u64) -> f64 {
@@ -119,11 +165,41 @@ fn loss(cfg: &FieldCfg, pos: &Pos, rels: &[RelParams], ts: &[Triple], seed: u64)
 }
 
 /// Train RF (or B1 with `B1`). Returns the positions and parameters at the best validation epoch.
-pub fn train_field(cfg: FieldCfg, n: usize, n_rel: usize, train: &[Triple], val: &[Triple], seed: u64) -> Field {
+pub fn train_field(
+    cfg: FieldCfg,
+    n: usize,
+    n_rel: usize,
+    train: &[Triple],
+    val: &[Triple],
+    seed: u64,
+) -> Field {
+    train_field_from(cfg, None, n, n_rel, train, val, seed)
+}
+
+/// As `train_field`, optionally starting from given positions instead of a random draw.
+pub fn train_field_from(
+    cfg: FieldCfg,
+    init: Option<Pos>,
+    n: usize,
+    n_rel: usize,
+    train: &[Triple],
+    val: &[Triple],
+    seed: u64,
+) -> Field {
     let mut rng = StdRng::seed_from_u64(seed.wrapping_add(101));
-    let mut pos = init_pos(n, &mut rng, 1.0);
+    let drawn = init_pos(n, &mut rng, 1.0); // always drawn, so the RNG stream is unchanged
+    let mut pos = init.unwrap_or(drawn);
     let n_rel = if cfg.typed { n_rel } else { 1 };
-    let mut rels = vec![RelParams { k_raw: 0.0, l_log: 0.0, h: 0.0, m_raw: -3.0, b: 3.0 }; n_rel];
+    let mut rels = vec![
+        RelParams {
+            k_raw: 0.0,
+            l_log: 0.0,
+            h: 0.0,
+            m_raw: -3.0,
+            b: 3.0
+        };
+        n_rel
+    ];
     let mut order: Vec<usize> = (0..train.len()).collect();
     let mut best = (f64::INFINITY, pos.clone(), rels.clone(), 0usize);
     let clip = |v: f32| v.clamp(-5.0, 5.0);
@@ -136,12 +212,20 @@ pub fn train_field(cfg: FieldCfg, n: usize, n_rel: usize, train: &[Triple], val:
             let t = train[k];
             let r = rel_of(&cfg, &t);
             for s_idx in 0..=cfg.negatives {
-                let (c, y) = if s_idx == 0 { (t, 1.0) } else { (corrupt(&t, n as u32, &mut rng), 0.0) };
+                let (c, y) = if s_idx == 0 {
+                    (t, 1.0)
+                } else {
+                    (corrupt(&t, n as u32, &mut rng), 0.0)
+                };
                 let (i, j) = (c.head as usize, c.tail as usize);
                 let p = rels[r].clone();
                 let e = score(&cfg, &p, &pos[i], &pos[j]);
                 let g = sigmoid(e.s) - y; // ∂loss/∂s
-                let (kappa, l, mu) = (p.kappa(), if cfg.learn_rest { p.rest() } else { 0.0 }, p.mu());
+                let (kappa, l, mu) = (
+                    p.kappa(),
+                    if cfg.learn_rest { p.rest() } else { 0.0 },
+                    p.mu(),
+                );
 
                 // Parameter gradients (chain rule through softplus / exp).
                 let rp = &mut rels[r];
@@ -157,6 +241,10 @@ pub fn train_field(cfg: FieldCfg, n: usize, n_rel: usize, train: &[Triple], val:
 
                 // Position gradients: ∂s/∂x_i = −2κ(d−L)·diff/d (+ axial on z).
                 let radial = -2.0 * kappa * (e.d - l) / e.d;
+                #[expect(
+                    clippy::needless_range_loop,
+                    reason = "a indexes diff and both endpoints' positions together"
+                )]
                 for a in 0..3 {
                     let mut gi = radial * e.diff[a];
                     let mut gj = -gi;
@@ -175,12 +263,22 @@ pub fn train_field(cfg: FieldCfg, n: usize, n_rel: usize, train: &[Triple], val:
             best = (v, pos.clone(), rels.clone(), epoch);
         }
     }
-    Field { pos: best.1, rels: best.2, best_epoch: best.3 }
+    Field {
+        pos: best.1,
+        rels: best.2,
+        best_epoch: best.3,
+    }
 }
 
 /// TransE (Bordes et al. 2013) in three dimensions: `‖x_h + t_r − x_t‖₂`, margin 1, entities
 /// renormalised to the unit sphere after every update, as in the original method.
-pub fn train_transe(n: usize, n_rel: usize, train: &[Triple], val: &[Triple], seed: u64) -> (Pos, usize) {
+pub fn train_transe(
+    n: usize,
+    n_rel: usize,
+    train: &[Triple],
+    val: &[Triple],
+    seed: u64,
+) -> (Pos, usize) {
     const EPOCHS: usize = 60;
     const MARGIN: f32 = 1.0;
     const LR: f32 = 0.01;
@@ -194,15 +292,25 @@ pub fn train_transe(n: usize, n_rel: usize, train: &[Triple], val: &[Triple], se
     let mut rel = init_pos(n_rel, &mut rng, 0.3);
     let dist = |e: &Pos, r: &Pos, t: &Triple| -> ([f32; 3], f32) {
         let (h, x, tl) = (&e[t.head as usize], &r[t.rel as usize], &e[t.tail as usize]);
-        let v = [h[0] + x[0] - tl[0], h[1] + x[1] - tl[1], h[2] + x[2] - tl[2]];
-        (v, (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt().max(1e-6))
+        let v = [
+            h[0] + x[0] - tl[0],
+            h[1] + x[1] - tl[1],
+            h[2] + x[2] - tl[2],
+        ];
+        (
+            v,
+            (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt().max(1e-6),
+        )
     };
     let val_loss = |e: &Pos, r: &Pos| -> f64 {
         let mut rng = StdRng::seed_from_u64(seed ^ 0xa11ce);
-        val.iter().map(|t| {
-            let c = corrupt(t, n as u32, &mut rng);
-            (MARGIN + dist(e, r, t).1 - dist(e, r, &c).1).max(0.0) as f64
-        }).sum::<f64>() / val.len().max(1) as f64
+        val.iter()
+            .map(|t| {
+                let c = corrupt(t, n as u32, &mut rng);
+                (MARGIN + dist(e, r, t).1 - dist(e, r, &c).1).max(0.0) as f64
+            })
+            .sum::<f64>()
+            / val.len().max(1) as f64
     };
     let mut order: Vec<usize> = (0..train.len()).collect();
     let mut best = (f64::INFINITY, ent.clone(), 0usize);
@@ -245,18 +353,38 @@ mod tests {
         let n = 200;
         let mut ts = Vec::new();
         for i in 0..100u32 {
-            ts.push(Triple { head: i, rel: 0, tail: (i + 1) % 100 }); // dense ring
-            ts.push(Triple { head: i, rel: 1, tail: 100 + i });       // matched pair
+            ts.push(Triple {
+                head: i,
+                rel: 0,
+                tail: (i + 1) % 100,
+            }); // dense ring
+            ts.push(Triple {
+                head: i,
+                rel: 1,
+                tail: 100 + i,
+            }); // matched pair
         }
         let f = train_field(FieldCfg { epochs: 40, ..RF }, n, 2, &ts, &ts[..20], 7);
-        assert!(f.rels.iter().all(|r| r.kappa().is_finite() && r.rest().is_finite()));
+        assert!(f
+            .rels
+            .iter()
+            .all(|r| r.kappa().is_finite() && r.rest().is_finite()));
         let (l0, l1) = (f.rels[0].rest(), f.rels[1].rest());
-        assert!((l0 - l1).abs() > 1e-3, "rest lengths did not separate: {l0} vs {l1}");
+        assert!(
+            (l0 - l1).abs() > 1e-3,
+            "rest lengths did not separate: {l0} vs {l1}"
+        );
     }
 
     #[test]
     fn transe_keeps_entities_on_unit_sphere() {
-        let ts: Vec<_> = (0..50u32).map(|i| Triple { head: i, rel: 0, tail: (i + 1) % 50 }).collect();
+        let ts: Vec<_> = (0..50u32)
+            .map(|i| Triple {
+                head: i,
+                rel: 0,
+                tail: (i + 1) % 50,
+            })
+            .collect();
         let (pos, _) = train_transe(50, 1, &ts, &ts[..5], 1);
         for p in pos {
             let l = (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt();

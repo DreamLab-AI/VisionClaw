@@ -1,0 +1,53 @@
+{
+ "cost_per_paragraph": {
+  "8B prompted": 2076.392095069267,
+  "0.6B trained on generated text": 138.120779988182,
+  "8B with reasoning": 10101.827626918535
+ },
+ "generated": {
+  "8B prompted": [
+   82.40343347639485,
+   77.7,
+   91.6
+  ],
+  "8B with reasoning": [
+   100.0,
+   88.7,
+   95.6
+  ],
+  "0.6B trained on generated text": [
+   100.0,
+   99.7,
+   99.8
+  ]
+ },
+ "hard": {
+  "8B prompted": [
+   60.72961373390558,
+   69.8,
+   76.6
+  ],
+  "8B with reasoning": [
+   73.07692307692308,
+   74.0,
+   90.3
+  ],
+  "0.6B trained on generated text": [
+   26.394849785407725,
+   50.4,
+   51.2
+  ]
+ },
+ "rule": {
+  "generated": [
+   100.0,
+   100.0,
+   100.0
+  ],
+  "hard": [
+   64.8068669527897,
+   49.3,
+   39.6
+  ]
+ }
+}

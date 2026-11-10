@@ -1,0 +1,344 @@
+{
+ "train_paragraphs": 2597,
+ "test_paragraphs": 2653,
+ "test_collections": 200,
+ "two_step_claims": 100,
+ "train_target_mean": 1.592,
+ "train_target_nonzero_share": 0.653,
+ "cheap_only": {
+  "crit_recall": 69.51,
+  "all_recall": 69.57,
+  "ba_two": 68.9,
+  "cost_vs_teacher": 0.169,
+  "reread_share": 0.0
+ },
+ "teacher_all": {
+  "crit_recall": 87.98,
+  "all_recall": 86.0,
+  "ba_two": 90.9,
+  "cost_vs_teacher": 1.169,
+  "reread_share": 1.0
+ },
+ "budgets": {
+  "0.1": {
+   "learned": {
+    "crit_recall": 73.75,
+    "all_recall": 73.05,
+    "ba_two": 79.8,
+    "cost_vs_teacher": 0.276,
+    "reread_share": 0.093
+   },
+   "abl_surface_only": {
+    "crit_recall": 73.44,
+    "all_recall": 73.08,
+    "ba_two": 79.8,
+    "cost_vs_teacher": 0.279,
+    "reread_share": 0.093
+   },
+   "abl_expect_only": {
+    "crit_recall": 72.64,
+    "all_recall": 72.15,
+    "ba_two": 71.6,
+    "cost_vs_teacher": 0.274,
+    "reread_share": 0.095
+   },
+   "abl_ridge": {
+    "crit_recall": 73.01,
+    "all_recall": 73.05,
+    "ba_two": 78.0,
+    "cost_vs_teacher": 0.281,
+    "reread_share": 0.093
+   },
+   "abl_symdiff_target": {
+    "crit_recall": 72.91,
+    "all_recall": 72.57,
+    "ba_two": 77.1,
+    "cost_vs_teacher": 0.296,
+    "reread_share": 0.092
+   },
+   "abl_with_commas": {
+    "crit_recall": 73.77,
+    "all_recall": 72.98,
+    "ba_two": 79.8,
+    "cost_vs_teacher": 0.279,
+    "reread_share": 0.093
+   },
+   "oracle_target": {
+    "crit_recall": 76.69,
+    "all_recall": 74.26,
+    "ba_two": 79.8,
+    "cost_vs_teacher": 0.283,
+    "reread_share": 0.094
+   },
+   "oracle_gold": {
+    "crit_recall": 77.79,
+    "all_recall": 73.98,
+    "ba_two": 81.6,
+    "cost_vs_teacher": 0.277,
+    "reread_share": 0.096
+   },
+   "hand_gate": {
+    "crit_recall": 72.22,
+    "all_recall": 72.05,
+    "ba_two": 70.7,
+    "cost_vs_teacher": 0.271,
+    "reread_share": 0.094
+   },
+   "coverage": {
+    "crit_recall": 71.42,
+    "all_recall": 72.36,
+    "ba_two": 72.1,
+    "cost_vs_teacher": 0.263,
+    "reread_share": 0.094
+   },
+   "random": {
+    "crit_recall": 71.16,
+    "all_recall": 71.09,
+    "ba_two": 71.1,
+    "cost_vs_teacher": 0.268,
+    "reread_share": 0.1
+   },
+   "learned_minus_hand": {
+    "diff": 1.54,
+    "lo95": 0.68,
+    "hi95": 2.41
+   },
+   "learned_minus_random": {
+    "diff": 2.59,
+    "lo95": 1.74,
+    "hi95": 3.37
+   },
+   "learned_minus_hand_all_relations": {
+    "diff": 1.0,
+    "lo95": 0.35,
+    "hi95": 1.64
+   },
+   "oracle_gold_minus_hand": {
+    "diff": 5.57,
+    "lo95": 4.44,
+    "hi95": 6.82
+   },
+   "oracle_target_minus_hand": {
+    "diff": 4.47,
+    "lo95": 3.4,
+    "hi95": 5.56
+   },
+   "share_of_oracle_gap_closed": 0.276
+  },
+  "0.2": {
+   "learned": {
+    "crit_recall": 76.48,
+    "all_recall": 75.64,
+    "ba_two": 79.8,
+    "cost_vs_teacher": 0.387,
+    "reread_share": 0.188
+   },
+   "abl_surface_only": {
+    "crit_recall": 75.93,
+    "all_recall": 75.41,
+    "ba_two": 79.8,
+    "cost_vs_teacher": 0.391,
+    "reread_share": 0.188
+   },
+   "abl_expect_only": {
+    "crit_recall": 74.77,
+    "all_recall": 74.24,
+    "ba_two": 71.6,
+    "cost_vs_teacher": 0.376,
+    "reread_share": 0.192
+   },
+   "abl_ridge": {
+    "crit_recall": 76.32,
+    "all_recall": 75.87,
+    "ba_two": 79.8,
+    "cost_vs_teacher": 0.39,
+    "reread_share": 0.188
+   },
+   "abl_symdiff_target": {
+    "crit_recall": 75.06,
+    "all_recall": 74.77,
+    "ba_two": 79.8,
+    "cost_vs_teacher": 0.405,
+    "reread_share": 0.187
+   },
+   "abl_with_commas": {
+    "crit_recall": 76.36,
+    "all_recall": 75.63,
+    "ba_two": 79.8,
+    "cost_vs_teacher": 0.388,
+    "reread_share": 0.187
+   },
+   "oracle_target": {
+    "crit_recall": 80.87,
+    "all_recall": 78.02,
+    "ba_two": 83.4,
+    "cost_vs_teacher": 0.396,
+    "reread_share": 0.19
+   },
+   "oracle_gold": {
+    "crit_recall": 83.12,
+    "all_recall": 77.22,
+    "ba_two": 84.3,
+    "cost_vs_teacher": 0.375,
+    "reread_share": 0.194
+   },
+   "hand_gate": {
+    "crit_recall": 74.66,
+    "all_recall": 74.16,
+    "ba_two": 72.8,
+    "cost_vs_teacher": 0.376,
+    "reread_share": 0.189
+   },
+   "coverage": {
+    "crit_recall": 72.63,
+    "all_recall": 74.31,
+    "ba_two": 73.4,
+    "cost_vs_teacher": 0.365,
+    "reread_share": 0.19
+   },
+   "random": {
+    "crit_recall": 72.81,
+    "all_recall": 72.63,
+    "ba_two": 73.2,
+    "cost_vs_teacher": 0.37,
+    "reread_share": 0.2
+   },
+   "learned_minus_hand": {
+    "diff": 1.83,
+    "lo95": 0.79,
+    "hi95": 2.81
+   },
+   "learned_minus_random": {
+    "diff": 3.68,
+    "lo95": 2.79,
+    "hi95": 4.51
+   },
+   "learned_minus_hand_all_relations": {
+    "diff": 1.48,
+    "lo95": 0.61,
+    "hi95": 2.35
+   },
+   "oracle_gold_minus_hand": {
+    "diff": 8.47,
+    "lo95": 7.05,
+    "hi95": 9.87
+   },
+   "oracle_target_minus_hand": {
+    "diff": 6.21,
+    "lo95": 5.05,
+    "hi95": 7.41
+   },
+   "share_of_oracle_gap_closed": 0.216
+  },
+  "0.3": {
+   "learned": {
+    "crit_recall": 78.37,
+    "all_recall": 77.74,
+    "ba_two": 80.7,
+    "cost_vs_teacher": 0.492,
+    "reread_share": 0.285
+   },
+   "abl_surface_only": {
+    "crit_recall": 78.37,
+    "all_recall": 77.82,
+    "ba_two": 81.6,
+    "cost_vs_teacher": 0.495,
+    "reread_share": 0.285
+   },
+   "abl_expect_only": {
+    "crit_recall": 76.63,
+    "all_recall": 76.2,
+    "ba_two": 74.3,
+    "cost_vs_teacher": 0.486,
+    "reread_share": 0.29
+   },
+   "abl_ridge": {
+    "crit_recall": 79.15,
+    "all_recall": 78.37,
+    "ba_two": 82.5,
+    "cost_vs_teacher": 0.49,
+    "reread_share": 0.286
+   },
+   "abl_symdiff_target": {
+    "crit_recall": 77.81,
+    "all_recall": 77.06,
+    "ba_two": 81.6,
+    "cost_vs_teacher": 0.513,
+    "reread_share": 0.283
+   },
+   "abl_with_commas": {
+    "crit_recall": 78.78,
+    "all_recall": 77.93,
+    "ba_two": 81.6,
+    "cost_vs_teacher": 0.493,
+    "reread_share": 0.285
+   },
+   "oracle_target": {
+    "crit_recall": 84.01,
+    "all_recall": 80.48,
+    "ba_two": 85.3,
+    "cost_vs_teacher": 0.495,
+    "reread_share": 0.29
+   },
+   "oracle_gold": {
+    "crit_recall": 87.69,
+    "all_recall": 79.99,
+    "ba_two": 90.7,
+    "cost_vs_teacher": 0.48,
+    "reread_share": 0.292
+   },
+   "hand_gate": {
+    "crit_recall": 76.61,
+    "all_recall": 76.04,
+    "ba_two": 77.7,
+    "cost_vs_teacher": 0.48,
+    "reread_share": 0.287
+   },
+   "coverage": {
+    "crit_recall": 73.6,
+    "all_recall": 76.06,
+    "ba_two": 74.3,
+    "cost_vs_teacher": 0.46,
+    "reread_share": 0.29
+   },
+   "random": {
+    "crit_recall": 74.43,
+    "all_recall": 74.19,
+    "ba_two": 75.2,
+    "cost_vs_teacher": 0.469,
+    "reread_share": 0.3
+   },
+   "learned_minus_hand": {
+    "diff": 1.76,
+    "lo95": 0.69,
+    "hi95": 2.8
+   },
+   "learned_minus_random": {
+    "diff": 3.93,
+    "lo95": 3.02,
+    "hi95": 4.82
+   },
+   "learned_minus_hand_all_relations": {
+    "diff": 1.7,
+    "lo95": 0.82,
+    "hi95": 2.59
+   },
+   "oracle_gold_minus_hand": {
+    "diff": 11.09,
+    "lo95": 9.92,
+    "hi95": 12.26
+   },
+   "oracle_target_minus_hand": {
+    "diff": 7.41,
+    "lo95": 6.32,
+    "hi95": 8.51
+   },
+   "share_of_oracle_gap_closed": 0.159
+  }
+ },
+ "criteria": {
+  "headroom_oracle_gold": true,
+  "headroom_oracle_target": true,
+  "verdict": "partial"
+ }
+}

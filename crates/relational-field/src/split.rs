@@ -26,7 +26,11 @@ pub struct Split {
 }
 
 pub fn pair(a: u32, b: u32) -> (u32, u32) {
-    if a < b { (a, b) } else { (b, a) }
+    if a < b {
+        (a, b)
+    } else {
+        (b, a)
+    }
 }
 
 pub fn split(triples: &[Triple], seed: u64) -> Split {
@@ -80,8 +84,16 @@ mod tests {
     fn inverse_edges_share_a_split() {
         let mut ts = Vec::new();
         for i in 0..200u32 {
-            ts.push(Triple { head: i, rel: 0, tail: i + 1 });
-            ts.push(Triple { head: i + 1, rel: 1, tail: i }); // recorded inverse
+            ts.push(Triple {
+                head: i,
+                rel: 0,
+                tail: i + 1,
+            });
+            ts.push(Triple {
+                head: i + 1,
+                rel: 1,
+                tail: i,
+            }); // recorded inverse
         }
         let s = split(&ts, 3);
         let train: HashSet<_> = s.train.iter().map(|t| pair(t.head, t.tail)).collect();
@@ -93,7 +105,13 @@ mod tests {
 
     #[test]
     fn split_is_deterministic_per_seed() {
-        let ts: Vec<_> = (0..500u32).map(|i| Triple { head: i, rel: 0, tail: i + 7 }).collect();
+        let ts: Vec<_> = (0..500u32)
+            .map(|i| Triple {
+                head: i,
+                rel: 0,
+                tail: i + 7,
+            })
+            .collect();
         assert_eq!(split(&ts, 1).test_pairs, split(&ts, 1).test_pairs);
         assert_ne!(split(&ts, 1).test_pairs, split(&ts, 2).test_pairs);
     }
