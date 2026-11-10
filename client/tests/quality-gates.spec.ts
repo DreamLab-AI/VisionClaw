@@ -11,7 +11,7 @@ test.describe('Quality Gates Feature', () => {
 
     // Verify all expected fields exist
     expect(data).toHaveProperty('gpuAcceleration');
-    expect(data).toHaveProperty('ontologyPhysics');
+    expect(data).toHaveProperty('ontologyReasoning');
     expect(data).toHaveProperty('semanticForces');
     expect(data).toHaveProperty('layoutMode');
     expect(data).toHaveProperty('showClusters');
@@ -35,7 +35,7 @@ test.describe('Quality Gates Feature', () => {
     const updateResponse = await request.put('/api/settings/quality-gates', {
       data: {
         gpuAcceleration: false,
-        ontologyPhysics: true,
+        ontologyReasoning: true,
         semanticForces: false,
         layoutMode: 'dag-topdown',
         showClusters: true,
@@ -57,7 +57,7 @@ test.describe('Quality Gates Feature', () => {
     console.log('Updated Quality Gates:', JSON.stringify(data, null, 2));
 
     expect(data.gpuAcceleration).toBe(false);
-    expect(data.ontologyPhysics).toBe(true);
+    expect(data.ontologyReasoning).toBe(true);
     expect(data.layoutMode).toBe('dag-topdown');
     expect(data.minFpsThreshold).toBe(45);
     expect(data.maxNodeCount).toBe(15000);
@@ -67,7 +67,7 @@ test.describe('Quality Gates Feature', () => {
     await request.put('/api/settings/quality-gates', {
       data: {
         gpuAcceleration: true,
-        ontologyPhysics: false,
+        ontologyReasoning: false,
         semanticForces: false,
         layoutMode: 'force-directed',
         showClusters: true,

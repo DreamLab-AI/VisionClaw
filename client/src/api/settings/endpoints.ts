@@ -167,48 +167,7 @@ export const updateQualityGates = async (
   // passes it in `settings`, and that value is kept.
   const { layoutMode: _echo, ...currentGates } = currentData;
   const merged = { ...currentGates, ...settings };
-  const result = await axios.put(`${API_BASE}/api/settings/quality-gates`, merged);
-
-  if ('ontologyPhysics' in settings) {
-    toggleOntologyPhysics(!!settings.ontologyPhysics);
-  }
-
-  if ('ontologyStrength' in settings) {
-    configureOntologyWeights(settings);
-  }
-
-  return result;
-};
-
-/** Toggle ontology physics forces on the server (fire-and-forget). */
-export const toggleOntologyPhysics = async (enabled: boolean): Promise<void> => {
-  try {
-    const url = enabled
-      ? `${API_BASE}/api/ontology-physics/enable`
-      : `${API_BASE}/api/ontology-physics/disable`;
-    const payload = enabled ? { ontologyId: 'default', strength: 0.8 } : undefined;
-    const response = await axios.post(url, payload);
-    logger.info(`[settingsApi] ontology physics ${enabled ? 'enabled' : 'disabled'}:`, response.data);
-  } catch (err) {
-    logger.warn('[settingsApi] ontology physics toggle error:', err);
-  }
-};
-
-/** Push the ontology constraint weight to the server (fire-and-forget). The semantic-force
- * parameters are not sent from here: they are the physics settings' `semantic` group, written
- * by the ordinary physics PUT. */
-export const configureOntologyWeights = async (
-  settings: Partial<QualityGateSettings>
-): Promise<void> => {
-  if (settings.ontologyStrength === undefined) return;
-  try {
-    await axios.put(`${API_BASE}/api/ontology-physics/weights`, {
-      globalStrength: settings.ontologyStrength,
-    });
-    logger.info('[settingsApi] ontology weight updated:', settings.ontologyStrength);
-  } catch (err) {
-    logger.warn('[settingsApi] Ontology weights update failed:', err);
-  }
+  return axios.put(`${API_BASE}/api/settings/quality-gates`, merged);
 };
 
 // ============================================================================

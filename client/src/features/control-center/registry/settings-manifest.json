@@ -1,7 +1,7 @@
 {
   "version": "2.0",
   "generatedFrom": "settingsRegistry.ts",
-  "count": 244,
+  "count": 251,
   "groups": [
     {
       "id": "layers",
@@ -15,7 +15,7 @@
       "label": "Explore",
       "testid": "group-explore",
       "hotkey": "2",
-      "fieldCount": 28
+      "fieldCount": 30
     },
     {
       "id": "encode",
@@ -29,7 +29,7 @@
       "label": "Layout",
       "testid": "group-layout",
       "hotkey": "4",
-      "fieldCount": 80
+      "fieldCount": 82
     },
     {
       "id": "look",
@@ -50,7 +50,7 @@
       "label": "System",
       "testid": "group-system",
       "hotkey": "7",
-      "fieldCount": 24
+      "fieldCount": 27
     }
   ],
   "panels": [
@@ -293,6 +293,19 @@
       "server": "nodeFilter"
     },
     {
+      "key": "nodeFilterCount",
+      "path": null,
+      "testid": "setting-quality.nodeFilterCount",
+      "control": "readonly",
+      "group": "explore",
+      "sourceGroup": "quality",
+      "subgroup": "Filters",
+      "scope": "browser",
+      "label": "Nodes Shown",
+      "clientOnly": true,
+      "server": null
+    },
+    {
       "key": "serverRemove",
       "path": "nodeFilter.serverRemove",
       "testid": "setting-nodeFilter.serverRemove",
@@ -304,6 +317,22 @@
       "label": "Also remove on server (desktop viewers)",
       "clientOnly": false,
       "server": "nodeFilter"
+    },
+    {
+      "key": "maxNodes",
+      "path": "nodeFilter.maxNodes",
+      "testid": "setting-nodeFilter.maxNodes",
+      "control": "slider",
+      "group": "explore",
+      "sourceGroup": "quality",
+      "subgroup": "Filters",
+      "scope": "server",
+      "label": "Max Nodes (server removal)",
+      "clientOnly": false,
+      "server": "nodeFilter",
+      "min": 0,
+      "max": 20000,
+      "step": 250
     },
     {
       "key": "includeLinkedPages",
@@ -1194,6 +1223,35 @@
       "min": 1,
       "max": 2000,
       "step": 5
+    },
+    {
+      "key": "ontologyConstraintsEnabled",
+      "path": "visualisation.graphs.knowledge.physics.ontologyConstraintsEnabled",
+      "testid": "setting-visualisation.graphs.knowledge.physics.ontologyConstraintsEnabled",
+      "control": "toggle",
+      "group": "layout",
+      "sourceGroup": "motion",
+      "subgroup": "Forces › Communities & constraints",
+      "scope": "shared",
+      "label": "Reasoner Constraints",
+      "clientOnly": false,
+      "server": "physics"
+    },
+    {
+      "key": "ontologyConstraintStrength",
+      "path": "visualisation.graphs.knowledge.physics.ontologyConstraintStrength",
+      "testid": "setting-visualisation.graphs.knowledge.physics.ontologyConstraintStrength",
+      "control": "slider",
+      "group": "layout",
+      "sourceGroup": "motion",
+      "subgroup": "Forces › Communities & constraints",
+      "scope": "shared",
+      "label": "Reasoner Constraint Strength",
+      "clientOnly": false,
+      "server": "physics",
+      "min": 0,
+      "max": 1,
+      "step": 0.05
     },
     {
       "key": "clusterStrength",
@@ -3504,6 +3562,45 @@
       "label": "Nostr Login",
       "clientOnly": true,
       "server": null
+    },
+    {
+      "key": "ontologyReasoning",
+      "path": "qualityGates.ontologyReasoning",
+      "testid": "setting-qualityGates.ontologyReasoning",
+      "control": "toggle",
+      "group": "system",
+      "sourceGroup": "quality",
+      "subgroup": "Services",
+      "scope": "server",
+      "label": "Run Ontology Reasoner",
+      "clientOnly": false,
+      "server": "qualityGates"
+    },
+    {
+      "key": "materialiseDomainRoots",
+      "path": "qualityGates.materialiseDomainRoots",
+      "testid": "setting-qualityGates.materialiseDomainRoots",
+      "control": "toggle",
+      "group": "system",
+      "sourceGroup": "quality",
+      "subgroup": "Services",
+      "scope": "server",
+      "label": "Domain Root Nodes",
+      "clientOnly": false,
+      "server": "qualityGates"
+    },
+    {
+      "key": "materialiseInferredEdges",
+      "path": "qualityGates.materialiseInferredEdges",
+      "testid": "setting-qualityGates.materialiseInferredEdges",
+      "control": "toggle",
+      "group": "system",
+      "sourceGroup": "quality",
+      "subgroup": "Services",
+      "scope": "server",
+      "label": "Write Inferred Edges",
+      "clientOnly": false,
+      "server": "qualityGates"
     },
     {
       "key": "pocketTtsVoice",

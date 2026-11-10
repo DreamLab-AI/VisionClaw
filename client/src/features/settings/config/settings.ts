@@ -773,7 +773,6 @@ export interface PerformanceSettings {
 // Developer GPU debug settings
 export interface QualityGatesSettings {
   gpuAcceleration: boolean;
-  ontologyPhysics: boolean;
   /** @deprecated Read-only echo of `physics.layoutMode` in the legacy vocabulary; write the physics field. */
   layoutMode: 'force-directed' | 'dag-topdown' | 'dag-radial' | 'dag-leftright' | 'type-clustering' | 'spectral' | 'clustered';
   showAnomalies: boolean;
@@ -784,9 +783,12 @@ export interface QualityGatesSettings {
   ruvectorEnabled: boolean;
   minFpsThreshold: number;
   autoAdjust: boolean;
-  // Ontology constraint weight (propagated to GPU actors). The semantic-force parameters are
-  // NOT here: they are the physics settings' `semantic` group.
-  ontologyStrength?: number;       // 0-1, default 0.5 — global ontology constraint weight
+  // Sync-time ontology switches (ADR-2192), read by the server at the next sync or restart.
+  // The ontology constraints themselves are the physics keys `ontologyConstraintsEnabled` /
+  // `ontologyConstraintStrength`.
+  ontologyReasoning?: boolean;
+  materialiseDomainRoots?: boolean;
+  materialiseInferredEdges?: boolean;
 }
 
 export interface DeveloperSettings {
@@ -845,6 +847,8 @@ export interface NodeFilterSettings {
   /** Opt-in (default false): the server also removes non-matching nodes from
    *  this client's graph on /wss. Off, the filter only greys (ADR-2183 D2). */
   serverRemove?: boolean;
+  /** With removal on, stream at most this many nodes, best quality first; 0 = no cap (ADR-2192). */
+  maxNodes?: number;
 }
 
 // Provenance overlay settings (W-G phase-1, client-only, default-off). Gate the

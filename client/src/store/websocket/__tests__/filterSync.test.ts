@@ -107,6 +107,20 @@ describe('filterSync', () => {
     expect(sendFilterUpdate.mock.calls[1][0]).toMatchObject({ enabled: true, filterByQuality: true });
   });
 
+  it('a Max Nodes change is a filter change and is sent (ADR-2192)', () => {
+    syncFilterToServer(get, { force: true });
+    expect(sendFilterUpdate.mock.calls[0][0]).toMatchObject({ maxNodes: 0 });
+    setupFilterSubscription(get);
+    settingsState = {
+      settings: { nodeFilter: { ...baseFilter, serverRemove: true, maxNodes: 2500 } as typeof baseFilter },
+    };
+    notifyStore();
+    notifyStore();
+
+    expect(sendFilterUpdate).toHaveBeenCalledTimes(2);
+    expect(sendFilterUpdate.mock.calls[1][0]).toMatchObject({ serverRemove: true, maxNodes: 2500 });
+  });
+
   it('a forced sync resends an unchanged filter (reconnect re-establishes server state)', () => {
     syncFilterToServer(get, { force: true });
     syncFilterToServer(get, { force: true });

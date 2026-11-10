@@ -78,6 +78,10 @@ export interface PhysicsSettings {
   // --- Constraints ---
   constraintRampFrames: number;
   constraintMaxForcePerNode: number;
+  /** Reasoner-derived ontology constraints act on the layout (ADR-2192, default true). */
+  ontologyConstraintsEnabled: boolean;
+  /** Weight multiplier on the ontology constraints, 0-1 (ADR-2192, default 0.6). */
+  ontologyConstraintStrength: number;
   clusterStrength: number;
 
   // --- Misc ---
@@ -126,6 +130,8 @@ export interface NodeFilterSettings {
   includeLinkedPages: boolean;
   /** Opt-in server-side removal (absent on older servers = false). */
   serverRemove?: boolean;
+  /** Cap on streamed nodes when removal is on, 0 = no cap (ADR-2192). */
+  maxNodes?: number;
 }
 
 /** The server's `LayoutMode` serde names (crates/visionclaw-domain/src/types/layout.rs). */
@@ -141,7 +147,6 @@ export type LayoutModeName =
 
 export interface QualityGateSettings {
   gpuAcceleration: boolean;
-  ontologyPhysics: boolean;
   /** @deprecated Read-only echo of `physics.layoutMode` in the legacy quality-gate vocabulary. */
   layoutMode: 'force-directed' | 'dag-topdown' | 'dag-radial' | 'dag-leftright' | 'type-clustering' | 'spectral' | 'clustered';
   showAnomalies: boolean;
@@ -150,7 +155,12 @@ export interface QualityGateSettings {
   ruvectorEnabled: boolean;
   minFpsThreshold: number;
   autoAdjust: boolean;
-  ontologyStrength: number;
+  /** Run the Whelk reasoner at start-up and after each sync (ADR-2192, default true). */
+  ontologyReasoning: boolean;
+  /** Keep one root node per populated domain (ADR-2192, default true). */
+  materialiseDomainRoots: boolean;
+  /** Write inferred SubClassOf edges into the graph (ADR-2192, default true). */
+  materialiseInferredEdges: boolean;
 }
 
 export interface AllSettings {

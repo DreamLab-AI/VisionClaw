@@ -6,8 +6,10 @@
  *
  *   - live readout of active constraints, axioms processed, inferred edges and
  *     GPU health (failures / CPU fallbacks),
- *   - master enable/disable (re-dispatch vs clear the GPU constraint set),
- *   - a global force-strength slider (PUT /api/ontology-physics/weights),
+ *   - master enable/disable and a global strength slider: the stored physics keys
+ *     `ontologyConstraintsEnabled` / `ontologyConstraintStrength` (ADR-2192), the same
+ *     values as Layout › Forces › Communities & constraints; the server removes the
+ *     constraints from the GPU when off and re-applies them when on,
  *   - a "Re-sync reasoning" action that re-runs the full ingest→reason→dispatch
  *     pipeline server-side (POST /api/admin/sync).
  *
@@ -18,7 +20,7 @@
  * controls wired to the real engine.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Card } from '@/features/design-system/components/Card';
 import { Switch } from '@/features/design-system/components/Switch';
 import { Slider } from '@/features/design-system/components/Slider';
@@ -29,15 +31,13 @@ import { Separator } from '@/features/design-system/components/Separator';
 import { RefreshCw, Zap, GitBranch, Sigma, Network, AlertTriangle, Cpu, ArrowRightLeft, Minus, Magnet } from 'lucide-react';
 import { useConstraintStats } from '../hooks/useConstraintStats';
 import { useInferredEdgesStore } from '../store/useInferredEdgesStore';
-import {
-  enableForces,
-  disableForces,
-  setForceStrength,
-  resyncReasoning,
-} from '../services/ontologyPhysicsService';
-import { createLogger } from '@/utils/loggerConfig';
+import { resyncReasoning } from '../services/ontologyPhysicsService';
+import { useSettingField } from '@/features/control-center/hooks/useSettingField';
 
-const logger = createLogger('OntologyForcesPanel');
+const PHYSICS = 'visualisation.graphs.knowledge.physics.';
+/** The stored defaults (crates/visionclaw-domain physics_config.rs), shown until settings load. */
+const DEFAULT_ENABLED = true;
+const DEFAULT_STRENGTH = 0.6;
 
 /** Semantic relation → GPU force legend (mirrors ontology_constraint_mapper). */
 const FORCE_LEGEND: Array<{ icon: React.ReactNode; relation: string; force: string; color: string }> = [
@@ -52,42 +52,23 @@ export function OntologyForcesPanel() {
   const refreshInferred = useInferredEdgesStore(s => s.refresh);
 
   const hasForces = stats.activeConstraints > 0;
-  const [enabled, setEnabled] = useState(hasForces);
-  // Matches the backend DEFAULT_GLOBAL_STRENGTH (ontology_constraint_actor.rs):
-  // constraints dispatch at 0.6 so the semantic layout is legible rather than
-  // collapsed into one dense blob at full mapper weight.
-  const [strength, setStrength] = useState(0.6);
-  const [busy, setBusy] = useState(false);
+  // ADR-2192: one stored definition. Writes go through the settings store's physics PUT,
+  // which the server applies to the constraint actor; there is no local copy to drift.
+  const [storedEnabled, setStoredEnabled] = useSettingField<boolean>(`${PHYSICS}ontologyConstraintsEnabled`);
+  const [storedStrength, setStoredStrength] = useSettingField<number>(`${PHYSICS}ontologyConstraintStrength`);
+  const enabled = storedEnabled ?? DEFAULT_ENABLED;
+  const strength = storedStrength ?? DEFAULT_STRENGTH;
   const [resyncState, setResyncState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
-  const strengthTimer = useRef<number | null>(null);
 
-  // Reflect server truth: if the engine reports active constraints, the toggle
-  // should read as enabled (covers re-sync dispatch happening outside this UI).
-  useEffect(() => {
-    if (hasForces && !enabled) setEnabled(true);
-    // Deps intentionally narrowed; react-hooks/exhaustive-deps is not enforced in this config.
-  }, [hasForces]);
-
-  const onToggle = useCallback(async (next: boolean) => {
-    setEnabled(next);
-    setBusy(true);
-    const ok = next ? await enableForces(strength) : await disableForces();
-    if (!ok) {
-      logger.warn(`Toggle ${next ? 'enable' : 'disable'} failed; reverting`);
-      setEnabled(!next);
-    }
-    setBusy(false);
-    refreshStats();
-  }, [strength, refreshStats]);
+  const onToggle = useCallback((next: boolean) => {
+    setStoredEnabled(next);
+    // The constraint count follows once the store has saved and the server applied it.
+    window.setTimeout(() => refreshStats(), 1500);
+  }, [setStoredEnabled, refreshStats]);
 
   const onStrengthChange = useCallback((value: number) => {
-    setStrength(value);
-    if (strengthTimer.current) window.clearTimeout(strengthTimer.current);
-    // Debounce the PUT so dragging the slider doesn't flood the GPU manager.
-    strengthTimer.current = window.setTimeout(() => {
-      void setForceStrength(value);
-    }, 350);
-  }, []);
+    setStoredStrength(value);
+  }, [setStoredStrength]);
 
   const onResync = useCallback(async () => {
     setResyncState('running');
@@ -113,7 +94,6 @@ export function OntologyForcesPanel() {
             <Switch
               checked={enabled}
               onCheckedChange={onToggle}
-              disabled={busy}
               id="ontology-forces-enabled"
             />
             <div>

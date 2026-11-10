@@ -35,6 +35,7 @@ export async function fetchGraphData(
   graphType: string,
   graphTypeFilter: GraphTypeFilter = null,
   excludeLinkedPages: boolean = false,
+  applyNodeFilter: boolean = false,
 ): Promise<GraphData> {
   const maxRetries   = 3;
   const initialDelay = 500;
@@ -49,6 +50,11 @@ export async function fetchGraphData(
   }
   if (excludeLinkedPages) {
     params.set('exclude_linked_pages', 'true');
+  }
+  // ADR-2192: with the node filter's server-side removal on, the REST load drops the same
+  // nodes the /wss stream does, so a reload cannot re-expand the thinned view.
+  if (applyNodeFilter) {
+    params.set('apply_node_filter', 'true');
   }
   const qs = params.toString();
   const requestUrl = qs ? `/graph/data?${qs}` : '/graph/data';

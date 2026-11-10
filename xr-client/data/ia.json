@@ -162,10 +162,24 @@
               "scope": "server"
             },
             {
+              "key": "nodeFilterCount",
+              "label": "Nodes Shown",
+              "path": null,
+              "control": "readonly",
+              "scope": "browser"
+            },
+            {
               "key": "serverRemove",
               "label": "Also remove on server (desktop viewers)",
               "path": "nodeFilter.serverRemove",
               "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "maxNodes",
+              "label": "Max Nodes (server removal)",
+              "path": "nodeFilter.maxNodes",
+              "control": "slider",
               "scope": "server"
             },
             {
@@ -671,6 +685,20 @@
               "key": "constraintMaxForcePerNode",
               "label": "Constraint Max Force",
               "path": "visualisation.graphs.knowledge.physics.constraintMaxForcePerNode",
+              "control": "slider",
+              "scope": "shared"
+            },
+            {
+              "key": "ontologyConstraintsEnabled",
+              "label": "Reasoner Constraints",
+              "path": "visualisation.graphs.knowledge.physics.ontologyConstraintsEnabled",
+              "control": "toggle",
+              "scope": "shared"
+            },
+            {
+              "key": "ontologyConstraintStrength",
+              "label": "Reasoner Constraint Strength",
+              "path": "visualisation.graphs.knowledge.physics.ontologyConstraintStrength",
               "control": "slider",
               "scope": "shared"
             },
@@ -1956,6 +1984,27 @@
         {
           "label": "Services",
           "fields": [
+            {
+              "key": "ontologyReasoning",
+              "label": "Run Ontology Reasoner",
+              "path": "qualityGates.ontologyReasoning",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "materialiseDomainRoots",
+              "label": "Domain Root Nodes",
+              "path": "qualityGates.materialiseDomainRoots",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "materialiseInferredEdges",
+              "label": "Write Inferred Edges",
+              "path": "qualityGates.materialiseInferredEdges",
+              "control": "toggle",
+              "scope": "server"
+            },
             {
               "key": "pocketTtsVoice",
               "label": "Voice",

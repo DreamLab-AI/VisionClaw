@@ -2,13 +2,12 @@
  * Ontology-physics service — the client's window onto the GPU-resident
  * constraint engine (PRD-018 / ADR-098). All semantic solving runs on the
  * CUDA live-kernel server-side; this service only reads live constraint stats
- * and adjusts strength/enable knobs. It performs NO layout and NO solving.
+ * and triggers a re-sync. It performs NO layout and NO solving. The on/off
+ * switch and strength are the stored physics keys `ontologyConstraintsEnabled`
+ * / `ontologyConstraintStrength` (ADR-2192), written through the settings store.
  *
  * Endpoints (all server-side, GPU-resident):
  *   GET  /api/ontology-physics/constraints  → live constraint + axiom stats
- *   PUT  /api/ontology-physics/weights       → global force strength
- *   POST /api/ontology-physics/enable        → re-dispatch constraints
- *   POST /api/ontology-physics/disable       → clear constraints
  *   POST /api/admin/sync                      → re-ingest + re-reason + re-dispatch
  */
 
@@ -20,9 +19,6 @@ const logger = createLogger('OntologyPhysicsService');
 // Paths are relative to the unifiedApiClient base ('/api'); a leading '/api'
 // here would double to '/api/api/...' and 404.
 const CONSTRAINTS_ENDPOINT = '/ontology-physics/constraints';
-const WEIGHTS_ENDPOINT = '/ontology-physics/weights';
-const ENABLE_ENDPOINT = '/ontology-physics/enable';
-const DISABLE_ENDPOINT = '/ontology-physics/disable';
 const RESYNC_ENDPOINT = '/admin/sync';
 
 /** Live GPU constraint statistics (mirrors OntologyConstraintStats server-side). */
@@ -87,43 +83,6 @@ export async function fetchConstraintStats(): Promise<ConstraintStats> {
   } catch (err: any) {
     logger.debug('Constraint stats unavailable; returning empty:', err?.message);
     return { ...EMPTY_CONSTRAINT_STATS };
-  }
-}
-
-/** Set the global ontology force strength (0..1). Returns success. */
-export async function setForceStrength(globalStrength: number): Promise<boolean> {
-  const clamped = Math.max(0, Math.min(1, globalStrength));
-  try {
-    await unifiedApiClient.put(WEIGHTS_ENDPOINT, { globalStrength: clamped });
-    logger.info(`Ontology force strength set to ${clamped.toFixed(2)}`);
-    return true;
-  } catch (err: any) {
-    logger.warn('Failed to set force strength:', err?.message);
-    return false;
-  }
-}
-
-/** Enable ontology forces (re-dispatch the live constraint set to the GPU). */
-export async function enableForces(strength = 0.8): Promise<boolean> {
-  try {
-    await unifiedApiClient.post(ENABLE_ENDPOINT, { ontologyId: 'default', strength });
-    logger.info('Ontology forces enabled');
-    return true;
-  } catch (err: any) {
-    logger.warn('Failed to enable ontology forces:', err?.message);
-    return false;
-  }
-}
-
-/** Disable ontology forces (clear the GPU constraint set). */
-export async function disableForces(): Promise<boolean> {
-  try {
-    await unifiedApiClient.post(DISABLE_ENDPOINT);
-    logger.info('Ontology forces disabled');
-    return true;
-  } catch (err: any) {
-    logger.warn('Failed to disable ontology forces:', err?.message);
-    return false;
   }
 }
 

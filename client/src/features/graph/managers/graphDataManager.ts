@@ -217,12 +217,13 @@ class GraphDataManager {
   private async _fetchInitialDataInner(): Promise<GraphData> {
     // Drop linked_page stubs at source unless the user has opted to include
     // them — mirrors the ingestion gate in setGraphData and the server param.
-    const includeLinkedPages =
-      useSettingsStore.getState().settings?.nodeFilter?.includeLinkedPages ?? false;
+    const nodeFilter = useSettingsStore.getState().settings?.nodeFilter;
+    const includeLinkedPages = nodeFilter?.includeLinkedPages ?? false;
     const validatedData = await fetchGraphData(
       this.graphType,
       this.graphTypeFilter,
       !includeLinkedPages,
+      !!(nodeFilter?.enabled && nodeFilter?.serverRemove),
     );
 
     await this.setGraphData(validatedData);

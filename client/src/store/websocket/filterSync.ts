@@ -85,6 +85,7 @@ function currentFilterSnapshot(): FilterSnapshot | null {
     filterMode: nodeFilter.filterMode,
     includeLinkedPages: nodeFilter.includeLinkedPages,
     serverRemove: nodeFilter.serverRemove ?? false,
+    maxNodes: nodeFilter.maxNodes ?? 0,
   };
 }
 
@@ -98,7 +99,8 @@ function sameSnapshot(a: FilterSnapshot | null, b: FilterSnapshot): boolean {
     a.filterByAuthority === b.filterByAuthority &&
     a.filterMode === b.filterMode &&
     a.includeLinkedPages === b.includeLinkedPages &&
-    a.serverRemove === b.serverRemove
+    a.serverRemove === b.serverRemove &&
+    a.maxNodes === b.maxNodes
   );
 }
 
