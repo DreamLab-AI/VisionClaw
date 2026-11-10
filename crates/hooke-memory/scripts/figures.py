@@ -33,7 +33,7 @@ rows = [("Model alone, no documents", 49.5, "neural"), ("Learned verifier over e
         ("8B model, all records in prompt, reasoning", think, "pooled"),
         ("Records split between two owners, composed one fact at a time", p13, "vouch")]
 col = {"neural": ORANGE, "pooled": INK2, "vouch": BLUE}
-fig, ax = plt.subplots(figsize=(7.2, 2.9))
+fig, ax = plt.subplots(figsize=(7.2, 3.2))
 y = range(len(rows))[::-1]
 for yi, (lab, v, g) in zip(y, rows):
     ax.barh(yi, v, height=0.6, color=col[g], edgecolor=SURF, linewidth=2)
@@ -43,7 +43,7 @@ ax.axvline(50, color=INK2, lw=0.8, ls=(0, (3, 3))); ax.text(50.5, len(rows) - 0.
 ax.set_xlim(0, 112); ax.set_xlabel("Two-step claims decided correctly (%)"); ax.grid(axis="x", color=GRID, lw=0.6); ax.set_axisbelow(True)
 from matplotlib.patches import Patch
 ax.legend(handles=[Patch(color=ORANGE, label="End-to-end neural"), Patch(color=INK2, label="Needs every record in one place"),
-                   Patch(color=BLUE, label="Composed across owners (clean records)")], loc="lower right", fontsize=7, frameon=False)
+                   Patch(color=BLUE, label="Across owners, clean records")], loc="upper center", bbox_to_anchor=(0.2, -0.22), ncol=3, fontsize=7, frameon=False)
 fig.tight_layout(); fig.savefig(OUT / "fig1-ladder.pdf"); fig.savefig(OUT / "fig1-ladder.png"); plt.close(fig)
 
 # Figure 2: acquisition from free text: true claims confirmed, by extractor and text
@@ -62,12 +62,12 @@ for ax, (title, data, rl) in zip(axes, (("Generated text (structure gives answer
     xs = []
     for i, (name, c) in enumerate(series):
         if name in data:
-            v = data[name][1]; ax.bar(i, v, width=0.6, color=c, edgecolor=SURF, linewidth=2); ax.text(i, v + 1.5, f"{v:.1f}", ha="center", fontsize=8, color=INK)
+            v = data[name][1]; ax.bar(i, v, width=0.6, color=c, edgecolor=SURF, linewidth=2); ax.text(i, v - 7, f"{v:.1f}", ha="center", fontsize=8, color="white", fontweight="bold")
         else:
             ax.text(i, 3, "not run", ha="center", fontsize=7, color=INK2)
-    ax.axhline(rl[1], color=INK, lw=1, ls=(0, (2, 2))); ax.text(2.45, rl[1] + 1.5, f"no-learning rule {rl[1]:.0f}", ha="right", fontsize=7, color=INK)
+    ax.axhline(rl[1], color=INK, lw=1, ls=(0, (2, 2))); ax.text(-0.45, rl[1] + 2, f"no-learning rule {rl[1]:.0f}", ha="left", fontsize=7, color=INK)
     ax.set_xticks(range(3)); ax.set_xticklabels(["8B\nprompted", "8B\nreasoning", "0.6B\ntrained"], fontsize=8)
-    ax.set_title(title, fontsize=8, color=INK); ax.set_ylim(0, 110); ax.grid(axis="y", color=GRID, lw=0.6); ax.set_axisbelow(True)
+    ax.set_title(title, fontsize=8, color=INK); ax.set_ylim(0, 112); ax.grid(axis="y", color=GRID, lw=0.6); ax.set_axisbelow(True)
 axes[0].set_ylabel("Fact recall (%)")
 fig.tight_layout(); fig.savefig(OUT / "fig2-acquisition.pdf"); fig.savefig(OUT / "fig2-acquisition.png"); plt.close(fig)
 
@@ -77,12 +77,12 @@ cost = {k: (0.6 if k.startswith("0.6") else 8.0) * (v["prompt_tokens"] + v["gene
 tf = R / "p15/p15-think.jsonl.tokens.json"
 if tf.exists():
     v = json.loads(tf.read_text()); cost["8B with reasoning"] = 8.0 * (v["prompt_tokens"] + v["generated_tokens"]) / v["paragraphs"]
-fig, ax = plt.subplots(figsize=(4.6, 2.6))
+fig, ax = plt.subplots(figsize=(5.6, 2.6))
 for name, c in series:
     if name in cost:
         ax.scatter(cost[name], gen[name][1], s=60, color=c, edgecolor=SURF, linewidth=2, zorder=3)
         ax.annotate(f"{name}\n{cost[name]:,.0f} B-param·tokens", (cost[name], gen[name][1]), textcoords="offset points", xytext=(6, -14), fontsize=7, color=INK)
-ax.set_xscale("log"); ax.set_xlabel("Computation per paragraph (billion parameters × tokens, log)"); ax.set_ylabel("Fact recall (%)")
+ax.set_xscale("log"); ax.set_xlim(80, 60000); ax.set_xlabel("Computation per paragraph (billion parameters × tokens, log)"); ax.set_ylabel("Fact recall (%)")
 ax.set_ylim(70, 103); ax.grid(color=GRID, lw=0.6); ax.set_axisbelow(True)
 fig.tight_layout(); fig.savefig(OUT / "fig3-computation.pdf"); fig.savefig(OUT / "fig3-computation.png"); plt.close(fig)
 json.dump({"cost_per_paragraph": cost, "generated": gen, "hard": hard, "rule": rule}, open(OUT / "figures-data.json", "w"), indent=1)
