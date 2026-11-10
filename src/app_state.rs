@@ -350,8 +350,6 @@ pub struct AppState {
     pub debug_enabled: bool,
     pub client_message_tx: mpsc::UnboundedSender<ClientMessage>,
     pub client_message_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<ClientMessage>>>,
-    pub ontology_pipeline_service:
-        Option<Arc<crate::services::ontology_pipeline_service::OntologyPipelineService>>,
     /// Health degradation reason. `None` means healthy; `Some(reason)` means degraded.
     /// Uses `std::sync::RwLock` (not tokio) so it can be read synchronously in health checks.
     pub degraded_reason: Arc<std::sync::RwLock<Option<String>>>,
@@ -520,19 +518,6 @@ impl AppState {
 
         info!("[AppState::new] Oxigraph + SQLite repositories initialized successfully");
         info!("[AppState::new] Database and settings service initialized successfully");
-
-        // Create ontology pipeline service with semantic physics
-        info!("[AppState::new] Creating ontology pipeline service");
-        let mut pipeline_service =
-            crate::services::ontology_pipeline_service::OntologyPipelineService::new(
-                crate::services::ontology_pipeline_service::SemanticPhysicsConfig::default(),
-            );
-
-        // CRITICAL: Set graph repository for IRI → node ID resolution (Oxigraph, ADR-11)
-        pipeline_service.set_graph_repository(graph_adapter.clone()
-            as Arc<dyn crate::ports::knowledge_graph_repository::KnowledgeGraphRepository>);
-
-        let ontology_pipeline_service = Some(Arc::new(pipeline_service));
 
         info!("[AppState::new] Initializing GitHubSyncService for data ingestion");
 
@@ -1385,7 +1370,6 @@ impl AppState {
             debug_enabled,
             client_message_tx,
             client_message_rx: Arc::new(tokio::sync::Mutex::new(client_message_rx)),
-            ontology_pipeline_service,
             degraded_reason: Arc::new(std::sync::RwLock::new(None)),
             node_analytics,
         };
@@ -1518,15 +1502,6 @@ impl AppState {
             present: self.nostr_service.is_some(),
             severity: Severity::Info,
             reason: "Set later via set_nostr_service()".to_string(),
-        });
-
-        // Ontology pipeline service
-        report.add(ValidationItem {
-            name: "OntologyPipelineService".to_string(),
-            expected: true,
-            present: self.ontology_pipeline_service.is_some(),
-            severity: Severity::Warning,
-            reason: "Required for semantic physics".to_string(),
         });
 
         report

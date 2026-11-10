@@ -49,7 +49,6 @@ pub mod ontology_enrichment_service;
 #[cfg(feature = "solid-pod-embed")]
 pub mod ontology_generation;
 pub mod ontology_mutation_service;
-pub mod ontology_pipeline_service;
 #[cfg(feature = "solid-pod-embed")]
 pub mod ontology_pull;
 pub mod ontology_query_service;

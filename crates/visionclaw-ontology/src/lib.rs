@@ -19,7 +19,6 @@
 //! ## What stays in webxr (needs actors / GPU / config)
 //! - `services::ontology_query_service`     — needs WhelkInferenceEngine (adapters) + schema_service
 //! - `services::ontology_mutation_service`  — needs file_service, github_pr_service
-//! - `services::ontology_pipeline_service` — needs actors
 //! - `services::ontology_enrichment_service` — needs ontology_reasoner
 //! - `services::ontology_reasoner`          — needs adapters
 //! - `services::schema_service`             — needs crate::models (not in domain yet)

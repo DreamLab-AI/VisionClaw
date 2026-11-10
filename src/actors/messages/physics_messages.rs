@@ -429,10 +429,26 @@ pub struct SetRelationshipTable {
 #[rtype(result = "Result<(), String>")]
 pub struct RecalculateHierarchy;
 
-#[derive(Message, Debug, Clone, Serialize, Deserialize)]
+/// Apply the stored ontology-constraint policy (ADR-2192): `physics.ontologyConstraintsEnabled`
+/// and `physics.ontologyConstraintStrength`. Sent by the physics write path and at every
+/// physics-supervisor (re)start; routed GPUManagerActor -> PhysicsSupervisor ->
+/// OntologyConstraintActor. Off empties the live constraint buffer, so the GPU holds none; on
+/// rebuilds it from the retained unscaled set at `strength`, without re-reasoning.
+#[derive(Message, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[rtype(result = "Result<serde_json::Value, String>")]
-pub struct AdjustConstraintWeights {
-    pub global_strength: f32,
+pub struct SetOntologyConstraintPolicy {
+    pub enabled: bool,
+    pub strength: f32,
+}
+
+impl SetOntologyConstraintPolicy {
+    /// The policy a stored physics document holds.
+    pub fn from_physics(physics: &crate::config::PhysicsSettings) -> Self {
+        Self {
+            enabled: physics.ontology_constraints_enabled,
+            strength: physics.ontology_constraint_strength,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

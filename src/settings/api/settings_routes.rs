@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use crate::actors::messages::{
     BroadcastMessage, ConfigureStream, ForceResumePhysics, GetSettings, ResetPositions,
-    SetComputeMode, UpdateClusteringParams, UpdateConstraints, UpdateSettings,
-    UpdateSimulationParams,
+    SetComputeMode, SetOntologyConstraintPolicy, UpdateClusteringParams, UpdateConstraints,
+    UpdateSettings, UpdateSimulationParams,
 };
 use crate::adapters::SqliteSettingsRepository;
 use crate::config::{PhysicsSettings, RenderingSettings};
@@ -294,6 +294,13 @@ pub fn validate_physics_settings(settings: &PhysicsSettings) -> Result<(), Strin
         bounds::STREAM_ACK_TIMEOUT_MS.1,
         &mut errors,
     );
+    check_range(
+        settings.ontology_constraint_strength,
+        "ontology_constraint_strength",
+        bounds::ONTOLOGY_CONSTRAINT_STRENGTH.0,
+        bounds::ONTOLOGY_CONSTRAINT_STRENGTH.1,
+        &mut errors,
+    );
 
     // All other f32 fields: reject NaN/Infinity
     check_finite(settings.separation_radius, "separation_radius", &mut errors);
@@ -408,15 +415,6 @@ pub fn validate_node_filter_settings(settings: &NodeFilterSettings) -> Result<()
 pub fn validate_quality_gate_settings(settings: &QualityGateSettings) -> Result<(), String> {
     let mut errors = Vec::new();
 
-    if !settings.ontology_strength.is_finite()
-        || settings.ontology_strength < 0.0
-        || settings.ontology_strength > 1.0
-    {
-        errors.push(format!(
-            "ontology_strength must be between 0.0 and 1.0 (got {})",
-            settings.ontology_strength
-        ));
-    }
     let valid_modes = visionclaw_domain::types::layout::QUALITY_GATE_LAYOUT_MODES;
     if !valid_modes.contains(&settings.layout_mode.as_str()) {
         errors.push(format!(
@@ -610,6 +608,32 @@ pub async fn update_physics_settings(
     }
 }
 
+/// Send the stored ontology-constraint policy (ADR-2192) to the constraint actor when it differs
+/// from `previous`. Failure is logged, not returned: the store already holds the value, and the
+/// physics supervisor re-sends it at its next (re)start.
+async fn push_ontology_constraint_policy_if_changed(
+    state: &web::Data<AppState>,
+    previous: SetOntologyConstraintPolicy,
+    physics: &PhysicsSettings,
+) {
+    let policy = SetOntologyConstraintPolicy::from_physics(physics);
+    if policy == previous {
+        return;
+    }
+    let Some(ref gpu_manager) = state.gpu_manager_addr else {
+        warn!("Ontology-constraint policy stored but no GPU manager to apply it");
+        return;
+    };
+    match gpu_manager.send(policy).await {
+        Ok(Ok(applied)) => info!("Ontology-constraint policy applied: {}", applied),
+        Ok(Err(e)) => warn!("Ontology-constraint policy not applied: {}", e),
+        Err(e) => warn!(
+            "Ontology-constraint policy: GPU manager mailbox error: {}",
+            e
+        ),
+    }
+}
+
 /// The one physics write path (ADR-2140 decision 3): deep-merge `patch` onto the stored
 /// document, validate it with the central validators, write the store, push the result to the
 /// GPU actors, persist to SQLite and tell other sessions. `PUT /api/settings/physics` and every
@@ -646,6 +670,7 @@ pub(crate) async fn apply_physics_patch(
 
     // Merge partial patch onto current physics from the same snapshot
     let current_physics = &full_settings.visualisation.graphs.knowledge.physics;
+    let previous_policy = SetOntologyConstraintPolicy::from_physics(current_physics);
     let current_json = serde_json::to_value(current_physics).unwrap_or_default();
 
     let new_physics = match merge_physics_patch(current_json, patch) {
@@ -756,6 +781,10 @@ pub(crate) async fn apply_physics_patch(
             state
                 .client_manager_addr
                 .do_send(stream_settings_message(&new_physics));
+            // The ontology-constraint policy (ADR-2192) is not a SimParams field either: it goes
+            // to the constraint actor, and only when it changed, because each application
+            // re-uploads the whole constraint set and restarts its ramp-in.
+            push_ontology_constraint_policy_if_changed(state, previous_policy, &new_physics).await;
 
             info!("Sending UpdateSimulationParams to GraphServiceSupervisor");
             if let Err(e) = state.graph_service_addr.send(update_msg).await {
@@ -1290,8 +1319,13 @@ pub async fn update_quality_gate_settings(
     }
 
     info!(
-        "User {} updated quality gate settings: gpu={}, ontology={}, layout={}",
-        auth.pubkey, settings.gpu_acceleration, settings.ontology_physics, settings.layout_mode
+        "User {} updated quality gate settings: gpu={}, reasoning={}, domain_roots={}, inferred_edges={}, layout={}",
+        auth.pubkey,
+        settings.gpu_acceleration,
+        settings.ontology_reasoning,
+        settings.materialise_domain_roots,
+        settings.materialise_inferred_edges,
+        settings.layout_mode
     );
 
     // ADR-2140: the layout mode is `physics.layoutMode`. A client that still names it here (the
@@ -1383,19 +1417,9 @@ pub async fn update_quality_gate_settings(
                 settings.layout_mode
             );
 
-            // Ontology constraint weights follow the quality gate's ontology strength. (The
-            // semantic-force parameters are NOT propagated from here any more: they are the
-            // central physics settings' `semantic` group, applied by the physics PUT.)
-            if settings.ontology_physics {
-                if let Some(ref gpu_manager) = state.gpu_manager_addr {
-                    let weight_msg = crate::actors::messages::AdjustConstraintWeights {
-                        global_strength: settings.ontology_strength,
-                    };
-                    if let Err(e) = gpu_manager.send(weight_msg).await {
-                        warn!("Quality gates: failed to propagate ontology weights: {}", e);
-                    }
-                }
-            }
+            // The ontology constraints are not a quality gate any more: they are the stored
+            // physics keys `ontologyConstraintsEnabled` / `ontologyConstraintStrength`
+            // (ADR-2192), applied by the physics write path.
         }
         Ok(Err(e)) => {
             warn!(
@@ -1850,7 +1874,15 @@ pub async fn reset_layout(
     // (natural fully-3D layout by default; dual-disc is opt-in). The layout mode is not a
     // tuning value: a reset re-settles in the mode that is active, as it did when the
     // compute actor held the mode itself (ADR-2140).
-    let reset_physics = reset_document_for(stored_physics(&state).await.as_ref());
+    let stored_before = stored_physics(&state).await;
+    let reset_physics = reset_document_for(stored_before.as_ref());
+    // A reset restores the ontology-constraint policy to its defaults too (ADR-2192).
+    let previous_policy = SetOntologyConstraintPolicy::from_physics(
+        stored_before
+            .as_ref()
+            .unwrap_or(&PhysicsSettings::default()),
+    );
+    push_ontology_constraint_policy_if_changed(&state, previous_policy, &reset_physics).await;
     let sim_params: crate::models::simulation_params::SimulationParams = (&reset_physics).into();
     info!(
         "Reset physics from canonical default (axis_compression_z={}, enable_dual_disc_layout={}, repel_k={}, center_gravity_k={})",

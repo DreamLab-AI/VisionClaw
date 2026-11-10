@@ -201,6 +201,72 @@ fn build_node_from_entity(
     node
 }
 
+/// The operator's sync-time switches (ADR-2192), stored in the quality gates
+/// and read each time a sync (or the start-up reasoning load) runs, so a change
+/// applies at the next sync or restart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SyncSwitches {
+    /// `qualityGates.ontologyReasoning`: run Whelk at start-up and after sync.
+    pub ontology_reasoning: bool,
+    /// `qualityGates.materialiseDomainRoots`: keep the domain root nodes.
+    pub materialise_domain_roots: bool,
+    /// `qualityGates.materialiseInferredEdges`: write inferred SubClassOf edges.
+    pub materialise_inferred_edges: bool,
+}
+
+impl Default for SyncSwitches {
+    /// Everything on: what the sync did before the switches existed.
+    fn default() -> Self {
+        Self {
+            ontology_reasoning: true,
+            materialise_domain_roots: true,
+            materialise_inferred_edges: true,
+        }
+    }
+}
+
+impl SyncSwitches {
+    /// Read the switches from a stored quality-gate document, key by key. A
+    /// missing key, or no document, reads as on (the default). Each key is read
+    /// on its own, so an unrelated field that no longer parses can never turn a
+    /// stored `false` back on.
+    pub fn from_quality_gates(gates: Option<&serde_json::Value>) -> Self {
+        let flag = |key: &str| {
+            gates
+                .and_then(|g| g.get(key))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(true)
+        };
+        Self {
+            ontology_reasoning: flag("ontologyReasoning"),
+            materialise_domain_roots: flag("materialiseDomainRoots"),
+            materialise_inferred_edges: flag("materialiseInferredEdges"),
+        }
+    }
+
+    /// Whether inferred edges are written this sync: they need the reasoner's
+    /// closure, so reasoning off means none, whatever the edge switch says.
+    pub fn writes_inferred_edges(&self) -> bool {
+        self.ontology_reasoning && self.materialise_inferred_edges
+    }
+}
+
+/// Ids of the stored edges the reasoner materialised (`inferred:true`), which a
+/// sync removes when it is not writing inferred edges (ADR-2192).
+pub(crate) fn stored_inferred_edge_ids(
+    graph: &visionclaw_domain::models::graph::GraphData,
+) -> Vec<String> {
+    let mut ids: Vec<String> = graph
+        .edges
+        .iter()
+        .filter(|e| mat::edge_is_inferred(e))
+        .map(|e| e.id.clone())
+        .collect();
+    ids.sort_unstable();
+    ids.dedup();
+    ids
+}
+
 /// What one [`GitHubSyncService::reason_into_shared`] run produced, for the
 /// post-sync tail that persists it and materialises edges.
 pub struct SharedReasoning {
@@ -260,6 +326,16 @@ impl GitHubSyncService {
         if self.gpu_manager_addr.set(addr).is_err() {
             debug!("GitHubSyncService: GPUManagerActor address already set; ignoring");
         }
+    }
+
+    /// The stored sync-time switches (ADR-2192). Read from the global settings
+    /// layer: a background sync has no owner scope, and the quality-gate PUT
+    /// writes the global row.
+    pub async fn sync_switches(&self) -> SyncSwitches {
+        let gates =
+            crate::actors::gpu::physics_restore::load_quality_gates_json(self.sync_db.as_ref())
+                .await;
+        SyncSwitches::from_quality_gates(gates.as_ref())
     }
 
     /// Synchronize graphs from GitHub — processes in batches with progress logging.
@@ -628,8 +704,16 @@ impl GitHubSyncService {
             }
         }
 
-        // Reconcile domain root nodes and their `domain_member` spokes.
-        match self.materialise_domain_roots(&mut stats).await {
+        // The operator's sync-time switches (ADR-2192), read once per sync.
+        let switches = self.sync_switches().await;
+        info!("Sync switches: {:?}", switches);
+
+        // Reconcile domain root nodes and their `domain_member` spokes (purged
+        // when the switch is off).
+        match self
+            .materialise_domain_roots(&mut stats, switches.materialise_domain_roots)
+            .await
+        {
             Ok(n) => info!("Materialised {} domain root nodes with edges", n),
             Err(e) => {
                 warn!("Domain root materialisation failed (non-fatal): {}", e);
@@ -671,7 +755,7 @@ impl GitHubSyncService {
         }
 
         // Post-sync: run Whelk EL++ reasoning over the full ontology graph.
-        match self.run_post_sync_reasoning(&mut stats).await {
+        match self.run_post_sync_reasoning(&mut stats, switches).await {
             Ok(inferred) => info!("Post-sync reasoning produced {} inferred edges", inferred),
             Err(e) => {
                 warn!("Post-sync reasoning failed (non-fatal): {}", e);
@@ -904,14 +988,18 @@ impl GitHubSyncService {
 
     /// Create navigation root nodes for the eight NarrativeGoldmine domains and
     /// hierarchical edges from each node whose `group` matches a domain.
-    async fn materialise_domain_roots(&self, stats: &mut SyncStatistics) -> Result<usize, String> {
+    async fn materialise_domain_roots(
+        &self,
+        stats: &mut SyncStatistics,
+        enabled: bool,
+    ) -> Result<usize, String> {
         let graph = self
             .kg_repo
             .load_graph()
             .await
             .map_err(|e| format!("load_graph: {}", e))?;
 
-        let plan = plan_domain_roots(&graph);
+        let plan = plan_domain_roots(&graph, enabled);
         if plan.is_noop() {
             return Ok(plan.live_roots);
         }
@@ -1201,7 +1289,8 @@ impl GitHubSyncService {
     /// (`immediate_parents_from_subclass_pairs`), asserted-pair suppression plus the
     /// per-child cap (`select_inferred_edges`), and edge construction with the
     /// `inferred` provenance tag (`build_inferred_edge`). Nothing here re-implements
-    /// those rules, so the sync path and `OntologyPipelineService` cannot drift.
+    /// those rules: the sync is their only caller (the never-called
+    /// `OntologyPipelineService` copy was deleted by ADR-2192).
     ///
     /// `resolve` maps a class IRI to a node id (the `IriNodeResolver` in production);
     /// `asserted` is the current graph's node-pair set in BOTH directions.
@@ -1352,6 +1441,12 @@ impl GitHubSyncService {
     /// inference before the first sync completes. Run ahead of the boot sync on
     /// the same task, so it can never overwrite the closure that sync computes.
     pub async fn load_shared_inference(&self) -> Result<usize, String> {
+        if !self.sync_switches().await.ontology_reasoning {
+            info!(
+                "Startup Whelk load skipped: ontology reasoning is off (qualityGates.ontologyReasoning)"
+            );
+            return Ok(0);
+        }
         let started = Instant::now();
         let run = Self::reason_into_shared(self.onto_repo.as_ref(), &self.inference_engine).await?;
         info!(
@@ -1367,8 +1462,23 @@ impl GitHubSyncService {
     /// Loads OWL classes + axioms from Oxigraph, adds the NarrativeGoldmine
     /// property hierarchy, runs inference, stores results, and creates
     /// inferred edges in the knowledge graph.
-    async fn run_post_sync_reasoning(&self, stats: &mut SyncStatistics) -> Result<usize, String> {
+    ///
+    /// With `qualityGates.ontologyReasoning` off (ADR-2192) Whelk does not run:
+    /// stored inferred edges are removed and only the asserted axioms are
+    /// dispatched as layout constraints.
+    async fn run_post_sync_reasoning(
+        &self,
+        stats: &mut SyncStatistics,
+        switches: SyncSwitches,
+    ) -> Result<usize, String> {
         let reasoning_start = Instant::now();
+
+        if !switches.ontology_reasoning {
+            info!("Post-sync reasoning skipped: ontology reasoning is off (qualityGates.ontologyReasoning)");
+            self.purge_inferred_edges(stats).await;
+            self.dispatch_asserted_constraints_only().await;
+            return Ok(0);
+        }
 
         let SharedReasoning {
             class_count,
@@ -1433,7 +1543,13 @@ impl GitHubSyncService {
         );
 
         let mut inferred_edge_count = 0;
-        if !inferred_edges.is_empty() {
+        if !switches.writes_inferred_edges() {
+            info!(
+                "Inferred-edge materialisation is off (qualityGates.materialiseInferredEdges): {} selected edges not written",
+                inferred_edges.len()
+            );
+            self.purge_inferred_edges(stats).await;
+        } else if !inferred_edges.is_empty() {
             info!(
                 "Creating {} inferred edges (ADR-2071 shared selection: {} SubClassOf axioms → {} immediate parent pairs, capped at {} parents per child, asserted pairs suppressed)",
                 inferred_edges.len(),
@@ -1499,6 +1615,61 @@ impl GitHubSyncService {
             inferred_edge_count
         );
         Ok(inferred_edge_count)
+    }
+
+    /// Remove the stored `inferred:true` edges (ADR-2192): run when a sync is
+    /// not writing inferred edges, so switching them off also clears the ones
+    /// an earlier sync wrote. Non-fatal.
+    async fn purge_inferred_edges(&self, stats: &mut SyncStatistics) {
+        let graph = match self.kg_repo.load_graph().await {
+            Ok(g) => g,
+            Err(e) => {
+                warn!("Inferred-edge purge: load_graph failed (non-fatal): {}", e);
+                return;
+            }
+        };
+        let ids = stored_inferred_edge_ids(&graph);
+        if ids.is_empty() {
+            return;
+        }
+        let n = ids.len();
+        match self.kg_repo.batch_remove_edges(ids).await {
+            Ok(()) => {
+                info!("Removed {} stored inferred edges", n);
+                stats.total_edges = stats.total_edges.saturating_sub(n);
+            }
+            Err(e) => {
+                warn!("Inferred-edge purge failed (non-fatal): {}", e);
+                stats.errors.push(format!("inferred_edge_purge: {}", e));
+            }
+        }
+    }
+
+    /// With reasoning off, the asserted axioms (subClassOf, disjointWith,
+    /// equivalentClass as written) still map to layout constraints; only the
+    /// inferred closure is missing (ADR-2192).
+    async fn dispatch_asserted_constraints_only(&self) {
+        let mut asserted = match self.onto_repo.get_axioms().await {
+            Ok(a) => a,
+            Err(e) => {
+                warn!(
+                    "Asserted-only constraint dispatch: get_axioms failed: {}",
+                    e
+                );
+                return;
+            }
+        };
+        asserted.extend(Self::ngm_property_hierarchy_axioms());
+        match self.kg_repo.load_graph().await {
+            Ok(graph) => {
+                self.dispatch_semantic_constraints(asserted, Vec::new(), (*graph).clone())
+                    .await
+            }
+            Err(e) => warn!(
+                "Asserted-only constraint dispatch: load_graph failed: {}",
+                e
+            ),
+        }
     }
 
     /// PRD-018 WS-3 / ADR-098 D1 — map materialised OWL axioms (asserted +
@@ -2423,8 +2594,13 @@ impl DomainRootPlan {
 /// Membership is a node's `group`; roots are never members, not even of
 /// their own domain (a root's `group` is its slug, which is how every
 /// pre-2-Oct root became a member of the next process's root).
+///
+/// `enabled` is the stored `qualityGates.materialiseDomainRoots` (ADR-2192).
+/// Off, no domain is live, so every stored root is stale: the plan removes the
+/// roots and every edge on them, and writes nothing.
 pub(crate) fn plan_domain_roots(
     graph: &visionclaw_domain::models::graph::GraphData,
+    enabled: bool,
 ) -> DomainRootPlan {
     use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -2451,6 +2627,9 @@ pub(crate) fn plan_domain_roots(
     // live root id -> the members its spokes must reach
     let mut live: HashMap<u32, &BTreeSet<u32>> = HashMap::new();
     for &(slug, label) in vault_core::domains::DOMAIN_ROOTS {
+        if !enabled {
+            break;
+        }
         let Some(m) = members.get(slug).filter(|m| !m.is_empty()) else {
             continue;
         };
@@ -2754,6 +2933,38 @@ mod domain_root_plan_tests {
         g
     }
 
+    /// ADR-2192: with `materialiseDomainRoots` off, a graph that has a live
+    /// root and its spokes reconciles to none: the root and every edge on it
+    /// go, nothing is written, and the next plan is a no-op.
+    #[test]
+    fn switched_off_domain_roots_are_purged_with_their_spokes() {
+        let mut g = GraphData::new();
+        g.nodes.extend([page(1), page(2)]);
+        let g = apply(g.clone(), &plan_domain_roots(&g, true));
+        let root_id = domain_root_node(SLUG, "Infrastructure").id;
+        assert!(g.nodes.iter().any(|n| n.id == root_id), "on: root written");
+        assert_eq!(
+            g.edges.iter().filter(|e| e.source == root_id).count(),
+            2,
+            "on: one spoke per member"
+        );
+
+        let off = plan_domain_roots(&g, false);
+        assert_eq!(off.live_roots, 0);
+        assert!(off.roots_to_write.is_empty() && off.edges_to_add.is_empty());
+        assert_eq!(off.nodes_to_remove, vec![root_id]);
+        let g = apply(g, &off);
+        assert!(g.nodes.iter().all(|n| n.id != root_id), "off: root purged");
+        assert!(
+            g.edges
+                .iter()
+                .all(|e| e.source != root_id && e.target != root_id),
+            "off: spokes purged"
+        );
+        assert!(plan_domain_roots(&g, false).is_noop(), "off is stable");
+        assert_eq!(g.nodes.len(), 2, "members untouched");
+    }
+
     /// ADR-2021: minting goes through `uri::ngm`, and the persisted bytes are
     /// exactly what the pre-typed `format!` sites wrote.
     #[test]
@@ -2808,7 +3019,7 @@ mod domain_root_plan_tests {
     #[test]
     fn a_fresh_graph_gets_one_root_and_its_spokes() {
         let g = graph(vec![page(10), page(11)], vec![]);
-        let plan = plan_domain_roots(&g);
+        let plan = plan_domain_roots(&g, true);
         assert_eq!(plan.live_roots, 1);
         assert_invariant(&apply(g, &plan), &[10, 11]);
     }
@@ -2816,9 +3027,9 @@ mod domain_root_plan_tests {
     #[test]
     fn a_reconciled_graph_plans_nothing() {
         let g = graph(vec![page(10), page(11)], vec![]);
-        let g = apply(g.clone(), &plan_domain_roots(&g));
+        let g = apply(g.clone(), &plan_domain_roots(&g, true));
         assert!(
-            plan_domain_roots(&g).is_noop(),
+            plan_domain_roots(&g, true).is_noop(),
             "a second sync writes nothing"
         );
     }
@@ -2839,7 +3050,7 @@ mod domain_root_plan_tests {
             vec![page(10), page(11), legacy_root(937), legacy_root(1)],
             edges,
         );
-        let plan = plan_domain_roots(&g);
+        let plan = plan_domain_roots(&g, true);
         assert_eq!(plan.edges_to_remove.len(), 5);
         let mut purged = plan.nodes_to_remove.clone();
         purged.sort_unstable();
@@ -2859,7 +3070,7 @@ mod domain_root_plan_tests {
                 loaded(root, 11, DOMAIN_MEMBER_EDGE_TYPE),
             ],
         );
-        let plan = plan_domain_roots(&g);
+        let plan = plan_domain_roots(&g, true);
         assert!(
             plan.roots_to_write.is_empty(),
             "an unchanged root is not rewritten"
@@ -2879,7 +3090,7 @@ mod domain_root_plan_tests {
             vec![page(10), domain_root_node(SLUG, "Infrastructure")],
             vec![good, bad],
         );
-        let plan = plan_domain_roots(&g);
+        let plan = plan_domain_roots(&g, true);
         assert_eq!(plan.edges_to_add.len(), 1, "the kept copy is re-added");
         assert_invariant(&apply(g, &plan), &[10]);
     }
@@ -2899,7 +3110,7 @@ mod domain_root_plan_tests {
                 typed.clone(),
             ],
         );
-        let plan = plan_domain_roots(&g);
+        let plan = plan_domain_roots(&g, true);
         assert_eq!(
             plan.edges_to_remove,
             vec![loaded(root, 12, DOMAIN_MEMBER_EDGE_TYPE).id]
@@ -2914,7 +3125,7 @@ mod domain_root_plan_tests {
     fn an_emptied_domain_loses_its_root() {
         let root = domain_root_node_id(SLUG);
         let g = graph(vec![domain_root_node(SLUG, "Infrastructure")], vec![]);
-        let plan = plan_domain_roots(&g);
+        let plan = plan_domain_roots(&g, true);
         assert_eq!(plan.live_roots, 0);
         assert_eq!(plan.nodes_to_remove, vec![root]);
     }
@@ -2929,8 +3140,9 @@ mod domain_root_plan_tests {
 
 #[cfg(test)]
 mod adr_2071_inferred_edge_tests {
-    //! ADR-2071 acceptance evidence — the post-sync Whelk path now shares the
-    //! `inferred_edge_materialiser` selection rules with `OntologyPipelineService`.
+    //! ADR-2071 acceptance evidence — the post-sync Whelk path uses the shared
+    //! `inferred_edge_materialiser` selection rules (the never-called
+    //! `OntologyPipelineService` copy was deleted by ADR-2192).
     //!
     //! [`legacy_select_inferred_edges`] is a verbatim reference copy of the
     //! hand-rolled loop this change deleted from `run_post_sync_reasoning`. It
@@ -3572,6 +3784,70 @@ mod shared_inference_tests {
         assert!(
             shared.read().await.has_closure(),
             "an empty corpus is loaded, not 'not loaded'"
+        );
+    }
+}
+
+/// ADR-2192: the sync-time switches and the inferred-edge purge set.
+#[cfg(test)]
+mod sync_switch_tests {
+    use super::{stored_inferred_edge_ids, SyncSwitches};
+    use crate::services::inferred_edge_materialiser as mat;
+    use visionclaw_domain::models::edge::Edge;
+    use visionclaw_domain::models::graph::GraphData;
+
+    #[test]
+    fn no_document_or_missing_keys_read_as_on() {
+        assert_eq!(
+            SyncSwitches::from_quality_gates(None),
+            SyncSwitches::default()
+        );
+        let old = serde_json::json!({ "gpuAcceleration": true, "ontologyPhysics": false });
+        assert_eq!(
+            SyncSwitches::from_quality_gates(Some(&old)),
+            SyncSwitches::default()
+        );
+        assert!(SyncSwitches::default().writes_inferred_edges());
+    }
+
+    #[test]
+    fn each_stored_false_is_honoured_even_when_other_fields_do_not_parse() {
+        // `minFpsThreshold` is malformed: the switch keys are still read.
+        let gates = serde_json::json!({
+            "minFpsThreshold": "fast",
+            "ontologyReasoning": false,
+            "materialiseDomainRoots": false,
+            "materialiseInferredEdges": true
+        });
+        let s = SyncSwitches::from_quality_gates(Some(&gates));
+        assert!(!s.ontology_reasoning);
+        assert!(!s.materialise_domain_roots);
+        assert!(s.materialise_inferred_edges);
+        assert!(
+            !s.writes_inferred_edges(),
+            "no reasoning, no inferred edges, whatever the edge switch says"
+        );
+        let edges_off = serde_json::json!({ "materialiseInferredEdges": false });
+        let s = SyncSwitches::from_quality_gates(Some(&edges_off));
+        assert!(s.ontology_reasoning && !s.writes_inferred_edges());
+    }
+
+    #[test]
+    fn the_purge_set_is_exactly_the_inferred_edges() {
+        let mut g = GraphData::new();
+        let mut asserted = Edge::new(1, 2, 1.0);
+        asserted.id = "urn:ngm:edge:1:2:a".into();
+        let mut inferred = mat::build_inferred_edge(3, 4);
+        inferred.id = "urn:ngm:edge:3:4:i".into();
+        let mut inferred2 = mat::build_inferred_edge(5, 4);
+        inferred2.id = "urn:ngm:edge:5:4:i".into();
+        g.edges.extend([inferred2, asserted, inferred]);
+        assert_eq!(
+            stored_inferred_edge_ids(&g),
+            vec![
+                "urn:ngm:edge:3:4:i".to_string(),
+                "urn:ngm:edge:5:4:i".to_string()
+            ]
         );
     }
 }

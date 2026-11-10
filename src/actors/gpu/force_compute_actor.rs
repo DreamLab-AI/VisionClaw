@@ -1662,30 +1662,43 @@ impl ForceComputeActor {
         self.constraints_dirty = true;
     }
 
-    /// Upload the cached set to `gpu` if, and only if, the engine does not already hold it.
+    /// Bring `gpu` in line with the cached set: upload it if the engine does not already hold
+    /// it, or clear the engine when a writer replaced the cache with the empty set (the stored
+    /// ontology-constraint policy switched off, ADR-2192). The decision is
+    /// [`constraint_sync_action`]; see it for the cases.
     ///
     /// A step with an unchanged set does no upload work: no clone, no allocation, no
-    /// synchronisation. The set is pending when `constraints_dirty` is set (a writer replaced the
-    /// cache, or the GPU context is new) or when the engine's resident count differs from the
-    /// cache (the engine dropped its constraints, for instance after a failed resize rebuild, or
-    /// another actor replaced them). The count compare is an integer read under the lock the
-    /// caller already holds. Returns whether an upload happened; on `Err` the set stays pending.
-    ///
-    /// An empty cache uploads nothing: clearing the device set belongs to `OntologyConstraintActor`.
+    /// synchronisation. The count compare is an integer read under the lock the caller already
+    /// holds. Returns whether the engine was written; on `Err` the set stays pending.
     pub(crate) fn sync_constraints(
         &mut self,
         gpu: &mut crate::utils::unified_gpu_compute::UnifiedGPUCompute,
     ) -> Result<bool, String> {
-        if self.cached_constraint_buffer.is_empty() {
-            return Ok(false);
+        match constraint_sync_action(
+            self.cached_constraint_buffer.len(),
+            self.constraints_dirty,
+            gpu.num_constraints,
+        ) {
+            ConstraintSyncAction::None => {
+                // An empty, dirty cache over an empty engine has nothing to do: settle it.
+                if self.cached_constraint_buffer.is_empty() {
+                    self.constraints_dirty = false;
+                }
+                Ok(false)
+            }
+            ConstraintSyncAction::Upload => {
+                gpu.set_constraints(self.cached_constraint_buffer.clone())
+                    .map_err(|e| format!("Failed to upload ontology constraints to GPU: {}", e))?;
+                self.constraints_dirty = false;
+                Ok(true)
+            }
+            ConstraintSyncAction::Clear => {
+                gpu.clear_constraints()
+                    .map_err(|e| format!("Failed to clear ontology constraints on GPU: {}", e))?;
+                self.constraints_dirty = false;
+                Ok(true)
+            }
         }
-        if !self.constraints_dirty && gpu.num_constraints == self.cached_constraint_buffer.len() {
-            return Ok(false);
-        }
-        gpu.set_constraints(self.cached_constraint_buffer.clone())
-            .map_err(|e| format!("Failed to upload ontology constraints to GPU: {}", e))?;
-        self.constraints_dirty = false;
-        Ok(true)
     }
 
     /// Apply ontology-derived constraint forces to the physics simulation: before each step,
@@ -1709,8 +1722,8 @@ impl ForceComputeActor {
             }
         };
 
-        // Nothing cached: nothing to upload.
-        if self.cached_constraint_buffer.is_empty() {
+        // Nothing cached and nothing pending: nothing to upload or clear.
+        if self.cached_constraint_buffer.is_empty() && !self.constraints_dirty {
             return Ok(());
         }
 
@@ -1734,6 +1747,47 @@ impl ForceComputeActor {
         }
 
         Ok(())
+    }
+}
+
+/// What [`ForceComputeActor::sync_constraints`] does to the engine before a step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ConstraintSyncAction {
+    /// The engine already holds the cached set (or there is nothing to change).
+    None,
+    /// Upload the cached set.
+    Upload,
+    /// Clear the engine's constraint set.
+    Clear,
+}
+
+/// Decide how to bring the engine in line with the cached constraint set.
+///
+/// - A non-empty cache is uploaded when it is pending (`dirty`: a writer replaced it, or the GPU
+///   context is new) or when the engine's resident count differs (the engine dropped its
+///   constraints, for instance after a failed resize rebuild, or another writer replaced them).
+/// - An empty cache clears the engine only when it is pending and the engine still holds
+///   constraints: a writer explicitly replaced the set with nothing (ADR-2192, the stored policy
+///   switched the ontology constraints off). Before that rule an empty cache uploaded nothing,
+///   so the engine kept, or got back, the old set: the cached copy was re-uploaded whenever the
+///   resident count differed from it.
+/// - An empty cache that is not pending never clears: the actor did not ask for it, and another
+///   writer may own the engine's set.
+pub(crate) fn constraint_sync_action(
+    cached: usize,
+    dirty: bool,
+    resident: usize,
+) -> ConstraintSyncAction {
+    if cached == 0 {
+        if dirty && resident > 0 {
+            ConstraintSyncAction::Clear
+        } else {
+            ConstraintSyncAction::None
+        }
+    } else if dirty || resident != cached {
+        ConstraintSyncAction::Upload
+    } else {
+        ConstraintSyncAction::None
     }
 }
 
@@ -5640,6 +5694,27 @@ mod constraint_schedule_tests {
         [x[node], y[node], z[node]]
     }
 
+    /// ADR-2192, on a device: the stored policy switching the ontology constraints off sends
+    /// the empty set, and the engine must end up holding none; it used to get the old set back
+    /// on the next step, because the cached copy was re-uploaded when the counts differed.
+    #[test]
+    fn a_set_replaced_by_the_empty_set_leaves_the_engine_and_stays_off() {
+        let Some((_c, mut g)) = engine() else { return };
+        let mut actor = ForceComputeActor::headless();
+        let s = settings();
+        actor.replace_constraint_cache(vec![pair(0, 1), pair(2, 3)]);
+        step(&mut actor, &mut g, &s, false);
+        assert_eq!(g.num_constraints, 2);
+        actor.replace_constraint_cache(Vec::new());
+        for _ in 0..10 {
+            step(&mut actor, &mut g, &s, false);
+        }
+        assert_eq!(g.num_constraints, 0, "switched off: the engine holds none");
+        actor.replace_constraint_cache(vec![pair(0, 1), pair(2, 3)]);
+        step(&mut actor, &mut g, &s, false);
+        assert_eq!(g.num_constraints, 2, "switched back on: the set returns");
+    }
+
     #[test]
     fn an_unchanged_set_is_uploaded_once_and_a_change_uploads_once_more() {
         let Some((_c, mut g)) = engine() else { return };
@@ -5757,5 +5832,30 @@ mod constraint_schedule_tests {
                 "bypass={bypass}: constrained node ends {with} from its target, control {without}"
             );
         }
+    }
+}
+
+/// ADR-2192: the per-step constraint decision, without a device.
+#[cfg(test)]
+mod constraint_sync_action_tests {
+    use super::{constraint_sync_action, ConstraintSyncAction as A};
+
+    #[test]
+    fn a_pending_set_or_a_resident_mismatch_uploads_and_a_held_set_does_nothing() {
+        assert_eq!(constraint_sync_action(5, true, 5), A::Upload);
+        assert_eq!(constraint_sync_action(5, false, 0), A::Upload);
+        assert_eq!(constraint_sync_action(5, false, 3), A::Upload);
+        assert_eq!(constraint_sync_action(5, false, 5), A::None);
+    }
+
+    #[test]
+    fn the_empty_set_clears_the_engine_only_when_a_writer_asked_for_it() {
+        // The stored policy switched the constraints off: clear what the engine holds.
+        assert_eq!(constraint_sync_action(0, true, 18_000), A::Clear);
+        // Already clear (a fresh context, or cleared last step): nothing to do.
+        assert_eq!(constraint_sync_action(0, true, 0), A::None);
+        // Nobody asked: never clear a set another writer may own.
+        assert_eq!(constraint_sync_action(0, false, 7), A::None);
+        assert_eq!(constraint_sync_action(0, false, 0), A::None);
     }
 }

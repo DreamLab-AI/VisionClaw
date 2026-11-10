@@ -110,6 +110,23 @@ fn default_constraint_max_force_per_node() -> f32 {
     50.0
 }
 
+/// Default for `ontologyConstraintsEnabled`: on, which is what every deployment did before the
+/// switch existed (the reasoner-derived constraints were always applied).
+pub const ONTOLOGY_CONSTRAINTS_ENABLED_DEFAULT: bool = true;
+
+/// Default for `ontologyConstraintStrength`: 0.6, the strength the constraint actor applied
+/// before the value was stored. Full mapper weight (1.0) collapses the mostly attractive
+/// constraint set into one dense blob; 0.6 keeps the semantic structure visible.
+pub const ONTOLOGY_CONSTRAINT_STRENGTH_DEFAULT: f32 = 0.6;
+
+fn default_ontology_constraints_enabled() -> bool {
+    ONTOLOGY_CONSTRAINTS_ENABLED_DEFAULT
+}
+
+fn default_ontology_constraint_strength() -> f32 {
+    ONTOLOGY_CONSTRAINT_STRENGTH_DEFAULT
+}
+
 fn default_bounds_size() -> f32 {
     1600.0
 }
@@ -395,6 +412,24 @@ pub struct PhysicsSettings {
     )]
     pub constraint_max_force_per_node: f32,
 
+    /// Whether the reasoner-derived ontology constraints (subClassOf attraction, disjointWith
+    /// separation, sameAs colocation) act on the layout (ADR-2192). Off removes them from the
+    /// GPU; on re-applies the set the last sync produced, without re-reasoning. Not a
+    /// `SimParams` field: it reaches the constraint actor, not the kernel parameters.
+    #[serde(
+        alias = "ontology_constraints_enabled",
+        default = "default_ontology_constraints_enabled"
+    )]
+    pub ontology_constraints_enabled: bool,
+    /// Weight multiplier (0..=1) applied to the reasoner-derived constraints when they are on
+    /// (ADR-2192). This is the one stored definition: it replaces the constraint actor's
+    /// compiled-in 0.6 and the retired quality-gate `ontologyStrength`.
+    #[serde(
+        alias = "ontology_constraint_strength",
+        default = "default_ontology_constraint_strength"
+    )]
+    pub ontology_constraint_strength: f32,
+
     #[serde(alias = "clustering_algorithm")]
     pub clustering_algorithm: String,
     #[serde(alias = "cluster_count")]
@@ -581,6 +616,8 @@ impl Default for PhysicsSettings {
 
             constraint_ramp_frames: default_constraint_ramp_frames(),
             constraint_max_force_per_node: default_constraint_max_force_per_node(),
+            ontology_constraints_enabled: default_ontology_constraints_enabled(),
+            ontology_constraint_strength: default_ontology_constraint_strength(),
 
             clustering_algorithm: "leiden".to_string(),
             cluster_count: 5,
@@ -732,6 +769,39 @@ pub struct PhysicsUpdate {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ADR-2192: the two ontology-constraint keys default to what ran before they were stored
+    /// (on, 0.6), round-trip under their camelCase wire names, and a stored row without them
+    /// still loads, taking those defaults, so nobody's saved tuning is wiped at boot.
+    #[test]
+    fn ontology_constraint_keys_default_round_trip_and_load_from_rows_without_them() {
+        let d = PhysicsSettings::default();
+        assert!(d.ontology_constraints_enabled);
+        assert_eq!(d.ontology_constraint_strength, 0.6);
+
+        let mut doc = serde_json::to_value(&d).unwrap();
+        assert_eq!(doc["ontologyConstraintsEnabled"], serde_json::json!(true));
+        doc["ontologyConstraintsEnabled"] = serde_json::json!(false);
+        doc["ontologyConstraintStrength"] = serde_json::json!(0.25);
+        let back: PhysicsSettings = serde_json::from_value(doc.clone()).unwrap();
+        assert!(!back.ontology_constraints_enabled);
+        assert_eq!(back.ontology_constraint_strength, 0.25);
+
+        let obj = doc.as_object_mut().unwrap();
+        obj.remove("ontologyConstraintsEnabled");
+        obj.remove("ontologyConstraintStrength");
+        let old: PhysicsSettings = serde_json::from_value(doc).unwrap();
+        assert_eq!(
+            (
+                old.ontology_constraints_enabled,
+                old.ontology_constraint_strength
+            ),
+            (
+                ONTOLOGY_CONSTRAINTS_ENABLED_DEFAULT,
+                ONTOLOGY_CONSTRAINT_STRENGTH_DEFAULT
+            )
+        );
+    }
 
     /// The stream settings are physics settings with calibrated defaults; a blob persisted before
     /// they existed (it carried `broadcastFps`) still deserialises, taking the defaults.
