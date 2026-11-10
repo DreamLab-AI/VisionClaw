@@ -259,3 +259,147 @@ domains hold 545, 389, 336 and 10 nodes, 1,280 in all.
 split is evaluated once per seed and arm. A smoke run on a small node subsample checks mechanics
 only, and its scores are not read. Nothing is tuned after the scored run. If that run crashes,
 the crash is fixed and everything is rerun, and this file records it.
+
+## Result (appended 2026-11-10, after the single scored run; nothing above was changed)
+
+**Not supported as stated.** Three of the six gates passed (2, 4 and 6). Gates 1, 3 and 5, which
+carry the typed-geometry claim, failed.
+
+*The run.*
+
+| Item | Value |
+|---|---|
+| Code | commit `9219ac099`, on top of deviation D4 (`252606441`) |
+| Corpus | visionGraph `knowledge/` at `d8277151a`: 9,609 nodes, 168,360 triples, 50 relation types |
+| Split | 10,866 test pairs per seed |
+| Seeds | 0 to 4 |
+| Compute | CPU only, 40 threads |
+| Time | 10:56 to 11:10 UTC, 855 s wall clock |
+
+The run happened once, with no crash and no rerun. Raw output is in `results/h1/`: per-seed JSON,
+`summary.json`, `extraction.json` and `run.log`. No M2 negative needed a fallback.
+
+*Table (mean ± sample sd over five seeds; test pairs and triples; positions only).*
+
+| Arm | M1 AUC random | M2 AUC hard | M3 type acc. | M4 domain kNN | M5 recall@10 |
+|---|---|---|---|---|---|
+| B0 uniform | 0.830 ± 0.004 | 0.631 ± 0.008 | 0.223 ± 0.002 | 0.369 ± 0.009 | 0.0003 ± 0.0003 |
+| B1 untyped | 0.918 ± 0.003 | 0.745 ± 0.005 | 0.213 ± 0.003 | 0.489 ± 0.012 | 0.029 ± 0.001 |
+| B2 TransE-3D | 0.739 ± 0.026 | 0.579 ± 0.014 | 0.220 ± 0.003 | 0.260 ± 0.029 | 0.004 ± 0.001 |
+| RF learned | 0.917 ± 0.002 | 0.745 ± 0.004 | 0.213 ± 0.004 | 0.476 ± 0.017 | 0.026 ± 0.001 |
+| RF-sim | 0.596 ± 0.019 | 0.529 ± 0.016 | 0.215 ± 0.018 | 0.257 ± 0.033 | 0.006 ± 0.002 |
+
+M3 chance, which always predicts the training majority type `links`, is 0.224 ± 0.002.
+
+*Gates, on unrounded seed means.*
+
+| Gate | Value | Threshold | Verdict |
+|---|---|---|---|
+| 1. RF − B0, M3 | −0.0096 | ≥ +0.15 | **fail** |
+| 2. RF − B0, M2 | +0.113 | ≥ +0.05 | pass |
+| 3. RF − B1, M3 | +0.0003 | ≥ +0.10 | **fail** |
+| 4. RF − B2, M3 | −0.0066 | ≥ −0.02 | pass |
+| 5. RF-sim − B0, M3 | −0.0074 | ≥ +0.08 | **fail** |
+| 6. RF M5 / B0 M5 | 82.2 | ≥ 0.8 | pass |
+
+*Controls (additions, no pass mark).*
+
+- **Label permutation, M3.**
+
+  | Model | M3 |
+  |---|---|
+  | Permuted-label RF | 0.213 ± 0.003 |
+  | Permuted-label RF-sim | 0.224 ± 0.003 |
+  | Chance | 0.224 ± 0.002 |
+
+  The control is indistinguishable from the real arms. No arm's geometry carried type
+  information above chance, so there was nothing for permutation to destroy.
+- **Degree-preserving rewiring, M2.** Each seed accepted about 1.18 M of 1.35 M swap attempts.
+
+  | Model | M2 |
+  |---|---|
+  | Rewired B0 | 0.580 ± 0.002 |
+  | Rewired RF | 0.668 ± 0.002 |
+  | RF − B0 | +0.088 ± 0.002 |
+
+  That is 78% of the unrewired +0.113. Most of RF's M2 advantage over B0 is therefore not
+  structural. It survives with only node degrees kept, which is consistent with a degree or
+  centrality effect against the uniform-domain negatives. RF's M2 also equals B1's (0.745),
+  so typing adds nothing to it.
+
+*Space-geo-supply slice (descriptive).*
+
+| Arm | M1 | M2 | M3 | M4 |
+|---|---|---|---|---|
+| B0 | 0.509 ± 0.021 | 0.691 ± 0.033 | 0.007 ± 0.007 | 0.593 ± 0.028 |
+| B1 | 0.528 ± 0.019 | 0.645 ± 0.046 | 0.014 ± 0.014 | 0.361 ± 0.029 |
+| B2 | 0.546 ± 0.012 | 0.539 ± 0.019 | 0.047 ± 0.041 | 0.089 ± 0.012 |
+| RF | 0.502 ± 0.007 | 0.639 ± 0.038 | 0.220 ± 0.144 | 0.279 ± 0.035 |
+| RF-sim | 0.628 ± 0.068 | 0.640 ± 0.020 | 0.153 ± 0.169 | 0.655 ± 0.019 |
+
+- Slice M3 chance is 0.007, because `links` is rare inside the slice.
+- RF's slice M3 varies widely across seeds (sd 0.14) on few test triples, and supports no claim.
+- Slice M1 near 0.5 for every arm is expected. Random negatives inside a tight cluster of domains
+  are close by construction.
+
+*What RF learned.*
+
+- **Best validation epoch:** 39 to 45 of 60 (D3: 3 to 5). B1's was 41 to 52.
+- **B2's best epoch was 59 of 60 in every seed.** TransE was still improving when its fixed
+  budget ran out. This is recorded, not corrected.
+- **Rest lengths.** Learned rest lengths differ between well-supported types, but all are tiny:
+
+  | Type | L / m, mean ± sd over seeds |
+  |---|---|
+  | `links` | 0.006 ± 0.000 |
+  | `related-to` | 0.007 |
+  | `is-a` | 0.010 |
+  | `enables` | 0.017 |
+  | `has-part` | 0.022 |
+  | `requires` | 0.023 |
+  | `contrasts-with` | 0.035 |
+  | `bridges-to` | 0.041 |
+  | `part-of` | 0.065 |
+  | `implemented-in-layer` | 0.217 ± 0.018 |
+
+  Here m is RF's own median training-edge length. Each spring therefore acts almost as
+  `κ_r d²` with rest length near zero, which is the B1 law, and RF's metrics match B1's on every
+  measure.
+- **Stiffness.** κ_r separates more, from 0.52 (`bridges-to`) and 0.59 (`is-a`) to 1.43
+  (`contrasts-with`), with a seed sd of about 0.03. `contrasts-with` learned the stiffest pull,
+  not a repulsion.
+- **Axial offsets** are not stable. For every type, h_r / m has a seed sd larger than its mean
+  (for example `is-a` 0.37 ± 0.69, `uses` −0.99 ± 1.19), and μ_r stays small (0.01 to 0.33).
+  The model learned no consistent direction for any relation.
+- **Rare types.** The 35 types with fewer than 100 training triples barely moved from their
+  initial values, and should not be read as learned.
+
+*RF-sim.*
+
+- RF-sim does not keep RF's link signal. Its M1 falls from 0.917 to 0.596.
+- The world mapping in `sim::learned_springs` (median rest length set to 50) puts `links` springs
+  near 18 units and `implemented-in-layer` near 520 to 690 units, beyond the ±400 bounds. The
+  parameters as learned do not transfer to the live force form.
+
+*Post-hoc observation on gate 6 (diagnostic only, no score changed).* B0's M5 of 0.0003 is not
+caused by nodes stuck at the bounds. B0 seed 0 was rerun outside the scoring path:
+
+| B0 seed 0 layout | Value |
+|---|---|
+| Nodes at the bounds | 0 |
+| Distinct positions | 9,609 of 9,609 |
+| Radius, 10th / 50th / 90th percentile | 34 / 62 / 113 |
+| Median edge length | 49.4 |
+| Median distance to the 10th-nearest node | 8.5 |
+
+With the live rest length of 50 on a graph averaging about 28 training neighbours per node,
+springs hold neighbours about 50 apart while non-neighbours pack in closer. Gate 6 passes as
+preregistered, but against a near-zero floor, so it says little about readability.
+
+*Overall.* H1 is **not supported as stated**: gates 2, 4 and 6 passed, gates 1, 3 and 5 failed.
+
+- On this corpus and with these fixed recipes, no arm's final geometry lets the preregistered
+  classifier recover relation type above the majority rate.
+- RF's link-prediction gain over the uniform layout equals that of an untyped learned embedding,
+  and mostly survives degree-preserving rewiring.
+- The learned parameters, loaded into the simulator, do not reproduce RF's geometry.
