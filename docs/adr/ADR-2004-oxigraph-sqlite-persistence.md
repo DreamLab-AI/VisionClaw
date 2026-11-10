@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 4a137acf774507d7f0529ceebedb982c5c87859b
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -297,3 +297,7 @@ Governed-path change since `809a859aa`: `src/app_state.rs` (`57ba04beb`, `f284c2
 - `ontology_inference_engine` (`:301`), one `WhelkInferenceEngine` shared by the sync and the ontology-agent routes.
 
 At start-up it is loaded from the Oxigraph store (`load_shared_inference`, `:573`, non-fatal on failure). Neither field is a store: both hold derived state rebuilt from Oxigraph. No database, persistence backend or `Cargo.toml` dependency changed. **Decision unaffected.** Re-run: `git diff 809a859aa..7bd25427e -- Cargo.toml src/app_state.rs`. Checked by reading that diff; no test was re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`4a137acf7`)
+
+Governed-path changes since `7bd25427e`: `Cargo.toml` (`a6b5f8468`) moves `nostr-bbs-core` from `1.0.0-beta.16` to `1.0.0-beta.19` and the four `solid-pod-rs*` pins from `0.5.0-alpha.17` to `0.5.0-alpha.21`; no other line changes. `src/app_state.rs` is unchanged. `oxigraph = { version = "0.4" }` is now at `Cargo.toml:96`, `default` (still listing `persistence-oxigraph`) at `:273` and `persistence-oxigraph = []` at `:291`. No storage dependency moved. **Decision unaffected.** Re-run: `git diff 7bd25427e..4a137acf7 -- <verified_paths>`. Checked by reading that diff.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 4a137acf774507d7f0529ceebedb982c5c87859b
 verified_paths: [Cargo.toml, Cargo.lock, crates/vault/Cargo.toml, crates/vault/src/main.rs, crates/vault/tests/shared_layout.rs, src/services/corpus_source/local.rs]
 owner: jjohare
 review_trigger: a layout or discovery change, Ontomark dependency upgrade, or producer cutover
@@ -80,3 +80,7 @@ Governed-path change (server consolidation, 2026-11-06, `923feef34..b5200feb4`):
 ## Re-verification — 2026-11-07 (`7bd25427e`)
 
 Governed-path change since `809a859aa`: `crates/vault/src/main.rs` (`a5a265dd4`) lets a grouped `vault propose --dry-run` run without a signing key (`:455-461`, `:520-535`). The shared-layout code is untouched: the `LayoutError` refusal still exits 2 (`crates/vault/src/main.rs:323-329`), and `Layout::default().validate(&root)` (`:364-365`) is unchanged. **Decision unaffected.** Re-run: `git diff 809a859aa..7bd25427e -- <verified_paths>`. Checked by reading that diff; `shared_layout` was not re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`4a137acf7`)
+
+Governed-path changes since `7bd25427e`: `Cargo.toml` (`a6b5f8468`) moves `nostr-bbs-core` from `1.0.0-beta.16` to `1.0.0-beta.19` and the four `solid-pod-rs*` pins from `0.5.0-alpha.17` to `0.5.0-alpha.21`; no other line changes. `crates/vault/Cargo.toml` (`a6b5f8468`) moves `nostr-bbs-core` from `1.0.0-beta.16` to `1.0.0-beta.19`; nothing else changes. `Cargo.lock` follows those pins and has no `ontomark` entry in its diff. `ontomark-compile` stays `0.6.3` with `default-features = false` (`Cargo.toml:44`, `crates/vault/Cargo.toml:28`, lock `0.6.3`), and the `shared-corpus-layout` / `shared-layout` features are unchanged. **Decision unaffected.** Re-run: `git diff 7bd25427e..4a137acf7 -- <verified_paths>`. Checked by reading that diff.

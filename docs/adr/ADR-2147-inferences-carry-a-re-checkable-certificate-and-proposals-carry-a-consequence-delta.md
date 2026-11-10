@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 4a137acf774507d7f0529ceebedb982c5c87859b
 verified_paths: [crates/vault/Cargo.toml, crates/vault-core/Cargo.toml, crates/vault/src/certificate.rs, crates/vault/src/propose.rs, crates/vault/src/main.rs, crates/vault-core/src/proposal.rs, crates/vault/tests/certificate_oo_cert.rs, crates/visionclaw-ontology/shapes/ontology-class.shacl.ttl, crates/visionclaw-ontology/src/services/jsonld_validator/shacl.rs]
 owner: jjohare
 review_trigger: "Activation (staged → live): the `vault certify` step of ontology-publish.yml exiting 0 on a published generation. Review: the emitter putting a restriction or an equivalence on the subclass side of rdfs:subClassOf (Whelk parity would no longer be structural), a new release of the oo-cert checker changing the oo-cert/1 grammar, or `vault certify` exiting 1 on a published generation"
@@ -79,3 +79,7 @@ Governed-path changes since `b5200feb4`:
 - `crates/vault/src/main.rs` (`a5a265dd4`): a grouped `vault propose --dry-run` emits the unsigned group with no key (`:520-533`). Certificates and `consequences` are still built (`propose::build_with_certificates`, `:486`) before that early return. A grouped dry run therefore still carries its consequence delta and still writes `--certificate-dir`. The single-page dry-run example under Verification still needs `--secret` or `VAULT_NOSTR_SECRET` (`:535`).
 
 **Decision and `complete`/`staged` status unaffected.** Re-run: `git diff b5200feb4..7bd25427e -- <verified_paths>`. Checked by reading that diff; the vault tests were not re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`4a137acf7`)
+
+Governed-path changes since `7bd25427e`: `crates/vault/Cargo.toml` (`a6b5f8468`) moves `nostr-bbs-core` from `1.0.0-beta.16` to `1.0.0-beta.19`; nothing else changes. No certificate, proposal, SHACL or test file changed. The engine and checker split is untouched. `cargo test -p vault` passes at this commit as part of the local CPU-crate run. **Decision unaffected.** Re-run: `git diff 7bd25427e..4a137acf7 -- <verified_paths>`. Checked by reading that diff.

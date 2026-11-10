@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
+verified_commit: 4a137acf774507d7f0529ceebedb982c5c87859b
 verified_paths: [Cargo.toml, scripts/rust-backend-wrapper.sh, build.rs]
 owner: jjohare
 review_trigger: a runtime-performance regression traced to the dev-runtime profile, or a move to pre-baked dev binaries (ADR-2008)
@@ -79,3 +79,7 @@ library compile check pass; prior runtime and activation limits remain.
 Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `efbd7f6f0` are additive: `Cargo.toml`: a workspace member and path dependency for `crates/visionclaw-splat`; no profile, feature or other dependency changed. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff efbd7f6f0..5c94c3cbd -- <governed path>`.
 
 Governed-path change (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `Cargo.toml` drops the fastwebsockets/postcard/hyper/hyper-util/http-body-util/http dependencies of the deleted `FastWebSocketServer`. The `dev-runtime` profile is untouched. **Decision unaffected.**
+
+## Re-verification — 2026-11-10 (`4a137acf7`)
+
+Governed-path changes since `b5200feb4`: `Cargo.toml` (`a6b5f8468`) moves `nostr-bbs-core` from `1.0.0-beta.16` to `1.0.0-beta.19` and the four `solid-pod-rs*` pins from `0.5.0-alpha.17` to `0.5.0-alpha.21`; no other line changes. `[profile.dev-runtime]` is unchanged at `Cargo.toml:325-331` (`lto = "off"` `:329`, `codegen-units = 256` `:330`, `incremental = true` `:331`). `build.rs` and `scripts/rust-backend-wrapper.sh` are unchanged. **Decision unaffected.** Re-run: `git diff b5200feb4..4a137acf7 -- <verified_paths>`. Checked by reading that diff.

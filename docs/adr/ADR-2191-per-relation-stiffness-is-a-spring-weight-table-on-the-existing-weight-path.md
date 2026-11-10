@@ -70,7 +70,14 @@ acceptance_boundary:
 
    The table is read once (`src/config/relation_weights.rs`), so a change needs a restart. `launch.sh up` recreates the container when the environment changes. A missing, unreadable, malformed or refused table leaves the feature off and logs why; it never stops the server. `data/dev_config.toml` is not used because the dev container's `/app/data` is a named volume and the image never copies that file.
 
-   **Exception to ADR-2140 items 1 to 3, claimed for the owner to accept or refuse.** The table is a physics quantity held outside `physics.*` and outside the settings write path, and it multiplies the force-pass edge weight between the store and the GPU. It sits there for three reasons. It is a provenance-bearing artefact, not a tunable scalar. The learned-table gate must not be flippable from a client control. And the first slice adds no field to the client settings wire. The intended end state (item 8) brings the table into the stored physics document, with a server-side gate on `learned`. If this exception is refused, the table path is removed rather than kept as a second definition.
+   **Not compliant with ADR-2140 items 1 to 3. This blocks merge.** Environment variables are a second source of a physics quantity outside `physics.*` and outside the settings write path. Compliance means moving the switch, the table reference and `allow_learned` into the stored `PhysicsSettings`, through the one write path, default off. That is a settings schema change and a client-visible API change:
+   - new camelCase fields on `PhysicsSettings`, returned and accepted by `GET`/`PUT /api/settings/physics`, which needs a PROTOCOL-registry entry;
+   - `generate_types` and the regenerated client types, plus the client settings config and control-centre registry tests;
+   - validation of the table reference, which has to be confined to an allow-listed directory, because a client-writable server file path is otherwise a traversal risk;
+   - the idempotency gate, and a message carrying the resolved table to `ForceComputeActor` (on the domain `SimulationParams`, not the 212-byte `SimParams`), with rebind-on-change replacing restart-to-change;
+   - a decision on whether `allow_learned` may be client-writable at all.
+
+   This ADR does not make that change. It waits for the owner's decision.
 7. **What is authorised: uniform and hand-set tables only. No learned table is authorised.**
    - ADR-2174's experiment failed the gates that would have justified a learned law, so `VISIONCLAW_RELATION_WEIGHTS_ALLOW_LEARNED` stays `false` by default, and that result is the reason. Relation type is not readable from geometry in any arm, the learned law equals the untyped baseline B1, and the parameters-only transfer keeps no gain.
    - No learned table ships, as a default or as an example.
@@ -98,7 +105,8 @@ acceptance_boundary:
   - The live default is LinLog, not one Hooke spring.
   - Edges already carry per-type weights.
   - Its "ForceChannel mapping layer" path does not fit a per-edge table. Changing `ForceChannel::ALL` is an ABI change (GPU-wire-abi Change process), and this ADR adds no channel.
-- **Governance:** ADR-2174 forbids a new settings key until a follow-on ADR is accepted, and this ADR is `proposed`. The code is off by default, but merging it presumes the owner accepts this ADR, including the ADR-2140 exception in item 6.
+- **Governance:** ADR-2174 forbids a new settings key until a follow-on ADR is accepted, and this ADR is `proposed`. Item 6's switch does not yet comply with ADR-2140. The change cannot merge until the settings-schema move in item 6 is decided and made.
+- **Stated limits of relation identity** (item 2): `same-as`, `produces` and `implemented-in-layer` are never emitted, so no table row can reach them. Inferred subclass edges carry the asserted `rdfs:subClassOf` IRI, so a table cannot treat asserted and inferred is-a differently. Untyped volumes (wikilinks, co-citation, domain membership, agent edges) and the ontology path carry no IRI and match only by edge type.
 - **Forbidden:**
   - shipping or activating a learned table (item 7);
   - scaling `edge_weights` itself, which any non-force reader would then see;

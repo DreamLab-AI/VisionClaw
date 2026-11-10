@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 4a137acf774507d7f0529ceebedb982c5c87859b
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -417,3 +417,7 @@ Governed-path changes since `809a859aa`:
 - `.github/workflows/ci.yml` (`9f2e75fa3`): `push` and `pull_request` gain a `paths:` filter, and every job gains `timeout-minutes`. The filter includes `crates/**` and `Cargo.toml`, so any change that could move a crate boundary still triggers `rust-cpu`. That job runs `layer_direction` (`:154`).
 
 No actor moved between crates. **Decision and `partial` status hold.** Re-run: `git diff 809a859aa..7bd25427e -- <verified_paths>`. Checked by reading that diff; `layer_direction` was not re-run for this stamp.
+
+## Re-verification — 2026-11-10 (`4a137acf7`)
+
+Governed-path changes since `7bd25427e`: `Cargo.toml` (`a6b5f8468`) moves `nostr-bbs-core` from `1.0.0-beta.16` to `1.0.0-beta.19` and the four `solid-pod-rs*` pins from `0.5.0-alpha.17` to `0.5.0-alpha.21`; no other line changes. `.github/workflows/ci.yml` (`4bf6a03bf`) drops the `push`-to-main trigger. `pull_request` keeps the same `paths:` filter, which includes `crates/**` and `Cargo.toml`, and `rust-cpu` still runs `layer_direction` (`ci.yml:138`); a change pushed straight to `main` is no longer checked by it. `src/actors/gpu/force_compute_actor.rs` and `gpu_resource_actor.rs` (ADR-2191, `36c460528`) call the domain crate's `build_csr`. That is an existing root-on-domain dependency, and no actor moves between crates. `crates/visionclaw-actors/src` and `layer_direction.rs` are unchanged. Workspace membership is unchanged. `cargo test -p visionclaw-integration-tests --test layer_direction` passed at this commit (2 of 2), run locally. **Decision unaffected.** Re-run: `git diff 7bd25427e..4a137acf7 -- <verified_paths>`. Checked by reading that diff.
