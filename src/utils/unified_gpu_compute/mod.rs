@@ -136,6 +136,8 @@ mod constraint_index;
 mod construction;
 mod execution;
 mod hold_overlay;
+#[cfg(test)]
+mod lifecycle_gpu_tests;
 
 /// Held-only gain on the elastic overlay (ADR-2169 amendment, owner 2026-11-01: "we need a big
 /// effect"). While a node is held, `spring_k` and `max_force` are both multiplied by this, so the
