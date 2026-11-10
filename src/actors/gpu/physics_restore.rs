@@ -171,3 +171,37 @@ mod layout_migration_tests {
         );
     }
 }
+
+/// ADR-2192: a stored physics row written before the ontology-constraint policy keys existed
+/// must still load at boot (a row that fails to deserialise is replaced by defaults, wiping the
+/// operator's tuning), and must load today's policy: constraints on at 0.6.
+#[cfg(test)]
+mod policy_key_compat_tests {
+    use crate::actors::messages::SetOntologyConstraintPolicy;
+    use crate::config::PhysicsSettings;
+
+    #[test]
+    fn live_physics_row_without_the_policy_keys_loads_todays_policy() {
+        let row: serde_json::Value =
+            serde_json::from_str(include_str!("test_fixtures/live_physics_settings.json"))
+                .expect("fixture is JSON");
+        assert!(row.get("ontologyConstraintsEnabled").is_none());
+        assert!(row.get("ontologyConstraintStrength").is_none());
+        let loaded: PhysicsSettings =
+            serde_json::from_value(row.clone()).expect("the captured live row still loads");
+        assert_eq!(
+            SetOntologyConstraintPolicy::from_physics(&loaded),
+            SetOntologyConstraintPolicy {
+                enabled: true,
+                strength: 0.6
+            }
+        );
+        // The operator's own tuning in the row is kept, not replaced by defaults.
+        assert_eq!(
+            serde_json::to_value(loaded.repel_k).unwrap(),
+            row["repelK"],
+            "stored repelK survives"
+        );
+        assert!(crate::settings::api::settings_routes::validate_physics_settings(&loaded).is_ok());
+    }
+}
