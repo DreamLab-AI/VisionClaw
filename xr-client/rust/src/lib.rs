@@ -24,6 +24,11 @@
 //! GDScript drives scene composition only; this crate owns every byte that
 //! crosses the wire and every threshold that gates a pose / hit / level.
 
+// `chunks_exact(N)` with a constant N is kept over `as_chunks::<N>()`: the HP
+// builds with whatever toolchain it has, and `as_chunks` needs Rust 1.88.
+// `unknown_lints` keeps an older clippy from failing on the newer lint name.
+#![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
+
 pub mod attention;
 pub mod avatar_state;
 pub mod beat;

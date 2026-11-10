@@ -487,6 +487,8 @@ mod tests {
     use crate::ports::Signer;
 
     #[tokio::test]
+    // The handshake callback's error type is tungstenite's, not ours.
+    #[allow(clippy::result_large_err)]
     async fn graph_upgrade_supplies_origin_and_signed_http_url_before_connecting() {
         use base64::Engine;
         use nostr::JsonUtil;

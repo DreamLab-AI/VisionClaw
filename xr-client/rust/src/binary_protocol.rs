@@ -3413,7 +3413,9 @@ mod tests {
 
     /// Fixture frames: two knowledge nodes, one ontology class, one agent, one plain node, all
     /// decoded through the real V3 decoder so the class codes come from the wire flags.
-    fn fixture_class_store() -> (Vec<u32>, std::collections::HashMap<u32, (u8, [f32; 3])>) {
+    type ClassStore = (Vec<u32>, std::collections::HashMap<u32, (u8, [f32; 3])>);
+
+    fn fixture_class_store() -> ClassStore {
         let frame = build_frame(&[
             (1 | KNOWLEDGE_NODE_FLAG, [0.0, 0.0, 0.0], [0.0; 3]),
             (2 | KNOWLEDGE_NODE_FLAG, [4.0, -2.0, 1.0], [0.0; 3]),

@@ -796,7 +796,7 @@ mod tests {
 
     #[test]
     fn a_staged_asset_carries_its_stage_into_the_plan() {
-        let files = vec![spz_of(10)];
+        let files = [spz_of(10)];
         let mut a = asset("sentinel", vec![variant(VariantName::Xr1, &files[0], 10)]);
         a.stage = Some(Stage {
             metres_per_unit: 2.25,
