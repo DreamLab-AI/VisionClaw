@@ -94,7 +94,11 @@ pub fn sort_back_to_front(
         }
     }
     let range = hi - lo;
-    let scale = if range.is_finite() && range > 0.0 { 65535.0 / range } else { 0.0 };
+    let scale = if range.is_finite() && range > 0.0 {
+        65535.0 / range
+    } else {
+        0.0
+    };
     // Far first = ascending on the inverted key.
     scratch.keys.extend(positions.chunks_exact(3).map(|p| {
         let d = depth_of(p, eye, fwd);
@@ -200,8 +204,9 @@ impl PoseTrigger {
         if moved >= MOVE_THRESHOLD_M {
             return true;
         }
-        let dot = (pose.fwd[0] * last.fwd[0] + pose.fwd[1] * last.fwd[1] + pose.fwd[2] * last.fwd[2])
-            .clamp(-1.0, 1.0);
+        let dot =
+            (pose.fwd[0] * last.fwd[0] + pose.fwd[1] * last.fwd[1] + pose.fwd[2] * last.fwd[2])
+                .clamp(-1.0, 1.0);
         dot.acos().to_degrees() >= TURN_THRESHOLD_DEG
     }
 
@@ -294,7 +299,13 @@ impl SplatSorter {
                 let mut scratch = SortScratch::default();
                 while let Ok(job) = job_rx.recv() {
                     let t0 = Instant::now();
-                    sort_back_to_front(&positions, job.pose.pos, job.pose.fwd, &mut order, &mut scratch);
+                    sort_back_to_front(
+                        &positions,
+                        job.pose.pos,
+                        job.pose.fwd,
+                        &mut order,
+                        &mut scratch,
+                    );
                     if !work_delay.is_zero() {
                         std::thread::sleep(work_delay);
                     }
@@ -344,7 +355,15 @@ impl SplatSorter {
             return false;
         }
         let seq = self.seq.fetch_add(1, Ordering::Relaxed) + 1;
-        if self.jobs.send(Job { seq, pose, asked: Instant::now() }).is_err() {
+        if self
+            .jobs
+            .send(Job {
+                seq,
+                pose,
+                asked: Instant::now(),
+            })
+            .is_err()
+        {
             self.busy.store(false, Ordering::Release);
             return false;
         }
@@ -372,7 +391,11 @@ impl SplatSorter {
 
     /// Counters since creation.
     pub fn stats(&self) -> SortStats {
-        let mut ds = self.durations.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let mut ds = self
+            .durations
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         ds.sort_by(|a, b| a.total_cmp(b));
         let p95_ms = if ds.is_empty() {
             0.0
@@ -415,7 +438,11 @@ pub struct SplatDriver {
 
 impl SplatDriver {
     pub fn new(sorter: SplatSorter) -> Self {
-        Self { sorter, trigger: PoseTrigger::new(), late_seen: 0 }
+        Self {
+            sorter,
+            trigger: PoseTrigger::new(),
+            late_seen: 0,
+        }
     }
 
     /// One frame: ask for a sort if the rule says so and the worker is free, and
@@ -463,7 +490,12 @@ pub struct SplatSorterNode {
 #[godot_api]
 impl IRefCounted for SplatSorterNode {
     fn init(base: Base<RefCounted>) -> Self {
-        Self { base, driver: None, count: 0, pending: None }
+        Self {
+            base,
+            driver: None,
+            count: 0,
+            pending: None,
+        }
     }
 }
 
@@ -475,7 +507,9 @@ impl SplatSorterNode {
     #[func]
     fn set_positions(&mut self, positions: PackedFloat32Array) {
         self.count = positions.len() / 3;
-        self.driver = Some(SplatDriver::new(SplatSorter::new(Arc::new(positions.to_vec()))));
+        self.driver = Some(SplatDriver::new(SplatSorter::new(Arc::new(
+            positions.to_vec(),
+        ))));
         self.pending = None;
     }
 
@@ -592,7 +626,11 @@ mod tests {
         // five splats on the view axis at known distances, shuffled
         let zs = [-2.0f32, -7.0, -0.5, -4.0, -1.0];
         let p: Vec<f32> = zs.iter().flat_map(|&z| [0.0, 0.0, z]).collect();
-        assert_eq!(sorted(&p, [0.0; 3], FWD), vec![1, 3, 0, 4, 2], "farthest (-7) first");
+        assert_eq!(
+            sorted(&p, [0.0; 3], FWD),
+            vec![1, 3, 0, 4, 2],
+            "farthest (-7) first"
+        );
     }
 
     #[test]
@@ -607,8 +645,12 @@ mod tests {
             assert!(!seen[i as usize], "{i} appears twice");
             seen[i as usize] = true;
         }
-        let ds: Vec<f32> = (0..o.len() as u32).map(|i| depth(&p, i, eye, fwd)).collect();
-        let (lo, hi) = ds.iter().fold((f32::MAX, f32::MIN), |(a, b), &d| (a.min(d), b.max(d)));
+        let ds: Vec<f32> = (0..o.len() as u32)
+            .map(|i| depth(&p, i, eye, fwd))
+            .collect();
+        let (lo, hi) = ds
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(a, b), &d| (a.min(d), b.max(d)));
         let quantum = (hi - lo) / 65535.0;
         for w in o.windows(2) {
             assert!(
@@ -627,7 +669,10 @@ mod tests {
         let p: Vec<f32> = (0..50).flat_map(|i| [i as f32, 0.0, -3.0]).collect();
         assert_eq!(sorted(&p, [0.0; 3], FWD), (0..50).collect::<Vec<u32>>());
         let q = cloud(5_000, 3, 8.0);
-        assert_eq!(sorted(&q, [1.0, 1.0, 1.0], FWD), sorted(&q, [1.0, 1.0, 1.0], FWD));
+        assert_eq!(
+            sorted(&q, [1.0, 1.0, 1.0], FWD),
+            sorted(&q, [1.0, 1.0, 1.0], FWD)
+        );
     }
 
     #[test]
@@ -641,9 +686,20 @@ mod tests {
 
     #[test]
     fn the_order_flips_when_the_head_turns_to_face_the_other_way() {
-        let p: Vec<f32> = [-4.0f32, -1.0, 2.0, 6.0].iter().flat_map(|&z| [0.0, 0.0, z]).collect();
-        assert_eq!(sorted(&p, [0.0; 3], [0.0, 0.0, -1.0]), vec![0, 1, 2, 3], "facing -Z, z = -4 is farthest");
-        assert_eq!(sorted(&p, [0.0; 3], [0.0, 0.0, 1.0]), vec![3, 2, 1, 0], "facing +Z, z = 6 is farthest");
+        let p: Vec<f32> = [-4.0f32, -1.0, 2.0, 6.0]
+            .iter()
+            .flat_map(|&z| [0.0, 0.0, z])
+            .collect();
+        assert_eq!(
+            sorted(&p, [0.0; 3], [0.0, 0.0, -1.0]),
+            vec![0, 1, 2, 3],
+            "facing -Z, z = -4 is farthest"
+        );
+        assert_eq!(
+            sorted(&p, [0.0; 3], [0.0, 0.0, 1.0]),
+            vec![3, 2, 1, 0],
+            "facing +Z, z = 6 is farthest"
+        );
     }
 
     #[test]
@@ -658,7 +714,10 @@ mod tests {
         assert!(b[16..].iter().all(|&x| x == 0), "padding is zero");
         let n = 100_000;
         let big: Vec<u32> = (0..n as u32).collect();
-        assert_eq!(index_texture_bytes(&big).len(), index_texture_height(n) * INDEX_TEX_WIDTH * 4);
+        assert_eq!(
+            index_texture_bytes(&big).len(),
+            index_texture_height(n) * INDEX_TEX_WIDTH * 4
+        );
         assert_eq!(index_texture_height(n), 98);
         assert!(index_texture_bytes(&big).len() >= n * 4);
         assert_eq!(index_texture_bytes(&[]).len(), INDEX_TEX_WIDTH * 4);
@@ -683,13 +742,19 @@ mod tests {
     }
 
     fn walking(speed: f32) -> impl Fn(f32) -> Pose {
-        move |t| Pose { pos: [speed * t, 1.6, 0.0], fwd: [0.0, 0.0, -1.0] }
+        move |t| Pose {
+            pos: [speed * t, 1.6, 0.0],
+            fwd: [0.0, 0.0, -1.0],
+        }
     }
 
     fn turning(deg_per_s: f32) -> impl Fn(f32) -> Pose {
         move |t| {
             let a = (deg_per_s * t).to_radians();
-            Pose { pos: [0.0, 1.6, 0.0], fwd: [a.sin(), 0.0, -a.cos()] }
+            Pose {
+                pos: [0.0, 1.6, 0.0],
+                fwd: [a.sin(), 0.0, -a.cos()],
+            }
         }
     }
 
@@ -700,7 +765,10 @@ mod tests {
 
     #[test]
     fn the_first_pose_always_sorts_and_a_still_head_never_sorts_again() {
-        let s = script(90.0, 10.0, 1.0, |_| Pose { pos: [0.0, 1.6, 0.0], fwd: FWD });
+        let s = script(90.0, 10.0, 1.0, |_| Pose {
+            pos: [0.0, 1.6, 0.0],
+            fwd: FWD,
+        });
         assert_eq!(s, vec![0.0]);
     }
 
@@ -708,13 +776,24 @@ mod tests {
     fn five_centimetres_of_travel_triggers_a_sort() {
         // 0.5 m/s: 5 cm every 0.1 s = 10 sorts a second
         let s = script(90.0, 10.0, 1.0, walking(0.5));
-        assert!((rate(&s, 10.0) - 10.0).abs() < 1.5, "walking 0.5 m/s: {} sorts/s", rate(&s, 10.0));
+        assert!(
+            (rate(&s, 10.0) - 10.0).abs() < 1.5,
+            "walking 0.5 m/s: {} sorts/s",
+            rate(&s, 10.0)
+        );
         // 4 cm never triggers
-        let s = script(90.0, 10.0, 1.0, |t| Pose { pos: [0.04 * (t * 6.0).sin().abs(), 1.6, 0.0], fwd: FWD });
+        let s = script(90.0, 10.0, 1.0, |t| Pose {
+            pos: [0.04 * (t * 6.0).sin().abs(), 1.6, 0.0],
+            fwd: FWD,
+        });
         assert_eq!(s.len(), 1, "an oscillation inside 5 cm sorts once");
         // slow drift accumulates against the last sort and triggers at 5 cm
         let s = script(90.0, 10.0, 1.0, walking(0.01));
-        assert_eq!(s.len(), 1 + 1, "1 cm/s over 10 s crosses 5 cm once, at 5 s: {s:?}");
+        assert_eq!(
+            s.len(),
+            1 + 1,
+            "1 cm/s over 10 s crosses 5 cm once, at 5 s: {s:?}"
+        );
         assert!((s[1] - 5.0).abs() < 0.05);
     }
 
@@ -722,11 +801,18 @@ mod tests {
     fn two_degrees_of_turn_triggers_a_sort() {
         // 20 deg/s: 2 degrees every 0.1 s
         let s = script(90.0, 10.0, 1.0, turning(20.0));
-        assert!((rate(&s, 10.0) - 10.0).abs() < 1.5, "turning 20 deg/s: {} sorts/s", rate(&s, 10.0));
+        assert!(
+            (rate(&s, 10.0) - 10.0).abs() < 1.5,
+            "turning 20 deg/s: {} sorts/s",
+            rate(&s, 10.0)
+        );
         // 1.5 degrees of wobble never does
         let s = script(90.0, 10.0, 1.0, |t| {
             let a = (1.5 * (t * 5.0).sin()).to_radians();
-            Pose { pos: [0.0, 1.6, 0.0], fwd: [a.sin(), 0.0, -a.cos()] }
+            Pose {
+                pos: [0.0, 1.6, 0.0],
+                fwd: [a.sin(), 0.0, -a.cos()],
+            }
         });
         assert_eq!(s.len(), 1);
     }
@@ -739,9 +825,17 @@ mod tests {
         ] {
             let r = rate(&sorts, 10.0);
             assert!(r <= MAX_SORT_HZ + 0.2, "{label}: {r} sorts/s");
-            assert!(r >= MAX_SORT_HZ - 1.0, "{label}: the cap is reached, not undershot ({r})");
+            assert!(
+                r >= MAX_SORT_HZ - 1.0,
+                "{label}: the cap is reached, not undershot ({r})"
+            );
             for w in sorts.windows(2) {
-                assert!(w[1] - w[0] >= 1.0 / MAX_SORT_HZ - 1.0e-4, "{label}: {} then {}", w[0], w[1]);
+                assert!(
+                    w[1] - w[0] >= 1.0 / MAX_SORT_HZ - 1.0e-4,
+                    "{label}: {} then {}",
+                    w[0],
+                    w[1]
+                );
             }
         }
         // a 144 Hz frame clock does not change the cap
@@ -753,15 +847,25 @@ mod tests {
     fn the_distance_threshold_is_measured_in_world_metres() {
         // a volume fitted at 0.25: 5 cm of world is 0.2 local units, and a head
         // moving 1.0 local unit/s is moving 0.25 m/s in the world
-        let s = script(90.0, 5.0, 0.25, |t| Pose { pos: [t, 0.0, 0.0], fwd: FWD });
+        let s = script(90.0, 5.0, 0.25, |t| Pose {
+            pos: [t, 0.0, 0.0],
+            fwd: FWD,
+        });
         // 5 cm every 0.2 s = 5 a second
-        assert!((rate(&s, 5.0) - 5.0).abs() < 0.8, "{} sorts/s", rate(&s, 5.0));
+        assert!(
+            (rate(&s, 5.0) - 5.0).abs() < 0.8,
+            "{} sorts/s",
+            rate(&s, 5.0)
+        );
     }
 
     #[test]
     fn a_reset_makes_the_next_pose_sort_at_once() {
         let mut t = PoseTrigger::new();
-        let p = Pose { pos: [0.0; 3], fwd: FWD };
+        let p = Pose {
+            pos: [0.0; 3],
+            fwd: FWD,
+        };
         t.mark(&p, 0.0);
         assert!(!t.should_sort(&p, 1.0, 5.0));
         t.reset();
@@ -785,7 +889,10 @@ mod tests {
     fn the_worker_sorts_off_the_calling_thread_and_matches_the_pure_sort() {
         let p = Arc::new(cloud(30_000, 11, 6.0));
         let s = SplatSorter::new(p.clone());
-        let pose = Pose { pos: [0.5, 1.0, 3.0], fwd: [0.0, 0.0, -1.0] };
+        let pose = Pose {
+            pos: [0.5, 1.0, 3.0],
+            fwd: [0.0, 0.0, -1.0],
+        };
         assert!(s.request(pose));
         let o = wait_for(&s, Duration::from_secs(5)).expect("a sort arrives");
         assert_eq!(o.order, sorted(&p, pose.pos, pose.fwd));
@@ -799,7 +906,10 @@ mod tests {
     fn a_request_while_the_worker_is_busy_is_dropped_not_queued() {
         let p = Arc::new(cloud(1_000, 5, 4.0));
         let s = SplatSorter::with_options(p, Duration::from_secs(5), Duration::from_millis(150));
-        let pose = Pose { pos: [0.0; 3], fwd: FWD };
+        let pose = Pose {
+            pos: [0.0; 3],
+            fwd: FWD,
+        };
         assert!(s.request(pose));
         assert!(!s.request(pose), "busy: refused");
         assert!(!s.request(pose));
@@ -819,7 +929,10 @@ mod tests {
         let p = Arc::new(cloud(1_000, 5, 4.0));
         // each sort takes 120 ms against a 30 ms bound
         let s = SplatSorter::with_options(p, Duration::from_millis(30), Duration::from_millis(120));
-        let pose = Pose { pos: [0.0; 3], fwd: FWD };
+        let pose = Pose {
+            pos: [0.0; 3],
+            fwd: FWD,
+        };
         assert!(s.request(pose));
         std::thread::sleep(Duration::from_millis(400));
         assert!(s.poll().is_none(), "a late result is never handed over");
@@ -840,9 +953,13 @@ mod tests {
         // never moves after the first request. Without the repair the trigger
         // reference sits at the dropped request and nothing is ever asked again.
         let p = Arc::new(cloud(500, 5, 4.0));
-        let sorter = SplatSorter::with_options(p, Duration::from_millis(30), Duration::from_millis(120));
+        let sorter =
+            SplatSorter::with_options(p, Duration::from_millis(30), Duration::from_millis(120));
         let mut d = SplatDriver::new(sorter);
-        let pose = Pose { pos: [0.0; 3], fwd: FWD };
+        let pose = Pose {
+            pos: [0.0; 3],
+            fwd: FWD,
+        };
         let t0 = Instant::now();
         let mut got = None;
         while t0.elapsed() < Duration::from_millis(900) {
@@ -854,7 +971,10 @@ mod tests {
         }
         assert!(got.is_none(), "every one of them was late");
         let st = d.stats();
-        assert!(st.dropped_late >= 3, "late sorts are asked for again: {st:?}");
+        assert!(
+            st.dropped_late >= 3,
+            "late sorts are asked for again: {st:?}"
+        );
         // The same still head with a prompt worker asks exactly once.
         let p = Arc::new(cloud(500, 5, 4.0));
         let mut d = SplatDriver::new(SplatSorter::new(p));
@@ -873,8 +993,14 @@ mod tests {
     fn the_worker_thread_is_not_the_calling_thread_and_joins_on_drop() {
         let p = Arc::new(cloud(100, 1, 1.0));
         let s = SplatSorter::new(p);
-        assert!(s.handle.as_ref().is_some_and(|h| h.thread().id() != std::thread::current().id()));
-        assert_eq!(s.handle.as_ref().unwrap().thread().name(), Some("splat-sort"));
+        assert!(s
+            .handle
+            .as_ref()
+            .is_some_and(|h| h.thread().id() != std::thread::current().id()));
+        assert_eq!(
+            s.handle.as_ref().unwrap().thread().name(),
+            Some("splat-sort")
+        );
         drop(s); // joins; a hang here fails the test by timeout
     }
 
@@ -890,7 +1016,10 @@ mod tests {
         let hz = 90.0;
         for f in 0..(4.0 * hz) as usize {
             let now = f as f32 / hz;
-            let pose = Pose { pos: [3.0 * now, 1.6, 0.0], fwd: FWD };
+            let pose = Pose {
+                pos: [3.0 * now, 1.6, 0.0],
+                fwd: FWD,
+            };
             if trig.should_sort(&pose, 1.0, now) && s.request(pose) {
                 trig.mark(&pose, now);
                 asked += 1;
@@ -906,7 +1035,10 @@ mod tests {
         }
         std::thread::sleep(Duration::from_millis(100));
         got += u32::from(s.poll().is_some());
-        assert!(asked as f32 / 4.0 <= MAX_SORT_HZ + 0.5, "{asked} sorts asked in 4 s");
+        assert!(
+            asked as f32 / 4.0 <= MAX_SORT_HZ + 0.5,
+            "{asked} sorts asked in 4 s"
+        );
         assert!(asked >= 100, "{asked}: the cap is reached");
         assert!(got + 2 >= asked, "asked {asked}, received {got}");
     }
@@ -923,7 +1055,13 @@ mod tests {
         for i in 0..60 {
             let a = (i as f32 * 3.0).to_radians();
             let t0 = Instant::now();
-            sort_back_to_front(&p, [0.0, 1.6, 0.0], [a.sin(), 0.0, -a.cos()], &mut o, &mut s);
+            sort_back_to_front(
+                &p,
+                [0.0, 1.6, 0.0],
+                [a.sin(), 0.0, -a.cos()],
+                &mut o,
+                &mut s,
+            );
             ms.push(t0.elapsed().as_secs_f32() * 1000.0);
         }
         ms.sort_by(|a, b| a.total_cmp(b));

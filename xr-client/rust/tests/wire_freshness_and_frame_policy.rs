@@ -54,11 +54,7 @@ fn increasing_sequences_are_accepted_and_advance_the_watermark() {
 fn a_duplicate_sequence_is_refused_and_its_records_withheld() {
     let mut gate = FreshnessGate::new();
     let first = fx::v5_frame(5, &records(1));
-    assert!(gate
-        .admit_frame(&first)
-        .unwrap()
-        .0
-        .is_accepted());
+    assert!(gate.admit_frame(&first).unwrap().0.is_accepted());
 
     // Re-delivery of the same sequence adds nothing.
     let (verdict, applied) = gate.admit_frame(&first).expect("valid");
@@ -161,7 +157,13 @@ fn the_first_frame_after_a_reconnect_is_taken_whatever_its_sequence() {
     let (verdict, applied) = gate
         .admit_frame(&fx::v5_frame(41, &records(1)))
         .expect("valid");
-    assert_eq!(verdict, Freshness::AcceptResync { sequence: 41, previous: Some(40) });
+    assert_eq!(
+        verdict,
+        Freshness::AcceptResync {
+            sequence: 41,
+            previous: Some(40)
+        }
+    );
     assert_eq!(applied.expect("applied").len(), 1);
     assert!(!gate.awaiting_resync());
 }
@@ -170,8 +172,15 @@ fn the_first_frame_after_a_reconnect_is_taken_whatever_its_sequence() {
 fn the_position_acknowledgement_is_byte_identical_to_the_shared_wire_fixture() {
     // The server decodes the fixture's bytes (src/utils/binary_protocol.rs); this proves the XR
     // encoder produces exactly them, so a chunk's ack is never mis-read.
-    for (seq, nodes, ts) in [(1u64, 0u32, 0u64), (48_113, 2500, 1_700_000_000_123), (u64::MAX, u32::MAX, u64::MAX)] {
-        assert_eq!(encode_broadcast_ack(seq, nodes, ts), fx::broadcast_ack_frame(seq, nodes, ts));
+    for (seq, nodes, ts) in [
+        (1u64, 0u32, 0u64),
+        (48_113, 2500, 1_700_000_000_123),
+        (u64::MAX, u32::MAX, u64::MAX),
+    ] {
+        assert_eq!(
+            encode_broadcast_ack(seq, nodes, ts),
+            fx::broadcast_ack_frame(seq, nodes, ts)
+        );
     }
     assert_eq!(fx::BROADCAST_ACK_BYTES, 21);
     assert_eq!(fx::OPCODE_BROADCAST_ACK, 0x34);
@@ -184,9 +193,7 @@ fn an_unsequenced_v3_frame_never_moves_the_watermark() {
 
     // V3 is accepted for compatibility but must not be able to unblock a
     // sequence the gate has already refused.
-    let (verdict, applied) = gate
-        .admit_frame(&fx::v3_frame(&records(2)))
-        .expect("valid");
+    let (verdict, applied) = gate.admit_frame(&fx::v3_frame(&records(2))).expect("valid");
     assert_eq!(verdict, Freshness::AcceptUnsequenced);
     assert_eq!(applied.expect("applied").len(), 2);
     assert_eq!(gate.watermark(), Some(70));

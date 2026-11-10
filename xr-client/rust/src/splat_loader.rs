@@ -182,11 +182,17 @@ pub fn verify(bytes: &[u8], v: &ListedVariant) -> Result<(), LoadError> {
         return Err(LoadError::BadAddress(v.address.clone()));
     }
     if bytes.len() as u64 != v.bytes {
-        return Err(LoadError::Size { want: v.bytes, got: bytes.len() as u64 });
+        return Err(LoadError::Size {
+            want: v.bytes,
+            got: bytes.len() as u64,
+        });
     }
     let got = sha256_hex(bytes);
     if got != v.sha256 {
-        return Err(LoadError::HashMismatch { want: v.sha256.clone(), got });
+        return Err(LoadError::HashMismatch {
+            want: v.sha256.clone(),
+            got,
+        });
     }
     Ok(())
 }
@@ -250,12 +256,26 @@ pub fn covariance(s: [f32; 3], q: [f32; 4]) -> [f32; 6] {
     };
     // Rotation matrix, row-major.
     let r = [
-        [1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - w * z), 2.0 * (x * z + w * y)],
-        [2.0 * (x * y + w * z), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - w * x)],
-        [2.0 * (x * z - w * y), 2.0 * (y * z + w * x), 1.0 - 2.0 * (x * x + y * y)],
+        [
+            1.0 - 2.0 * (y * y + z * z),
+            2.0 * (x * y - w * z),
+            2.0 * (x * z + w * y),
+        ],
+        [
+            2.0 * (x * y + w * z),
+            1.0 - 2.0 * (x * x + z * z),
+            2.0 * (y * z - w * x),
+        ],
+        [
+            2.0 * (x * z - w * y),
+            2.0 * (y * z + w * x),
+            1.0 - 2.0 * (x * x + y * y),
+        ],
     ];
     let v = [s[0] * s[0], s[1] * s[1], s[2] * s[2]];
-    let c = |i: usize, j: usize| r[i][0] * v[0] * r[j][0] + r[i][1] * v[1] * r[j][1] + r[i][2] * v[2] * r[j][2];
+    let c = |i: usize, j: usize| {
+        r[i][0] * v[0] * r[j][0] + r[i][1] * v[1] * r[j][1] + r[i][2] * v[2] * r[j][2]
+    };
     [c(0, 0), c(0, 1), c(0, 2), c(1, 1), c(1, 2), c(2, 2)]
 }
 
@@ -267,12 +287,20 @@ pub fn pack(splats: &Splats) -> Packed {
     let mut texels = vec![0.0f32; DATA_TEX_WIDTH * height * 4];
     let (mut lo, mut hi) = ([f32::INFINITY; 3], [f32::NEG_INFINITY; 3]);
     for i in 0..n {
-        let p = [splats.positions[i * 3], splats.positions[i * 3 + 1], splats.positions[i * 3 + 2]];
+        let p = [
+            splats.positions[i * 3],
+            splats.positions[i * 3 + 1],
+            splats.positions[i * 3 + 2],
+        ];
         for k in 0..3 {
             lo[k] = lo[k].min(p[k]);
             hi[k] = hi[k].max(p[k]);
         }
-        let s = [splats.scales[i * 3], splats.scales[i * 3 + 1], splats.scales[i * 3 + 2]];
+        let s = [
+            splats.scales[i * 3],
+            splats.scales[i * 3 + 1],
+            splats.scales[i * 3 + 2],
+        ];
         let q = [
             splats.rotations[i * 4],
             splats.rotations[i * 4 + 1],
@@ -281,10 +309,16 @@ pub fn pack(splats: &Splats) -> Packed {
         ];
         let cov = covariance(s, q);
         let c = &splats.colors[i * 4..i * 4 + 4];
-        let base = ((i / DATA_ROW_SPLATS) * DATA_TEX_WIDTH + (i % DATA_ROW_SPLATS) * TEXELS_PER_SPLAT) * 4;
+        let base =
+            ((i / DATA_ROW_SPLATS) * DATA_TEX_WIDTH + (i % DATA_ROW_SPLATS) * TEXELS_PER_SPLAT) * 4;
         let t = &mut texels[base..base + TEXELS_PER_SPLAT * 4];
         t[0..4].copy_from_slice(&[p[0], p[1], p[2], c[3].clamp(0.0, 1.0)]);
-        t[4..8].copy_from_slice(&[c[0].clamp(0.0, 1.0), c[1].clamp(0.0, 1.0), c[2].clamp(0.0, 1.0), 0.0]);
+        t[4..8].copy_from_slice(&[
+            c[0].clamp(0.0, 1.0),
+            c[1].clamp(0.0, 1.0),
+            c[2].clamp(0.0, 1.0),
+            0.0,
+        ]);
         t[8..12].copy_from_slice(&[cov[0], cov[1], cov[2], cov[3]]);
         t[12..16].copy_from_slice(&[cov[4], cov[5], 0.0, 0.0]);
     }
@@ -308,7 +342,10 @@ pub fn pack(splats: &Splats) -> Packed {
 pub fn decode_packed(bytes: &[u8], v: &ListedVariant) -> Result<Packed, LoadError> {
     let splats = spz::decode(bytes).map_err(|e| LoadError::Decode(e.to_string()))?;
     if splats.len() != v.splats as usize {
-        return Err(LoadError::Count { want: v.splats, got: splats.len() });
+        return Err(LoadError::Count {
+            want: v.splats,
+            got: splats.len(),
+        });
     }
     Ok(pack(&splats))
 }
@@ -366,7 +403,10 @@ impl Default for LoadJob {
 impl LoadJob {
     pub fn new() -> Self {
         Self {
-            inner: Arc::new(Mutex::new(Inner { generation: 0, state: State::Idle })),
+            inner: Arc::new(Mutex::new(Inner {
+                generation: 0,
+                state: State::Idle,
+            })),
         }
     }
 
@@ -405,7 +445,10 @@ impl LoadJob {
             let cached = cache_dir.as_deref().and_then(|d| read_cache(d, &v));
             let next = match cached {
                 Some(bytes) => finish(decode_packed(&bytes, &v)),
-                None => State::NeedDownload { url: v.url.clone(), bytes: v.bytes },
+                None => State::NeedDownload {
+                    url: v.url.clone(),
+                    bytes: v.bytes,
+                },
             };
             Self::publish(&inner, generation, next);
         });
@@ -419,7 +462,10 @@ impl LoadJob {
         let (inner, v) = (self.inner.clone(), plan.variant.clone());
         std::thread::spawn(move || {
             let next = match verify(&bytes, &v) {
-                Err(e) => State::Failed { refused: e.is_refusal(), error: e.to_string() },
+                Err(e) => State::Failed {
+                    refused: e.is_refusal(),
+                    error: e.to_string(),
+                },
                 Ok(()) => {
                     // A cache that cannot be written costs a re-download next
                     // time, not the scene.
@@ -437,7 +483,10 @@ impl LoadJob {
 
     /// Mark a failed download (a transport error, not a refusal).
     pub fn fail(&self, error: String) {
-        self.advance(State::Failed { error, refused: false });
+        self.advance(State::Failed {
+            error,
+            refused: false,
+        });
     }
 
     /// Back to [`State::Idle`], abandoning any worker still running.
@@ -449,7 +498,10 @@ impl LoadJob {
 fn finish(r: Result<Packed, LoadError>) -> State {
     match r {
         Ok(p) => State::Ready(Arc::new(p)),
-        Err(e) => State::Failed { refused: e.is_refusal(), error: e.to_string() },
+        Err(e) => State::Failed {
+            refused: e.is_refusal(),
+            error: e.to_string(),
+        },
     }
 }
 
@@ -481,7 +533,12 @@ pub struct SplatLoaderNode {
 #[godot_api]
 impl IRefCounted for SplatLoaderNode {
     fn init(base: Base<RefCounted>) -> Self {
-        Self { base, cache_dir: None, plan: None, job: LoadJob::new() }
+        Self {
+            base,
+            cache_dir: None,
+            plan: None,
+            job: LoadJob::new(),
+        }
     }
 }
 
@@ -505,7 +562,11 @@ impl SplatLoaderNode {
     fn plan(&mut self, listing_json: GString, asset_id: GString, tier: i64) -> Dictionary {
         let mut d = Dictionary::new();
         self.job.reset();
-        match plan(&listing_json.to_string(), Some(&asset_id.to_string()), tier.max(0) as usize) {
+        match plan(
+            &listing_json.to_string(),
+            Some(&asset_id.to_string()),
+            tier.max(0) as usize,
+        ) {
             Ok(p) => {
                 d.set("ok", true);
                 d.set("asset_id", GString::from(p.asset_id.as_str()));
@@ -593,8 +654,14 @@ impl SplatLoaderNode {
             d.set("count", p.count as i64);
             d.set("width", p.width as i64);
             d.set("height", p.height as i64);
-            d.set("data", PackedByteArray::from(f32_le_bytes(&p.texels).as_slice()));
-            d.set("positions", PackedFloat32Array::from(p.positions.as_slice()));
+            d.set(
+                "data",
+                PackedByteArray::from(f32_le_bytes(&p.texels).as_slice()),
+            );
+            d.set(
+                "positions",
+                PackedFloat32Array::from(p.positions.as_slice()),
+            );
             d.set("bounds_min", v3(p.bounds_min));
             d.set("bounds_max", v3(p.bounds_max));
         }
@@ -633,11 +700,22 @@ mod tests {
         let mut s = Splats::default();
         for i in 0..n {
             let f = i as f32;
-            s.positions.extend_from_slice(&[(f % 10.0) * 0.5 - 2.0, (f / 10.0).floor() * 0.25, -(f % 7.0)]);
-            s.scales.extend_from_slice(&[0.02 + 0.001 * (f % 5.0), 0.03, 0.05]);
+            s.positions.extend_from_slice(&[
+                (f % 10.0) * 0.5 - 2.0,
+                (f / 10.0).floor() * 0.25,
+                -(f % 7.0),
+            ]);
+            s.scales
+                .extend_from_slice(&[0.02 + 0.001 * (f % 5.0), 0.03, 0.05]);
             let a = 0.3 * f;
-            s.rotations.extend_from_slice(&[0.0, 0.0, (a / 2.0).sin(), (a / 2.0).cos()]);
-            s.colors.extend_from_slice(&[(f % 5.0) / 5.0, 0.5, 1.0 - (f % 3.0) / 3.0, 0.5 + 0.4 * ((f % 4.0) / 4.0)]);
+            s.rotations
+                .extend_from_slice(&[0.0, 0.0, (a / 2.0).sin(), (a / 2.0).cos()]);
+            s.colors.extend_from_slice(&[
+                (f % 5.0) / 5.0,
+                0.5,
+                1.0 - (f % 3.0) / 3.0,
+                0.5 + 0.4 * ((f % 4.0) / 4.0),
+            ]);
         }
         s
     }
@@ -666,10 +744,16 @@ mod tests {
             title: format!("{id} scene"),
             author: "A. Author".into(),
             source_url: "https://example.org/scene".into(),
-            licence: Licence { spdx: "CC-BY-4.0".into(), url: "https://creativecommons.org/licenses/by/4.0/".into() },
+            licence: Licence {
+                spdx: "CC-BY-4.0".into(),
+                url: "https://creativecommons.org/licenses/by/4.0/".into(),
+            },
             attribution: "A. Author, ISS".into(),
             modified: true,
-            bounds: Bounds { min: [-3.0, 0.0, -7.0], max: [2.5, 3.0, 0.0] },
+            bounds: Bounds {
+                min: [-3.0, 0.0, -7.0],
+                max: [2.5, 3.0, 0.0],
+            },
             stage: None,
             variants,
         }
@@ -714,9 +798,18 @@ mod tests {
     fn a_staged_asset_carries_its_stage_into_the_plan() {
         let files = vec![spz_of(10)];
         let mut a = asset("sentinel", vec![variant(VariantName::Xr1, &files[0], 10)]);
-        a.stage = Some(Stage { metres_per_unit: 2.25, focus: [0.0, 2.0, -6.0] });
+        a.stage = Some(Stage {
+            metres_per_unit: 2.25,
+            focus: [0.0, 2.0, -6.0],
+        });
         let p = plan(&listing_json(vec![a]), None, 1).unwrap();
-        assert_eq!(p.stage, Some(Stage { metres_per_unit: 2.25, focus: [0.0, 2.0, -6.0] }));
+        assert_eq!(
+            p.stage,
+            Some(Stage {
+                metres_per_unit: 2.25,
+                focus: [0.0, 2.0, -6.0]
+            })
+        );
     }
 
     #[test]
@@ -729,7 +822,11 @@ mod tests {
     #[test]
     fn tiers_one_to_three_pick_xr_1_to_xr_3() {
         let (json, _) = full_listing();
-        for (tier, want) in [(1, VariantName::Xr1), (2, VariantName::Xr2), (3, VariantName::Xr3)] {
+        for (tier, want) in [
+            (1, VariantName::Xr1),
+            (2, VariantName::Xr2),
+            (3, VariantName::Xr3),
+        ] {
             let p = plan(&json, Some("iss"), tier).unwrap();
             assert_eq!((p.variant.name, p.tier), (want, tier));
             assert!(p.variant.url.starts_with("/api/splats/blob/sha256-12-"));
@@ -739,18 +836,46 @@ mod tests {
     #[test]
     fn a_missing_tier_falls_back_downwards_never_upwards_and_never_to_a_desktop_variant() {
         let f = spz_of(10);
-        let only_xr1 = listing_json(vec![asset("a", vec![variant(VariantName::Xr1, &f, 10), variant(VariantName::DesktopHi, &f, 10)])]);
-        assert_eq!(plan(&only_xr1, Some("a"), 3).unwrap().tier, 1, "tier 3 asked, tier 1 served");
+        let only_xr1 = listing_json(vec![asset(
+            "a",
+            vec![
+                variant(VariantName::Xr1, &f, 10),
+                variant(VariantName::DesktopHi, &f, 10),
+            ],
+        )]);
+        assert_eq!(
+            plan(&only_xr1, Some("a"), 3).unwrap().tier,
+            1,
+            "tier 3 asked, tier 1 served"
+        );
         let only_xr3 = listing_json(vec![asset("a", vec![variant(VariantName::Xr3, &f, 10)])]);
         assert_eq!(
             plan(&only_xr3, Some("a"), 2),
-            Err(LoadError::NoVariant { asset: "a".into(), tier: 2 }),
+            Err(LoadError::NoVariant {
+                asset: "a".into(),
+                tier: 2
+            }),
             "a larger scene than the governor allows is never served"
         );
-        assert!(matches!(plan(&only_xr1, Some("a"), 0), Err(LoadError::NoVariant { .. })), "tier 0 is off");
-        let desktop_only = listing_json(vec![asset("a", vec![variant(VariantName::Desktop, &f, 10)])]);
-        assert!(matches!(plan(&desktop_only, Some("a"), 3), Err(LoadError::NoVariant { .. })));
-        assert!(matches!(plan(&desktop_only, None, 3), Err(LoadError::NoAsset(None))));
+        assert!(
+            matches!(
+                plan(&only_xr1, Some("a"), 0),
+                Err(LoadError::NoVariant { .. })
+            ),
+            "tier 0 is off"
+        );
+        let desktop_only = listing_json(vec![asset(
+            "a",
+            vec![variant(VariantName::Desktop, &f, 10)],
+        )]);
+        assert!(matches!(
+            plan(&desktop_only, Some("a"), 3),
+            Err(LoadError::NoVariant { .. })
+        ));
+        assert!(matches!(
+            plan(&desktop_only, None, 3),
+            Err(LoadError::NoAsset(None))
+        ));
     }
 
     #[test]
@@ -762,7 +887,10 @@ mod tests {
         ]);
         assert_eq!(plan(&json, None, 3).unwrap().asset_id, "hmd");
         assert_eq!(plan(&json, Some(""), 3).unwrap().asset_id, "hmd");
-        assert!(matches!(plan(&json, Some("nope"), 3), Err(LoadError::NoAsset(Some(_)))));
+        assert!(matches!(
+            plan(&json, Some("nope"), 3),
+            Err(LoadError::NoAsset(Some(_)))
+        ));
     }
 
     #[test]
@@ -773,13 +901,19 @@ mod tests {
             p.credits,
             "A. Author, ISS (CC-BY-4.0 https://creativecommons.org/licenses/by/4.0/), modified (decimated)"
         );
-        assert_eq!((p.bounds_min, p.bounds_max), ([-3.0, 0.0, -7.0], [2.5, 3.0, 0.0]));
+        assert_eq!(
+            (p.bounds_min, p.bounds_max),
+            ([-3.0, 0.0, -7.0], [2.5, 3.0, 0.0])
+        );
     }
 
     #[test]
     fn a_malformed_listing_is_an_error_not_a_panic() {
         for bad in ["", "{", "[]", r#"{"assets":[{"id":1}]}"#] {
-            assert!(matches!(plan(bad, None, 1), Err(LoadError::Listing(_))), "{bad:?}");
+            assert!(
+                matches!(plan(bad, None, 1), Err(LoadError::Listing(_))),
+                "{bad:?}"
+            );
         }
     }
 
@@ -814,14 +948,38 @@ mod tests {
     fn a_wrong_length_or_malformed_digest_or_address_is_a_refusal() {
         let f = spz_of(10);
         let v = variant(VariantName::Xr1, &f, 10);
-        assert!(matches!(verify(&f[..f.len() - 1], &v), Err(LoadError::Size { .. })));
-        assert!(matches!(verify(&f, &ListedVariant { sha256: "ABC".into(), ..v.clone() }), Err(LoadError::BadDigest(_))));
         assert!(matches!(
-            verify(&f, &ListedVariant { sha256: v.sha256.to_uppercase(), ..v.clone() }),
+            verify(&f[..f.len() - 1], &v),
+            Err(LoadError::Size { .. })
+        ));
+        assert!(matches!(
+            verify(
+                &f,
+                &ListedVariant {
+                    sha256: "ABC".into(),
+                    ..v.clone()
+                }
+            ),
             Err(LoadError::BadDigest(_))
         ));
         assert!(matches!(
-            verify(&f, &ListedVariant { address: "sha256-12-000000000000".into(), ..v.clone() }),
+            verify(
+                &f,
+                &ListedVariant {
+                    sha256: v.sha256.to_uppercase(),
+                    ..v.clone()
+                }
+            ),
+            Err(LoadError::BadDigest(_))
+        ));
+        assert!(matches!(
+            verify(
+                &f,
+                &ListedVariant {
+                    address: "sha256-12-000000000000".into(),
+                    ..v.clone()
+                }
+            ),
             Err(LoadError::BadAddress(_))
         )); // an address that is not the digest's prefix
         for e in [
@@ -832,7 +990,11 @@ mod tests {
         ] {
             assert!(e.is_refusal());
         }
-        for e in [LoadError::Decode("x".into()), LoadError::Io("x".into()), LoadError::NoAsset(None)] {
+        for e in [
+            LoadError::Decode("x".into()),
+            LoadError::Io("x".into()),
+            LoadError::NoAsset(None),
+        ] {
             assert!(!e.is_refusal(), "{e}");
         }
     }
@@ -840,8 +1002,18 @@ mod tests {
     #[test]
     fn a_traversing_address_never_reaches_the_filesystem() {
         let dir = tempfile::tempdir().unwrap();
-        for a in ["../../etc/passwd", "sha256-12-../../x", "sha256-12-AAAAAAAAAAAA", "sha256-12-0123456789a", "", "/abs"] {
-            assert!(matches!(cache_file(dir.path(), a), Err(LoadError::BadAddress(_))), "{a:?}");
+        for a in [
+            "../../etc/passwd",
+            "sha256-12-../../x",
+            "sha256-12-AAAAAAAAAAAA",
+            "sha256-12-0123456789a",
+            "",
+            "/abs",
+        ] {
+            assert!(
+                matches!(cache_file(dir.path(), a), Err(LoadError::BadAddress(_))),
+                "{a:?}"
+            );
         }
         let ok = cache_file(dir.path(), "sha256-12-0123456789ab").unwrap();
         assert_eq!(ok, dir.path().join("sha256-12-0123456789ab.spz"));
@@ -858,7 +1030,10 @@ mod tests {
         write_cache(dir.path(), &v, &f).unwrap();
         let path = cache_file(dir.path(), &v.address).unwrap();
         assert!(path.exists());
-        assert!(!path.with_extension("spz.part").exists(), "no temp file left");
+        assert!(
+            !path.with_extension("spz.part").exists(),
+            "no temp file left"
+        );
         assert_eq!(read_cache(dir.path(), &v).as_deref(), Some(&f[..]));
         // The file is corrupted on disk: the hit is re-verified, fails, and the
         // file is removed so it is downloaded again.
@@ -894,7 +1069,10 @@ mod tests {
         }
         // a 45 degree turn puts covariance in xy: cos sin (1 - 4) = -1.5, and the
         // trace of the block is preserved
-        let (s, k) = ((std::f32::consts::FRAC_PI_8).sin(), (std::f32::consts::FRAC_PI_8).cos());
+        let (s, k) = (
+            (std::f32::consts::FRAC_PI_8).sin(),
+            (std::f32::consts::FRAC_PI_8).cos(),
+        );
         let c = covariance([1.0, 2.0, 3.0], [0.0, 0.0, s, k]);
         assert!((c[0] + c[3] - 5.0).abs() < 1.0e-5, "trace of the xy block");
         assert!((c[1] + 1.5).abs() < 1.0e-5, "xy {}", c[1]);
@@ -913,14 +1091,25 @@ mod tests {
         assert_eq!(p.texels.len(), 4096 * 2 * 4);
         assert_eq!(p.positions, s.positions);
         for &i in &[0usize, 1, 7, DATA_ROW_SPLATS - 1, DATA_ROW_SPLATS, n - 1] {
-            let base = ((i / DATA_ROW_SPLATS) * DATA_TEX_WIDTH + (i % DATA_ROW_SPLATS) * TEXELS_PER_SPLAT) * 4;
+            let base = ((i / DATA_ROW_SPLATS) * DATA_TEX_WIDTH
+                + (i % DATA_ROW_SPLATS) * TEXELS_PER_SPLAT)
+                * 4;
             let t = &p.texels[base..base + 16];
-            assert_eq!(&t[0..3], &s.positions[i * 3..i * 3 + 3], "splat {i} position");
+            assert_eq!(
+                &t[0..3],
+                &s.positions[i * 3..i * 3 + 3],
+                "splat {i} position"
+            );
             assert_eq!(t[3], s.colors[i * 4 + 3], "splat {i} opacity");
             assert_eq!(&t[4..7], &s.colors[i * 4..i * 4 + 3], "splat {i} colour");
             let cov = covariance(
                 [s.scales[i * 3], s.scales[i * 3 + 1], s.scales[i * 3 + 2]],
-                [s.rotations[i * 4], s.rotations[i * 4 + 1], s.rotations[i * 4 + 2], s.rotations[i * 4 + 3]],
+                [
+                    s.rotations[i * 4],
+                    s.rotations[i * 4 + 1],
+                    s.rotations[i * 4 + 2],
+                    s.rotations[i * 4 + 3],
+                ],
             );
             assert_eq!(&t[8..12], &cov[0..4], "splat {i} cov xx xy xz yy");
             assert_eq!(&t[12..14], &cov[4..6], "splat {i} cov yz zz");
@@ -935,7 +1124,10 @@ mod tests {
     #[test]
     fn packing_an_empty_scene_is_one_zero_row() {
         let p = pack(&Splats::default());
-        assert_eq!((p.count, p.height, p.bounds_min, p.bounds_max), (0, 1, [0.0; 3], [0.0; 3]));
+        assert_eq!(
+            (p.count, p.height, p.bounds_min, p.bounds_max),
+            (0, 1, [0.0; 3], [0.0; 3])
+        );
         assert!(p.texels.iter().all(|&v| v == 0.0));
     }
 
@@ -968,7 +1160,10 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
-        assert!(cache_file(dir.path(), &p.variant.address).unwrap().exists(), "stored under the address");
+        assert!(
+            cache_file(dir.path(), &p.variant.address).unwrap().exists(),
+            "stored under the address"
+        );
         // A warm load never asks for the download.
         let warm = LoadJob::new();
         warm.begin(&p, Some(dir.path().to_path_buf()));
@@ -993,8 +1188,15 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
-        assert!(!cache_file(dir.path(), &p.variant.address).unwrap().exists(), "nothing cached");
-        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0, "no temp file either");
+        assert!(
+            !cache_file(dir.path(), &p.variant.address).unwrap().exists(),
+            "nothing cached"
+        );
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            0,
+            "no temp file either"
+        );
         // And it stays refused: no hidden second attempt moves the state.
         std::thread::sleep(Duration::from_millis(50));
         assert!(matches!(job.state(), State::Failed { refused: true, .. }));
@@ -1007,7 +1209,10 @@ mod tests {
         for bad in [files[0][..10].to_vec(), Vec::new(), files[1].clone()] {
             let job = LoadJob::new();
             job.supply(&p, bad, None);
-            assert!(matches!(wait(&job, settled), State::Failed { refused: true, .. }));
+            assert!(matches!(
+                wait(&job, settled),
+                State::Failed { refused: true, .. }
+            ));
         }
     }
 
@@ -1022,7 +1227,10 @@ mod tests {
         std::fs::write(&path, bad).unwrap();
         let job = LoadJob::new();
         job.begin(&p, Some(dir.path().to_path_buf()));
-        assert!(matches!(wait(&job, settled), State::NeedDownload { .. }), "re-verified on the hit, then re-fetched");
+        assert!(
+            matches!(wait(&job, settled), State::NeedDownload { .. }),
+            "re-verified on the hit, then re-fetched"
+        );
         assert!(!path.exists());
     }
 
@@ -1070,7 +1278,9 @@ mod tests {
         job.supply(&old, files[0].clone(), None); // worker for the old plan starts
         job.reset(); // the re-plan abandons it at once
         job.begin(&new, None);
-        assert!(matches!(wait(&job, settled), State::NeedDownload { url, .. } if url == new.variant.url));
+        assert!(
+            matches!(wait(&job, settled), State::NeedDownload { url, .. } if url == new.variant.url)
+        );
         // Give the abandoned worker ample time to finish; it must not overwrite.
         std::thread::sleep(Duration::from_millis(300));
         assert!(
@@ -1083,7 +1293,11 @@ mod tests {
         job.supply(&old, vec![1, 2, 3], None);
         job.fail("HTTP 503".into());
         std::thread::sleep(Duration::from_millis(100));
-        assert!(matches!(job.state(), State::Failed { refused: false, .. }), "{:?}", job.state());
+        assert!(
+            matches!(job.state(), State::Failed { refused: false, .. }),
+            "{:?}",
+            job.state()
+        );
     }
 
     #[test]
@@ -1126,7 +1340,17 @@ mod tests {
         let mut order = Vec::new();
         let mut scratch = crate::splat_sort::SortScratch::default();
         let t2 = Instant::now();
-        crate::splat_sort::sort_back_to_front(&p.positions, [0.0; 3], [0.0, 0.0, -1.0], &mut order, &mut scratch);
-        println!("sort of {} real splats: {:.2} ms (this CPU)", p.count, t2.elapsed().as_secs_f32() * 1000.0);
+        crate::splat_sort::sort_back_to_front(
+            &p.positions,
+            [0.0; 3],
+            [0.0, 0.0, -1.0],
+            &mut order,
+            &mut scratch,
+        );
+        println!(
+            "sort of {} real splats: {:.2} ms (this CPU)",
+            p.count,
+            t2.elapsed().as_secs_f32() * 1000.0
+        );
     }
 }

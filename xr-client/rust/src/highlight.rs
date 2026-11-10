@@ -209,7 +209,10 @@ mod tests {
     fn set_and_clear_bump_the_version_only_on_change() {
         let mut m = HighlightMask::default();
         let v0 = m.version();
-        assert!(!m.set_bit(5, SELECTED, false), "clearing an unwritten slot is a no-op");
+        assert!(
+            !m.set_bit(5, SELECTED, false),
+            "clearing an unwritten slot is a no-op"
+        );
         assert_eq!(m.version(), v0);
         assert!(m.set_bit(5, SELECTED, true));
         assert!(!m.set_bit(5, SELECTED, true), "same value: no change");
@@ -226,7 +229,10 @@ mod tests {
     fn grey_is_desaturated_and_darker_and_emphasis_is_lighter() {
         let mut c = [0.9, 0.2, 0.1];
         grey_rgb(&mut c);
-        assert!((c[0] - c[1]).abs() < 0.05 && (c[1] - c[2]).abs() < 0.05, "desaturated: {c:?}");
+        assert!(
+            (c[0] - c[1]).abs() < 0.05 && (c[1] - c[2]).abs() < 0.05,
+            "desaturated: {c:?}"
+        );
         assert!(c[0] < 0.2, "pulled toward the background: {c:?}");
         let mut e = [0.5, 0.5, 0.5];
         emphasise_rgb(&mut e);

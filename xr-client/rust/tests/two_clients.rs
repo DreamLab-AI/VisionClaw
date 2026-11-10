@@ -200,10 +200,16 @@ async fn send_text(
     >,
     text: &str,
 ) -> Result<(), String> {
-    sink.send(Message::Text(text.to_owned())).await.map_err(|e| e.to_string())
+    sink.send(Message::Text(text.to_owned()))
+        .await
+        .map_err(|e| e.to_string())
 }
 
-async fn serve(listener: TcpListener, plan: ServerPlan, epoch: Instant) -> Result<ServerLog, String> {
+async fn serve(
+    listener: TcpListener,
+    plan: ServerPlan,
+    epoch: Instant,
+) -> Result<ServerLog, String> {
     let (tcp, _) = listener.accept().await.map_err(|e| e.to_string())?;
     let ws = tokio_tungstenite::accept_async(tcp)
         .await
@@ -239,7 +245,9 @@ async fn serve(listener: TcpListener, plan: ServerPlan, epoch: Instant) -> Resul
         let frame = v5_frame(seq, plan.id_base, plan.nodes, k as f32);
         let sent_at = Instant::now();
         log.last_send = sent_at - epoch;
-        sink.send(Message::Binary(frame)).await.map_err(|e| e.to_string())?;
+        sink.send(Message::Binary(frame))
+            .await
+            .map_err(|e| e.to_string())?;
         // ADR-2141: the next chunk is built only once this one is acknowledged.
         let ack = loop {
             let next = tokio::select! {
@@ -249,11 +257,20 @@ async fn serve(listener: TcpListener, plan: ServerPlan, epoch: Instant) -> Resul
                     return Ok(log);
                 }
             };
-            let msg = next.map_err(|_| format!("{}: no ack for seq {seq} within {ACK_TIMEOUT:?}", plan.name))?;
+            let msg = next.map_err(|_| {
+                format!("{}: no ack for seq {seq} within {ACK_TIMEOUT:?}", plan.name)
+            })?;
             match msg {
                 Some(Ok(Message::Binary(b))) => break b,
-                Some(Ok(Message::Text(_))) | Some(Ok(Message::Ping(_))) | Some(Ok(Message::Pong(_))) => continue,
-                other => return Err(format!("{}: stream ended awaiting ack {seq}: {other:?}", plan.name)),
+                Some(Ok(Message::Text(_)))
+                | Some(Ok(Message::Ping(_)))
+                | Some(Ok(Message::Pong(_))) => continue,
+                other => {
+                    return Err(format!(
+                        "{}: stream ended awaiting ack {seq}: {other:?}",
+                        plan.name
+                    ))
+                }
             }
         };
         let rtt = sent_at.elapsed();
@@ -263,15 +280,25 @@ async fn serve(listener: TcpListener, plan: ServerPlan, epoch: Instant) -> Resul
             log.max_ack_rtt = log.max_ack_rtt.max(rtt);
         }
         if ack.len() != 21 || ack[0] != OPCODE_BROADCAST_ACK {
-            return Err(format!("{}: malformed ack {:?}", plan.name, &ack[..ack.len().min(4)]));
+            return Err(format!(
+                "{}: malformed ack {:?}",
+                plan.name,
+                &ack[..ack.len().min(4)]
+            ));
         }
         let ack_seq = u64::from_le_bytes(ack[1..9].try_into().unwrap());
         let ack_nodes = u32::from_le_bytes(ack[9..13].try_into().unwrap());
         if ack_seq != seq {
-            return Err(format!("{}: ack names seq {ack_seq}, expected {seq}", plan.name));
+            return Err(format!(
+                "{}: ack names seq {ack_seq}, expected {seq}",
+                plan.name
+            ));
         }
         if ack_nodes != plan.nodes {
-            return Err(format!("{}: ack counts {ack_nodes} nodes, expected {}", plan.name, plan.nodes));
+            return Err(format!(
+                "{}: ack counts {ack_nodes} nodes, expected {}",
+                plan.name, plan.nodes
+            ));
         }
         log.acks.push(ack_seq);
         k += 1;
@@ -327,7 +354,11 @@ impl Client {
                 GraphInbound::Connected => {}
                 GraphInbound::Disconnected => self.gate.reconnect(),
                 GraphInbound::Topology { edges, metas } => {
-                    assert!(!edges.is_empty() && !metas.is_empty(), "{}: empty topology", self.name);
+                    assert!(
+                        !edges.is_empty() && !metas.is_empty(),
+                        "{}: empty topology",
+                        self.name
+                    );
                     self.topologies += 1;
                     self.topology_ticks.push(now);
                 }
@@ -341,7 +372,8 @@ impl Client {
                         .gate
                         .admit_and_ack(&bytes, now_ms)
                         .unwrap_or_else(|e| panic!("{}: decode failed: {e}", self.name));
-                    let updates = updates.unwrap_or_else(|| panic!("{}: frame rejected by gate", self.name));
+                    let updates =
+                        updates.unwrap_or_else(|| panic!("{}: frame rejected by gate", self.name));
                     let lo = self.id_base;
                     let hi = self.id_base + self.nodes;
                     self.foreign_ids += updates
@@ -418,7 +450,12 @@ fn run(streams: Vec<Stream>, epoch: Instant) -> Outcome {
     for s in streams {
         let listener = rt.block_on(TcpListener::bind("127.0.0.1:0")).expect("bind");
         let url = format!("ws://{}/wss", listener.local_addr().unwrap());
-        clients.push(Client::connect(s.plan.name, url, s.plan.id_base, s.plan.nodes));
+        clients.push(Client::connect(
+            s.plan.name,
+            url,
+            s.plan.id_base,
+            s.plan.nodes,
+        ));
         stops.push(s.plan.stop.clone());
         finite.push(s.finite);
         servers.push(rt.spawn(serve(listener, s.plan, epoch)));
@@ -437,7 +474,10 @@ fn run(streams: Vec<Stream>, epoch: Instant) -> Outcome {
         assert!(
             epoch.elapsed() < DEADLINE,
             "deadline: frames {:?}",
-            clients.iter().map(|c| (c.name, c.frames)).collect::<Vec<_>>()
+            clients
+                .iter()
+                .map(|c| (c.name, c.frames))
+                .collect::<Vec<_>>()
         );
         let now = epoch.elapsed();
         let topo_before: u32 = clients.iter().map(|c| c.topologies).sum();
@@ -467,7 +507,12 @@ fn run(streams: Vec<Stream>, epoch: Instant) -> Outcome {
         c.handle.abort();
     }
     work.sort();
-    Outcome { clients, logs, work, topo_work }
+    Outcome {
+        clients,
+        logs,
+        work,
+        topo_work,
+    }
 }
 
 fn finite_plan(
@@ -503,14 +548,27 @@ fn check_common(out: &Outcome, seq_bases: &[u64]) {
             c.name, c.frames, c.topologies, s.accepted, s.resyncs, s.rejected_duplicate, s.rejected_stale,
             c.foreign_ids, log.acks.len(), ms(cross), ms(own), ms(log.max_ack_rtt), ms(log.after_topology_ack_rtt)
         );
-        assert_eq!(c.foreign_ids, 0, "{}: a frame reached the wrong client", c.name);
+        assert_eq!(
+            c.foreign_ids, 0,
+            "{}: a frame reached the wrong client",
+            c.name
+        );
         assert_eq!(s.rejected_duplicate + s.rejected_stale, 0, "{}", c.name);
         assert_eq!(s.accepted + s.resyncs, c.frames, "{}", c.name);
-        assert_eq!(log.topologies_sent, c.topologies, "{}: every topology arrived", c.name);
+        assert_eq!(
+            log.topologies_sent, c.topologies,
+            "{}: every topology arrived",
+            c.name
+        );
         let want: Vec<u64> = (base..base + log.acks.len() as u64).collect();
         assert_eq!(log.acks, want, "{}: acks out of its own sequence", c.name);
         assert!(cross <= STALL_LIMIT, "{} stalled {cross:?}", c.name);
-        assert!(log.max_ack_rtt <= STALL_LIMIT, "{} ack rtt {:?}", c.name, log.max_ack_rtt);
+        assert!(
+            log.max_ack_rtt <= STALL_LIMIT,
+            "{} ack rtt {:?}",
+            c.name,
+            log.max_ack_rtt
+        );
     }
     let p50 = percentile(&out.work, 0.50);
     let p99 = percentile(&out.work, 0.99);
@@ -532,8 +590,17 @@ fn one_client_reloads_while_the_other_streams() {
     let epoch = Instant::now();
     let mut b = finite_plan("B", small, None, SEQ_BASE_B, ID_BASE_B);
     b.plan.refetch_at = None;
-    let out = run(vec![finite_plan("A", big.clone(), None, SEQ_BASE_A, ID_BASE_A), b], epoch);
-    println!("P3-pre scenario 1: A reloads {:.1} MB twice, B streams", big.len() as f64 / 1e6);
+    let out = run(
+        vec![
+            finite_plan("A", big.clone(), None, SEQ_BASE_A, ID_BASE_A),
+            b,
+        ],
+        epoch,
+    );
+    println!(
+        "P3-pre scenario 1: A reloads {:.1} MB twice, B streams",
+        big.len() as f64 / 1e6
+    );
     check_common(&out, &[SEQ_BASE_A, SEQ_BASE_B]);
     let (a, bc) = (&out.clients[0], &out.clients[1]);
     assert_eq!(a.frames, FRAMES);
@@ -543,7 +610,8 @@ fn one_client_reloads_while_the_other_streams() {
     // The stress overlapped: B was streaming on both sides of A's mid-stream topology drain.
     let refetch_drain = a.topology_ticks[1];
     assert!(
-        bc.frame_times.iter().any(|&t| t < refetch_drain) && bc.frame_times.iter().any(|&t| t > refetch_drain),
+        bc.frame_times.iter().any(|&t| t < refetch_drain)
+            && bc.frame_times.iter().any(|&t| t > refetch_drain),
         "A's refetch did not overlap B's stream; the stall check would be vacuous"
     );
 }
@@ -572,7 +640,13 @@ fn both_clients_reload_a_full_topology_at_once() {
     };
     let out = run(
         vec![
-            finite_plan("A", big_a.clone(), Some(barrier.clone()), SEQ_BASE_A, ID_BASE_A),
+            finite_plan(
+                "A",
+                big_a.clone(),
+                Some(barrier.clone()),
+                SEQ_BASE_A,
+                ID_BASE_A,
+            ),
             finite_plan("B", big_b, Some(barrier), SEQ_BASE_B, ID_BASE_B),
             canary,
         ],
@@ -596,15 +670,31 @@ fn both_clients_reload_a_full_topology_at_once() {
     // The two refetches really went out together, and the canary streamed across both parses:
     // its gaps inside the window [first refetch send, last refetch drain] are what the shared
     // runtime's capacity decides.
-    assert!(ra.abs_diff(rb) <= Duration::from_millis(50), "refetches not simultaneous");
+    assert!(
+        ra.abs_diff(rb) <= Duration::from_millis(50),
+        "refetches not simultaneous"
+    );
     let lo = ra.min(rb);
     let hi = a.topology_ticks[1].max(b.topology_ticks[1]);
     let (canary_gap, _) = c.max_gaps(Some((lo, hi)));
-    let in_window = c.frame_times.iter().filter(|&&t| t >= lo && t <= hi).count();
+    let in_window = c
+        .frame_times
+        .iter()
+        .filter(|&&t| t >= lo && t <= hi)
+        .count();
     println!(
         "  canary across both parses ({:.1}..{:.1} ms): {} frames, max gap {:.1} ms",
-        ms(lo), ms(hi), in_window, ms(canary_gap)
+        ms(lo),
+        ms(hi),
+        in_window,
+        ms(canary_gap)
     );
-    assert!(in_window >= 2, "canary did not stream across the parses; the check would be vacuous");
-    assert!(canary_gap <= STALL_LIMIT, "canary stalled {canary_gap:?} while both topologies parsed");
+    assert!(
+        in_window >= 2,
+        "canary did not stream across the parses; the check would be vacuous"
+    );
+    assert!(
+        canary_gap <= STALL_LIMIT,
+        "canary stalled {canary_gap:?} while both topologies parsed"
+    );
 }

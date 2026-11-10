@@ -407,7 +407,9 @@ pub fn parse_initial_graph(text: &str) -> Option<(Vec<EdgeSpec>, Vec<NodeMetaWir
                 ontology_refs,
                 source_file,
                 source_repo: meta_str(meta, "repo").unwrap_or("").to_string(),
-                source_revision: meta.and_then(|m| m.get("revision")).and_then(serde_json::Value::as_u64),
+                source_revision: meta
+                    .and_then(|m| m.get("revision"))
+                    .and_then(serde_json::Value::as_u64),
             });
         }
     }
@@ -497,7 +499,11 @@ pub fn build_drag_msg(msg_type: &str, node_id: u32, position: Option<[f32; 3]>) 
 /// contract §1: knowledge `0b0001`, ontology `0b0010`, agent `0b0100`, plain/Codescape `0b1000`).
 /// An id with no recorded class is skipped. Order follows `ids`. Pure, so the `cfg(test)` module
 /// covers what `BinaryProtocolClient::node_ids_for_mask` exposes to Godot.
-pub fn ids_for_class_mask(ids: &[u32], mask: i64, class_of: impl Fn(u32) -> Option<u8>) -> Vec<i32> {
+pub fn ids_for_class_mask(
+    ids: &[u32],
+    mask: i64,
+    class_of: impl Fn(u32) -> Option<u8>,
+) -> Vec<i32> {
     if mask <= 0 {
         return Vec::new();
     }
@@ -543,7 +549,11 @@ pub fn neighbours_in(flat: &[i32], id: i64, max: usize) -> Vec<i32> {
 /// Number of edges `edges_for_class_mask` would return with no cap: both ends in
 /// the volume's class mask. The dropped-edge readout (ADR-2188 D2) is this minus
 /// what the volume drew, so a cap never clips silently.
-pub fn edge_count_for_class_mask(flat: &[i32], mask: i64, class_of: impl Fn(u32) -> Option<u8>) -> usize {
+pub fn edge_count_for_class_mask(
+    flat: &[i32],
+    mask: i64,
+    class_of: impl Fn(u32) -> Option<u8>,
+) -> usize {
     if mask <= 0 {
         return 0;
     }
@@ -577,12 +587,27 @@ pub fn edges_for_class_mask(
                 .unwrap_or(false)
     };
     let mut keep: Vec<(usize, f32)> = flat
-        .as_chunks::<2>().0.iter()
+        .as_chunks::<2>()
+        .0
+        .iter()
         .enumerate()
         .filter(|(_, p)| inside(p[0]) && inside(p[1]))
-        .map(|(i, _)| (i, weights.get(i).copied().filter(|w| w.is_finite()).unwrap_or(1.0)))
+        .map(|(i, _)| {
+            (
+                i,
+                weights
+                    .get(i)
+                    .copied()
+                    .filter(|w| w.is_finite())
+                    .unwrap_or(1.0),
+            )
+        })
         .collect();
-    keep.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then(a.0.cmp(&b.0)));
+    keep.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.0.cmp(&b.0))
+    });
     keep.truncate(max);
     let mut out = Vec::with_capacity(keep.len() * 2);
     for (i, _) in keep {
@@ -716,7 +741,9 @@ pub fn encode_broadcast_ack(sequence: u64, nodes_received: u32, timestamp_ms: u6
 pub fn ack_sequence(verdict: Freshness) -> Option<u64> {
     match verdict {
         Freshness::Accept { sequence } | Freshness::AcceptResync { sequence, .. } => Some(sequence),
-        Freshness::AcceptUnsequenced | Freshness::RejectDuplicate { .. } | Freshness::RejectStale { .. } => None,
+        Freshness::AcceptUnsequenced
+        | Freshness::RejectDuplicate { .. }
+        | Freshness::RejectStale { .. } => None,
     }
 }
 
@@ -842,7 +869,10 @@ impl FreshnessGate {
             self.watermark = Some(seq);
             self.awaiting_resync = false;
             self.stats.resyncs += 1;
-            return Freshness::AcceptResync { sequence: seq, previous };
+            return Freshness::AcceptResync {
+                sequence: seq,
+                previous,
+            };
         }
 
         match self.watermark {
@@ -1526,7 +1556,9 @@ impl BinaryProtocolClient {
         let Some(tx) = self.outbound.as_ref() else {
             return;
         };
-        let _ = tx.send(crate::transport::Outbound::Text(build_node_unpin_msg(node_id)));
+        let _ = tx.send(crate::transport::Outbound::Text(build_node_unpin_msg(
+            node_id,
+        )));
     }
 
     // --- WP1 colour mode -------------------------------------------------------
@@ -1625,7 +1657,9 @@ impl BinaryProtocolClient {
         }
         match self.outbound.as_ref() {
             Some(tx) => tx
-                .send(crate::transport::Outbound::Text(r#"{"type":"requestInitialData"}"#.to_string()))
+                .send(crate::transport::Outbound::Text(
+                    r#"{"type":"requestInitialData"}"#.to_string(),
+                ))
                 .is_ok(),
             None => false,
         }
@@ -1647,7 +1681,12 @@ impl BinaryProtocolClient {
         if !(0..=255).contains(&bit) {
             return false;
         }
-        let v: Vec<u32> = ids.as_slice().iter().filter(|&&x| x >= 0).map(|&x| x as u32).collect();
+        let v: Vec<u32> = ids
+            .as_slice()
+            .iter()
+            .filter(|&&x| x >= 0)
+            .map(|&x| x as u32)
+            .collect();
         self.store.set_highlight_ids(bit as u8, &v)
     }
 
@@ -2361,7 +2400,10 @@ impl BinaryProtocolClient {
         let mut d = Dictionary::new();
         for (iri, ids) in &self.iri_ids {
             let v: Vec<i32> = ids.iter().map(|&i| i as i32).collect();
-            d.set(GString::from(iri.as_str()), PackedInt32Array::from(v.as_slice()));
+            d.set(
+                GString::from(iri.as_str()),
+                PackedInt32Array::from(v.as_slice()),
+            );
         }
         d
     }
@@ -2394,7 +2436,12 @@ impl BinaryProtocolClient {
     /// unresolved: int}`; class codes come from this client's applied frames, so an IRI on a
     /// node whose position has not arrived yet counts as unresolved until it does.
     #[func]
-    fn join_code_links(&self, code: Gd<BinaryProtocolClient>, code_gen: i64, vc_gen: i64) -> Dictionary {
+    fn join_code_links(
+        &self,
+        code: Gd<BinaryProtocolClient>,
+        code_gen: i64,
+        vc_gen: i64,
+    ) -> Dictionary {
         let code = code.bind();
         let res = crate::link_index::join(&code.code_refs, code_gen, &self.iri_ids, vc_gen, |id| {
             self.node_class.get(&id).copied().unwrap_or(u8::MAX)
@@ -2435,7 +2482,9 @@ impl BinaryProtocolClient {
     /// Edges whose two ends are both in `mask`, before any cap (ADR-2188 D2).
     #[func]
     fn edge_count_for_mask(&self, mask: i64) -> i64 {
-        edge_count_for_class_mask(&self.edges_flat, mask, |id| self.node_class.get(&id).copied()) as i64
+        edge_count_for_class_mask(&self.edges_flat, mask, |id| {
+            self.node_class.get(&id).copied()
+        }) as i64
     }
 
     /// Class code of a node (0 knowledge, 1 ontology, 2 agent, 3 plain), -1 when unknown.
@@ -2444,14 +2493,21 @@ impl BinaryProtocolClient {
         if node_id < 0 {
             return -1;
         }
-        self.node_class.get(&(node_id as u32)).map(|&c| c as i64).unwrap_or(-1)
+        self.node_class
+            .get(&(node_id as u32))
+            .map(|&c| c as i64)
+            .unwrap_or(-1)
     }
 
     /// Full-extent AABB `[minx,miny,minz,maxx,maxy,maxz]` (server space) over `ids`, skipping
     /// every id in `exclude` (the nodes held by a hand; empty = none) and ids not in the store.
     /// Empty array when none qualify.
     #[func]
-    fn render_aabb_ids(&self, ids: PackedInt32Array, exclude: PackedInt32Array) -> PackedFloat32Array {
+    fn render_aabb_ids(
+        &self,
+        ids: PackedInt32Array,
+        exclude: PackedInt32Array,
+    ) -> PackedFloat32Array {
         let known = |id: u32| {
             self.node_class
                 .contains_key(&id)
@@ -2488,8 +2544,18 @@ impl BinaryProtocolClient {
     /// unlabelled and greyed-out ids dropped (ADR-2186 D2/D3, ADR-2188 D5).
     #[func]
     fn rank_labels(&self, ids: PackedInt32Array) -> PackedInt32Array {
-        let v: Vec<u32> = ids.as_slice().iter().filter(|&&x| x >= 0).map(|&x| x as u32).collect();
-        let out: Vec<i32> = self.store.rank_label_candidates(&v).into_iter().map(|id| id as i32).collect();
+        let v: Vec<u32> = ids
+            .as_slice()
+            .iter()
+            .filter(|&&x| x >= 0)
+            .map(|&x| x as u32)
+            .collect();
+        let out: Vec<i32> = self
+            .store
+            .rank_label_candidates(&v)
+            .into_iter()
+            .map(|id| id as i32)
+            .collect();
         PackedInt32Array::from(out.as_slice())
     }
 
@@ -2701,7 +2767,9 @@ impl BinaryProtocolClient {
             return;
         };
         let pos = position.map(|p| [p.x, p.y, p.z]);
-        let _ = tx.send(crate::transport::Outbound::Text(build_drag_msg(msg_type, node_id, pos)));
+        let _ = tx.send(crate::transport::Outbound::Text(build_drag_msg(
+            msg_type, node_id, pos,
+        )));
     }
 
     fn emit_frame(&mut self, bytes: &[u8]) {
@@ -2749,19 +2817,20 @@ impl BinaryProtocolClient {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
-        let (emit_buf, ack): (Vec<NodeUpdate>, Option<Vec<u8>>) = match self.freshness.admit_and_ack(bytes, now_ms) {
-            Ok((_, Some(updates), ack)) => (updates, ack),
-            Ok((verdict, None, _)) => {
-                // Not applied, so not acknowledged: the server rebuilds the chunk after its
-                // ack timeout rather than marking these nodes as held.
-                warn!(?verdict, "dropping stale position frame");
-                return;
-            }
-            Err(e) => {
-                error!(err = %e, "graph position frame decode failed");
-                return;
-            }
-        };
+        let (emit_buf, ack): (Vec<NodeUpdate>, Option<Vec<u8>>) =
+            match self.freshness.admit_and_ack(bytes, now_ms) {
+                Ok((_, Some(updates), ack)) => (updates, ack),
+                Ok((verdict, None, _)) => {
+                    // Not applied, so not acknowledged: the server rebuilds the chunk after its
+                    // ack timeout rather than marking these nodes as held.
+                    warn!(?verdict, "dropping stale position frame");
+                    return;
+                }
+                Err(e) => {
+                    error!(err = %e, "graph position frame decode failed");
+                    return;
+                }
+            };
         for u in emit_buf {
             // The Rust render store now owns positions (hunted per poll, packed into
             // MultiMesh buffers) — no per-node position_updated signal, which at 13k
@@ -2902,7 +2971,10 @@ mod tests {
         for i in (0..hex.len()).step_by(2) {
             bytes.push(u8::from_str_radix(&hex[i..i + 2], 16).unwrap());
         }
-        (wire, decode_agent_action_frame(&bytes).expect("a 0x23 frame"))
+        (
+            wire,
+            decode_agent_action_frame(&bytes).expect("a 0x23 frame"),
+        )
     }
 
     #[test]
@@ -2914,7 +2986,9 @@ mod tests {
         assert_eq!(spawn.len(), 1);
         assert_eq!(spawn[0].state.as_deref(), Some("working"));
         apply_agent_actions(&mut store, &spawn, 0.0);
-        let rec = store.agent_rec(wire).expect("the real agent is a registry agent");
+        let rec = store
+            .agent_rec(wire)
+            .expect("the real agent is a registry agent");
         assert_eq!(rec.status, AGENT_WORKING);
         assert_eq!(store.label_of(wire & NODE_ID_MASK), "agent task-1");
         assert_eq!(store.agent_count(), 1);
@@ -2931,7 +3005,10 @@ mod tests {
 
         let (_, retired) = fixture_frame("retired");
         apply_agent_actions(&mut store, &retired, 7.0);
-        assert!(store.agent_rec(wire).is_none(), "retirement removes the record");
+        assert!(
+            store.agent_rec(wire).is_none(),
+            "retirement removes the record"
+        );
         assert_eq!(store.agent_count(), 0);
     }
 
@@ -2970,7 +3047,11 @@ mod tests {
         let actions = decode_agent_action_frame(&frame).unwrap();
         apply_agent_actions(&mut store, &actions, 0.0);
         assert_eq!(store.agent_rec(0x8200_0009).unwrap().target_node_id, 42);
-        assert_eq!(store.heat_of(42), 0.0, "a state frame adds no attention heat");
+        assert_eq!(
+            store.heat_of(42),
+            0.0,
+            "a state frame adds no attention heat"
+        );
         // An ordinary action on the same node does heat it.
         let work = build_agent_action_frame(&[(0x8200_0009, 42, 1, 1_001, b"")]);
         apply_agent_actions(&mut store, &decode_agent_action_frame(&work).unwrap(), 0.1);
@@ -3393,14 +3474,33 @@ mod tests {
         // 1,2 knowledge; 3 ontology; 4 agent; 5 plain.
         let flat = [1, 2, 1, 3, 3, 3, 2, 1, 5, 5, 9, 1];
         let w = [0.5, 9.0, 1.0, 2.0, 1.0, 1.0];
-        assert_eq!(edges_for_class_mask(&flat, &w, 0b0001, 10, class_of), vec![2, 1, 1, 2]);
-        assert_eq!(edges_for_class_mask(&flat, &w, 0b0001, 1, class_of), vec![2, 1], "capped, heaviest kept");
-        assert_eq!(edges_for_class_mask(&flat, &w, 0b0010, 10, class_of), vec![3, 3]);
-        assert_eq!(edges_for_class_mask(&flat, &w, 0b0011, 10, class_of), vec![1, 3, 2, 1, 3, 3, 1, 2]);
-        assert_eq!(edges_for_class_mask(&flat, &w, 0b1000, 10, class_of), vec![5, 5]);
+        assert_eq!(
+            edges_for_class_mask(&flat, &w, 0b0001, 10, class_of),
+            vec![2, 1, 1, 2]
+        );
+        assert_eq!(
+            edges_for_class_mask(&flat, &w, 0b0001, 1, class_of),
+            vec![2, 1],
+            "capped, heaviest kept"
+        );
+        assert_eq!(
+            edges_for_class_mask(&flat, &w, 0b0010, 10, class_of),
+            vec![3, 3]
+        );
+        assert_eq!(
+            edges_for_class_mask(&flat, &w, 0b0011, 10, class_of),
+            vec![1, 3, 2, 1, 3, 3, 1, 2]
+        );
+        assert_eq!(
+            edges_for_class_mask(&flat, &w, 0b1000, 10, class_of),
+            vec![5, 5]
+        );
         assert!(edges_for_class_mask(&flat, &w, 0, 10, class_of).is_empty());
         // Missing weights default to 1.0, ties keep wire order.
-        assert_eq!(edges_for_class_mask(&flat, &[], 0b0011, 10, class_of), vec![1, 2, 1, 3, 3, 3, 2, 1]);
+        assert_eq!(
+            edges_for_class_mask(&flat, &[], 0b0011, 10, class_of),
+            vec![1, 2, 1, 3, 3, 3, 2, 1]
+        );
     }
 
     #[test]
@@ -3419,7 +3519,10 @@ mod tests {
         let by_id = |id: u32| metas.iter().find(|m| m.id == id).unwrap();
         assert_eq!(by_id(1).iris, vec!["urn:ngm:class:bm25".to_string()]);
         assert_eq!(by_id(3).iris, vec!["urn:ngm:class:rank".to_string()]);
-        assert_eq!(by_id(10).ontology_refs, "urn:ngm:class:bm25#L12 junk urn:ngm:class:rank#L30");
+        assert_eq!(
+            by_id(10).ontology_refs,
+            "urn:ngm:class:bm25#L12 junk urn:ngm:class:rank#L30"
+        );
         assert_eq!(by_id(10).source_file, "src/rank.rs");
         assert_eq!(by_id(10).source_repo, "demo");
         assert_eq!(by_id(10).source_revision, Some(42));
@@ -3428,23 +3531,44 @@ mod tests {
         assert_eq!(t["urn:ngm:class:rank"], vec![3]);
         assert!(t.contains_key("urn:visionflow:page:bm25"));
         let code = code_refs_from_metas(&metas);
-        assert_eq!(code.len(), 2, "only annotated code nodes; the plain file has none");
+        assert_eq!(
+            code.len(),
+            2,
+            "only annotated code nodes; the plain file has none"
+        );
         let file = code.iter().find(|c| c.id == 10).unwrap();
         assert!(file.is_file);
         assert_eq!(file.key, "src_rank");
         assert_eq!(file.path, "src/rank.rs");
         assert_eq!(
             file.refs,
-            vec![("urn:ngm:class:bm25".to_string(), 12), ("urn:ngm:class:rank".to_string(), 30)],
+            vec![
+                ("urn:ngm:class:bm25".to_string(), 12),
+                ("urn:ngm:class:rank".to_string(), 30)
+            ],
             "malformed token skipped"
         );
         assert!(!code.iter().find(|c| c.id == 11).unwrap().is_file);
         // End to end through D's join: the symbol beats the file's roll-up on (iri, path, line).
         let res = crate::link_index::join(&code, 4, &t, 9, |id| if id == 1 { 1 } else { 0 });
-        let bm25: Vec<_> = res.records.iter().filter(|r| r.target.key == "urn:ngm:class:bm25").collect();
+        let bm25: Vec<_> = res
+            .records
+            .iter()
+            .filter(|r| r.target.key == "urn:ngm:class:bm25")
+            .collect();
         assert_eq!(bm25.len(), 2, "one record per target node");
-        assert!(bm25.iter().all(|r| r.source.id == 11), "symbol wins over file");
-        assert_eq!(bm25.iter().find(|r| r.target.id == 1).unwrap().target.volume, "ontology");
+        assert!(
+            bm25.iter().all(|r| r.source.id == 11),
+            "symbol wins over file"
+        );
+        assert_eq!(
+            bm25.iter()
+                .find(|r| r.target.id == 1)
+                .unwrap()
+                .target
+                .volume,
+            "ontology"
+        );
         assert_eq!(bm25[0].provenance.generations, [4, 9]);
     }
 
@@ -3467,12 +3591,19 @@ mod tests {
             Some([0.0, -2.0, 0.0, 4.0, 0.0, 1.0])
         );
         // Unknown and negative ids are skipped; nothing left ⇒ None.
-        assert_eq!(full_aabb_of(&[2, 77, -4], &[], pos), Some([4.0, -2.0, 1.0, 4.0, -2.0, 1.0]));
+        assert_eq!(
+            full_aabb_of(&[2, 77, -4], &[], pos),
+            Some([4.0, -2.0, 1.0, 4.0, -2.0, 1.0])
+        );
         assert_eq!(full_aabb_of(&[77], &[], pos), None);
         assert_eq!(full_aabb_of(&[], &[], pos), None);
         assert_eq!(full_aabb_of(&[3], &[3], pos), None);
         // A non-finite position never poisons the box.
-        let nan = |id: u32| (id == 9).then_some([f32::NAN, 0.0, 0.0]).or_else(|| pos(id));
+        let nan = |id: u32| {
+            (id == 9)
+                .then_some([f32::NAN, 0.0, 0.0])
+                .or_else(|| pos(id))
+        };
         assert_eq!(full_aabb_of(&[9, 1], &[], nan), Some([0.0; 6]));
     }
 
@@ -3484,10 +3615,22 @@ mod tests {
         let pos = |id: u32| map.get(&id).map(|e| e.1);
         // Node 3 is the far outlier (10,10,10); nodes 1 and 2 are the unheld cluster.
         let rest = Some([0.0, -2.0, 0.0, 4.0, 0.0, 1.0]);
-        assert_eq!(full_aabb_of(&[1, 2, 3], &[3, 2], pos), full_aabb_of(&[1], &[], pos), "two held ids both leave the fit");
+        assert_eq!(
+            full_aabb_of(&[1, 2, 3], &[3, 2], pos),
+            full_aabb_of(&[1], &[], pos),
+            "two held ids both leave the fit"
+        );
         assert_eq!(full_aabb_of(&[1, 2, 3], &[3], pos), rest, "one held id");
-        assert_eq!(full_aabb_of(&[1, 2, 3], &[2, 3], pos), full_aabb_of(&[1], &[], pos), "order does not matter");
-        assert_eq!(full_aabb_of(&[2, 3], &[3, 2], pos), None, "everything held ⇒ nothing to fit");
+        assert_eq!(
+            full_aabb_of(&[1, 2, 3], &[2, 3], pos),
+            full_aabb_of(&[1], &[], pos),
+            "order does not matter"
+        );
+        assert_eq!(
+            full_aabb_of(&[2, 3], &[3, 2], pos),
+            None,
+            "everything held ⇒ nothing to fit"
+        );
         // Negative or unknown exclusions are harmless.
         assert_eq!(full_aabb_of(&[1, 2, 3], &[-1, 77, 3], pos), rest);
     }
@@ -3759,7 +3902,10 @@ mod tests {
         v4[0] = 4;
         v4[2] = 1;
         let err = decode_position_frame(&v4).expect_err("a V4 frame must never decode");
-        assert!(matches!(err, DecodeError::BadVersion { version: 4, .. }), "got {err:?}");
+        assert!(
+            matches!(err, DecodeError::BadVersion { version: 4, .. }),
+            "got {err:?}"
+        );
     }
 
     fn v5_frame(seq: u64, nodes: usize) -> Vec<u8> {
@@ -3778,12 +3924,24 @@ mod tests {
         // The producer restarted: the sequence moves BACKWARDS, and the frame is still taken
         // because every frame is a complete snapshot that can re-baseline on its own.
         let (verdict, updates) = gate.admit_frame(&v5_frame(7, 3)).unwrap();
-        assert!(matches!(verdict, Freshness::AcceptResync { sequence: 7, previous: Some(500) }), "got {verdict:?}");
+        assert!(
+            matches!(
+                verdict,
+                Freshness::AcceptResync {
+                    sequence: 7,
+                    previous: Some(500)
+                }
+            ),
+            "got {verdict:?}"
+        );
         assert_eq!(updates.map(|u| u.len()), Some(3));
         assert!(!gate.awaiting_resync());
         assert_eq!(gate.stats().resyncs, 1);
         // And a stale frame in the new epoch is still refused.
-        assert!(matches!(gate.admit_frame(&v5_frame(6, 3)).unwrap().0, Freshness::RejectStale { .. }));
+        assert!(matches!(
+            gate.admit_frame(&v5_frame(6, 3)).unwrap().0,
+            Freshness::RejectStale { .. }
+        ));
     }
 
     // ---- position acknowledgement (ADR-2141) ----
@@ -3799,7 +3957,10 @@ mod tests {
         assert_eq!(&ours[9..13], &2500u32.to_le_bytes());
         assert_eq!(&ours[13..21], &1_700_000_000_123u64.to_le_bytes());
         let hex: String = ours.iter().map(|b| format!("{b:02x}")).collect();
-        assert_eq!(hex, "34f1bb000000000000c40900007b68e5cf8b010000", "the golden frame shared with the web and server tests");
+        assert_eq!(
+            hex, "34f1bb000000000000c40900007b68e5cf8b010000",
+            "the golden frame shared with the web and server tests"
+        );
     }
 
     #[test]
@@ -3815,9 +3976,15 @@ mod tests {
         let mut gate = FreshnessGate::new();
         gate.admit_and_ack(&v5_frame(10, 2), 0).unwrap();
         let (_, applied, ack) = gate.admit_and_ack(&v5_frame(10, 2), 0).unwrap();
-        assert!(applied.is_none() && ack.is_none(), "a duplicate is not taken, so not acknowledged");
+        assert!(
+            applied.is_none() && ack.is_none(),
+            "a duplicate is not taken, so not acknowledged"
+        );
         let (_, applied, ack) = gate.admit_and_ack(&v5_frame(9, 2), 0).unwrap();
-        assert!(applied.is_none() && ack.is_none(), "a stale frame is not acknowledged either");
+        assert!(
+            applied.is_none() && ack.is_none(),
+            "a stale frame is not acknowledged either"
+        );
     }
 
     #[test]

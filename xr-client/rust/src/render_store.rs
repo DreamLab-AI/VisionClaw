@@ -1699,7 +1699,10 @@ impl RenderStore {
                 continue;
             }
             let canon = self.fold_target(id);
-            if self.fold_hidden.contains(&canon) || self.type_excluded(canon) || self.is_filtered_out(canon) {
+            if self.fold_hidden.contains(&canon)
+                || self.type_excluded(canon)
+                || self.is_filtered_out(canon)
+            {
                 continue;
             }
             // Rank/centrality reflect the matching node; the returned id is `canon`
@@ -1845,27 +1848,28 @@ impl RenderStore {
         // home). Idle/done agents, and agents whose target position is unknown, keep
         // their server target (the proxemics/layout fallback). Snapshot the hover
         // points first (reads other slots) to avoid clashing with the per-slot write.
-        let hover: HashMap<u32, [f32; 3]> = if self.agent_registry.is_empty() || self.agent_offsets_off {
-            HashMap::new()
-        } else {
-            let mut m = HashMap::new();
-            for (&aid, rec) in &self.agent_registry {
-                if !Self::beam_active(rec.status) || rec.target_node_id == 0 {
-                    continue;
+        let hover: HashMap<u32, [f32; 3]> =
+            if self.agent_registry.is_empty() || self.agent_offsets_off {
+                HashMap::new()
+            } else {
+                let mut m = HashMap::new();
+                for (&aid, rec) in &self.agent_registry {
+                    if !Self::beam_active(rec.status) || rec.target_node_id == 0 {
+                        continue;
+                    }
+                    if !self.id_index.contains_key(&aid) {
+                        continue; // agent has no node in the store — nothing to move
+                    }
+                    let target = self.edge_endpoint(rec.target_node_id);
+                    if let Some(&ts) = self.id_index.get(&target) {
+                        m.insert(
+                            aid,
+                            agent_hover_offset(self.positions[ts], aid, HOVER_RADIUS),
+                        );
+                    }
                 }
-                if !self.id_index.contains_key(&aid) {
-                    continue; // agent has no node in the store — nothing to move
-                }
-                let target = self.edge_endpoint(rec.target_node_id);
-                if let Some(&ts) = self.id_index.get(&target) {
-                    m.insert(
-                        aid,
-                        agent_hover_offset(self.positions[ts], aid, HOVER_RADIUS),
-                    );
-                }
-            }
-            m
-        };
+                m
+            };
         for slot in 0..self.ids.len() {
             let id = self.ids[slot];
             if let Some(&(_, grab_pos)) = grabs.iter().find(|(gid, _)| *gid == id) {
@@ -2140,7 +2144,12 @@ impl RenderStore {
                 // (0 untyped / 1 typed / 2 subclass) for the edge shader.
                 let style = self.edge_style_of(os, ot) as f32;
                 buf.extend_from_slice(&tf);
-                buf.extend_from_slice(&[crate::highlight::edge_grey(&self.highlight, ss, ts), 0.0, 0.0, style]);
+                buf.extend_from_slice(&[
+                    crate::highlight::edge_grey(&self.highlight, ss, ts),
+                    0.0,
+                    0.0,
+                    style,
+                ]);
                 if let Some(k) = keys.as_deref_mut() {
                     let (a, b) = if s < t { (s, t) } else { (t, s) };
                     k.push(((a as u64) << 32) | b as u64);
@@ -2589,7 +2598,10 @@ impl RenderStore {
         }
         let before = self.highlight.version();
         // Clear only the slots that lose the bit, so an unchanged set is a no-op.
-        let keep: HashSet<usize> = ids.iter().filter_map(|id| self.id_index.get(id).copied()).collect();
+        let keep: HashSet<usize> = ids
+            .iter()
+            .filter_map(|id| self.id_index.get(id).copied())
+            .collect();
         for slot in 0..self.positions.len() {
             let on = keep.contains(&slot);
             self.highlight.set_bit(slot, bit, on);
@@ -2599,7 +2611,9 @@ impl RenderStore {
 
     /// Flag byte of a node (0 if unknown).
     pub fn highlight_flags_of(&self, id: u32) -> u8 {
-        self.id_index.get(&id).map_or(0, |&slot| self.highlight.get(slot))
+        self.id_index
+            .get(&id)
+            .map_or(0, |&slot| self.highlight.get(slot))
     }
 
     /// ADR-2183 level of a node (normal if unknown).
@@ -2616,7 +2630,6 @@ impl RenderStore {
     pub fn highlight_version(&self) -> u64 {
         self.highlight.version()
     }
-
 
     fn hull_points(&self) -> Vec<crate::hulls::HullPoint> {
         self.render_ids
@@ -2685,15 +2698,37 @@ mod tests {
             for (slot, ids, solo) in [(1i64, &a, &mut only_a), (2i64, &b, &mut only_b)] {
                 shared.store.select_pack_slot(slot);
                 assert_eq!(shared.store.active_pack_slot(), slot);
-                let n = shared.store.build_node_buffer_lod(ids, 1.0, 0.7, 1.9, cam, 40, f32::INFINITY).to_vec();
-                let e = shared.store.build_edge_buffer_lod(&pairs, 1.0, cam, 48, f32::INFINITY).to_vec();
-                let n_solo = solo.store.build_node_buffer_lod(ids, 1.0, 0.7, 1.9, cam, 40, f32::INFINITY).to_vec();
-                let e_solo = solo.store.build_edge_buffer_lod(&pairs, 1.0, cam, 48, f32::INFINITY).to_vec();
+                let n = shared
+                    .store
+                    .build_node_buffer_lod(ids, 1.0, 0.7, 1.9, cam, 40, f32::INFINITY)
+                    .to_vec();
+                let e = shared
+                    .store
+                    .build_edge_buffer_lod(&pairs, 1.0, cam, 48, f32::INFINITY)
+                    .to_vec();
+                let n_solo = solo
+                    .store
+                    .build_node_buffer_lod(ids, 1.0, 0.7, 1.9, cam, 40, f32::INFINITY)
+                    .to_vec();
+                let e_solo = solo
+                    .store
+                    .build_edge_buffer_lod(&pairs, 1.0, cam, 48, f32::INFINITY)
+                    .to_vec();
                 assert_eq!(n, n_solo, "slot {slot} frame {frame}: gem tier");
                 assert_eq!(e, e_solo, "slot {slot} frame {frame}: cylinder tier");
-                assert_eq!(shared.store.impostor_node_buffer(), solo.store.impostor_node_buffer());
-                assert_eq!(shared.store.ribbon_edge_buffer(), solo.store.ribbon_edge_buffer());
-                assert_eq!(shared.store.render_ids(), solo.store.render_ids(), "ray ids per slot");
+                assert_eq!(
+                    shared.store.impostor_node_buffer(),
+                    solo.store.impostor_node_buffer()
+                );
+                assert_eq!(
+                    shared.store.ribbon_edge_buffer(),
+                    solo.store.ribbon_edge_buffer()
+                );
+                assert_eq!(
+                    shared.store.render_ids(),
+                    solo.store.render_ids(),
+                    "ray ids per slot"
+                );
             }
         }
         // Slot 0 (existing callers) is untouched by the others and clear() drops parked slots.
@@ -2701,7 +2736,10 @@ mod tests {
         assert!(shared.store.render_ids().is_empty(), "slot 0 never packed");
         shared.store.clear();
         shared.store.select_pack_slot(1);
-        assert!(shared.store.render_ids().is_empty(), "clear() dropped the parked slot");
+        assert!(
+            shared.store.render_ids().is_empty(),
+            "clear() dropped the parked slot"
+        );
     }
 
     /// The per-slot readers return each slot's own last pack without selecting it, so the ray
@@ -2721,17 +2759,41 @@ mod tests {
             only_a.advance(frame);
             only_b.advance(frame);
             shared.store.select_pack_slot(1);
-            shared.store.build_node_buffer_lod(&a, 1.0, 0.7, 1.9, cam, 40, f32::INFINITY);
+            shared
+                .store
+                .build_node_buffer_lod(&a, 1.0, 0.7, 1.9, cam, 40, f32::INFINITY);
             shared.store.select_pack_slot(2);
-            shared.store.build_node_buffer_lod(&b, 1.0, 0.7, 1.9, cam, 40, f32::INFINITY);
-            only_a.store.build_node_buffer_lod(&a, 1.0, 0.7, 1.9, cam, 40, f32::INFINITY);
-            only_b.store.build_node_buffer_lod(&b, 1.0, 0.7, 1.9, cam, 40, f32::INFINITY);
+            shared
+                .store
+                .build_node_buffer_lod(&b, 1.0, 0.7, 1.9, cam, 40, f32::INFINITY);
+            only_a
+                .store
+                .build_node_buffer_lod(&a, 1.0, 0.7, 1.9, cam, 40, f32::INFINITY);
+            only_b
+                .store
+                .build_node_buffer_lod(&b, 1.0, 0.7, 1.9, cam, 40, f32::INFINITY);
             // Slot 2 is active, slot 1 parked: both read as their solo stores.
             assert_eq!(shared.store.active_pack_slot(), 2);
-            assert_eq!(shared.store.render_ids_for_slot(1), only_a.store.render_ids(), "frame {frame}: parked ids");
-            assert_eq!(shared.store.render_positions_for_slot(1), only_a.store.render_positions(), "frame {frame}: parked positions");
-            assert_eq!(shared.store.render_ids_for_slot(2), only_b.store.render_ids(), "frame {frame}: active ids");
-            assert_eq!(shared.store.render_positions_for_slot(2), only_b.store.render_positions(), "frame {frame}: active positions");
+            assert_eq!(
+                shared.store.render_ids_for_slot(1),
+                only_a.store.render_ids(),
+                "frame {frame}: parked ids"
+            );
+            assert_eq!(
+                shared.store.render_positions_for_slot(1),
+                only_a.store.render_positions(),
+                "frame {frame}: parked positions"
+            );
+            assert_eq!(
+                shared.store.render_ids_for_slot(2),
+                only_b.store.render_ids(),
+                "frame {frame}: active ids"
+            );
+            assert_eq!(
+                shared.store.render_positions_for_slot(2),
+                only_b.store.render_positions(),
+                "frame {frame}: active positions"
+            );
             for slot in [1i64, 2] {
                 assert_eq!(
                     shared.store.render_ids_for_slot(slot).len(),
@@ -2743,13 +2805,22 @@ mod tests {
             // Reading never switches the slot.
             assert_eq!(shared.store.active_pack_slot(), 2);
         }
-        assert!(shared.store.render_ids_for_slot(9).is_empty(), "unknown slot reads empty");
+        assert!(
+            shared.store.render_ids_for_slot(9).is_empty(),
+            "unknown slot reads empty"
+        );
         assert!(shared.store.render_positions_for_slot(9).is_empty());
         shared.store.drop_pack_slot(1);
-        assert!(shared.store.render_ids_for_slot(1).is_empty(), "dropped slot reads empty");
+        assert!(
+            shared.store.render_ids_for_slot(1).is_empty(),
+            "dropped slot reads empty"
+        );
         assert!(shared.store.render_positions_for_slot(1).is_empty());
         shared.store.drop_pack_slot(2);
-        assert!(shared.store.render_ids_for_slot(2).is_empty(), "dropped active slot reads empty");
+        assert!(
+            shared.store.render_ids_for_slot(2).is_empty(),
+            "dropped active slot reads empty"
+        );
         assert_eq!(shared.store.active_pack_slot(), 2);
     }
 
@@ -3083,7 +3154,10 @@ mod tests {
     #[test]
     fn agent_offsets_off_keeps_the_agent_at_its_server_position() {
         let mut s = RenderStore::new();
-        assert!(s.agent_offsets(), "offsets default to on, like the web client");
+        assert!(
+            s.agent_offsets(),
+            "offsets default to on, like the web client"
+        );
         s.upsert(5, [0.0, 0.0, 0.0], 0, 0.0, 0.0);
         s.upsert(20, [10.0, 0.0, 0.0], 0, 0.0, 0.0);
         s.record_agent_action(5, 20, 0, 100, "");
@@ -3102,7 +3176,10 @@ mod tests {
         for _ in 0..64 {
             s.hunt(0.5, None, [0.0, 0.0, 0.0]);
         }
-        assert!(s.position_of(5)[0] > 5.0, "offsets on again: the agent glides to its target");
+        assert!(
+            s.position_of(5)[0] > 5.0,
+            "offsets on again: the agent glides to its target"
+        );
     }
 
     #[test]
@@ -3274,15 +3351,25 @@ mod tests {
         s.upsert(1, [100.0, 0.0, 0.0], 0, 0.0, 0.0);
         s.upsert(2, [0.0, 100.0, 0.0], 0, 0.0, 0.0);
         s.upsert(3, [10.0, 0.0, 0.0], 0, 0.0, 0.0);
-        s.hunt_grabs(0.5, &[(1, [1.0, 2.0, 3.0]), (2, [4.0, 5.0, 6.0]), (99, [9.0; 3])]);
+        s.hunt_grabs(
+            0.5,
+            &[(1, [1.0, 2.0, 3.0]), (2, [4.0, 5.0, 6.0]), (99, [9.0; 3])],
+        );
         assert_eq!(s.position_of(1), [1.0, 2.0, 3.0]);
         assert_eq!(s.position_of(2), [4.0, 5.0, 6.0]);
-        assert!(approx(s.position_of(3)[0], 5.0), "an un-held node still eases");
+        assert!(
+            approx(s.position_of(3)[0], 5.0),
+            "an un-held node still eases"
+        );
         // Releasing one keeps the other pinned: the freed node eases from the
         // hand's last position toward its own (now hand-set) target.
         s.hunt_grabs(0.5, &[(2, [7.0, 8.0, 9.0])]);
         assert_eq!(s.position_of(2), [7.0, 8.0, 9.0]);
-        assert_eq!(s.position_of(1), [1.0, 2.0, 3.0], "released node stays where the hand left it");
+        assert_eq!(
+            s.position_of(1),
+            [1.0, 2.0, 3.0],
+            "released node stays where the hand left it"
+        );
     }
 
     #[test]
@@ -4158,9 +4245,19 @@ mod tests {
         use crate::settings_sync::{FilterInputs, NodeFilter};
         for &id in all {
             let q = if out.contains(&id) { 0.1 } else { 0.9 };
-            s.set_filter_inputs(id, FilterInputs { quality: Some(q), ..Default::default() });
+            s.set_filter_inputs(
+                id,
+                FilterInputs {
+                    quality: Some(q),
+                    ..Default::default()
+                },
+            );
         }
-        s.set_node_filter(Some(NodeFilter { enabled: true, mode_and: true, ..NodeFilter::default() }));
+        s.set_node_filter(Some(NodeFilter {
+            enabled: true,
+            mode_and: true,
+            ..NodeFilter::default()
+        }));
     }
 
     #[test]
@@ -4180,10 +4277,17 @@ mod tests {
         let n2 = &buf[NODE_STRIDE..2 * NODE_STRIDE];
         assert_eq!(n2[19], 0.0, "custom.a carries the grey level");
         assert_eq!(n2[16], 0.0, "no centrality halo on a greyed node");
-        assert!((n2[12] - n2[13]).abs() < 0.05 && (n2[13] - n2[14]).abs() < 0.05, "desaturated");
+        assert!(
+            (n2[12] - n2[13]).abs() < 0.05 && (n2[13] - n2[14]).abs() < 0.05,
+            "desaturated"
+        );
         assert_eq!(buf[19], 1.0, "node 1 normal");
         let ebuf = s.build_edge_buffer(&[1, 2, 1, 3], 0.1);
-        assert_eq!(ebuf.len(), 2 * EDGE_STRIDE_TYPED, "the edge to a greyed node stays");
+        assert_eq!(
+            ebuf.len(),
+            2 * EDGE_STRIDE_TYPED,
+            "the edge to a greyed node stays"
+        );
         assert_eq!(ebuf[12], 1.0, "1-2 greyed (custom.r)");
         assert_eq!(ebuf[EDGE_STRIDE_TYPED + 12], 0.0, "1-3 normal");
         s.set_node_filter(None);
@@ -4193,7 +4297,10 @@ mod tests {
         // Type scoping removes.
         s.set_node_kind(2, KIND_ONTOLOGY);
         s.set_type_visible(KIND_ONTOLOGY, false);
-        assert_eq!(s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9).len(), 2 * NODE_STRIDE);
+        assert_eq!(
+            s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9).len(),
+            2 * NODE_STRIDE
+        );
         assert_eq!(s.filtered_out_count(), 0, "scoping is not a grey");
     }
 
@@ -4213,7 +4320,10 @@ mod tests {
         let plain = s.impostor_node_buffer().to_vec();
         assert_eq!(plain.len(), 4 * NODE_STRIDE);
         assert!(s.set_highlight_ids(crate::highlight::HOVERED, &[3]));
-        assert!(!s.set_highlight_ids(crate::highlight::HOVERED, &[3]), "unchanged set is a no-op");
+        assert!(
+            !s.set_highlight_ids(crate::highlight::HOVERED, &[3]),
+            "unchanged set is a no-op"
+        );
         s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, 1.0);
         assert_eq!(s.visual_epoch, epoch, "a mask write never bumps the epoch");
         let lit = s.impostor_node_buffer().to_vec();
@@ -4224,8 +4334,14 @@ mod tests {
         let c = &lit[k * NODE_STRIDE..(k + 1) * NODE_STRIDE];
         let p = &plain[k * NODE_STRIDE..(k + 1) * NODE_STRIDE];
         assert_eq!(c[19], 2.0, "emphasis level in custom.a");
-        assert!((c[0] / p[0] - crate::highlight::EMPHASIS_SIZE).abs() < 1e-4, "larger");
-        assert!(c[12] > p[12] - 1e-6 && c[13] >= p[13] && c[14] >= p[14], "lifted colour");
+        assert!(
+            (c[0] / p[0] - crate::highlight::EMPHASIS_SIZE).abs() < 1e-4,
+            "larger"
+        );
+        assert!(
+            c[12] > p[12] - 1e-6 && c[13] >= p[13] && c[14] >= p[14],
+            "lifted colour"
+        );
         // A filtered-out node that is hovered is emphasised, not greyed.
         filter_out(&mut s, &[1, 2, 3, 4], &[1, 2, 3, 4]);
         s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, 1.0);
@@ -4248,13 +4364,24 @@ mod tests {
             s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, 1.0);
             s.build_edge_buffer_lod(&pairs, 0.1, cam, 0, 1.0);
         }
-        assert!(s.ribbon_edge_buffer().chunks(EDGE_STRIDE_TYPED).all(|e| e[12] == 0.0));
+        assert!(s
+            .ribbon_edge_buffer()
+            .chunks(EDGE_STRIDE_TYPED)
+            .all(|e| e[12] == 0.0));
         filter_out(&mut s, &[1, 2, 3], &[2]);
         s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, 1.0);
         s.build_edge_buffer_lod(&pairs, 0.1, cam, 0, 1.0);
-        let greyed = s.ribbon_edge_buffer().chunks(EDGE_STRIDE_TYPED).filter(|e| e[12] == 1.0).count();
+        let greyed = s
+            .ribbon_edge_buffer()
+            .chunks(EDGE_STRIDE_TYPED)
+            .filter(|e| e[12] == 1.0)
+            .count();
         assert_eq!(greyed, 1, "exactly the edge touching the greyed node");
-        assert_eq!(s.ribbon_edge_buffer().len(), 2 * EDGE_STRIDE_TYPED, "nothing removed");
+        assert_eq!(
+            s.ribbon_edge_buffer().len(),
+            2 * EDGE_STRIDE_TYPED,
+            "nothing removed"
+        );
     }
 
     #[test]
@@ -4264,12 +4391,26 @@ mod tests {
         s.upsert(2, [1.0, 0.0, 0.0], 0, 0.5, 0.0);
         s.upsert(3, [2.0, 0.0, 0.0], 0, 0.1, 0.0);
         for id in 1..=3u32 {
-            s.meta.insert(id, NodeMeta { label: format!("n{id}"), ..Default::default() });
+            s.meta.insert(
+                id,
+                NodeMeta {
+                    label: format!("n{id}"),
+                    ..Default::default()
+                },
+            );
         }
-        assert_eq!(s.rank_label_candidates(&[3, 1, 2, 1, 99]), vec![1, 2, 3], "centrality first, dedup, unknown dropped");
+        assert_eq!(
+            s.rank_label_candidates(&[3, 1, 2, 1, 99]),
+            vec![1, 2, 3],
+            "centrality first, dedup, unknown dropped"
+        );
         filter_out(&mut s, &[1, 2, 3], &[1]);
         let _ = s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9);
-        assert_eq!(s.rank_label_candidates(&[1, 2, 3]), vec![2, 3], "a greyed node gets no label");
+        assert_eq!(
+            s.rank_label_candidates(&[1, 2, 3]),
+            vec![2, 3],
+            "a greyed node gets no label"
+        );
         assert_eq!(s.hull_points().len(), 2, "a greyed node is not hulled");
     }
 
@@ -4728,16 +4869,27 @@ mod tests {
     #[test]
     fn xr_and_web_chase_with_the_same_time_constant() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let web = std::fs::read_to_string(root.join("client/src/features/graph/workers/graph.worker.ts"))
-            .expect("web worker source");
-        let xr = std::fs::read_to_string(root.join("xr-client/scripts/graph_scene.gd")).expect("graph_scene.gd");
+        let web =
+            std::fs::read_to_string(root.join("client/src/features/graph/workers/graph.worker.ts"))
+                .expect("web worker source");
+        let xr = std::fs::read_to_string(root.join("xr-client/scripts/graph_scene.gd"))
+            .expect("graph_scene.gd");
         let find = |src: &str, key: &str| -> f32 {
             let at = src.find(key).unwrap_or_else(|| panic!("{key} not found"));
             let tail = &src[at + key.len()..];
-            let num: String = tail.chars().skip_while(|c| !c.is_ascii_digit()).take_while(|c| c.is_ascii_digit() || *c == '.').collect();
-            num.parse().unwrap_or_else(|_| panic!("no number after {key}"))
+            let num: String = tail
+                .chars()
+                .skip_while(|c| !c.is_ascii_digit())
+                .take_while(|c| c.is_ascii_digit() || *c == '.')
+                .collect();
+            num.parse()
+                .unwrap_or_else(|_| panic!("no number after {key}"))
         };
-        assert_eq!(find(&web, "responseMs:"), find(&xr, "const CHASE_MS"), "web responseMs vs XR CHASE_MS");
+        assert_eq!(
+            find(&web, "responseMs:"),
+            find(&xr, "const CHASE_MS"),
+            "web responseMs vs XR CHASE_MS"
+        );
     }
 
     // --- Edge/node coincidence (viz/edge-tracking) --------------------------------
@@ -4751,7 +4903,10 @@ mod tests {
     fn edge_ends(inst: &[f32]) -> ([f32; 3], [f32; 3]) {
         let o = [inst[3], inst[7], inst[11]];
         let h = [inst[1] * 0.5, inst[5] * 0.5, inst[9] * 0.5];
-        ([o[0] - h[0], o[1] - h[1], o[2] - h[2]], [o[0] + h[0], o[1] + h[1], o[2] + h[2]])
+        (
+            [o[0] - h[0], o[1] - h[1], o[2] - h[2]],
+            [o[0] + h[0], o[1] + h[1], o[2] + h[2]],
+        )
     }
 
     fn v_eq(a: [f32; 3], b: [f32; 3]) -> bool {
@@ -4766,8 +4921,10 @@ mod tests {
 
     /// Whether any node instance in `bufs` is drawn at `p`.
     fn node_drawn_at(bufs: &[&[f32]], p: [f32; 3]) -> bool {
-        bufs.iter()
-            .any(|b| b.chunks_exact(NODE_STRIDE).any(|n| v_eq([n[3], n[7], n[11]], p)))
+        bufs.iter().any(|b| {
+            b.chunks_exact(NODE_STRIDE)
+                .any(|n| v_eq([n[3], n[7], n[11]], p))
+        })
     }
 
     /// Well-separated chain 1-2-3-4-5-6 along +X, edges between neighbours.
@@ -4787,13 +4944,22 @@ mod tests {
         s.upsert(3, [30.0, 50.0, 0.0], 0, 0.0, 0.0); // server moves node 3; it has not arrived
         s.hunt(0.3, None, [0.0; 3]);
         let drawn3 = s.position_of(3);
-        assert!(drawn3[1] > 1.0 && drawn3[1] < 49.0, "node 3 is mid-ease: {drawn3:?}");
+        assert!(
+            drawn3[1] > 1.0 && drawn3[1] < 49.0,
+            "node 3 is mid-ease: {drawn3:?}"
+        );
         let nodes = s.build_node_buffer(&ids, 1.0, 0.7, 1.9);
         assert!(node_drawn_at(&[&nodes], drawn3));
         let edges = s.build_edge_buffer(&pairs, 0.1);
         let (p2, p4) = (s.position_of(2), s.position_of(4));
-        assert!(joins(&edges[16..32], p2, drawn3), "edge 2-3 ends at the eased node 3");
-        assert!(joins(&edges[32..48], drawn3, p4), "edge 3-4 ends at the eased node 3");
+        assert!(
+            joins(&edges[16..32], p2, drawn3),
+            "edge 2-3 ends at the eased node 3"
+        );
+        assert!(
+            joins(&edges[32..48], drawn3, p4),
+            "edge 3-4 ends at the eased node 3"
+        );
     }
 
     #[test]
@@ -4804,7 +4970,10 @@ mod tests {
         let nodes = s.build_node_buffer(&ids, 1.0, 0.7, 1.9);
         let edges = s.build_edge_buffer(&pairs, 0.1);
         for (id, p) in hands {
-            assert!(node_drawn_at(&[&nodes], p), "held node {id} drawn at the hand");
+            assert!(
+                node_drawn_at(&[&nodes], p),
+                "held node {id} drawn at the hand"
+            );
         }
         assert!(joins(&edges[0..16], s.position_of(1), hands[0].1));
         assert!(joins(&edges[16..32], hands[0].1, s.position_of(3)));
@@ -4820,10 +4989,18 @@ mod tests {
         let m = s.position_of(3);
         assert!(m[0] > 10.0 && m[0] < 30.0, "member is in transit: {m:?}");
         let nodes = s.build_node_buffer(&ids, 1.0, 0.7, 1.9);
-        assert!(node_drawn_at(&[&nodes], m), "member drawn at its eased position");
+        assert!(
+            node_drawn_at(&[&nodes], m),
+            "member drawn at its eased position"
+        );
         let edges = s.build_edge_buffer(&pairs, 0.1);
-        let hit = edges.chunks_exact(16).any(|e| joins(e, s.position_of(4), m));
-        assert!(hit, "edge 3-4 ends at the in-transit member, not the representative");
+        let hit = edges
+            .chunks_exact(16)
+            .any(|e| joins(e, s.position_of(4), m));
+        assert!(
+            hit,
+            "edge 3-4 ends at the in-transit member, not the representative"
+        );
     }
 
     #[test]
@@ -4838,12 +5015,21 @@ mod tests {
         assert!(!node_drawn_at(&[&nodes], s.position_of(3)) || v_eq(s.position_of(3), rep));
         assert!(node_drawn_at(&[&nodes], rep));
         let edges = s.build_edge_buffer(&pairs, 0.1);
-        assert!(edges.chunks_exact(16).any(|e| joins(e, rep, s.position_of(4))), "3-4 remaps to 1-4");
+        assert!(
+            edges
+                .chunks_exact(16)
+                .any(|e| joins(e, rep, s.position_of(4))),
+            "3-4 remaps to 1-4"
+        );
         // The LOD (fold-active) path agrees.
         let mut l = s;
         let _ = l.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, [0.0; 3], 100, f32::INFINITY);
-        let lod = l.build_edge_buffer_lod(&pairs, 0.1, [0.0; 3], 100, f32::INFINITY).to_vec();
-        assert!(lod.chunks_exact(16).any(|e| joins(e, rep, l.position_of(4))));
+        let lod = l
+            .build_edge_buffer_lod(&pairs, 0.1, [0.0; 3], 100, f32::INFINITY)
+            .to_vec();
+        assert!(lod
+            .chunks_exact(16)
+            .any(|e| joins(e, rep, l.position_of(4))));
     }
 
     /// Far-tier ribbons are re-transformed half per frame (`pack_edges_lod`), so after the
@@ -4861,7 +5047,9 @@ mod tests {
             }
             s.hunt(0.5, None, [0.0; 3]);
             let _ = s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 0, f32::INFINITY);
-            let near = s.build_edge_buffer_lod(&pairs, 0.1, cam, 0, f32::INFINITY).len();
+            let near = s
+                .build_edge_buffer_lod(&pairs, 0.1, cam, 0, f32::INFINITY)
+                .len();
             assert_eq!(near, 0, "every edge is in the ribbon tier");
             let ribbons = s.ribbon_edge_buffer().to_vec();
             assert_eq!(ribbons.len(), 5 * 16);
@@ -4884,7 +5072,13 @@ mod tests {
         }
         for frame in 0..5 {
             for id in 1u32..=6 {
-                s.upsert(id, [id as f32 * 10.0, (frame + 1) as f32 * 2.0 * id as f32, 0.0], 0, 0.0, 0.0);
+                s.upsert(
+                    id,
+                    [id as f32 * 10.0, (frame + 1) as f32 * 2.0 * id as f32, 0.0],
+                    0,
+                    0.0,
+                    0.0,
+                );
             }
             s.hunt(0.5, None, [0.0; 3]);
             for slot in [1i64, 2] {
@@ -4927,15 +5121,24 @@ mod tests {
         let mut ms = Vec::new();
         for frame in 0..130 {
             f.advance(frame);
-            let _ = f.store.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 400, f32::INFINITY);
+            let _ = f
+                .store
+                .build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, cam, 400, f32::INFINITY);
             let t = std::time::Instant::now();
-            let _ = f.store.build_edge_buffer_lod(&pairs, 1.0, cam, 100, f32::INFINITY);
+            let _ = f
+                .store
+                .build_edge_buffer_lod(&pairs, 1.0, cam, 100, f32::INFINITY);
             if frame >= 30 {
                 ms.push(t.elapsed().as_secs_f64() * 1e3);
             }
         }
         ms.sort_by(|a, b| a.total_cmp(b));
-        println!("edge pack ms: median {:.3} p95 {:.3} ribbons {}", ms[50], ms[95], f.store.ribbon_edge_buffer().len() / 16);
+        println!(
+            "edge pack ms: median {:.3} p95 {:.3} ribbons {}",
+            ms[50],
+            ms[95],
+            f.store.ribbon_edge_buffer().len() / 16
+        );
     }
 
     // ---- cross-volume links: one resolver (owner rule 2026-11-01) ---------------------------
@@ -5071,7 +5274,11 @@ mod tests {
         let _ = a.build_node_buffer(&ids, 1.0, 0.7, 1.9);
         let edges = a.build_edge_buffer(&pairs, 0.1);
         assert!(
-            !edges.as_chunks::<16>().0.iter().any(|e| joins(e, a.position_of(3), a.position_of(4))),
+            !edges
+                .as_chunks::<16>()
+                .0
+                .iter()
+                .any(|e| joins(e, a.position_of(3), a.position_of(4))),
             "the edge to the hidden node is gone"
         );
         pack_links(&[Some(&a)], &[vol(IDENT)], &specs, &IDENT, &mut out);
@@ -5099,18 +5306,50 @@ mod tests {
         let _ = a.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9);
         a.select_pack_slot(2);
         let _ = a.build_node_buffer(&[4, 5, 6], 1.0, 0.7, 1.9);
-        assert_eq!(a.active_pack_slot(), 2, "the volume that packs last stays active");
+        assert_eq!(
+            a.active_pack_slot(),
+            2,
+            "the volume that packs last stays active"
+        );
         let mut out = LinkFrame::default();
         // Without the volumes' slots both ends are asked of the active slot 2, which never drew node 3.
-        pack_links(&[Some(&a)], &[vol(IDENT)], &[spec((0, 3, 0), (0, 4, 0))], &IDENT, &mut out);
+        pack_links(
+            &[Some(&a)],
+            &[vol(IDENT)],
+            &[spec((0, 3, 0), (0, 4, 0))],
+            &IDENT,
+            &mut out,
+        );
         assert_eq!(out.links, 0, "a volume at the default slot 0 drew nothing");
         let vols = [vol_in_slot(1), vol_in_slot(2)];
-        pack_links(&[Some(&a)], &vols, &[spec((0, 3, 0), (0, 4, 1))], &IDENT, &mut out);
-        assert_eq!((out.links, out.unresolved), (1, 0), "node 3 is drawn in slot 1, node 4 in slot 2");
+        pack_links(
+            &[Some(&a)],
+            &vols,
+            &[spec((0, 3, 0), (0, 4, 1))],
+            &IDENT,
+            &mut out,
+        );
+        assert_eq!(
+            (out.links, out.unresolved),
+            (1, 0),
+            "node 3 is drawn in slot 1, node 4 in slot 2"
+        );
         // The reverse pair, and a hidden class in one slot, still hide the link.
-        pack_links(&[Some(&a)], &vols, &[spec((0, 4, 1), (0, 3, 0))], &IDENT, &mut out);
+        pack_links(
+            &[Some(&a)],
+            &vols,
+            &[spec((0, 4, 1), (0, 3, 0))],
+            &IDENT,
+            &mut out,
+        );
         assert_eq!(out.links, 1);
-        pack_links(&[Some(&a)], &vols, &[spec((0, 3, 1), (0, 4, 0))], &IDENT, &mut out);
+        pack_links(
+            &[Some(&a)],
+            &vols,
+            &[spec((0, 3, 1), (0, 4, 0))],
+            &IDENT,
+            &mut out,
+        );
         assert_eq!(out.links, 0, "node 3 is not in slot 2's drawn set");
     }
 

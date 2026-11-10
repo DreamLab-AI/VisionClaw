@@ -123,7 +123,13 @@ impl SplatGovernor {
 
     /// GPU-time governor: drop above 8 ms p95, climb below 5.5 ms after 8 s.
     pub fn gpu() -> Self {
-        Self::new(Signal::Gpu, MAX_TIER, GPU_DOWN_MS, GPU_UP_MS, GPU_UP_HOLD_SEC)
+        Self::new(
+            Signal::Gpu,
+            MAX_TIER,
+            GPU_DOWN_MS,
+            GPU_UP_MS,
+            GPU_UP_HOLD_SEC,
+        )
     }
 
     /// Frame-time fallback: only a missed frame is evidence, so it is
@@ -375,7 +381,11 @@ mod tests {
         assert_eq!(g.tier(), 2);
         assert_eq!(run(&mut g, 9.0, 1.0, true), 1);
         assert_eq!(g.tier(), FLOOR_TIER);
-        assert_eq!(run(&mut g, 12.0, 3.0, true), 0, "and no lower: the scene is never removed by load");
+        assert_eq!(
+            run(&mut g, 12.0, 3.0, true),
+            0,
+            "and no lower: the scene is never removed by load"
+        );
         assert_eq!(g.tier(), 1);
         assert_eq!(g.steps(), (0, 2));
         // Exactly 8 ms is not above the threshold.
@@ -431,7 +441,11 @@ mod tests {
     #[test]
     fn it_never_climbs_unless_a_splat_volume_is_entered() {
         let mut g = SplatGovernor::gpu();
-        assert_eq!(run(&mut g, 2.0, 60.0, false), 0, "a minute of calm, not entered");
+        assert_eq!(
+            run(&mut g, 2.0, 60.0, false),
+            0,
+            "a minute of calm, not entered"
+        );
         assert_eq!(g.tier(), 1);
         // Calm does not bank while not entered: the hold starts on entering.
         assert_eq!(run(&mut g, 2.0, 7.0, true), 0);
@@ -465,8 +479,16 @@ mod tests {
         assert_eq!(run(&mut g, budget, 19.0, true), 0, "19 s is not enough");
         assert_eq!(run(&mut g, budget, 1.0, true), 1);
         assert_eq!(g.tier(), 2);
-        assert_eq!(run(&mut g, budget, 120.0, true), 0, "tier 2 is the ceiling in frame mode");
-        assert_eq!(run(&mut g, budget * 1.2, 1.0, true), 1, "a missed frame drops it");
+        assert_eq!(
+            run(&mut g, budget, 120.0, true),
+            0,
+            "tier 2 is the ceiling in frame mode"
+        );
+        assert_eq!(
+            run(&mut g, budget * 1.2, 1.0, true),
+            1,
+            "a missed frame drops it"
+        );
         assert_eq!(g.tier(), 1);
     }
 

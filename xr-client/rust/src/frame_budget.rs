@@ -649,7 +649,11 @@ pub fn split_near_caps_weighted(
     let w: Vec<f64> = (0..demands.len())
         .map(|i| clean_weight(weights.get(i).copied().unwrap_or(1.0)))
         .collect();
-    let mut live = demands.iter().zip(&w).filter(|(d, _)| **d > 0).map(|(_, w)| *w);
+    let mut live = demands
+        .iter()
+        .zip(&w)
+        .filter(|(d, _)| **d > 0)
+        .map(|(_, w)| *w);
     let equal = match live.next() {
         None => true,
         Some(first) => live.all(|x| x == first),
@@ -692,7 +696,11 @@ pub fn split_near_caps_weighted(
             given -= 1;
         }
         // largest remainder first; ties to the lower index
-        fracs.sort_by(|x, y| y.0.partial_cmp(&x.0).unwrap_or(std::cmp::Ordering::Equal).then(x.1.cmp(&y.1)));
+        fracs.sort_by(|x, y| {
+            y.0.partial_cmp(&x.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(x.1.cmp(&y.1))
+        });
         let mut extra = pool - given;
         for &(_, i) in &fracs {
             if extra == 0 {
@@ -970,8 +978,17 @@ impl FrameBudget {
     /// [`split_near_caps`]: share `total` between volumes by `demands` (0 = hidden) with a
     /// per-volume `floor`. Returns one cap per demand, in order.
     #[func]
-    fn split_near_caps(&self, total: i64, demands: PackedInt64Array, floor: i64) -> PackedInt64Array {
-        let d: Vec<usize> = demands.as_slice().iter().map(|&v| v.max(0) as usize).collect();
+    fn split_near_caps(
+        &self,
+        total: i64,
+        demands: PackedInt64Array,
+        floor: i64,
+    ) -> PackedInt64Array {
+        let d: Vec<usize> = demands
+            .as_slice()
+            .iter()
+            .map(|&v| v.max(0) as usize)
+            .collect();
         let out: Vec<i64> = split_near_caps(total.max(0) as usize, &d, floor.max(0) as usize)
             .into_iter()
             .map(|v| v as i64)
@@ -990,12 +1007,20 @@ impl FrameBudget {
         weights: PackedFloat64Array,
         floor: i64,
     ) -> PackedInt64Array {
-        let d: Vec<usize> = demands.as_slice().iter().map(|&v| v.max(0) as usize).collect();
-        let out: Vec<i64> =
-            split_near_caps_weighted(total.max(0) as usize, &d, weights.as_slice(), floor.max(0) as usize)
-                .into_iter()
-                .map(|v| v as i64)
-                .collect();
+        let d: Vec<usize> = demands
+            .as_slice()
+            .iter()
+            .map(|&v| v.max(0) as usize)
+            .collect();
+        let out: Vec<i64> = split_near_caps_weighted(
+            total.max(0) as usize,
+            &d,
+            weights.as_slice(),
+            floor.max(0) as usize,
+        )
+        .into_iter()
+        .map(|v| v as i64)
+        .collect();
         PackedInt64Array::from(out.as_slice())
     }
 
@@ -1019,7 +1044,11 @@ mod tests {
         for (o, d) in out.iter().zip(demands) {
             assert!(o <= d, "{out:?} exceeds demand {demands:?}");
         }
-        assert_eq!(sum, total.min(demands.iter().sum()), "{out:?} leaves cap unused");
+        assert_eq!(
+            sum,
+            total.min(demands.iter().sum()),
+            "{out:?} leaves cap unused"
+        );
         out
     }
 
@@ -1056,7 +1085,14 @@ mod tests {
 
     #[test]
     fn split_near_caps_holds_its_invariants_over_a_sweep() {
-        let shapes: [&[usize]; 6] = [&[1, 1, 1], &[0, 0, 0], &[3, 50, 7], &[13_164, 0, 900], &[17, 17], &[1, 2, 3, 4]];
+        let shapes: [&[usize]; 6] = [
+            &[1, 1, 1],
+            &[0, 0, 0],
+            &[3, 50, 7],
+            &[13_164, 0, 900],
+            &[17, 17],
+            &[1, 2, 3, 4],
+        ];
         for total in [0usize, 1, 2, 15, 16, 47, 80, 96, 500] {
             for d in shapes {
                 for floor in [0usize, 1, GEM_MIN] {
@@ -1439,7 +1475,12 @@ mod tests {
 
     // ── weighted volume split ──
 
-    fn check_weighted(total: usize, demands: &[usize], weights: &[f64], floor: usize) -> Vec<usize> {
+    fn check_weighted(
+        total: usize,
+        demands: &[usize],
+        weights: &[f64],
+        floor: usize,
+    ) -> Vec<usize> {
         let out = split_near_caps_weighted(total, demands, weights, floor);
         assert_eq!(out.len(), demands.len());
         let sum: usize = out.iter().sum();
@@ -1455,7 +1496,10 @@ mod tests {
         let floors: usize = demands.iter().map(|&d| d.min(floor)).sum();
         if floors <= total {
             for (o, d) in out.iter().zip(demands) {
-                assert!(*o >= (*d).min(floor), "{out:?} drops a floor ({demands:?} {weights:?})");
+                assert!(
+                    *o >= (*d).min(floor),
+                    "{out:?} drops a floor ({demands:?} {weights:?})"
+                );
             }
         }
         out
@@ -1476,7 +1520,11 @@ mod tests {
             for d in SHAPES {
                 for floor in [0usize, 1, GEM_MIN] {
                     let plain = split_near_caps(total, d, floor);
-                    assert_eq!(split_near_caps_weighted(total, d, &[], floor), plain, "empty");
+                    assert_eq!(
+                        split_near_caps_weighted(total, d, &[], floor),
+                        plain,
+                        "empty"
+                    );
                     for w in [1.0f64, 2.5, 0.0, 1e-9] {
                         let ws = vec![w; d.len()];
                         assert_eq!(
@@ -1503,8 +1551,14 @@ mod tests {
         // The weight multiplies the drawn count, so a smaller heavy volume can win.
         let out = check_weighted(80, &[1_000, 3_000], &[4.0, 1.0], GEM_MIN);
         let plain = split_near_caps(80, &[1_000, 3_000], GEM_MIN);
-        assert!(plain[0] < plain[1], "unweighted favours the bigger drawn count: {plain:?}");
-        assert!(out[0] > out[1], "weight 4 beats 3x the drawn count: {out:?}");
+        assert!(
+            plain[0] < plain[1],
+            "unweighted favours the bigger drawn count: {plain:?}"
+        );
+        assert!(
+            out[0] > out[1],
+            "weight 4 beats 3x the drawn count: {out:?}"
+        );
         assert_eq!(out, vec![43, 37]);
         // A missing id counts as 1.0.
         let out = check_weighted(80, &[6_000, 6_000], &[3.0], GEM_MIN);
@@ -1514,7 +1568,11 @@ mod tests {
     #[test]
     fn weighted_split_keeps_the_floor_for_a_zero_weight_volume() {
         let out = check_weighted(80, &[6_000, 6_000], &[0.0, 1.0], GEM_MIN);
-        assert_eq!(out, vec![GEM_MIN, 80 - GEM_MIN], "zero weight is floor only");
+        assert_eq!(
+            out,
+            vec![GEM_MIN, 80 - GEM_MIN],
+            "zero weight is floor only"
+        );
         // Nobody else wants the rest: the zero-weight volume takes it rather
         // than leaving cap unused.
         let out = check_weighted(80, &[100, 20], &[0.0, 1.0], GEM_MIN);
@@ -1557,11 +1615,29 @@ mod tests {
     #[test]
     fn extras_tiers_cost_what_the_constants_say() {
         assert_eq!(extras_cost(0, 3), (0, 0));
-        assert_eq!(extras_cost(1, 3), (0, 0), "the sky is the Environment's: no triangle, no call");
-        assert_eq!(extras_cost(2, 3), (3 * FRAME_RIBBON_TRIS, 0), "the ribbons replace the lines in the frame's own call, which the scene counts");
-        assert_eq!(extras_cost(3, 3), (3 * FRAME_RIBBON_TRIS + MOTES_LOW * MOTE_TRIS, 1));
-        assert_eq!(extras_cost(4, 3), (3 * FRAME_RIBBON_TRIS + MOTES_HIGH * MOTE_TRIS, 1));
-        assert_eq!(extras_cost(9, 3), extras_cost(EXTRAS_MAX_TIER, 3), "tier clamps");
+        assert_eq!(
+            extras_cost(1, 3),
+            (0, 0),
+            "the sky is the Environment's: no triangle, no call"
+        );
+        assert_eq!(
+            extras_cost(2, 3),
+            (3 * FRAME_RIBBON_TRIS, 0),
+            "the ribbons replace the lines in the frame's own call, which the scene counts"
+        );
+        assert_eq!(
+            extras_cost(3, 3),
+            (3 * FRAME_RIBBON_TRIS + MOTES_LOW * MOTE_TRIS, 1)
+        );
+        assert_eq!(
+            extras_cost(4, 3),
+            (3 * FRAME_RIBBON_TRIS + MOTES_HIGH * MOTE_TRIS, 1)
+        );
+        assert_eq!(
+            extras_cost(9, 3),
+            extras_cost(EXTRAS_MAX_TIER, 3),
+            "tier clamps"
+        );
         assert_eq!(
             extras_cost(4, 99),
             extras_cost(4, EXTRAS_MAX_FRAMES),
@@ -1578,7 +1654,9 @@ mod tests {
     /// Triangles the plain allocator's near detail (gems above the minimum plus
     /// cylinders) spends: the pool an allowance is carved from.
     fn near_pool(g: &GraphDemand, c: &FrameCaps) -> usize {
-        let gem_min = (g.nodes - g.faded.min(g.nodes)).min(DEFAULT_NEAR_CAP).min(GEM_MIN);
+        let gem_min = (g.nodes - g.faded.min(g.nodes))
+            .min(DEFAULT_NEAR_CAP)
+            .min(GEM_MIN);
         (c.graph.gem_nodes - gem_min) * GEM_STEP + c.graph.cylinder_edges * CYLINDER_STEP
     }
 
@@ -1605,34 +1683,59 @@ mod tests {
                 for mem in [&m, &MemoryDemand::default()] {
                     let (a, b) = (allocate(&g, mem), allocate_with_extras(&g, mem, &x));
                     assert_eq!(
-                        (a.cloud_sprites, a.route_tris, a.route_ring_cap, a.burst_slots, a.graph.max_hulls),
-                        (b.cloud_sprites, b.route_tris, b.route_ring_cap, b.burst_slots, b.graph.max_hulls),
+                        (
+                            a.cloud_sprites,
+                            a.route_tris,
+                            a.route_ring_cap,
+                            a.burst_slots,
+                            a.graph.max_hulls
+                        ),
+                        (
+                            b.cloud_sprites,
+                            b.route_tris,
+                            b.route_ring_cap,
+                            b.burst_slots,
+                            b.graph.max_hulls
+                        ),
                         "{nodes} tier {tier}"
                     );
                     let (allowance, _) = extras_cost(tier, 3);
                     let bound = allowance.div_ceil(GEM_STEP);
                     assert!(
-                        b.graph.gem_nodes + bound >= a.graph.gem_nodes && b.graph.gem_nodes <= a.graph.gem_nodes,
+                        b.graph.gem_nodes + bound >= a.graph.gem_nodes
+                            && b.graph.gem_nodes <= a.graph.gem_nodes,
                         "{nodes} tier {tier}: gems {} -> {}, bound {bound}",
                         a.graph.gem_nodes,
                         b.graph.gem_nodes
                     );
                     assert_eq!(a.extras_tier, 0, "plain allocate grants no extras");
                     if tier <= 1 {
-                        assert_eq!(b.extras_allowance, 0, "tiers 0 and 1 reserve nothing: {nodes}");
+                        assert_eq!(
+                            b.extras_allowance, 0,
+                            "tiers 0 and 1 reserve nothing: {nodes}"
+                        );
                         assert_eq!(b.graph, a.graph, "and cost the graph nothing: {nodes}");
                     }
                     assert!(b.over_budget == a.over_budget);
                     assert!(b.draw_calls == a.draw_calls + b.extras_draw_calls);
-                    assert!(b.over_budget || b.tris_total <= TRI_LIMIT, "{nodes} tier {tier}");
+                    assert!(
+                        b.over_budget || b.tris_total <= TRI_LIMIT,
+                        "{nodes} tier {tier}"
+                    );
                     let pressured = a.graph.max_hulls < g.hulls
                         || (mem.route.is_some() && a.route_ring_cap < ROUTE_RING_CAP)
                         || a.cloud_sprites < mem.cloud_rows.min(DEFAULT_SPRITE_CAP);
                     if pressured {
-                        assert_eq!(b.graph, a.graph, "{nodes} tier {tier}: pressure holds nothing back");
+                        assert_eq!(
+                            b.graph, a.graph,
+                            "{nodes} tier {tier}: pressure holds nothing back"
+                        );
                     }
                     if !a.over_budget && !pressured && near_pool(&g, &a) >= allowance {
-                        assert_eq!(b.extras_tier, tier, "{nodes} tier {tier}: the pool pays for the request");
+                        assert_eq!(
+                            b.extras_tier, tier,
+                            "{nodes} tier {tier}: the pool pays for the request"
+                        );
                         granted_somewhere |= tier == EXTRAS_MAX_TIER;
                     }
                 }
@@ -1653,7 +1756,10 @@ mod tests {
         };
         let m = MemoryDemand {
             cloud_rows: 6_000,
-            route: Some(RouteShape { rows: 13, sidecar: 5 }),
+            route: Some(RouteShape {
+                rows: 13,
+                sidecar: 5,
+            }),
             burst_slots: 0,
         };
         (g, m)
@@ -1665,15 +1771,25 @@ mod tests {
         // cylinders 7): before the allowance only the sky fitted.
         let (g, m) = benchmark_production();
         let plain = allocate(&g, &m);
-        assert_eq!((plain.graph.gem_nodes, plain.graph.cylinder_edges), (35, 7), "the JSON caps");
+        assert_eq!(
+            (plain.graph.gem_nodes, plain.graph.cylinder_edges),
+            (35, 7),
+            "the JSON caps"
+        );
         for tier in 0..=EXTRAS_MAX_TIER {
             let c = allocate_with_extras(&g, &m, &ExtrasDemand { tier, frames: 3 });
             assert_eq!(c.extras_tier, tier, "tier {tier} is granted");
-            assert_eq!(c.extras_allowance, c.extras_tris, "tier {tier}: the grant is a held-back allowance");
+            assert_eq!(
+                c.extras_allowance, c.extras_tris,
+                "tier {tier}: the grant is a held-back allowance"
+            );
             assert!(!c.over_budget && c.tris_total <= TRI_LIMIT && c.draw_calls <= DRAW_CALL_LIMIT);
             let lost = plain.graph.gem_nodes - c.graph.gem_nodes;
             assert!(lost <= 2, "tier {tier} costs {lost} gems");
-            assert_eq!((c.cloud_sprites, c.route_ring_cap), (plain.cloud_sprites, plain.route_ring_cap));
+            assert_eq!(
+                (c.cloud_sprites, c.route_ring_cap),
+                (plain.cloud_sprites, plain.route_ring_cap)
+            );
         }
         let c = allocate_with_extras(&g, &m, &ExtrasDemand { tier: 4, frames: 3 });
         assert_eq!(c.extras_tris, 24 * 3 + 512);
@@ -1683,15 +1799,28 @@ mod tests {
     fn a_tier_the_call_guard_refuses_returns_its_allowance_to_the_graph() {
         // 48 of 48 calls: the motes' call is refused, so only tier 2 is held
         // back (no triangles with 0 frames) and the graph keeps everything.
-        let g = GraphDemand { draw_calls: 44, ..production() };
+        let g = GraphDemand {
+            draw_calls: 44,
+            ..production()
+        };
         let x = ExtrasDemand { tier: 4, frames: 3 };
-        let (plain, c) = (allocate(&g, &full_memory()), allocate_with_extras(&g, &full_memory(), &x));
+        let (plain, c) = (
+            allocate(&g, &full_memory()),
+            allocate_with_extras(&g, &full_memory(), &x),
+        );
         assert_eq!(c.extras_tier, 2);
-        assert_eq!(c.graph.gem_nodes, plain.graph.gem_nodes, "no motes granted: nothing reserved for them");
+        assert_eq!(
+            c.graph.gem_nodes, plain.graph.gem_nodes,
+            "no motes granted: nothing reserved for them"
+        );
         assert_eq!(c.extras_tris, 72);
         assert!(plain.graph.gem_nodes - c.graph.gem_nodes <= 72usize.div_ceil(GEM_STEP));
         // a pinned lower tier reserves only itself
-        let c = allocate_with_extras(&production(), &full_memory(), &ExtrasDemand { tier: 2, frames: 3 });
+        let c = allocate_with_extras(
+            &production(),
+            &full_memory(),
+            &ExtrasDemand { tier: 2, frames: 3 },
+        );
         let p = allocate(&production(), &full_memory());
         assert_eq!(c.extras_tris, 72);
         assert!(p.graph.gem_nodes - c.graph.gem_nodes <= 72usize.div_ceil(GEM_STEP));
@@ -1699,7 +1828,10 @@ mod tests {
 
     #[test]
     fn the_allowance_is_zero_under_minimum_overrun_or_pressure() {
-        let x = ExtrasDemand { tier: EXTRAS_MAX_TIER, frames: 3 };
+        let x = ExtrasDemand {
+            tier: EXTRAS_MAX_TIER,
+            frames: 3,
+        };
         // pressure: the memory layers cannot reach their caps, so the graph's
         // near pool is empty and the extras only have last claim
         let g = GraphDemand {
@@ -1711,27 +1843,48 @@ mod tests {
         let plain = allocate(&g, &m);
         let c = allocate_with_extras(&g, &m, &x);
         assert!(plain.cloud_sprites < DEFAULT_SPRITE_CAP || plain.route_ring_cap < ROUTE_RING_CAP);
-        assert_eq!(c.graph, plain.graph, "pressure: the graph is the plain allocator's");
+        assert_eq!(
+            c.graph, plain.graph,
+            "pressure: the graph is the plain allocator's"
+        );
         assert_eq!(
             (c.cloud_sprites, c.route_ring_cap, c.route_tris),
             (plain.cloud_sprites, plain.route_ring_cap, plain.route_tris)
         );
-        assert_eq!(c.extras_tier, 1, "last claim: nothing is left, the free sky shows");
+        assert_eq!(
+            c.extras_tier, 1,
+            "last claim: nothing is left, the free sky shows"
+        );
         assert_eq!((c.extras_tris, c.extras_allowance), (0, 0));
         // a hull that does not fit in full is pressure too
-        let g = GraphDemand { hull_tris: 40_000, nodes: 44_000, edges: 0, ..production() };
-        let (p, c) = (allocate(&g, &MemoryDemand::default()), allocate_with_extras(&g, &MemoryDemand::default(), &x));
+        let g = GraphDemand {
+            hull_tris: 40_000,
+            nodes: 44_000,
+            edges: 0,
+            ..production()
+        };
+        let (p, c) = (
+            allocate(&g, &MemoryDemand::default()),
+            allocate_with_extras(&g, &MemoryDemand::default(), &x),
+        );
         assert!(p.graph.max_hulls < g.hulls);
         assert_eq!(c.graph, p.graph);
         assert_eq!(c.extras_allowance, 0, "short hulls: no allowance");
         // a minimum overrun likewise (see also extras_drop_first_...)
-        let g = GraphDemand { nodes: 60_000, edges: 0, ..production() };
+        let g = GraphDemand {
+            nodes: 60_000,
+            edges: 0,
+            ..production()
+        };
         let c = allocate_with_extras(&g, &full_memory(), &x);
         assert!(c.over_budget);
         assert_eq!((c.extras_allowance, c.extras_tris), (0, 0));
         // and a case with none of it holds the full cost
         let (g, m) = benchmark_production();
-        assert_eq!(allocate_with_extras(&g, &m, &x).extras_allowance, extras_cost(4, 3).0);
+        assert_eq!(
+            allocate_with_extras(&g, &m, &x).extras_allowance,
+            extras_cost(4, 3).0
+        );
     }
 
     /// Every shape in which `short` is the only pressure: no hulls, no cloud,
@@ -1755,8 +1908,14 @@ mod tests {
                 continue;
             }
             found += 1;
-            assert_eq!(c.extras_allowance, 0, "{nodes} nodes: a short layer takes no allowance");
-            assert_eq!(c.graph, plain.graph, "{nodes} nodes: the graph is the plain allocator's");
+            assert_eq!(
+                c.extras_allowance, 0,
+                "{nodes} nodes: a short layer takes no allowance"
+            );
+            assert_eq!(
+                c.graph, plain.graph,
+                "{nodes} nodes: the graph is the plain allocator's"
+            );
         }
         found
     }
@@ -1765,7 +1924,10 @@ mod tests {
     fn a_short_route_alone_takes_no_allowance() {
         let m = MemoryDemand {
             cloud_rows: 0,
-            route: Some(RouteShape { rows: 13, sidecar: 5 }),
+            route: Some(RouteShape {
+                rows: 13,
+                sidecar: 5,
+            }),
             burst_slots: 0,
         };
         let x = ExtrasDemand { tier: 2, frames: 2 };
@@ -1797,7 +1959,10 @@ mod tests {
             draw_calls: 6,
             other_tris: 0,
         };
-        let x = ExtrasDemand { tier: EXTRAS_MAX_TIER, frames: 3 };
+        let x = ExtrasDemand {
+            tier: EXTRAS_MAX_TIER,
+            frames: 3,
+        };
         let c = allocate_with_extras(&small, &MemoryDemand::default(), &x);
         let want = extras_cost(EXTRAS_MAX_TIER, 3);
         assert_eq!(c.extras_tier, EXTRAS_MAX_TIER);
@@ -1826,23 +1991,41 @@ mod tests {
             draw_calls: 44,
             other_tris: 0,
         };
-        let x = ExtrasDemand { tier: EXTRAS_MAX_TIER, frames: 0 };
+        let x = ExtrasDemand {
+            tier: EXTRAS_MAX_TIER,
+            frames: 0,
+        };
         let c = allocate_with_extras(&g, &full_memory(), &x);
         assert_eq!(c.draw_calls, 48 + c.extras_draw_calls);
         assert!(c.draw_calls <= DRAW_CALL_LIMIT && !c.over_budget);
-        assert_eq!(c.extras_tier, 2, "no frames: tiers 1 and 2 cost nothing; motes need 1 call");
+        assert_eq!(
+            c.extras_tier, 2,
+            "no frames: tiers 1 and 2 cost nothing; motes need 1 call"
+        );
         // Three frames: their calls are the scene's, already inside `draw_calls`
         // (44 includes them), so tier 2 adds none and is granted; the motes'
         // call would still be the 49th.
-        let x = ExtrasDemand { tier: EXTRAS_MAX_TIER, frames: 3 };
+        let x = ExtrasDemand {
+            tier: EXTRAS_MAX_TIER,
+            frames: 3,
+        };
         let c = allocate_with_extras(&g, &full_memory(), &x);
-        assert_eq!(c.extras_tier, 2, "the ribbons replace the lines: no call of their own");
+        assert_eq!(
+            c.extras_tier, 2,
+            "the ribbons replace the lines: no call of their own"
+        );
         assert_eq!(c.extras_draw_calls, 0);
         assert_eq!(c.draw_calls, 48);
         // At the limit already: nothing paid for in calls; the layer reports no overrun it caused.
-        let g = GraphDemand { draw_calls: 48, ..g };
+        let g = GraphDemand {
+            draw_calls: 48,
+            ..g
+        };
         let c = allocate_with_extras(&g, &MemoryDemand::default(), &x);
-        assert_eq!((c.extras_tier, c.extras_draw_calls, c.draw_calls), (2, 0, 48));
+        assert_eq!(
+            (c.extras_tier, c.extras_draw_calls, c.draw_calls),
+            (2, 0, 48)
+        );
         assert!(!c.over_budget);
     }
 
@@ -1857,12 +2040,22 @@ mod tests {
             draw_calls: 6,
             other_tris: 0,
         };
-        let x = ExtrasDemand { tier: EXTRAS_MAX_TIER, frames: 3 };
+        let x = ExtrasDemand {
+            tier: EXTRAS_MAX_TIER,
+            frames: 3,
+        };
         let plain = allocate(&g, &full_memory());
         let c = allocate_with_extras(&g, &full_memory(), &x);
         assert!(c.over_budget);
-        assert_eq!((c.extras_tris, c.extras_draw_calls), (0, 0), "no triangle bought");
-        assert_eq!(c.tris_total, plain.tris_total, "the minimums are what is reported");
+        assert_eq!(
+            (c.extras_tris, c.extras_draw_calls),
+            (0, 0),
+            "no triangle bought"
+        );
+        assert_eq!(
+            c.tris_total, plain.tris_total,
+            "the minimums are what is reported"
+        );
         assert_eq!(c.graph, plain.graph);
     }
 
@@ -1884,7 +2077,11 @@ mod tests {
     }
 
     fn splats(tier: usize, volumes: usize, entered: bool) -> SplatDemand {
-        SplatDemand { tier, volumes, entered }
+        SplatDemand {
+            tier,
+            volumes,
+            entered,
+        }
     }
 
     #[test]
@@ -1903,16 +2100,26 @@ mod tests {
     fn splat_grant_follows_tier_volume_and_entered_state() {
         let off = SplatGrant::default();
         assert_eq!(splat_grant(&splats(0, 2, true), 6), off, "tier 0 is off");
-        assert_eq!(splat_grant(&splats(3, 0, true), 6), off, "no volume, no call");
+        assert_eq!(
+            splat_grant(&splats(3, 0, true), 6),
+            off,
+            "no volume, no call"
+        );
         // entered: the room draws the requested tier, one call
         let g = splat_grant(&splats(3, 1, true), 6);
-        assert_eq!((g.volumes, g.tier, g.count, g.tris, g.draw_calls), (1, 3, 100_000, 200_000, 1));
+        assert_eq!(
+            (g.volumes, g.tier, g.count, g.tris, g.draw_calls),
+            (1, 3, 100_000, 200_000, 1)
+        );
         // not entered: held at the unentered ceiling however high the governor climbed
         let g = splat_grant(&splats(3, 1, false), 6);
         assert_eq!((g.tier, g.count), (SPLAT_UNENTERED_MAX_TIER, 25_000));
         // two volumes, one entered: the room at tier 3, the portal at the ceiling
         let g = splat_grant(&splats(3, 2, true), 6);
-        assert_eq!((g.volumes, g.tier, g.portal_tier, g.draw_calls), (2, 3, 1, 2));
+        assert_eq!(
+            (g.volumes, g.tier, g.portal_tier, g.draw_calls),
+            (2, 3, 1, 2)
+        );
         assert_eq!(g.count, 100_000 + 25_000);
         assert_eq!(g.tris, 2 * g.count);
         // at most two volumes are ever charged
@@ -1928,11 +2135,18 @@ mod tests {
         let c = allocate_with_splats(&g, &m, &ExtrasDemand::default(), &splats(3, 2, true));
         let plain = allocate(&g, &m);
         assert_eq!(c.splat_draw_calls, 2);
-        assert_eq!(c.draw_calls, plain.draw_calls + 2, "one call per volume, in the total");
+        assert_eq!(
+            c.draw_calls,
+            plain.draw_calls + 2,
+            "one call per volume, in the total"
+        );
         assert!(c.draw_calls <= DRAW_CALL_LIMIT);
         // No room: a volume the limit has no call for is not granted.
         for room in 0..=2usize {
-            let g = GraphDemand { draw_calls: DRAW_CALL_LIMIT - room, ..g };
+            let g = GraphDemand {
+                draw_calls: DRAW_CALL_LIMIT - room,
+                ..g
+            };
             let c = allocate_with_splats(&g, &m, &ExtrasDemand::default(), &splats(3, 2, true));
             assert_eq!(c.splat_volumes, room, "room for {room} call(s)");
             assert_eq!(c.splat_draw_calls, room);
@@ -1940,7 +2154,10 @@ mod tests {
             assert!(!c.over_budget, "{room}: splats never cause an overrun");
         }
         // A graph that already overruns the calls grants none and adds none.
-        let g = GraphDemand { draw_calls: DRAW_CALL_LIMIT + 3, ..g };
+        let g = GraphDemand {
+            draw_calls: DRAW_CALL_LIMIT + 3,
+            ..g
+        };
         let c = allocate_with_splats(&g, &m, &ExtrasDemand::default(), &splats(3, 2, true));
         assert_eq!((c.splat_volumes, c.draw_calls), (0, DRAW_CALL_LIMIT + 3));
         assert!(c.over_budget, "the graph's own overrun is still reported");
@@ -1950,20 +2167,32 @@ mod tests {
     fn splat_calls_are_reserved_before_the_extras() {
         // Two calls of room, tier 3 extras want one (the motes). Splats first:
         // both calls go to the splats and the motes tier is refused.
-        let g = GraphDemand { draw_calls: DRAW_CALL_LIMIT - 2, ..production() };
+        let g = GraphDemand {
+            draw_calls: DRAW_CALL_LIMIT - 2,
+            ..production()
+        };
         let m = MemoryDemand::default();
         let x = ExtrasDemand { tier: 3, frames: 3 };
         let without = allocate_with_extras(&g, &m, &x);
-        assert_eq!(without.extras_tier, 3, "with nothing else asking, the motes fit");
+        assert_eq!(
+            without.extras_tier, 3,
+            "with nothing else asking, the motes fit"
+        );
         let c = allocate_with_splats(&g, &m, &x, &splats(3, 2, true));
         assert_eq!(c.splat_draw_calls, 2, "the splats keep their calls");
         assert_eq!(c.extras_draw_calls, 0, "the extras cannot take them");
         assert_eq!(c.extras_tier, 2, "the ribbons need no call and stay");
         assert_eq!(c.draw_calls, DRAW_CALL_LIMIT);
         // With a spare call both fit.
-        let g = GraphDemand { draw_calls: DRAW_CALL_LIMIT - 3, ..production() };
+        let g = GraphDemand {
+            draw_calls: DRAW_CALL_LIMIT - 3,
+            ..production()
+        };
         let c = allocate_with_splats(&g, &m, &x, &splats(3, 2, true));
-        assert_eq!((c.splat_draw_calls, c.extras_draw_calls, c.extras_tier), (2, 1, 3));
+        assert_eq!(
+            (c.splat_draw_calls, c.extras_draw_calls, c.extras_tier),
+            (2, 1, 3)
+        );
         assert_eq!(c.draw_calls, DRAW_CALL_LIMIT);
     }
 
@@ -1980,12 +2209,21 @@ mod tests {
                 for volumes in 0..=3 {
                     for entered in [false, true] {
                         let c = allocate_with_splats(&g, &m, &x, &splats(tier, volumes, entered));
-                        assert_eq!(c.tris_total, plain.tris_total, "tier {tier}: splat tris are not in the total");
+                        assert_eq!(
+                            c.tris_total, plain.tris_total,
+                            "tier {tier}: splat tris are not in the total"
+                        );
                         assert!(c.tris_total <= TRI_LIMIT.max(plain.tris_total));
-                        assert_eq!(c.over_budget, plain.over_budget, "tier {tier}: no splat-caused overrun");
+                        assert_eq!(
+                            c.over_budget, plain.over_budget,
+                            "tier {tier}: no splat-caused overrun"
+                        );
                         assert_eq!(c.splat_tris, c.splat_count * SPLAT_TRIS_PER_SPLAT);
                         if c.splat_count > 0 {
-                            assert!(c.splat_tris > TRI_LIMIT / 2, "reported on its own, outside TRI_LIMIT");
+                            assert!(
+                                c.splat_tris > TRI_LIMIT / 2,
+                                "reported on its own, outside TRI_LIMIT"
+                            );
                         }
                     }
                 }
@@ -2000,12 +2238,16 @@ mod tests {
         let m = full_memory();
         for g in [production(), benchmark_production().0] {
             for extras in 0..=EXTRAS_MAX_TIER {
-                let x = ExtrasDemand { tier: extras, frames: 3 };
+                let x = ExtrasDemand {
+                    tier: extras,
+                    frames: 3,
+                };
                 let plain = allocate_with_extras(&g, &m, &x);
                 for tier in 0..=SPLAT_MAX_TIER {
                     for volumes in 0..=2 {
                         for entered in [false, true] {
-                            let c = allocate_with_splats(&g, &m, &x, &splats(tier, volumes, entered));
+                            let c =
+                                allocate_with_splats(&g, &m, &x, &splats(tier, volumes, entered));
                             assert_eq!(
                                 without_splats(&c),
                                 without_splats(&plain),
@@ -2019,8 +2261,14 @@ mod tests {
         // And allocate_with_extras is exactly the account with nothing asked.
         let g = production();
         let x = ExtrasDemand { tier: 3, frames: 3 };
-        assert_eq!(allocate_with_extras(&g, &m, &x), allocate_with_splats(&g, &m, &x, &SplatDemand::default()));
-        assert_eq!(allocate(&g, &m), allocate_with_splats(&g, &m, &ExtrasDemand::default(), &SplatDemand::default()));
+        assert_eq!(
+            allocate_with_extras(&g, &m, &x),
+            allocate_with_splats(&g, &m, &x, &SplatDemand::default())
+        );
+        assert_eq!(
+            allocate(&g, &m),
+            allocate_with_splats(&g, &m, &ExtrasDemand::default(), &SplatDemand::default())
+        );
     }
 
     #[test]
@@ -2029,7 +2277,10 @@ mod tests {
         let x = ExtrasDemand::default();
         for tier in 0..=SPLAT_MAX_TIER {
             let out = allocate_with_splats(&g, &m, &x, &splats(tier, 1, false));
-            assert!(out.splat_tier <= SPLAT_UNENTERED_MAX_TIER, "tier {tier} unentered");
+            assert!(
+                out.splat_tier <= SPLAT_UNENTERED_MAX_TIER,
+                "tier {tier} unentered"
+            );
             let inn = allocate_with_splats(&g, &m, &x, &splats(tier, 1, true));
             assert_eq!(inn.splat_tier, tier, "tier {tier} entered");
         }

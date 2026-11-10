@@ -564,7 +564,8 @@ impl SelectionArbiterNode {
     /// Set the gaze-dwell time in ms (clamped to 400–800); returns the value in force.
     #[func]
     fn set_dwell_ms(&mut self, ms: i64) -> i64 {
-        self.arbiter.set_dwell_ms(ms.clamp(0, u32::MAX as i64) as u32) as i64
+        self.arbiter
+            .set_dwell_ms(ms.clamp(0, u32::MAX as i64) as u32) as i64
     }
 
     /// The gaze-dwell time in force, in ms.
@@ -714,7 +715,10 @@ mod tests {
     fn ticks_to_fire(arb: &mut SelectionArbiter) -> u64 {
         let cands = [candidate(9, [0.0, 0.0, -5.0])];
         for i in 0..200u64 {
-            if arb.tick(&[], &gaze_forward(), &cands, false, i * 20_000, 20_000).is_some() {
+            if arb
+                .tick(&[], &gaze_forward(), &cands, false, i * 20_000, 20_000)
+                .is_some()
+            {
                 return i + 1;
             }
         }
@@ -731,9 +735,20 @@ mod tests {
         let mut fast = SelectionArbiter::new();
         assert_eq!(fast.set_dwell_ms(400), 400);
         let (s, f) = (ticks_to_fire(&mut slow), ticks_to_fire(&mut fast));
-        assert!(f < default_ticks && default_ticks < s, "400 < 600 < 800 ms: {f} {default_ticks} {s}");
-        assert_eq!(SelectionArbiter::new().set_dwell_ms(50), 400, "clamped to the band floor");
-        assert_eq!(SelectionArbiter::new().set_dwell_ms(5000), 800, "and its ceiling");
+        assert!(
+            f < default_ticks && default_ticks < s,
+            "400 < 600 < 800 ms: {f} {default_ticks} {s}"
+        );
+        assert_eq!(
+            SelectionArbiter::new().set_dwell_ms(50),
+            400,
+            "clamped to the band floor"
+        );
+        assert_eq!(
+            SelectionArbiter::new().set_dwell_ms(5000),
+            800,
+            "and its ceiling"
+        );
     }
 
     #[test]
