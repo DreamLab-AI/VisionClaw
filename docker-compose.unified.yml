@@ -23,6 +23,14 @@ x-common-environment: &common-environment
   VISIONCLAW_JEV_TIMEOUT_MS: "${VISIONCLAW_JEV_TIMEOUT_MS:-4000}"
   # An unset automatic threshold deliberately accepts no autonomous change.
   VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE: "${VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE:-}"
+  # ADR-2191 per-relation spring weights. Unset = off (the force pass is
+  # unchanged). A path inside the container, e.g. the bind-mounted example
+  # /app/docs/relation-weights/hand-set-two-relations.toml (dev only; prod has
+  # no docs mount). Read once at start: change it, then `launch.sh up` recreates.
+  VISIONCLAW_RELATION_WEIGHTS: "${VISIONCLAW_RELATION_WEIGHTS:-}"
+  # Admits a table whose provenance is `learned`. Keep false: ADR-2174's
+  # experiment did not support H1, and ADR-2191 authorises no learned table.
+  VISIONCLAW_RELATION_WEIGHTS_ALLOW_LEARNED: "${VISIONCLAW_RELATION_WEIGHTS_ALLOW_LEARNED:-false}"
   NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-0}
   NVIDIA_DRIVER_CAPABILITIES: compute,utility
   CUDA_ARCH: ${CUDA_ARCH:-75}

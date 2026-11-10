@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 verified_commit:
-relates: [ADR-2028, ADR-2029, ADR-2035, ADR-2143]
+relates: [ADR-2028, ADR-2029, ADR-2035, ADR-2143, ADR-2191]
 verified_paths: []
 owner: jjohare
 review_trigger: the preregistered experiment in crates/relational-field reports, the H2 temporal-edge source is chosen, or an Innovate UK application is submitted on this work

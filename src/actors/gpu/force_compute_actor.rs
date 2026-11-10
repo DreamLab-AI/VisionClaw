@@ -938,39 +938,26 @@ impl ForceComputeActor {
         let mut positions_y: Vec<f32> = graph_data.nodes.iter().map(|n| n.data.y).collect();
         let mut positions_z: Vec<f32> = graph_data.nodes.iter().map(|n| n.data.z).collect();
 
-        let mut adjacency_lists: Vec<Vec<(u32, f32)>> = vec![Vec::new(); num_nodes];
-        for edge in &graph_data.edges {
-            if let (Some(&src), Some(&tgt)) = (
-                node_indices.get(&edge.source),
-                node_indices.get(&edge.target),
-            ) {
-                adjacency_lists[src].push((tgt as u32, edge.weight));
-                if src != tgt {
-                    adjacency_lists[tgt].push((src as u32, edge.weight));
-                }
-            }
-        }
+        // One CSR for every GPU consumer (ADR-2191). `edge_weights` stays unscaled for
+        // label propagation, degree, SSSP, Louvain and Leiden; `spring_weights` is
+        // `Some` only when a relation-weight table is bound, and only the force pass
+        // reads it.
+        let relation_table = crate::config::relation_weights::active();
+        let csr = visionclaw_domain::models::relation_weights::build_csr(
+            &graph_data.edges,
+            &node_indices,
+            num_nodes,
+            relation_table,
+        );
 
         // ADR-141 P3: retain the undirected neighbour indices for the
-        // RadialMode::Ego BFS hop-distance (weightless projection of adjacency_lists).
-        self.graph_adjacency = adjacency_lists
-            .iter()
-            .map(|adj| adj.iter().map(|&(t, _w)| t).collect())
-            .collect();
+        // RadialMode::Ego BFS hop-distance (weightless projection of the CSR).
+        self.graph_adjacency = (0..num_nodes).map(|i| csr.neighbours(i).to_vec()).collect();
 
-        let mut row_offsets = vec![0u32; num_nodes + 1];
-        let mut col_indices = Vec::new();
-        let mut edge_weights = Vec::new();
-        let mut edge_count = 0u32;
-        for (i, adj) in adjacency_lists.iter().enumerate() {
-            row_offsets[i] = edge_count;
-            for &(target, weight) in adj {
-                col_indices.push(target);
-                edge_weights.push(weight);
-                edge_count += 1;
-            }
-        }
-        row_offsets[num_nodes] = edge_count;
+        let row_offsets = &csr.row_offsets;
+        let col_indices = &csr.col_indices;
+        let edge_weights = &csr.edge_weights;
+        let edge_count = csr.num_slots() as u32;
 
         // Place isolated nodes (degree 0) on a spherical shell so they don't
         // clump in the center and obscure community structure of connected nodes.
@@ -982,8 +969,8 @@ impl ForceComputeActor {
             // Compute average distance of connected nodes from origin
             let mut sum_dist = 0.0f64;
             let mut connected_count = 0usize;
-            for (i, adj) in adjacency_lists.iter().enumerate() {
-                if !adj.is_empty() {
+            for i in 0..num_nodes {
+                if !csr.neighbours(i).is_empty() {
                     let dx = positions_x[i] as f64;
                     let dy = positions_y[i] as f64;
                     let dz = positions_z[i] as f64;
@@ -999,8 +986,8 @@ impl ForceComputeActor {
             let shell_radius = (avg_dist * 2.0).max(200.0) as f32;
 
             let mut isolated_count = 0usize;
-            for (i, adj) in adjacency_lists.iter().enumerate() {
-                if adj.is_empty() {
+            for i in 0..num_nodes {
+                if csr.neighbours(i).is_empty() {
                     // Fibonacci sphere distribution for even spacing
                     let golden_ratio = (1.0 + 5.0f32.sqrt()) / 2.0;
                     let theta = 2.0 * std::f32::consts::PI * (i as f32) / golden_ratio;
@@ -1032,13 +1019,31 @@ impl ForceComputeActor {
         match compute.initialize_graph(
             &row_offsets.iter().map(|&x| x as i32).collect::<Vec<_>>(),
             &col_indices.iter().map(|&x| x as i32).collect::<Vec<_>>(),
-            &edge_weights,
+            edge_weights,
             [&positions_x, &positions_y, &positions_z],
             num_nodes,
             edge_count as usize,
         ) {
             Ok(_) => {
                 info!("ForceComputeActor: Graph data uploaded to GPU successfully ({} nodes, {} CSR edges)", num_nodes, edge_count);
+
+                // ADR-2191: bind per-relation spring weights for this CSR (the upload just
+                // cleared any previous binding). A failure leaves the feature off; physics
+                // continues on the unscaled weights.
+                match compute.set_spring_edge_weights(csr.spring_weights.as_deref()) {
+                    Ok(()) => {
+                        if let Some(stats) = csr.stats {
+                            info!(
+                                "ForceComputeActor: relation weights applied to {} CSR slots: {} edges by IRI, {} by edge type, {} unchanged",
+                                edge_count, stats.by_iri, stats.by_edge_type, stats.identity
+                            );
+                        }
+                    }
+                    Err(e) => error!(
+                        "ForceComputeActor: relation weights not bound, force pass uses unscaled weights: {}",
+                        e
+                    ),
+                }
 
                 // Upload node_graph_id mapping so ClusteringActor's ensure_node_id_map
                 // can download it.  With compact IDs (node.id == sequential 0..N-1),

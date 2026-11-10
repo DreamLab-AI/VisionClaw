@@ -153,6 +153,8 @@ device availability. The Compose dev/prod profiles request an NVIDIA device via
 | `VISIONCLAW_BLOCK_SIZE` | integer | kernel default | CUDA thread-block size for force kernels. |
 | `FANOUT_NODE_THRESHOLD` | integer | kernel default | Node count above which fan-out partitioning engages. |
 | `CUDA_HOME` / `CUDA_PATH` | string | `/opt/cuda` | Toolkit location (build-time; CachyOS uses `/opt/cuda`). |
+| `VISIONCLAW_RELATION_WEIGHTS` | path | unset (off) | Per-relation spring-weight table (ADR-2191). Unset leaves the force pass unchanged. A missing or malformed file leaves it off and logs why. Read once at start. Examples: `docs/relation-weights/`. |
+| `VISIONCLAW_RELATION_WEIGHTS_ALLOW_LEARNED` | boolean | `false` | Admit a table whose provenance is `learned`. Keep `false`: ADR-2191 authorises no learned table, because ADR-2174's experiment did not support H1. |
 
 The GPU path is much faster than the CPU path for large graphs; no GPU-versus-CPU
 figure is published until a receipted run exists (see

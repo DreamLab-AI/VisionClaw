@@ -263,7 +263,48 @@ impl UnifiedGPUCompute {
         self.num_edges = col_indices.len();
         // The CSR changed, so any captured rest lengths no longer line up with its slots.
         self.hold_overlay.invalidate();
+        // ADR-2191: so would per-relation spring weights. The force actor rebinds them
+        // after its own upload; any other uploader leaves the feature off, never stale.
+        self.spring_edge_weights = None;
         Ok(())
+    }
+
+    /// ADR-2191: bind per-CSR-slot force-pass weights, or unbind with `None`.
+    ///
+    /// Call after `upload_edges_csr`/`initialize_graph` for the same CSR: `weights` must
+    /// have one entry per uploaded slot (`num_edges`). It is padded to `allocated_edges`
+    /// like `edge_weights`. Only the force-pass launches read the bound buffer.
+    pub fn set_spring_edge_weights(&mut self, weights: Option<&[f32]>) -> Result<()> {
+        let Some(weights) = weights else {
+            self.spring_edge_weights = None;
+            return Ok(());
+        };
+        if weights.len() != self.num_edges {
+            self.spring_edge_weights = None;
+            return Err(anyhow!(
+                "Spring weight array size mismatch: expected {} CSR slots, got {}",
+                self.num_edges,
+                weights.len()
+            ));
+        }
+        if weights.is_empty() {
+            // No slots: nothing for the force pass to read either way.
+            self.spring_edge_weights = None;
+            return Ok(());
+        }
+        let mut padded = weights.to_vec();
+        padded.resize(self.allocated_edges.max(weights.len()), 0.0);
+        self.spring_edge_weights = Some(DeviceBuffer::from_slice(&padded)?);
+        Ok(())
+    }
+
+    /// ADR-2191: the weight buffer the force pass reads — the bound spring weights when a
+    /// relation-weight table is active, otherwise the unscaled `edge_weights`.
+    pub(crate) fn force_pass_edge_weights(&self) -> cust::memory::DevicePointer<f32> {
+        match &self.spring_edge_weights {
+            Some(b) => b.as_device_ptr(),
+            None => self.edge_weights.as_device_ptr(),
+        }
     }
 
     /// Download the CSR graph structure from GPU device memory.
@@ -492,6 +533,8 @@ impl UnifiedGPUCompute {
         self.edge_row_offsets = DeviceBuffer::zeroed(actual_new_nodes + 1)?;
         self.edge_col_indices = DeviceBuffer::zeroed(actual_new_edges)?;
         self.edge_weights = DeviceBuffer::zeroed(actual_new_edges)?;
+        // ADR-2191: per-slot spring weights describe the old CSR; drop them with it.
+        self.spring_edge_weights = None;
         // The overlay's rest lengths are per CSR slot; a resize invalidates them (and the
         // buffer must track allocated_edges or the force pass would read out of bounds).
         // The force kernels hold the old buffer's address in `g_edge_rest_snapshot`; unbind it

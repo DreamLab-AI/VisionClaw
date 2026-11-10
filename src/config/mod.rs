@@ -2,6 +2,7 @@ pub mod dev_config;
 pub mod feature_access;
 pub mod path_access;
 mod path_accessible_impls;
+pub mod relation_weights;
 pub mod security_profile;
 
 /// Canonical default for max_velocity across the entire codebase.

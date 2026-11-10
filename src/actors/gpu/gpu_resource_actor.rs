@@ -301,41 +301,22 @@ impl GPUResourceActor {
             node_indices.insert(node.id, i);
         }
 
-        let mut row_offsets = vec![0u32; (num_nodes + 1) as usize];
-        let mut col_indices = Vec::new();
-        let mut edge_weights = Vec::new();
-
         let positions_x: Vec<f32> = graph_data.nodes.iter().map(|n| n.data.x).collect();
         let positions_y: Vec<f32> = graph_data.nodes.iter().map(|n| n.data.y).collect();
         let positions_z: Vec<f32> = graph_data.nodes.iter().map(|n| n.data.z).collect();
 
-        let mut adjacency_lists: Vec<Vec<(u32, f32)>> = vec![Vec::new(); num_nodes as usize];
-
-        for edge in &graph_data.edges {
-            if let (Some(&source_idx), Some(&target_idx)) = (
-                node_indices.get(&edge.source),
-                node_indices.get(&edge.target),
-            ) {
-                let weight = edge.weight;
-                adjacency_lists[source_idx].push((target_idx as u32, weight));
-
-                if source_idx != target_idx {
-                    adjacency_lists[target_idx].push((source_idx as u32, weight));
-                }
-            }
-        }
-
-        let mut edge_count = 0;
-        for (i, adj_list) in adjacency_lists.iter().enumerate() {
-            row_offsets[i] = edge_count;
-
-            for &(target, weight) in adj_list {
-                col_indices.push(target);
-                edge_weights.push(weight);
-                edge_count += 1;
-            }
-        }
-        row_offsets[num_nodes as usize] = edge_count;
+        // The shared CSR builder (ADR-2191), without a relation table: this upload
+        // precedes the force actor's, and any CSR upload clears spring weights, so
+        // the force actor's own upload is the one that binds them.
+        let csr = visionclaw_domain::models::relation_weights::build_csr(
+            &graph_data.edges,
+            &node_indices,
+            num_nodes as usize,
+            None,
+        );
+        let edge_count = csr.num_slots() as u32;
+        let (row_offsets, col_indices, edge_weights) =
+            (csr.row_offsets, csr.col_indices, csr.edge_weights);
 
         info!(
             "CSR conversion complete: {} total edges (including reverse edges)",

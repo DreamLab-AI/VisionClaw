@@ -9,6 +9,7 @@ pub mod node;
 pub mod pagination;
 pub mod protected_settings;
 pub mod ragflow_chat;
+pub mod relation_weights;
 pub mod simulation_params;
 pub mod workspace;
 

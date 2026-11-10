@@ -1,10 +1,11 @@
 ---
 title: GPU & Wire ABI
 doc_id: VC-GPU-ABI
-version: 0.1.8
+version: 0.1.9
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.9 (2026-11-10): ADR-2191 per-relation spring weights, host only. An optional `spring_edge_weights` device buffer (one float per CSR slot, padded to `allocated_edges`) holds weights scaled by a relation-weight table. The two `force_pass_kernel` launches pass it in the existing `edge_weights` parameter when bound, and `edge_weights` otherwise. Every other reader keeps the unscaled `edge_weights`. A CSR upload or resize unbinds it. No kernel, PTX, arity, `SimParams` byte or feature bit changes"
   - "0.1.8 (2026-11-01): ADR-2169 amendment (spring mode while held) and the integration of the two physics branches — the hold overlay's rest-length buffer reaches the force kernels through the `__device__` global `g_edge_rest_snapshot` (null = overlay off), not a kernel parameter; the constraint index is ONE global struct `g_constraint_index` {offsets, ids} written in a single 16-byte copy (null offsets = no constraints, there is no unindexed walk); both force kernels share one `edge_spring_scale` device function; the unlaunched `blend_semantic_physics_forces` kernel is deleted. New `edge_rest_snapshot` device buffer (one float per CSR edge slot, sized to `allocated_edges`) and `snapshot_edge_rest_kernel`. Kernel arities (`force_pass_kernel` 30, `force_pass_with_stability_kernel` 29), `SimParams` (212 B), the feature word and its 7 bits are unchanged"
   - "0.1.7 (2026-11-01): ADR-2173 per-node constraint index — a `__device__` index global bound from the host; kernel arities and c_params unchanged"
   - "0.1.6 (2026-10-31): ADR-2030 runtime PTX identity (build-baked content tag verified at load, fail loud); ADR-2029 GPU-tick evidence that bit 4 alone gates the constraint loop and the physics-step authority sets it"
@@ -27,6 +28,8 @@ sources:
   - src/utils/unified_gpu_compute/memory.rs
   - src/handlers/layout_handler.rs
   - src/actors/gpu/force_compute_actor.rs
+  - crates/visionclaw-domain/src/models/relation_weights.rs
+  - src/config/relation_weights.rs
 date: 2026-08-31
 ---
 
@@ -298,6 +301,11 @@ race-free single launch. A three-pass implementation remains a performance optio
    `g_edge_rest_snapshot` (ADR-2169 item 8). A node's constraint list is ascending and holds each
    constraint once, so accumulation order, and the result, equals a walk over every constraint.
    `codescape_abi_tests` reads the built PTX and asserts the arities and `c_params[212]`.
+8. The pointer passed in the force kernels' `edge_weights` parameter is `edge_weights` unless a
+   relation-weight table is bound (ADR-2191), in which case it is `spring_edge_weights`. No other kernel
+   or host download ever reads `spring_edge_weights`. Label propagation, node degree, SSSP, Louvain and
+   Leiden see unscaled weights. `upload_edges_csr` and `resize_buffers` set it to `None`, so with the
+   feature off the force pass reads exactly the buffer it read before ADR-2191.
 
 ## Change process
 
@@ -307,6 +315,15 @@ declarations, bump both size assertions if the size moves, update this doc's Cur
 State and Invariants, and bump `version`. Fixing a broken analytics kernel moves it out
 of the Known-BROKEN list with a code citation. Cite legacy ADRs (e.g. legacy ADR-031,
 ADR-098, ADR-141) as evidence only; live code is ground truth.
+
+## Per-relation spring weights — 2026-11-10 (ADR-2191)
+
+A per-relation stiffness is a per-relation multiplier on the force pass's edge weight. `edge_spring_scale` multiplies the attraction by `edge_weight` in both LinLog and Hooke modes, so the multiplier needs no kernel change:
+
+- `build_csr` (`crates/visionclaw-domain/src/models/relation_weights.rs`) is the one CSR builder used by `ForceComputeActor` and `GPUResourceActor`. It returns the unscaled `edge_weights` and, when `VISIONCLAW_RELATION_WEIGHTS` names a valid table, `spring_weights` (each edge's weight × its relation factor, resolved by `owl_property_iri`, then by normalised `edge_type`, else 1.0).
+- `UnifiedGPUCompute::set_spring_edge_weights` (`memory.rs`) uploads them to `spring_edge_weights`. `force_pass_edge_weights` picks the pointer for both force-pass launches (`execution.rs`).
+- Kernels, PTX, arities, `SimParams`, the feature word and the ABI digest are untouched. Codescape needs no change.
+- Off-state proof: unset means no buffer, and the force pass reads `edge_weights`. A uniform table gives bit-identical values, because the multiply is skipped at exactly 1.0.
 
 ## Elastic hold-spring overlay — 2026-11-01 (ADR-2169 amendment)
 

@@ -739,6 +739,7 @@ impl UnifiedGPUCompute {
             0
         };
         self.bind_edge_rest(edge_rest_raw)?;
+        let force_edge_weights = self.force_pass_edge_weights();
 
         unsafe {
             if params.stability_threshold > 0.0 {
@@ -761,7 +762,8 @@ impl UnifiedGPUCompute {
                     grid_dims,
                     self.edge_row_offsets.as_device_ptr(),
                     self.edge_col_indices.as_device_ptr(),
-                    self.edge_weights.as_device_ptr(),
+                    // ADR-2191: spring weights when a relation table is bound, else edge_weights.
+                    force_edge_weights,
                     self.num_nodes as i32,
                     d_sssp,
                     self.constraint_data.as_device_ptr(),
@@ -795,7 +797,8 @@ impl UnifiedGPUCompute {
                     grid_dims,
                     self.edge_row_offsets.as_device_ptr(),
                     self.edge_col_indices.as_device_ptr(),
-                    self.edge_weights.as_device_ptr(),
+                    // ADR-2191: spring weights when a relation table is bound, else edge_weights.
+                    force_edge_weights,
                     self.num_nodes as i32,
                     d_sssp,
                     self.constraint_data.as_device_ptr(),
@@ -1619,6 +1622,111 @@ mod grid_gpu_tests {
         let mut v = vec![0f32; len];
         buf.index(0..len).copy_to(&mut v[..]).expect("device read");
         v
+    }
+
+    /// ADR-2191: the force pass reads the bound spring weights instead of `edge_weights`, and
+    /// nothing else changes. Springs only (repulsion, gravity, jitter off), so the per-node CSR
+    /// gather is the whole force and is deterministic. Four engines from identical positions:
+    ///   A: edge_weights = 2w, nothing bound      B: edge_weights = w, spring = 2w   => A == B
+    ///   C: edge_weights = w, nothing bound       D: edge_weights = w, spring = w    => C == D
+    /// and A != C, so the comparison is not vacuous. Run in both LinLog and Hooke modes.
+    /// Also checks that a CSR upload unbinds the spring weights.
+    /// A fresh engine has no SSSP distances (`sssp_available` false, no device buffer), so
+    /// `d_sssp` is null and the Hooke rest length is the stored one in every engine: SSSP
+    /// reads the unscaled weights, so A == B in Hooke mode depends on SSSP being off.
+    #[test]
+    fn the_force_pass_reads_bound_spring_weights_and_nothing_else_changes() {
+        let Some((_ctx, probe)) = gpu() else { return };
+        drop(probe);
+        let ptx = crate::utils::ptx::load_ptx_sync().expect("ptx");
+        let n = N as i32;
+        let offsets: Vec<i32> = (0..=n).map(|i| i * 2).collect();
+        let mut cols = Vec::with_capacity(N * 2);
+        let mut w = Vec::with_capacity(N * 2);
+        for i in 0..n {
+            cols.push((i + n - 1) % n);
+            cols.push((i + 1) % n);
+            // Edge (i, i+1) has weight 0.5 or 1.5 by parity of the lower index; both slots agree.
+            let lower = |a: i32, b: i32| if (a - b).rem_euclid(n) == 1 { b } else { a };
+            w.push(if lower(i, (i + n - 1) % n) % 2 == 0 {
+                0.5
+            } else {
+                1.5
+            });
+            w.push(if lower(i, (i + 1) % n) % 2 == 0 {
+                0.5
+            } else {
+                1.5
+            });
+        }
+        let doubled: Vec<f32> = w.iter().map(|x| x * 2.0).collect();
+        let mut seed = 99u64;
+        let (mut x, mut y, mut z) = (vec![0f32; N], vec![0f32; N], vec![0f32; N]);
+        for i in 0..N {
+            x[i] = (lcg(&mut seed) - 0.5) * 2000.0;
+            y[i] = (lcg(&mut seed) - 0.5) * 2000.0;
+            z[i] = (lcg(&mut seed) - 0.5) * 2000.0;
+        }
+        let run = |base: &[f32], spring: Option<&[f32]>, lin_log: bool| -> Vec<f32> {
+            let mut g = UnifiedGPUCompute::new(N, N * 2, &ptx).expect("engine");
+            g.upload_positions(&x, &y, &z).expect("positions");
+            g.upload_edges_csr(&offsets, &cols, base).expect("csr");
+            g.set_spring_edge_weights(spring).expect("bind");
+            let mut p = params();
+            p.repel_k = 0.0;
+            p.center_gravity_k = 0.0;
+            p.gravity = 0.0;
+            p.temperature = 0.0;
+            p.viewport_bounds = 1.0e9;
+            p.lin_log_mode = u32::from(lin_log);
+            g.execute(p).expect("execute");
+            g.stream.synchronize().expect("sync");
+            let mut f = read_f32(&g.force_x, N);
+            f.extend(read_f32(&g.force_y, N));
+            f.extend(read_f32(&g.force_z, N));
+            f
+        };
+        let bits = |v: &[f32]| v.iter().map(|f| f.to_bits()).collect::<Vec<_>>();
+        for lin_log in [true, false] {
+            let a = run(&doubled, None, lin_log);
+            let b = run(&w, Some(&doubled), lin_log);
+            let c = run(&w, None, lin_log);
+            let d = run(&w, Some(&w), lin_log);
+            assert!(
+                a.iter().any(|f| *f != 0.0),
+                "springs must produce force (lin_log={lin_log})"
+            );
+            assert_ne!(
+                bits(&a),
+                bits(&c),
+                "doubling weights must change force (lin_log={lin_log})"
+            );
+            assert_eq!(
+                bits(&a),
+                bits(&b),
+                "bound spring weights must drive the force pass (lin_log={lin_log})"
+            );
+            assert_eq!(
+                bits(&c),
+                bits(&d),
+                "a uniform binding must be bit-identical (lin_log={lin_log})"
+            );
+        }
+
+        let mut g = UnifiedGPUCompute::new(N, N * 2, &ptx).expect("engine");
+        g.upload_edges_csr(&offsets, &cols, &w).expect("csr");
+        g.set_spring_edge_weights(Some(&doubled)).expect("bind");
+        assert!(g.spring_edge_weights.is_some());
+        g.upload_edges_csr(&offsets, &cols, &w).expect("csr again");
+        assert!(
+            g.spring_edge_weights.is_none(),
+            "a CSR upload must unbind spring weights"
+        );
+        assert!(
+            g.set_spring_edge_weights(Some(&w[..10])).is_err(),
+            "length must match the CSR"
+        );
+        assert!(g.spring_edge_weights.is_none());
     }
 
     /// Newton's third law for the whole step: with gravity, jitter and bounds off, repulsion

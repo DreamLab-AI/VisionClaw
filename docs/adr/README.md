@@ -40,7 +40,7 @@ The [historical closeout routing note](../adr-history-closeout.md) points each f
 
 The [estate status/evidence contract](../../../VisionFlow/docs/architecture/adr-status-contract.md) defines the independent decision, implementation and activation axes and distinguishes lineage from supersession (2026-09-07).
 
-_160 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
+_161 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 
 | ID | Title | Domain | Date | Decision | Impl | Activation | Supersedes | Superseded by | Owner | Repo |
 |----|-------|--------|------|----------|------|------------|------------|---------------|-------|------|
@@ -204,3 +204,4 @@ _160 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2187](ADR-2187-a-cosmos-gl-2d-overview-is-built-as-a-time-boxed-reference-spike.md) | A cosmos.gl 2D overview fed with server positions is built as a time-boxed reference spike, and the Cosmograph product library is not used | BASELINE-architecture | 2026-11-05 | rejected | none | inactive | — | — | jjohare | visionclaw |
 | [ADR-2188](ADR-2188-the-xr-client-adopts-the-overview-first-contract-without-bloom.md) | The XR client adopts the overview-first contract — sized points, screen-width edges, label budget and highlight mask — without bloom | XR-client | 2026-11-06 | accepted | complete | live | — | — | jjohare | visionclaw |
 | [ADR-2189](ADR-2189-desktop-and-xr-menus-share-one-seven-section-information-architecture.md) | Desktop and XR menus share one seven-section information architecture, generated from the settings registry | XR-client | 2026-11-06 | accepted | complete | staged | — | — | jjohare | visionclaw |
+| [ADR-2191](ADR-2191-per-relation-stiffness-is-a-spring-weight-table-on-the-existing-weight-path.md) | Per-relation stiffness is a spring-weight table on the existing weight path, keyed by predicate IRI | GPU-wire-abi | 2026-11-10 | proposed | partial | inactive | — | — | jjohare | visionclaw |

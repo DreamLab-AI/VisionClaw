@@ -1,0 +1,9 @@
+# Uniform table (ADR-2191): every factor is 1.0, so the force pass receives
+# weights bit-identical to running with the feature off. Use it to prove the
+# plumbing changes nothing before trying a hand-set table.
+format = "visionclaw.relation-weights"
+version = 1
+
+[provenance]
+source = "uniform"
+note = "identity check"

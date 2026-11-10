@@ -1,0 +1,23 @@
+# Hand-set smoke-test table (ADR-2191). Two relations, chosen to be visible in
+# the default LinLog mode: is-a pulls four times harder, related-to pulls at a
+# quarter. Every other edge keeps its weight. Not a learned table.
+format = "visionclaw.relation-weights"
+version = 1
+
+[provenance]
+source = "hand-set"
+note = "ADR-2191 smoke test: tighten is-a, loosen related-to"
+
+[composition]
+# Multiply the existing weight (the registry's strength * 2 for typed edges).
+registry_weight = "compose"
+
+[[relation]]
+match = "iri"
+key = "http://www.w3.org/2000/01/rdf-schema#subClassOf"
+stiffness = 4.0
+
+[[relation]]
+match = "iri"
+key = "https://narrativegoldmine.com/ns/v1#relatedTo"
+stiffness = 0.25

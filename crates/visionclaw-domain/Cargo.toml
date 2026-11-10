@@ -17,6 +17,8 @@ serde_json = "1.0"
 # ADR-2040 — the authored corpus is an Obsidian vault; `vault::parse` reads its
 # YAML frontmatter. Same 0.9 line the server crate already pins.
 serde_yaml = "0.9"
+# ADR-2191 — the per-relation spring-weight table is TOML, like dev_config.toml.
+toml = "0.9.5"
 
 # Pure-Rust helpers
 chrono = { version = "0.4", default-features = false, features = ["serde", "clock"] }

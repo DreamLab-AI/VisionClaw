@@ -84,6 +84,12 @@ pub struct UnifiedGPUCompute {
     pub edge_row_offsets: DeviceBuffer<i32>,
     pub edge_col_indices: DeviceBuffer<i32>,
     pub edge_weights: DeviceBuffer<f32>,
+    /// ADR-2191: per-CSR-slot force-pass weights from a bound relation-weight table.
+    /// `None` (the default) means the force pass reads `edge_weights`, exactly as before.
+    /// Only the two force-pass launches read it; label propagation, degree, SSSP, Louvain
+    /// and Leiden keep reading the unscaled `edge_weights`. Every CSR upload and every
+    /// resize clears it, so it can never describe a stale CSR.
+    pub(crate) spring_edge_weights: Option<DeviceBuffer<f32>>,
     /// ADR-2169 amendment (spring mode while held): per-CSR-edge length captured when the
     /// hold begins. Only read while the springs run (bound through `g_edge_rest_snapshot`);
     /// sized to `allocated_edges`.
@@ -482,6 +488,7 @@ impl UnifiedGPUCompute {
             edge_row_offsets,
             edge_col_indices,
             edge_weights,
+            spring_edge_weights: None,
             edge_rest_snapshot,
             hold_overlay: Default::default(),
             edge_rest_bound: std::sync::atomic::AtomicU64::new(0),
