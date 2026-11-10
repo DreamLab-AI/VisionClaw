@@ -20,7 +20,9 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{connect_async_with_config, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{
+    client_async_with_config, connect_async_with_config, MaybeTlsStream, WebSocketStream,
+};
 
 /// Websocket receive limits. The default tungstenite cap is 16 MiB, but a
 /// full-graph initialGraphLoad (13k nodes / 145k edges) is ~28 MB as one text
@@ -38,6 +40,7 @@ use tracing::{error, warn};
 use visionclaw_xr_presence::{PoseFrame, RoomId};
 
 use crate::binary_protocol::GraphInbound;
+use crate::liveness::{Liveness, LivenessAction, LivenessConfig, ReadClock, ReadProgress};
 use crate::ports::{TransportError, WsMessage, WsTransport};
 use crate::presence::{decode_sibling_frame, PresenceClient, PresenceInbound, ServerMessage};
 use crate::runtime::runtime;
@@ -98,6 +101,37 @@ pub enum Outbound {
 }
 
 type WsConn = WebSocketStream<MaybeTlsStream<TcpStream>>;
+/// The graph socket: plain TCP under a [`ReadClock`], so the pump's read deadline
+/// counts bytes, not whole messages.
+type GraphConn = WebSocketStream<ReadClock<TcpStream>>;
+
+/// Open the graph socket over a [`ReadClock`]-wrapped TCP stream. This build has no
+/// TLS backend (tokio-tungstenite without a TLS feature), so `wss` is refused here
+/// exactly as `connect_async` would refuse it.
+async fn connect_graph(
+    request: tokio_tungstenite::tungstenite::http::Request<()>,
+    progress: Arc<ReadProgress>,
+) -> Result<
+    (
+        GraphConn,
+        tokio_tungstenite::tungstenite::handshake::client::Response,
+    ),
+    String,
+> {
+    let uri = request.uri();
+    if uri.scheme_str() != Some("ws") {
+        return Err("graph socket: only ws:// is supported by this build (no TLS backend)".into());
+    }
+    let host = uri.host().ok_or("missing socket host")?.to_owned();
+    let port = uri.port_u16().unwrap_or(80);
+    let tcp = TcpStream::connect((host.as_str(), port))
+        .await
+        .map_err(|e| e.to_string())?;
+    progress.touch(std::time::Instant::now());
+    client_async_with_config(request, ReadClock::new(tcp, progress), Some(ws_config()))
+        .await
+        .map_err(|e| e.to_string())
+}
 
 /// Owns a spawned pump task; dropping does not stop it — call [`Self::abort`].
 pub struct ConnHandle {
@@ -123,9 +157,22 @@ pub fn spawn_graph_stream(
     nostr_secret_hex: String,
     inbox: Arc<Mutex<VecDeque<GraphInbound>>>,
 ) -> (ConnHandle, mpsc::UnboundedSender<Outbound>) {
+    spawn_graph_stream_with(url, nostr_secret_hex, inbox, LivenessConfig::default())
+}
+
+/// [`spawn_graph_stream`] with explicit liveness timings (tests inject short ones).
+/// The pump pings every `liveness.ping_every` and, once nothing at all has been read
+/// for `liveness.deadline`, closes the socket and reports `Disconnected`, so the
+/// scene's backoff redials a half-open connection on its own (audit D2).
+pub fn spawn_graph_stream_with(
+    url: String,
+    nostr_secret_hex: String,
+    inbox: Arc<Mutex<VecDeque<GraphInbound>>>,
+    liveness: LivenessConfig,
+) -> (ConnHandle, mpsc::UnboundedSender<Outbound>) {
     let (tx, rx) = mpsc::unbounded_channel::<Outbound>();
     let handle = runtime().spawn(async move {
-        graph_pump(url, nostr_secret_hex, inbox, rx).await;
+        graph_pump(url, nostr_secret_hex, inbox, rx, liveness).await;
     });
     (ConnHandle { handle }, tx)
 }
@@ -135,6 +182,7 @@ async fn graph_pump(
     nostr_secret_hex: String,
     inbox: Arc<Mutex<VecDeque<GraphInbound>>>,
     outbound: mpsc::UnboundedReceiver<Outbound>,
+    liveness: LivenessConfig,
 ) {
     let request = match graph_upgrade_request(&url, &nostr_secret_hex) {
         Ok(request) => request,
@@ -144,7 +192,8 @@ async fn graph_pump(
             return;
         }
     };
-    match connect_async_with_config(request, Some(ws_config()), false).await {
+    let progress = ReadProgress::new(std::time::Instant::now());
+    match connect_graph(request, progress.clone()).await {
         Ok((ws, response)) => {
             let (mut sink, mut stream) = ws.split();
             if sink
@@ -178,7 +227,15 @@ async fn graph_pump(
                         Err(error) => warn!(%error, "graph stream: signer unavailable"),
                     }
                 }
-                pump_graph_messages(&mut sink, &mut stream, &inbox, outbound).await;
+                pump_graph_messages(
+                    &mut sink,
+                    &mut stream,
+                    &inbox,
+                    outbound,
+                    &progress,
+                    liveness,
+                )
+                .await;
             }
         }
         Err(e) => error!(err = %e, url = %url, "graph stream connect failed"),
@@ -187,13 +244,34 @@ async fn graph_pump(
 }
 
 async fn pump_graph_messages(
-    sink: &mut SplitSink<WsConn, Message>,
-    stream: &mut SplitStream<WsConn>,
+    sink: &mut SplitSink<GraphConn, Message>,
+    stream: &mut SplitStream<GraphConn>,
     inbox: &Arc<Mutex<VecDeque<GraphInbound>>>,
     mut outbound: mpsc::UnboundedReceiver<Outbound>,
+    progress: &ReadProgress,
+    liveness: LivenessConfig,
 ) {
+    let mut live = Liveness::new(liveness, std::time::Instant::now());
     loop {
+        let wake = match live.next(std::time::Instant::now(), progress.last_read()) {
+            LivenessAction::Expired => {
+                warn!(
+                    deadline_ms = liveness.deadline.as_millis() as u64,
+                    "graph stream: nothing read within the deadline; closing"
+                );
+                break;
+            }
+            LivenessAction::Ping => {
+                if let Err(e) = sink.send(Message::Ping(Vec::new())).await {
+                    warn!(err = %e, "graph stream ping send failed");
+                    break;
+                }
+                continue;
+            }
+            LivenessAction::Wait(at) => tokio::time::Instant::from_std(at),
+        };
         tokio::select! {
+            _ = tokio::time::sleep_until(wake) => {}
             msg = stream.next() => {
                 match msg {
                     Some(Ok(Message::Binary(b))) => push_graph(inbox, GraphInbound::Frame(b)),
@@ -202,6 +280,9 @@ async fn pump_graph_messages(
                         // (broker:new_case, broker:case_decided, …) is forwarded
                         // verbatim as Text for the scene layer to route by `type`.
                         push_graph(inbox, classify_text_off_runtime(t).await);
+                        // A large parse keeps the pump from reading: that time is ours,
+                        // not the peer's silence.
+                        progress.touch(std::time::Instant::now());
                     }
                     Some(Ok(Message::Ping(p))) => {
                         let _ = sink.send(Message::Pong(p)).await;

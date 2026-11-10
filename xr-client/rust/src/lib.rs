@@ -8,6 +8,7 @@
 //!   `visionclaw_xr_presence::agent_presence`, driven by `avatar_state`
 //! - BIP-340 Schnorr challenge signing (`signer`)
 //! - tokio-tungstenite sockets + main-thread inbox pumps (`transport`, `runtime`)
+//!   and the graph socket's client ping and read deadline (`liveness`)
 //! - hand-tracking ray cast + pinch detection (`interaction`)
 //! - unified head/eye gaze ray with one-euro smoothing (`gaze`)
 //! - three-resolver selection arbiter (`selection`)
@@ -42,6 +43,7 @@ pub mod hulls;
 pub mod interaction;
 pub mod link_index;
 pub mod link_packer;
+pub mod liveness;
 pub mod lod;
 pub mod memory_cloud;
 pub mod memory_query;
