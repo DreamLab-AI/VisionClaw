@@ -75,3 +75,18 @@ Gate (within 2.0 points, p ≥ 0.01): **pass**.
 place of 256 only if, on pmv2 test rows 0–999, the 64-token run's nearest-choice selection agrees
 with the 256-token run's on at least 97% of rows and its accuracy is within 0.5 points. Otherwise
 256 tokens stand.
+
+## P17 and P18 (PREREGISTRATION-P17.md, PREREGISTRATION-P18.md)
+
+**C1, 10 November 2026, before any student, teacher or prompted output on renderer D existed.** Clarification, not a
+change. The P17 decision rule defines R "on collections 200-599", but the only rule figure quoted in the record
+(67.9) is for collections 200-1999. An independent audit re-ran `p12d_score.py` and `p17_ba.py` on the rule's D
+output for collections 200-599: true two-step claims 54/107, false 84/93, balanced accuracy 70.4. The decision rule
+is therefore applied with R = 70.4: validity needs T >= 90.4; no support is s <= 75.4. The figure 67.9 is not used
+for the decision.
+
+**C2, same time.** Note on P18, no change to its criteria. Computation at budget f is the cheap pass on every
+paragraph plus the teacher on the re-read share; the audit estimates the cheap pass at about 0.21 of the teacher, so
+f = 30% costs about 0.51 and is expected to exceed criterion 1's 50% cap. If so, only f = 10% and 20% can satisfy
+criterion 1. P18 has no headroom condition and no oracle arm, and its signals were written with knowledge of the
+generator; P19 and P20 were recorded to address this. P18 is scored as written.
