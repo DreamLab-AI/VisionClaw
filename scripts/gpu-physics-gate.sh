@@ -38,14 +38,36 @@ CPU_CRATES=(
   -p visionclaw-analytics-oracle -p vault-core -p vault
 )
 
+# Minimum tests each GPU step must actually execute. Every one must print its device line
+# (only after a CUDA context exists on the expected bus), and no line may say SKIP, so a host
+# where CUDA fails to start cannot pass with zero kernel launches.
+LIFECYCLE_MIN_TESTS=12
+HARNESS_MIN_TESTS=40
+
 start=$SECONDS
 step() { printf '\n=== [%4ds] %s\n' "$((SECONDS - start))" "$*"; }
 die() { printf '\nGATE FAILED: %s\n' "$*" >&2; exit 1; }
+
+# require_executed <label> <minimum> <log>: the log shows no SKIP, at least <minimum> tests
+# passed in one run, and at least that many device lines on the expected bus.
+require_executed() {
+  local label=$1 min=$2 log=$3 passed devices
+  if grep -q '^SKIP' "$log"; then
+    grep '^SKIP' "$log" | head -5
+    die "$label: a test skipped instead of running on the GPU"
+  fi
+  passed=$(sed -n 's/^test result: ok\. \([0-9]*\) passed.*/\1/p' "$log" | sort -n | tail -1)
+  devices=$(grep -cE ": device .*\(PCI bus 0x0*${want_bus_hex}\)" "$log" || true)
+  echo "$label: ${passed:-0} tests passed, ${devices} device lines (minimum ${min})"
+  (( ${passed:-0} >= min )) || die "$label: only ${passed:-0} tests ran (minimum ${min})"
+  (( devices >= min )) || die "$label: only ${devices} tests reached the GPU (minimum ${min})"
+}
 
 step "preflight: GPU ${CUDA_VISIBLE_DEVICES} (PCI order), sm_${CUDA_ARCH}, expected bus ${VISIONCLAW_EXPECT_PCI_BUS}"
 command -v nvidia-smi >/dev/null || die "nvidia-smi not found: this gate needs a GPU host"
 command -v compute-sanitizer >/dev/null || die "compute-sanitizer not found (CUDA toolkit)"
 want_bus=$((VISIONCLAW_EXPECT_PCI_BUS))
+want_bus_hex=$(printf '%X' "$want_bus")
 have_bus=$(nvidia-smi --id="$CUDA_VISIBLE_DEVICES" --query-gpu=pci.bus --format=csv,noheader | tr -d ' ')
 [[ $((have_bus)) -eq $want_bus ]] \
   || die "nvidia-smi GPU ${CUDA_VISIBLE_DEVICES} is on bus ${have_bus}, expected ${VISIONCLAW_EXPECT_PCI_BUS}"
@@ -82,11 +104,19 @@ step "visionclaw-server: GPU buffer-lifecycle and SSSP tests under compute-sanit
 lib_test=$(cargo test --lib --no-run --message-format=json 2>/dev/null \
   | sed -n 's/.*"executable":"\([^"]*visionclaw_server-[^"]*\)".*/\1/p' | tail -1)
 [[ -x "$lib_test" ]] || die "could not locate the visionclaw-server lib test binary"
+lifecycle_log=$(mktemp)
 compute-sanitizer --tool memcheck --error-exitcode 1 \
-  "$lib_test" --ignored lifecycle_gpu_tests --test-threads=1
+  "$lib_test" --ignored lifecycle_gpu_tests --test-threads=1 --nocapture 2>&1 | tee "$lifecycle_log"
+grep -q 'ERROR SUMMARY: 0 errors' "$lifecycle_log" || die "memcheck did not report 0 errors"
+require_executed "lifecycle tests" "$LIFECYCLE_MIN_TESTS" "$lifecycle_log"
+rm -f "$lifecycle_log"
 
 step "force-kernel golden harness (40 tests; the five intended_law_* are expected failures)"
-cargo test -p visionclaw-gpu --test force_kernel_baseline -- --ignored --test-threads=1
+harness_log=$(mktemp)
+cargo test -p visionclaw-gpu --test force_kernel_baseline -- --ignored --test-threads=1 --nocapture \
+  2>&1 | tee "$harness_log"
+require_executed "kernel harness" "$HARNESS_MIN_TESTS" "$harness_log"
+rm -f "$harness_log"
 
 step "clippy visionclaw-server (warnings must not exceed main's ${CLIPPY_BASELINE})"
 clippy_log=$(mktemp)

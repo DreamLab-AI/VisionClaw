@@ -13,7 +13,8 @@
 //!   cargo test --lib lifecycle_gpu_tests -- --ignored --test-threads=1
 //! ```
 //!
-//! A host without a CUDA driver or device prints `SKIP` and passes. Out-of-bounds device
+//! A host without a CUDA driver or device prints `SKIP` and passes, unless
+//! `VISIONCLAW_EXPECT_PCI_BUS` is set (the gate sets it), in which case it fails. Out-of-bounds device
 //! accesses are not always visible to an ordinary run (a short read inside the same
 //! allocation granule returns garbage rather than faulting), so the gate script also runs
 //! this module under `compute-sanitizer --tool memcheck`.
@@ -46,6 +47,10 @@ fn gpu(test: &str) -> Option<Gpu> {
     let ctx = match cust::quick_init() {
         Ok(c) => c,
         Err(e) => {
+            // With a card demanded, no card is a failure: a pass would claim kernels ran.
+            if let Ok(want) = std::env::var("VISIONCLAW_EXPECT_PCI_BUS") {
+                panic!("{test}: CUDA unavailable ({e}), but VISIONCLAW_EXPECT_PCI_BUS={want} requires a GPU");
+            }
             println!("SKIP {test}: CUDA unavailable: {e}");
             return None;
         }

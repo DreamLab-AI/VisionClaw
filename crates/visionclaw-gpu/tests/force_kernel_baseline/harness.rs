@@ -259,22 +259,25 @@ pub struct Gpu {
 /// is a failure, not a skip.
 ///
 /// Set `VISIONCLAW_EXPECT_PCI_BUS` (decimal or `0x` hex) to make the harness
-/// refuse to run on any other card.
+/// refuse to run on any other card. With it set, a missing driver or device is
+/// a failure, not a skip: the caller demanded a GPU, so passing without one
+/// would report kernels as checked that never ran.
+fn skip(test: &str, reason: &str) -> Option<Gpu> {
+    if let Ok(want) = std::env::var("VISIONCLAW_EXPECT_PCI_BUS") {
+        panic!("{test}: {reason}, but VISIONCLAW_EXPECT_PCI_BUS={want} requires a GPU");
+    }
+    println!("SKIP {test}: {reason}");
+    None
+}
+
 pub fn gpu(test: &str) -> Option<Gpu> {
     if let Err(e) = cust::init(CudaFlags::empty()) {
-        println!("SKIP {test}: CUDA driver unavailable: {e}");
-        return None;
+        return skip(test, &format!("CUDA driver unavailable: {e}"));
     }
     match Device::num_devices() {
         Ok(n) if n > 0 => {}
-        Ok(_) => {
-            println!("SKIP {test}: no CUDA device visible");
-            return None;
-        }
-        Err(e) => {
-            println!("SKIP {test}: cannot count CUDA devices: {e}");
-            return None;
-        }
+        Ok(_) => return skip(test, "no CUDA device visible"),
+        Err(e) => return skip(test, &format!("cannot count CUDA devices: {e}")),
     }
     let device = Device::get_device(0).expect("device 0");
     let name = device.name().expect("device name");
