@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 212465a0dd3fcc7981984a185b1f5bf0d0bd4e9a
+verified_commit: fd7525907eb3f1eddc8db1d9e32b29a5c5021564
 relates: [ADR-2169]
 verified_paths: [src/utils/unified_gpu_compute/constraint_index.rs, src/utils/unified_gpu_compute/memory.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, src/utils/unified_gpu_compute/execution.rs, src/actors/gpu/force_compute_actor.rs]
 owner: jjohare

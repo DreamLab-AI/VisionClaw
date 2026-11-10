@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 6b4caafdc8a212b6ee38aa1936a56eb2b31d37e6
+verified_commit: fd7525907eb3f1eddc8db1d9e32b29a5c5021564
 verified_paths: [crates/visionclaw-gpu/src/cuda_sources/gpu_clustering_kernels.cu, crates/visionclaw-gpu/tests/analytics_oracle_conformance.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: Before any claim that Louvain, PageRank or DBSCAN output is trustworthy, or before a release that surfaces community/centrality/cluster values to users; activates when a rebuilt running backend serves Louvain/PageRank/DBSCAN output that is checked against the CPU oracle
@@ -298,3 +298,5 @@ Governed-path change since `8f796ad86`: `docs/GPU-wire-abi.md` gains two preambl
 **Decision unaffected.** Governed change: `docs/GPU-wire-abi.md` gained an SSSP row in the trust table. It is marked **output-checked, not yet in the ADR-2061 suite**: the check (`lifecycle_gpu_tests::f1_sssp_matches_dijkstra`) compares against a Dijkstra in that test module, not the `visionclaw-analytics-oracle` crate, so under this record's decision it is not "trusted". The PageRank, DBSCAN, Louvain and LOF rows are unchanged, as are `gpu_clustering_kernels.cu` and `analytics_oracle_conformance.rs`. Re-run at `83b405941` on the RTX 6000 Ada (bus 0xAF): `cargo test -p visionclaw-gpu --test analytics_oracle_conformance -- --ignored --test-threads=1` → 4 passed. Follow-on: move the Dijkstra into the oracle crate and add an `adr_2061_sssp_matches_oracle` test to make the row trusted.
 
 Re-stamped 2026-11-10 at `6b4caafdc`: the only change to the governed docs since the previous stamp is renumbering ADR-2190 to ADR-2191 (number collision with agentbox); checked with `git diff` of the governed paths, no content change, no test re-run.
+
+Re-stamped 2026-11-10 at `fd7525907`: `docs/GPU-wire-abi.md` 0.1.10 widens invariant 9 and adds the SSSP `delta` policy to the trust-table row (ADR-2191 review round 1). This record's claims are unaffected; checked by reading the diff, no test re-run for this stamp.
