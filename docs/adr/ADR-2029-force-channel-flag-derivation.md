@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: e2afd65d656977d082382e724198e86d2b8cabdf
+verified_commit: 212465a0dd3fcc7981984a185b1f5bf0d0bd4e9a
 verified_paths: [src/models/force_channels.rs, src/utils/unified_gpu_compute/execution.rs, src/models/simulation_params.rs]
 owner: jjohare
 review_trigger: array-backed force-term refactor (deferred step 2), or any new host→GPU conversion path
@@ -269,3 +269,7 @@ Comment-only change since `8f796ad86` (the commit the tests and measurements in 
 ## Re-stamp — 2026-11-01 (constraint scheduling, `e2afd65d6`)
 
 Re-read against `execution.rs` at `e2afd65d6`: the change is test-only (the live-shape timing test steps through the actor's upload decision). `derive_dispatch_feature_flags` is still the single flag authority and `Constraints` is still read-only; the four `adr_2029_constraint_gpu_tests` and the oracle-index equality test pass. Re-run: `git diff --stat 7fbcd997b e2afd65d6 -- src/utils/unified_gpu_compute/execution.rs`.
+
+## Re-verification — 2026-11-10 (ADR-2190, `212465a0d`)
+
+**Decision unaffected.** `derive_dispatch_feature_flags` and the word written over `sim_params.feature_flags` are untouched. The governed change in `execution.rs` is which pointer the SSSP bit makes the force pass read: `sssp_distances_for_force_pass` (distances current, available and at least `num_nodes` long, else null), with the fallback to the SSSP working buffer removed. The ADR-2140 note above says the settings half of the OR defaults on; since ADR-2190 it defaults **off** (`SSSP_SPRING_ADJUST_DEFAULT`), and a stored value is honoured. Re-run at `212465a0d` on the RTX 6000 Ada (bus 0xAF) through `scripts/gpu-physics-gate.sh`: `cargo test --lib adr_2029` (15) passes.

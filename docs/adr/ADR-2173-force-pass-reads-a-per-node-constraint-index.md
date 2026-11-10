@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 212465a0dd3fcc7981984a185b1f5bf0d0bd4e9a
 relates: [ADR-2169]
 verified_paths: [src/utils/unified_gpu_compute/constraint_index.rs, src/utils/unified_gpu_compute/memory.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, src/utils/unified_gpu_compute/execution.rs, src/actors/gpu/force_compute_actor.rs]
 owner: jjohare
@@ -69,3 +69,7 @@ New decision in this stamp: the owner's change-only upload and the always-active
 ## Re-verification — 2026-11-07 (`7bd25427e`)
 
 Governed-path change since `e2afd65d6`: `src/actors/gpu/force_compute_actor.rs` (`7c58d3e6e`, `ab05ee9d6`, `405edcfe1`): `GetCurrentPositions` (`:3246`) skips a GPU slot with no node id (`slot_node_id`, `:3226`) instead of labelling it with its own index, and averages KE over mapped slots only (review L2); the refusing `Handler<RunCommunityDetection>` stub is deleted (community detection is `ClusteringActor`'s). No force, kernel parameter, rank or constraint code moved. `sync_constraints` is `force_compute_actor.rs:1675`, unchanged. **Decision unaffected.** Re-run: `git diff e2afd65d6..7bd25427e -- src/actors/gpu/force_compute_actor.rs`. Checked by reading that diff; no test was re-run for this stamp.
+
+## Re-verification — 2026-11-10 (ADR-2190, `212465a0d`)
+
+**Decision unaffected.** `resize_buffers` was rewritten around one registered buffer table (ADR-2190); the constraint index is listed there as fixed-extent and is still rebuilt from the host copy after every node-capacity growth, with the same unbind-on-failure path. The `.cu` change is confined to `relaxation_step_kernel` and `relabel_communities_kernel`; the constraint loop and `g_constraint_index` are untouched. Re-run at `212465a0d` on the RTX 6000 Ada (bus 0xAF) through `scripts/gpu-physics-gate.sh`: `cargo test --lib constraint_index` (6) passes, the `constraints` golden passes in the harness, and `codescape_abi` still finds `force_pass_kernel` at 30 parameters.
