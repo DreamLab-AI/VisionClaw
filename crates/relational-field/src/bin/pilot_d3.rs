@@ -27,7 +27,9 @@ struct Case {
 
 fn arg(name: &str) -> Option<String> {
     let a: Vec<String> = std::env::args().collect();
-    a.iter().position(|x| x == name).and_then(|i| a.get(i + 1).cloned())
+    a.iter()
+        .position(|x| x == name)
+        .and_then(|i| a.get(i + 1).cloned())
 }
 
 fn dist(p: &Pos, i: u32, j: u32) -> f32 {
@@ -55,7 +57,9 @@ fn mcnemar(gains: u64, losses: u64) -> f64 {
         return 1.0;
     }
     let k = gains.min(losses);
-    let tail: f64 = (0..=k).map(|i| (ln_choose(n, i) - n as f64 * 2f64.ln()).exp()).sum();
+    let tail: f64 = (0..=k)
+        .map(|i| (ln_choose(n, i) - n as f64 * 2f64.ln()).exp())
+        .sum();
     (2.0 * tail).min(1.0)
 }
 
@@ -67,11 +71,27 @@ fn main() -> std::io::Result<()> {
     std::fs::create_dir_all(&out)?;
 
     let (s0, s1): (Snapshot, Snapshot) = (property::load(&t0)?, property::load(&t1)?);
-    let node: HashMap<String, u32> = s0.stems.iter().enumerate().map(|(i, s)| (s.clone(), i as u32)).collect();
+    let node: HashMap<String, u32> = s0
+        .stems
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.clone(), i as u32))
+        .collect();
     let n = node.len();
-    let mut rel_names: Vec<&'static str> = s0.triples.iter().chain(&s1.triples).map(|t| t.1).collect::<HashSet<_>>().into_iter().collect();
+    let mut rel_names: Vec<&'static str> = s0
+        .triples
+        .iter()
+        .chain(&s1.triples)
+        .map(|t| t.1)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
     rel_names.sort_unstable();
-    let rel: HashMap<&'static str, u16> = rel_names.iter().enumerate().map(|(i, r)| (*r, i as u16)).collect();
+    let rel: HashMap<&'static str, u16> = rel_names
+        .iter()
+        .enumerate()
+        .map(|(i, r)| (*r, i as u16))
+        .collect();
     let train_all = property::to_ids(&s0.triples, &node, &rel);
     let later = property::to_ids(&s1.triples, &node, &rel);
 
@@ -91,16 +111,28 @@ fn main() -> std::io::Result<()> {
             by_pair.entry(p).or_insert(t);
         }
     }
-    let cases: Vec<Case> = by_pair.values().map(|t| Case { head: t.head, rel: t.rel, tail: t.tail }).collect();
+    let cases: Vec<Case> = by_pair
+        .values()
+        .map(|t| Case {
+            head: t.head,
+            rel: t.rel,
+            tail: t.tail,
+        })
+        .collect();
     let mut cases_per_rel: BTreeMap<&str, usize> = BTreeMap::new();
-    cases.iter().for_each(|c| *cases_per_rel.entry(rel_names[c.rel as usize]).or_default() += 1);
+    cases
+        .iter()
+        .for_each(|c| *cases_per_rel.entry(rel_names[c.rel as usize]).or_default() += 1);
 
     let extraction = json!({
         "t0": {"dir": t0, "stats": s0.stats}, "t1": {"dir": t1, "stats": s1.stats},
         "nodes": n, "train_triples": train_all.len(), "t1_triples_between_t0_pages": later.len(),
         "cases": cases.len(), "cases_per_relation": cases_per_rel,
     });
-    std::fs::write(out.join("extraction.json"), serde_json::to_string_pretty(&extraction)?)?;
+    std::fs::write(
+        out.join("extraction.json"),
+        serde_json::to_string_pretty(&extraction)?,
+    )?;
     println!("{}", serde_json::to_string_pretty(&extraction)?);
     if stats_only {
         return Ok(());
@@ -148,7 +180,11 @@ fn main() -> std::io::Result<()> {
             })
             .collect();
 
-        let b0 = sim::simulate(&sim::uniform_springs(n, &train, &sim::LIVE), &sim::LIVE, seed);
+        let b0 = sim::simulate(
+            &sim::uniform_springs(n, &train, &sim::LIVE),
+            &sim::LIVE,
+            seed,
+        );
         // Exploratory overrides (not part of the frozen D3 rule); absent flags give embed::RF.
         let num = |k: &str| arg(k).map(|v| v.parse::<f32>().expect(k));
         let rf_cfg = embed::FieldCfg {
@@ -163,14 +199,19 @@ fn main() -> std::io::Result<()> {
             let mut d: Vec<f32> = train.iter().map(|t| dist(&b0, t.head, t.tail)).collect();
             d.sort_by(|a, b| a.total_cmp(b));
             let m = d[d.len() / 2].max(1e-6);
-            b0.iter().map(|p| [p[0] / m, p[1] / m, p[2] / m]).collect::<Pos>()
+            b0.iter()
+                .map(|p| [p[0] / m, p[1] / m, p[2] / m])
+                .collect::<Pos>()
         });
         let rf = embed::train_field_from(rf_cfg, init, n, rel_names.len(), &train, &val, seed);
         let names: Vec<String> = rel_names.iter().map(|s| s.to_string()).collect();
         let (adj, mapping) = sim::learned_springs(n, &train, &rf.rels, &names, &sim::LIVE);
         let rf_sim = sim::simulate(&adj, &sim::LIVE, seed);
-        let law: HashMap<String, (f32, f32, f32, f32)> =
-            mapping.per_relation.iter().map(|(nm, k, l, aw, dz)| (nm.clone(), (*k, *l, *aw, *dz))).collect();
+        let law: HashMap<String, (f32, f32, f32, f32)> = mapping
+            .per_relation
+            .iter()
+            .map(|(nm, k, l, aw, dz)| (nm.clone(), (*k, *l, *aw, *dz)))
+            .collect();
         let b1 = embed::train_field(embed::B1, n, rel_names.len(), &train, &val, seed);
 
         let sim_score = |c: &Case, j: u32| -> f32 {
@@ -184,15 +225,34 @@ fn main() -> std::io::Result<()> {
             }
         };
         let per_arm: Vec<Vec<f32>> = vec![
-            cases.iter().zip(&negs).map(|(c, &x)| dist(&b0, c.head, x) - dist(&b0, c.head, c.tail)).collect(),
-            cases.iter().zip(&negs).map(|(c, &x)| {
-                let r = &rf.rels[c.rel as usize];
-                rf_score(&rf.pos, r, c.head, c.tail) - rf_score(&rf.pos, r, c.head, x)
-            }).collect(),
-            cases.iter().zip(&negs).map(|(c, &x)| sim_score(c, c.tail) - sim_score(c, x)).collect(),
-            cases.iter().zip(&negs).map(|(c, &x)| dist(&b1.pos, c.head, x) - dist(&b1.pos, c.head, c.tail)).collect(),
+            cases
+                .iter()
+                .zip(&negs)
+                .map(|(c, &x)| dist(&b0, c.head, x) - dist(&b0, c.head, c.tail))
+                .collect(),
+            cases
+                .iter()
+                .zip(&negs)
+                .map(|(c, &x)| {
+                    let r = &rf.rels[c.rel as usize];
+                    rf_score(&rf.pos, r, c.head, c.tail) - rf_score(&rf.pos, r, c.head, x)
+                })
+                .collect(),
+            cases
+                .iter()
+                .zip(&negs)
+                .map(|(c, &x)| sim_score(c, c.tail) - sim_score(c, x))
+                .collect(),
+            cases
+                .iter()
+                .zip(&negs)
+                .map(|(c, &x)| dist(&b1.pos, c.head, x) - dist(&b1.pos, c.head, c.tail))
+                .collect(),
         ];
-        eprintln!("seed {seed}: rf best epoch {}, b1 best epoch {}", rf.best_epoch, b1.best_epoch);
+        eprintln!(
+            "seed {seed}: rf best epoch {}, b1 best epoch {}",
+            rf.best_epoch, b1.best_epoch
+        );
         margins.push(per_arm);
 
         let mut f = std::fs::File::create(out.join(format!("cases-seed{seed}.jsonl")))?;
@@ -207,11 +267,30 @@ fn main() -> std::io::Result<()> {
     }
 
     // Per-seed AUC (ties count half), and the case-level majority outcome over seeds.
-    let win = |m: f32| if m > 0.0 { 1.0 } else if m == 0.0 { 0.5 } else { 0.0 };
-    let auc: BTreeMap<&str, Vec<f64>> = ARMS.iter().enumerate().map(|(a, arm)| {
-        (*arm, margins.iter().map(|s| s[a].iter().map(|&m| win(m)).sum::<f64>() / cases.len() as f64).collect())
-    }).collect();
-    let majority = |a: usize, i: usize| margins.iter().filter(|s| s[a][i] > 0.0).count() * 2 > SEEDS.len();
+    let win = |m: f32| {
+        if m > 0.0 {
+            1.0
+        } else if m == 0.0 {
+            0.5
+        } else {
+            0.0
+        }
+    };
+    let auc: BTreeMap<&str, Vec<f64>> = ARMS
+        .iter()
+        .enumerate()
+        .map(|(a, arm)| {
+            (
+                *arm,
+                margins
+                    .iter()
+                    .map(|s| s[a].iter().map(|&m| win(m)).sum::<f64>() / cases.len() as f64)
+                    .collect(),
+            )
+        })
+        .collect();
+    let majority =
+        |a: usize, i: usize| margins.iter().filter(|s| s[a][i] > 0.0).count() * 2 > SEEDS.len();
     let paired = |a: usize, b: usize| {
         let (mut g, mut l) = (0u64, 0u64);
         for i in 0..cases.len() {
@@ -230,11 +309,14 @@ fn main() -> std::io::Result<()> {
     let mut per_rel: BTreeMap<&str, serde_json::Value> = BTreeMap::new();
     let mut regressions = Vec::new();
     for (r, name) in rel_names.iter().enumerate() {
-        let idx: Vec<usize> = (0..cases.len()).filter(|&i| cases[i].rel as usize == r).collect();
+        let idx: Vec<usize> = (0..cases.len())
+            .filter(|&i| cases[i].rel as usize == r)
+            .collect();
         if idx.is_empty() {
             continue;
         }
-        let rate = |a: usize| idx.iter().filter(|&&i| majority(a, i)).count() as f64 / idx.len() as f64;
+        let rate =
+            |a: usize| idx.iter().filter(|&&i| majority(a, i)).count() as f64 / idx.len() as f64;
         let d = rate(1) - rate(0);
         if idx.len() >= 30 && d < -0.05 {
             regressions.push(*name);
@@ -255,7 +337,10 @@ fn main() -> std::io::Result<()> {
         "verdict": if proceed { "PROCEED" } else { "NOT SUPPORTED" },
         "exploratory_overrides": std::env::args().skip(1).filter(|a| a.starts_with("--rf-")).collect::<Vec<_>>(),
     });
-    std::fs::write(out.join("summary.json"), serde_json::to_string_pretty(&summary)?)?;
+    std::fs::write(
+        out.join("summary.json"),
+        serde_json::to_string_pretty(&summary)?,
+    )?;
     println!("{}", serde_json::to_string_pretty(&summary)?);
     Ok(())
 }

@@ -54,7 +54,8 @@ struct Page {
 
 fn unquote(s: &str) -> &str {
     let s = s.trim();
-    s.strip_prefix('\'').and_then(|t| t.strip_suffix('\''))
+    s.strip_prefix('\'')
+        .and_then(|t| t.strip_suffix('\''))
         .or_else(|| s.strip_prefix('"').and_then(|t| t.strip_suffix('"')))
         .unwrap_or(s)
 }
@@ -121,6 +122,9 @@ fn parse_page(stem: &str, text: &str) -> Option<Page> {
     Some(page)
 }
 
+/// The names one resolution pass reads from a page.
+type NamesOf = fn(&Page) -> Vec<&str>;
+
 /// Name index for wikilink resolution, case-insensitive, in the preregistered order: every
 /// page's title, then every alias, then every slug (the `slug` key, then the local name of the
 /// `resource` URN, which is the generated slug most pages carry instead of a `slug` key), then
@@ -128,11 +132,17 @@ fn parse_page(stem: &str, text: &str) -> Option<Page> {
 /// wins, so one page's alias never shadows another page's title, nor a slug an alias.
 fn name_index(pages: &[Page]) -> HashMap<String, u32> {
     let mut index: HashMap<String, u32> = HashMap::new();
-    let passes: [&dyn Fn(&Page) -> Vec<&str>; 4] = [
-        &|p| vec![p.title.as_str()],
-        &|p| p.aliases.iter().map(String::as_str).collect(),
-        &|p| p.slug.iter().chain(p.resource.iter()).map(String::as_str).collect(),
-        &|p| vec![p.stem.as_str()],
+    let passes: [NamesOf; 4] = [
+        |p| vec![p.title.as_str()],
+        |p| p.aliases.iter().map(String::as_str).collect(),
+        |p| {
+            p.slug
+                .iter()
+                .chain(p.resource.iter())
+                .map(String::as_str)
+                .collect()
+        },
+        |p| vec![p.stem.as_str()],
     ];
     for names in passes {
         for (i, pg) in pages.iter().enumerate() {
@@ -171,7 +181,10 @@ pub fn load(dir: &Path) -> std::io::Result<Graph> {
         }
     }
     let mut rel_ids: BTreeMap<String, u16> = BTreeMap::new();
-    let mut stats = LoadStats { pages: pages.len(), ..Default::default() };
+    let mut stats = LoadStats {
+        pages: pages.len(),
+        ..Default::default()
+    };
     let mut seen: HashSet<Triple> = HashSet::new();
     let mut triples = Vec::new();
     for (i, pg) in pages.iter().enumerate() {
@@ -188,7 +201,11 @@ pub fn load(dir: &Path) -> std::io::Result<Graph> {
             }
             let n = rel_ids.len() as u16;
             let rel = *rel_ids.entry(key.clone()).or_insert(n);
-            let t = Triple { head: i as u32, rel, tail: j };
+            let t = Triple {
+                head: i as u32,
+                rel,
+                tail: j,
+            };
             if seen.insert(t) {
                 triples.push(t);
             } else {
@@ -206,13 +223,19 @@ pub fn load(dir: &Path) -> std::io::Result<Graph> {
         domain_names[*v as usize] = k.clone();
     }
     for t in &triples {
-        *stats.per_relation.entry(rel_names[t.rel as usize].clone()).or_default() += 1;
+        *stats
+            .per_relation
+            .entry(rel_names[t.rel as usize].clone())
+            .or_default() += 1;
     }
     stats.triples = triples.len();
 
     Ok(Graph {
         titles: pages.iter().map(|p| p.title.clone()).collect(),
-        domain: pages.iter().map(|p| p.domain.as_ref().map(|d| domain_ids[d])).collect(),
+        domain: pages
+            .iter()
+            .map(|p| p.domain.as_ref().map(|d| domain_ids[d]))
+            .collect(),
         domain_names,
         rel_names,
         triples,
@@ -246,14 +269,25 @@ mod tests {
 
     #[test]
     fn resolution_order_is_title_alias_slug_stem_across_pages() {
-        let a = parse_page("a", "---\ntitle: Alpha\naliases:\n- Shared\nresource: urn:ngm:class:alpha-res\n---\n").unwrap();
-        let b = parse_page("b", "---\ntitle: Beta\nslug: shared\nresource: urn:ngm:class:shared\n---\n").unwrap();
+        let a = parse_page(
+            "a",
+            "---\ntitle: Alpha\naliases:\n- Shared\nresource: urn:ngm:class:alpha-res\n---\n",
+        )
+        .unwrap();
+        let b = parse_page(
+            "b",
+            "---\ntitle: Beta\nslug: shared\nresource: urn:ngm:class:shared\n---\n",
+        )
+        .unwrap();
         let c = parse_page("c", "---\ntitle: Gamma\naliases:\n- Beta\n---\n").unwrap();
         assert_eq!(a.resource.as_deref(), Some("alpha-res"));
         let idx = name_index(&[a, b, c]);
         assert_eq!(idx["shared"], 0, "an alias outranks another page's slug");
         assert_eq!(idx["beta"], 1, "a title outranks another page's alias");
-        assert_eq!(idx["alpha-res"], 0, "the resource local name resolves as a slug");
+        assert_eq!(
+            idx["alpha-res"], 0,
+            "the resource local name resolves as a slug"
+        );
         assert_eq!(idx["c"], 2, "the stem resolves last");
     }
 

@@ -34,7 +34,10 @@ const KEYS: &[(&str, &str)] = &[
 ];
 
 pub fn norm(s: &str) -> String {
-    s.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
+    s.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 fn canonical(key: &str) -> Option<&'static str> {
@@ -58,7 +61,9 @@ fn wikilinks(v: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut rest = v;
     while let Some(a) = rest.find("[[") {
-        let Some(b) = rest[a + 2..].find("]]") else { break };
+        let Some(b) = rest[a + 2..].find("]]") else {
+            break;
+        };
         let inner = &rest[a + 2..a + 2 + b];
         let target = inner.split('|').next().unwrap_or("").trim();
         if !target.is_empty() {
@@ -76,12 +81,21 @@ pub struct Page {
 }
 
 pub fn parse(stem: &str, text: &str) -> Page {
-    let mut page = Page { stem: stem.to_string(), names: vec![stem.to_string()], rels: Vec::new() };
+    let mut page = Page {
+        stem: stem.to_string(),
+        names: vec![stem.to_string()],
+        rels: Vec::new(),
+    };
     for line in text.lines() {
-        let Some((k, v)) = property(line) else { continue };
+        let Some((k, v)) = property(line) else {
+            continue;
+        };
         match norm(k).as_str() {
             "preferredterm" | "title" => page.names.push(v.trim().to_string()),
-            "alias" | "aliases" => page.names.extend(v.split(',').map(|a| a.trim().trim_matches(|c| c == '[' || c == ']').to_string())),
+            "alias" | "aliases" => page.names.extend(
+                v.split(',')
+                    .map(|a| a.trim().trim_matches(|c| c == '[' || c == ']').to_string()),
+            ),
             "owlclass" => {
                 if let Some(local) = v.trim().rsplit(':').next() {
                     page.names.push(local.to_string());
@@ -124,10 +138,18 @@ pub fn load(dir: &Path) -> std::io::Result<Snapshot> {
     paths.sort();
     let pages: Vec<Page> = paths
         .iter()
-        .map(|p| Ok(parse(&p.file_stem().unwrap().to_string_lossy(), &fs::read_to_string(p)?)))
+        .map(|p| {
+            Ok(parse(
+                &p.file_stem().unwrap().to_string_lossy(),
+                &fs::read_to_string(p)?,
+            ))
+        })
         .collect::<std::io::Result<_>>()?;
 
-    let mut stats = Stats { pages: pages.len(), ..Default::default() };
+    let mut stats = Stats {
+        pages: pages.len(),
+        ..Default::default()
+    };
     // Stems first, so a page's own file name always wins over another page's alias.
     let mut index: HashMap<String, usize> = HashMap::new();
     for (i, p) in pages.iter().enumerate() {
@@ -152,7 +174,12 @@ pub fn load(dir: &Path) -> std::io::Result<Snapshot> {
             stats.link_mentions += 1;
             // Namespaced class links (`[[ai:ModelArchitecture]]`) resolve on their local name.
             let local = target.rsplit_once(':').map(|(_, l)| l);
-            let Some(&j) = index.get(&norm(target)).or_else(|| local.and_then(|l| index.get(&norm(l)))) else { continue };
+            let Some(&j) = index
+                .get(&norm(target))
+                .or_else(|| local.and_then(|l| index.get(&norm(l))))
+            else {
+                continue;
+            };
             stats.resolved += 1;
             if i == j {
                 stats.self_loops += 1;
@@ -164,7 +191,11 @@ pub fn load(dir: &Path) -> std::io::Result<Snapshot> {
             }
         }
     }
-    Ok(Snapshot { stems: pages.into_iter().map(|p| p.stem).collect(), triples, stats })
+    Ok(Snapshot {
+        stems: pages.into_iter().map(|p| p.stem).collect(),
+        triples,
+        stats,
+    })
 }
 
 /// Map stem-space triples onto node ids, dropping any whose endpoint is not a node.
@@ -175,7 +206,13 @@ pub fn to_ids(
 ) -> Vec<Triple> {
     triples
         .iter()
-        .filter_map(|(h, r, t)| Some(Triple { head: *node.get(h)?, rel: *rel.get(r)?, tail: *node.get(t)? }))
+        .filter_map(|(h, r, t)| {
+            Some(Triple {
+                head: *node.get(h)?,
+                rel: *rel.get(r)?,
+                tail: *node.get(t)?,
+            })
+        })
         .collect()
 }
 
@@ -189,14 +226,28 @@ mod tests {
             "AI-0001-x",
             "- preferred-term:: Thing One\n    - enables:: [[A]], [[B|label]]\n- **Is Subclass Of**: [[C]]\n- **Requires**: plain text only\n  - is-a:: [[D]]\n- source:: [[Ignored]]\n",
         );
-        assert_eq!(p.names, vec!["AI-0001-x".to_string(), "Thing One".to_string()]);
+        assert_eq!(
+            p.names,
+            vec!["AI-0001-x".to_string(), "Thing One".to_string()]
+        );
         let got: Vec<_> = p.rels.iter().map(|(r, t)| format!("{r}>{t}")).collect();
-        assert_eq!(got, vec!["enables>A", "enables>B", "is-subclass-of>C", "is-subclass-of>D"]);
+        assert_eq!(
+            got,
+            vec![
+                "enables>A",
+                "enables>B",
+                "is-subclass-of>C",
+                "is-subclass-of>D"
+            ]
+        );
     }
 
     #[test]
     fn camel_case_targets_resolve_to_spaced_titles() {
-        assert_eq!(norm("AIGovernancePrinciple"), norm("AI Governance Principle"));
+        assert_eq!(
+            norm("AIGovernancePrinciple"),
+            norm("AI Governance Principle")
+        );
         assert_eq!(canonical("Has Part"), Some("has-part"));
         assert_eq!(canonical("is-part-of"), Some("part-of"));
         assert_eq!(canonical("source"), None);
@@ -207,9 +258,20 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rf-property-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("Model Architecture.md"), "- term-id:: X\n").unwrap();
-        std::fs::write(dir.join("Transformer.md"), "- is-subclass-of:: [[ai:ModelArchitecture]]\n").unwrap();
+        std::fs::write(
+            dir.join("Transformer.md"),
+            "- is-subclass-of:: [[ai:ModelArchitecture]]\n",
+        )
+        .unwrap();
         let s = load(&dir).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
-        assert_eq!(s.triples, vec![("Transformer".to_string(), "is-subclass-of", "Model Architecture".to_string())]);
+        assert_eq!(
+            s.triples,
+            vec![(
+                "Transformer".to_string(),
+                "is-subclass-of",
+                "Model Architecture".to_string()
+            )]
+        );
     }
 }
