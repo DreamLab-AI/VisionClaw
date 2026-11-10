@@ -300,58 +300,302 @@ impl UnifiedGPUCompute {
     }
 }
 
+/// Engine fields that own device memory through another type, with that memory's lifecycle.
+/// These are outside the graph-sized table on purpose; the registry test requires every such
+/// field to be listed here.
+#[cfg(test)]
+pub(crate) const NESTED_DEVICE_STATE: &[(&str, &str)] = &[(
+    "semantic",
+    "SemanticGpu: per-node metadata and per-edge arrays sized from its own SemanticInputs by \
+     enable_semantic; dropped on every graph change (invalidate_node_indexed_state) and rebuilt \
+     by refresh_semantic after the actor's upload",
+)];
+
 #[cfg(test)]
 mod registry_tests {
     use super::*;
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::path::Path;
 
-    /// Field names of `UnifiedGPUCompute` whose type mentions `DeviceBuffer`, read from the
-    /// struct definition in `construction.rs`.
-    fn device_buffer_fields() -> Vec<String> {
-        let source = include_str!("construction.rs");
-        let start = source
-            .find("pub struct UnifiedGPUCompute {")
-            .expect("struct definition");
-        let body = &source[start..];
-        let end = body.find("\n}\n").expect("end of struct");
-        body[..end]
-            .lines()
-            .filter(|line| line.contains("DeviceBuffer<"))
-            .filter_map(|line| {
-                let line = line.trim();
-                let line = line.strip_prefix("pub(crate) ").unwrap_or(line);
-                let line = line.strip_prefix("pub ").unwrap_or(line);
-                line.split(':').next().map(|name| name.trim().to_string())
+    /// Types that are device memory in themselves.
+    const DEVICE_TYPES: &[&str] = &["DeviceBuffer", "DeviceBox", "DeviceVariable", "DeviceSlice"];
+
+    /// Source with `//` and `/* */` comments removed (doc comments mention `DeviceBuffer`).
+    fn strip_comments(src: &str) -> String {
+        let mut out = String::with_capacity(src.len());
+        let b = src.as_bytes();
+        let (mut i, mut in_str) = (0, false);
+        while i < b.len() {
+            if in_str {
+                if b[i] == b'\\' && i + 1 < b.len() {
+                    out.push(b[i] as char);
+                    out.push(b[i + 1] as char);
+                    i += 2;
+                    continue;
+                }
+                if b[i] == b'"' {
+                    in_str = false;
+                }
+                out.push(b[i] as char);
+                i += 1;
+            } else if b[i] == b'"' {
+                in_str = true;
+                out.push('"');
+                i += 1;
+            } else if b[i..].starts_with(b"//") {
+                while i < b.len() && b[i] != b'\n' {
+                    i += 1;
+                }
+            } else if b[i..].starts_with(b"/*") {
+                i += 2;
+                while i + 1 < b.len() && !b[i..].starts_with(b"*/") {
+                    i += 1;
+                }
+                i += 2;
+            } else {
+                out.push(b[i] as char);
+                i += 1;
+            }
+        }
+        out
+    }
+
+    fn identifiers(text: &str) -> impl Iterator<Item = &str> {
+        text.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .filter(|t| !t.is_empty())
+    }
+
+    /// `(name, type)` for each field of every braced struct in `src`, keyed by struct name.
+    fn structs(src: &str) -> BTreeMap<String, Vec<(String, String)>> {
+        let mut found = BTreeMap::new();
+        let mut rest = src;
+        while let Some(at) = rest.find("struct ") {
+            let after = &rest[at + 7..];
+            let name: String = after
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            let Some(open) = after.find(['{', ';', '(']) else {
+                break;
+            };
+            rest = &after[open..];
+            if name.is_empty() || !after[open..].starts_with('{') {
+                continue;
+            }
+            let (mut depth, mut end) = (0i32, 0usize);
+            for (k, c) in rest.char_indices() {
+                match c {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = k;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let body = &rest[1..end];
+            rest = &rest[end..];
+            found.insert(name, fields(body));
+        }
+        found
+    }
+
+    /// Splits a struct body at top-level commas and reads `name: Type` from each field.
+    fn fields(body: &str) -> Vec<(String, String)> {
+        let mut parts = Vec::new();
+        let (mut depth, mut start) = (0i32, 0usize);
+        for (k, c) in body.char_indices() {
+            match c {
+                '<' | '(' | '[' | '{' => depth += 1,
+                '>' | ')' | ']' | '}' => depth -= 1,
+                ',' if depth == 0 => {
+                    parts.push(&body[start..k]);
+                    start = k + 1;
+                }
+                _ => {}
+            }
+        }
+        parts.push(&body[start..]);
+        parts
+            .into_iter()
+            .filter_map(|field| {
+                let mut f = field.trim();
+                while f.starts_with("#[") {
+                    f = f[f.find(']')? + 1..].trim_start();
+                }
+                for vis in ["pub(crate)", "pub(super)", "pub"] {
+                    if let Some(r) = f.strip_prefix(vis) {
+                        f = r.trim_start();
+                        break;
+                    }
+                }
+                let (name, ty) = f.split_once(':')?;
+                Some((
+                    name.trim().to_string(),
+                    ty.split_whitespace().collect::<String>(),
+                ))
             })
             .collect()
     }
 
+    /// `type Name = ...;` aliases whose right-hand side mentions device memory.
+    fn device_aliases(src: &str) -> BTreeSet<String> {
+        src.split("type ")
+            .skip(1)
+            .filter_map(|t| {
+                let (name, rhs) = t.split_once('=')?;
+                let rhs = rhs.split(';').next()?;
+                let name = name.split('<').next()?.trim();
+                let valid = !name.is_empty() && identifiers(name).count() == 1;
+                (valid && identifiers(rhs).any(|i| DEVICE_TYPES.contains(&i)))
+                    .then(|| name.to_string())
+            })
+            .collect()
+    }
+
+    /// The engine fields that hold device memory directly, and those that hold it through
+    /// another struct, from the given sources (comments already stripped).
+    fn engine_device_fields(
+        module_sources: &[String],
+        alias_sources: &[String],
+    ) -> (BTreeSet<String>, BTreeSet<String>) {
+        let mut direct_words: BTreeSet<String> =
+            DEVICE_TYPES.iter().map(|s| s.to_string()).collect();
+        for src in alias_sources {
+            direct_words.extend(device_aliases(src));
+        }
+        let mut all = BTreeMap::new();
+        for src in module_sources {
+            all.extend(structs(src));
+        }
+        let engine = all
+            .remove("UnifiedGPUCompute")
+            .expect("UnifiedGPUCompute struct");
+        // Fixpoint: a struct holds device memory if a field's type names device memory or
+        // another struct that does.
+        let mut holders: BTreeSet<String> = BTreeSet::new();
+        loop {
+            let before = holders.len();
+            for (name, fs) in &all {
+                if fs.iter().any(|(_, ty)| {
+                    identifiers(ty).any(|i| direct_words.contains(i) || holders.contains(i))
+                }) {
+                    holders.insert(name.clone());
+                }
+            }
+            if holders.len() == before {
+                break;
+            }
+        }
+        let (mut direct, mut nested) = (BTreeSet::new(), BTreeSet::new());
+        for (name, ty) in engine {
+            if identifiers(&ty).any(|i| direct_words.contains(i)) {
+                direct.insert(name);
+            } else if identifiers(&ty).any(|i| holders.contains(i)) {
+                nested.insert(name);
+            }
+        }
+        (direct, nested)
+    }
+
+    fn rust_sources(dir: &Path, recurse: bool, out: &mut Vec<String>) {
+        for entry in std::fs::read_dir(dir).expect("read_dir") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() && recurse {
+                rust_sources(&path, true, out);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(strip_comments(
+                    &std::fs::read_to_string(&path).expect("read"),
+                ));
+            }
+        }
+    }
+
     #[test]
-    fn every_device_buffer_field_is_registered_or_fixed_extent() {
-        let fields = device_buffer_fields();
-        assert!(
-            fields.len() > 60,
-            "struct scan found only {} fields",
-            fields.len()
+    fn the_scanner_sees_split_lines_aliases_and_nested_structs() {
+        let fixture = strip_comments(
+            r#"
+            type Buf = DeviceBuffer<f32>;
+            struct Inner { a: DeviceBuffer<i32>, b: usize }
+            struct Outer { inner: Inner }
+            struct HostOnly { v: Vec<f32> }
+            pub struct UnifiedGPUCompute {
+                pub multi_line:
+                    DeviceBuffer<f32>,
+                pub(crate) aliased: Buf,
+                #[cfg(test)]
+                pub nested: Option<Outer>,
+                /// A doc comment naming DeviceBuffer<f32> is not a field type.
+                pub plain: usize,
+                host: HostOnly,
+                pair: (Vec<f32>, Vec<f32>),
+            }
+            "#,
         );
-        let registered: Vec<&str> = GRAPH_SIZED.iter().map(|(n, _)| *n).collect();
-        let fixed: Vec<&str> = FIXED_EXTENT.iter().map(|(n, _)| *n).collect();
-        let missing: Vec<&String> = fields
+        let (direct, nested) = engine_device_fields(&[fixture.clone()], &[fixture]);
+        assert_eq!(
+            direct,
+            BTreeSet::from(["aliased".into(), "multi_line".into()])
+        );
+        assert_eq!(nested, BTreeSet::from(["nested".to_string()]));
+    }
+
+    #[test]
+    fn every_device_buffer_field_is_registered_fixed_extent_or_nested() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut module = Vec::new();
+        rust_sources(&root.join("utils/unified_gpu_compute"), false, &mut module);
+        let mut crate_wide = Vec::new();
+        rust_sources(&root, true, &mut crate_wide);
+        let (direct, nested) = engine_device_fields(&module, &crate_wide);
+        assert!(
+            direct.len() > 60,
+            "scan found only {} direct fields",
+            direct.len()
+        );
+
+        let registered: BTreeSet<&str> = GRAPH_SIZED.iter().map(|(n, _)| *n).collect();
+        let fixed: BTreeSet<&str> = FIXED_EXTENT.iter().map(|(n, _)| *n).collect();
+        let listed_nested: BTreeSet<&str> = NESTED_DEVICE_STATE.iter().map(|(n, _)| *n).collect();
+        let missing: Vec<&String> = direct
             .iter()
-            .filter(|f| !registered.contains(&f.as_str()) && !fixed.contains(&f.as_str()))
+            .filter(|f| !registered.contains(f.as_str()) && !fixed.contains(f.as_str()))
             .collect();
         assert!(
             missing.is_empty(),
-            "device buffers allocated at construction but absent from the registry: {missing:?}. \
-             Add each to graph_sized_buffers! (if its length follows the graph) or FIXED_EXTENT."
+            "device buffers on the engine absent from the registry: {missing:?}. Add each to \
+             graph_sized_buffers! (if its length follows the graph) or FIXED_EXTENT."
         );
-        for name in registered.iter().chain(&fixed) {
+        let unlisted: Vec<&String> = nested
+            .iter()
+            .filter(|f| !listed_nested.contains(f.as_str()))
+            .collect();
+        assert!(
+            unlisted.is_empty(),
+            "engine fields holding device memory through another type, not in \
+             NESTED_DEVICE_STATE: {unlisted:?}"
+        );
+        for name in &registered {
             assert!(
-                fields.iter().any(|f| f == name),
-                "{name} is listed but is not a DeviceBuffer field of UnifiedGPUCompute"
+                direct.contains(*name),
+                "{name} is registered but is not a device field"
+            );
+            assert!(!fixed.contains(name), "{name} is listed twice");
+        }
+        for name in &fixed {
+            assert!(
+                direct.contains(*name),
+                "{name} is fixed-extent but is not a device field"
             );
         }
-        for name in &registered {
-            assert!(!fixed.contains(name), "{name} is listed twice");
+        for name in &listed_nested {
+            assert!(
+                nested.contains(*name),
+                "{name} is listed as nested but holds no device memory"
+            );
         }
     }
 
