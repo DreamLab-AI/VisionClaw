@@ -36,3 +36,26 @@ Let T = teacher, R = rule, and s = the student's mean over three seeds, all on c
 * Otherwise: partial; report the gap to T and to R.
 The paired 95% interval on ~200 two-step claims is about +/-6 points; a 3-point non-inferiority test is for the funded
 H1, not this pilot. Owner-baseline and computation results are reported without a pass mark.
+
+## Result (10 November 2026, scored once, collections 200-599): uninterpretable by the validity check; the student is below the rule
+Rule figure on the decision subset R = 70.4 (DEVIATIONS.md, C1). Official scripts `p12d_score.py` and `p17_ba.py`;
+score files in `results/p17/`.
+
+| Arm | Two-step balanced accuracy | True claims found (of 107) | Fact recall |
+|---|---|---|---|
+| Teacher, 8B reasoning | 84.2 | 79 | 86.1 |
+| No-learning rule | 70.4 | 54 | 72.9 |
+| Prompted 8B, no reasoning | 68.0 | 42 | 69.2 |
+| Student seed 0 | 54.1 | 10 | 71.7 |
+| Student seed 1 | 67.7 | 39 | 81.8 |
+| Student seed 2 | 74.8 | 53 | 87.8 |
+| Student, mean of three seeds | 65.5 | 34 | 80.4 |
+
+* Validity fails: T = 84.2 is below R + 20 = 90.4. By the recorded rule the pilot is uninterpretable on this text:
+  the gap between the rule and the best model is 13.8 points.
+* Had validity held, the student mean (65.5) is below the no-support line (R + 5 = 75.4) and below the rule itself.
+  No seed reaches 75.4.
+* Seed variance is the main observation: 20.7 points of two-step balanced accuracy between seeds of one recipe, and
+  fact recall from 71.7 to 87.8, the best seed above the teacher's 86.1. Single-fact claims are answered at 96.7 to
+  98.9 by every seed. The recipe is unstable, not uniformly incapable.
+P17 gives no support for a small trained extractor matching the reasoning extractor on held-out text.
