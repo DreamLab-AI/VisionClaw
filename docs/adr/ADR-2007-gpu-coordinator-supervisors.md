@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 83b4059417e051e58678491517377cb31af652d7
+verified_commit: 6b4caafdc8a212b6ee38aa1936a56eb2b31d37e6
 verified_paths: [src/actors/gpu/gpu_manager_actor.rs, src/actors/gpu/mod.rs, src/actors/gpu/context_bus.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: a new GPU subsystem that does not fit the four-supervisor split, or a change to SharedGPUContext distribution
@@ -192,3 +192,5 @@ Governed-path change (server consolidation, 2026-11-06, `923feef34..b5200feb4`):
 ## Re-verification — 2026-11-10 (ADR-2191, `83b405941`)
 
 **Decision unaffected.** Governed change: `docs/GPU-wire-abi.md` 0.1.9 (`3f6c5faeb`, `83b405941`) adds invariants 8 (one graph-sized buffer table) and 9 (SSSP results do not outlive their graph), an SSSP row in the kernel trust table, a buffer-lifecycle section, and corrects path 2 (it follows the stored `ssspEnabled`). The coordinator, supervisors and context bus this record governs are untouched; the per-kernel evidence cross-reference still resolves to "Analytics kernel trust status". One fact from that change bears on this record: every supervisor hands its actors the same `Arc<SharedGPUContext>`, so SSSP and the force pass share one engine (established by reading the context distribution; not executed through the actors). Checked by reading `git diff 809a859aa..83b405941 -- docs/GPU-wire-abi.md`; no test re-run for this stamp.
+
+Re-stamped 2026-11-10 at `6b4caafdc`: the only change to the governed docs since the previous stamp is renumbering ADR-2190 to ADR-2191 (number collision with agentbox); checked with `git diff` of the governed paths, no content change, no test re-run.
