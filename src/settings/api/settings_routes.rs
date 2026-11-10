@@ -396,6 +396,12 @@ pub fn validate_node_filter_settings(settings: &NodeFilterSettings) -> Result<()
     if settings.filter_mode != "and" && settings.filter_mode != "or" {
         return Err("filter_mode must be 'and' or 'or'".into());
     }
+    if settings.max_nodes > crate::settings::models::MAX_NODES_CEILING {
+        return Err(format!(
+            "max_nodes must be 0 (no cap) to {}",
+            crate::settings::models::MAX_NODES_CEILING
+        ));
+    }
     if settings.min_maturity != "off"
         && !crate::settings::models::MATURITY_STAGES.contains(&settings.min_maturity.as_str())
     {

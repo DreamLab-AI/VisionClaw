@@ -163,7 +163,17 @@ pub struct NodeFilterSettings {
     /// like `min_connections`. One of [`MATURITY_STAGES`] or "off".
     #[serde(default = "default_min_maturity")]
     pub min_maturity: String,
+
+    /// Cap on the nodes the server streams to a desktop client that opted in to removal
+    /// (`enabled && serverRemove`), 0 = no cap (ADR-2192). The nodes that pass the predicates are
+    /// ranked by authored quality score (unscored last), then degree, then id, and the top
+    /// `maxNodes` are kept. Like `serverRemove` it thins the stream, not the GPU simulation.
+    #[serde(default)]
+    pub max_nodes: u32,
 }
+
+/// Largest accepted `maxNodes` (the initial-load sanity ceiling).
+pub const MAX_NODES_CEILING: u32 = 100_000;
 
 /// The maturity stages a `min_maturity` floor may name, lowest first (client MATURITY_RANK).
 pub const MATURITY_STAGES: [&str; 6] = [
@@ -196,6 +206,7 @@ impl Default for NodeFilterSettings {
             server_remove: false,
             min_connections: 0,
             min_maturity: default_min_maturity(),
+            max_nodes: 0,
         }
     }
 }
@@ -258,6 +269,24 @@ mod tests {
         let out = serde_json::to_value(&f).unwrap();
         assert_eq!(out["minConnections"], 7);
         assert_eq!(out["minMaturity"], "draft");
+    }
+
+    /// ADR-2192: `maxNodes` round-trips, and a document stored before it existed reads as no cap.
+    #[test]
+    fn node_filter_max_nodes_round_trips_and_defaults_to_no_cap() {
+        let stored = serde_json::json!({
+            "enabled": true, "qualityThreshold": 0.4, "authorityThreshold": 0.5,
+            "filterByQuality": true, "filterByAuthority": false, "filterMode": "or",
+            "serverRemove": true
+        });
+        let f: NodeFilterSettings = serde_json::from_value(stored).unwrap();
+        assert_eq!(f.max_nodes, 0);
+        assert_eq!(NodeFilterSettings::default().max_nodes, 0);
+        let mut doc = serde_json::to_value(&f).unwrap();
+        doc["maxNodes"] = serde_json::json!(2500);
+        let capped: NodeFilterSettings = serde_json::from_value(doc).unwrap();
+        assert_eq!(capped.max_nodes, 2500);
+        assert_eq!(serde_json::to_value(&capped).unwrap()["maxNodes"], 2500);
     }
 
     /// A document stored before the fields existed reads as "no degree floor, no maturity floor".

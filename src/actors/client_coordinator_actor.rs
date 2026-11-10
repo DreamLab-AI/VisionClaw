@@ -108,6 +108,16 @@ pub(crate) fn filter_update_reply(
     (nodes, edges)
 }
 
+/// The `filter_update_success` frame that carries a client's filter counts once its recompute
+/// is done: `visible_nodes` streamed of `total_nodes` in its graph view (ADR-2192).
+pub(crate) fn filter_counts_message(visible: usize, total: usize) -> String {
+    serde_json::json!({
+        "type": "filter_update_success",
+        "data": { "visible_nodes": visible, "total_nodes": total }
+    })
+    .to_string()
+}
+
 /// Per-client filter settings for graph visibility
 #[derive(Debug, Clone)]
 pub struct ClientFilter {
@@ -124,6 +134,10 @@ pub struct ClientFilter {
     /// this client's stream. Off, the predicates only grey on the client
     /// (ADR-2183 D2) and the server applies the population scope alone.
     pub server_remove: bool,
+    /// Nodes in the graph view the last recompute was given (after the
+    /// visibility gate, before scope and predicates): the "of M" in
+    /// "showing N of M" (ADR-2192).
+    pub considered_nodes: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -147,6 +161,7 @@ impl Default for ClientFilter {
             filtered_node_ids: std::collections::HashSet::new(),
             include_linked_pages: false,
             server_remove: false,
+            considered_nodes: 0,
         }
     }
 }
@@ -1668,6 +1683,11 @@ impl Handler<UpdateClientFilter> for ClientCoordinatorActor {
             client.filter.filter_mode = filter_mode;
             client.filter.include_linked_pages = msg.include_linked_pages;
             client.filter.server_remove = msg.server_remove;
+            // ADR-2192: the cap was parsed and persisted but never applied.
+            client.filter.max_nodes = msg
+                .max_nodes
+                .and_then(|n| usize::try_from(n).ok())
+                .filter(|&n| n > 0);
 
             info!(
                 "Updated filter for client {}: enabled={}, quality_threshold={}",
@@ -1696,6 +1716,15 @@ impl Handler<UpdateClientFilter> for ClientCoordinatorActor {
 
                                     info!("Sending filtered graph to client {}: {} nodes, {} edges",
                                           client_id, filtered_nodes.len(), filtered_edges.len());
+
+                                    // "Showing N of M" (ADR-2192): the counts the client's
+                                    // node-filter panel shows, sent once the recompute is done.
+                                    client.addr.text.do_send(SendToClientText(
+                                        filter_counts_message(
+                                            client.filter.filtered_node_ids.len(),
+                                            client.filter.considered_nodes,
+                                        ),
+                                    ));
 
                                     // Send filtered graph data to this specific client
                                     client.addr.initial_load.do_send(SendInitialGraphLoad {
