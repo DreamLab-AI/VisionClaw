@@ -14,7 +14,8 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
 /** Why a change is not on the server. */
-export type UnsavedReason = 'not-ready' | 'sync-off' | 'failed';
+/** `rejected`: the server refused the value (HTTP 400); the store was reverted to the server's. */
+export type UnsavedReason = 'not-ready' | 'sync-off' | 'failed' | 'rejected';
 
 interface SettingsSyncStatusState {
   /** path → why it is not on the server */

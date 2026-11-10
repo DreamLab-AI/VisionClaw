@@ -88,6 +88,9 @@ export interface SettingsState {
   notifyViewportUpdate: (path: SettingsPath) => void;
 
   ensureLoaded: (paths: string[]) => Promise<void>
+  /** Re-read `paths` from the server over the store, without queuing a save: the revert
+   *  for a write the server refused (ADR-2192). */
+  reloadFromServer: (paths: string[]) => Promise<void>
   loadSection: (section: string) => Promise<void>
   isLoaded: (path: SettingsPath) => boolean
 

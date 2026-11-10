@@ -11,7 +11,12 @@ vi.mock('../settingsRetryManager', () => ({
   settingsRetryManager: { addFailedUpdate: (...a: unknown[]) => mockAddFailedUpdate(...a) },
 }));
 
-import { AutoSaveManager } from '../autoSaveManager';
+const mockReloadFromServer = vi.fn();
+vi.mock('../settingsStore', () => ({
+  useSettingsStore: { getState: () => ({ reloadFromServer: (...a: unknown[]) => mockReloadFromServer(...a) }) },
+}));
+
+import { AutoSaveManager, httpStatus } from '../autoSaveManager';
 import { useSettingsSyncStatus, isUnsyncedPath } from '../settingsSyncStatus';
 
 const GLOW = 'visualisation.glow.intensity';
@@ -53,6 +58,22 @@ describe('autoSaveManager: changes that do not reach the server', () => {
     await vi.runAllTimersAsync();
     expect(mockUpdateSettingsByPaths).not.toHaveBeenCalled();
     expect(useSettingsSyncStatus.getState().unsaved).toEqual({ [GLOW]: 'sync-off', [OPACITY]: 'sync-off' });
+  });
+
+  it('a write the server refuses (400) is reverted to the server value, not retried (ADR-2192)', async () => {
+    const STRENGTH = 'visualisation.graphs.knowledge.physics.ontologyConstraintStrength';
+    m.setInitialized(true);
+    mockReloadFromServer.mockReset().mockResolvedValue(undefined);
+    mockUpdateSettingsByPaths.mockRejectedValueOnce(
+      Object.assign(new Error('Request failed with status code 400'), { response: { status: 400 } }),
+    );
+    m.queueChange(STRENGTH, 1.5);
+    await m.forceFlush();
+    expect(mockReloadFromServer).toHaveBeenCalledWith([STRENGTH]);
+    expect(mockAddFailedUpdate).not.toHaveBeenCalled();
+    expect(useSettingsSyncStatus.getState().unsaved[STRENGTH]).toBe('rejected');
+    expect(httpStatus({ response: { status: 500 } })).toBe(500);
+    expect(httpStatus(new Error('x'))).toBeUndefined();
   });
 
   it('a failed write is flagged until a later write of that path succeeds', async () => {
