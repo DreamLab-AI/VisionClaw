@@ -535,7 +535,10 @@ mod registry_tests {
             }
             "#,
         );
-        let (direct, nested) = engine_device_fields(&[fixture.clone()], &[fixture]);
+        let (direct, nested) = engine_device_fields(
+            std::slice::from_ref(&fixture),
+            std::slice::from_ref(&fixture),
+        );
         assert_eq!(
             direct,
             BTreeSet::from(["aliased".into(), "multi_line".into()])
