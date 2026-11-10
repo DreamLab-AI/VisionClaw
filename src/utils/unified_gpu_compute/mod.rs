@@ -150,7 +150,7 @@ mod leiden;
 mod memory;
 mod metrics;
 pub mod semantic;
-mod sssp;
+pub mod sssp;
 mod types;
 
 // Re-export all public types from types module

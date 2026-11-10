@@ -17,34 +17,85 @@ const SSSP_BUFFERS: &[&str] = &[
 
 const BLOCK: u32 = 256;
 
+/// Most delta-stepping buckets one run processes. Each bucket costs one device-to-host copy of
+/// the distance array and a host scan, both under the engine lock, so a tiny `delta` on a large
+/// graph would otherwise cost O(buckets x n). Past this many buckets the run finishes with the
+/// plain frontier relaxation, which returns the same distances. At 10,000 nodes the cap bounds
+/// the bucket traffic at 64 x 40 kB = 2.5 MB per run.
+pub const SSSP_MAX_DELTA_BUCKETS: usize = 64;
+
+/// Smallest accepted `delta`, as a fraction of the graph's largest edge weight. A narrower
+/// bucket than 1/4096 of the heaviest edge only multiplies buckets without changing the result.
+pub const SSSP_MIN_DELTA_FRACTION: f32 = 1.0 / 4096.0;
+
+/// Prefix of every `delta` rejection, so callers can report it as a client error (HTTP 400).
+pub const INVALID_SSSP_DELTA: &str = "invalid SSSP delta";
+
+/// Checks a requested bucket width before any graph is consulted: it must be a finite number
+/// greater than zero. The weight-relative minimum is checked by [`UnifiedGPUCompute::run_sssp`].
+///
+/// # Errors
+///
+/// A message starting with [`INVALID_SSSP_DELTA`].
+pub fn check_sssp_delta(delta: f32) -> std::result::Result<(), String> {
+    if delta.is_finite() && delta > 0.0 {
+        Ok(())
+    } else {
+        Err(format!(
+            "{INVALID_SSSP_DELTA}: {delta}; it must be a finite number greater than zero"
+        ))
+    }
+}
+
 impl UnifiedGPUCompute {
     /// Shortest-path distances from `source_idx` to every live node; unreachable nodes are
     /// `f32::INFINITY`. Edge lengths are the CSR `edge_weights`, which must be non-negative.
     ///
-    /// * `delta`: `Some(d)` with `0 < d < ∞` runs delta-stepping with bucket width `d`: the
-    ///   frontier relaxation settles every node closer than the current bucket bound, then the
-    ///   bound moves to the bucket holding the nearest unsettled node. Any other value runs the
-    ///   plain frontier relaxation (Bellman-Ford over an active frontier). Both return the same
-    ///   distances; `delta` only changes the order of work.
+    /// * `delta`: `None` runs the plain frontier relaxation (Bellman-Ford over an active
+    ///   frontier). `Some(d)` runs delta-stepping with bucket width `d`: the frontier relaxation
+    ///   settles every node closer than the current bucket bound, then the bound moves to the
+    ///   bucket holding the nearest unsettled node. `d` must be finite, positive and at least
+    ///   [`SSSP_MIN_DELTA_FRACTION`] of the largest edge weight. After
+    ///   [`SSSP_MAX_DELTA_BUCKETS`] buckets, or if the bound can no longer advance in f32, the
+    ///   run finishes with the plain relaxation. Every mode returns the same distances.
     ///
     /// On success the distances are also kept on the device for the force pass's SSSP
     /// rest-length term; they are discarded on the next graph change.
     ///
     /// # Errors
     ///
-    /// The source is out of range, a registered buffer is shorter than the graph needs, a CUDA
-    /// call fails, or the relaxation does not converge (a negative edge weight forms a negative
-    /// cycle, since the CSR holds both directions of every edge). No distances are kept then.
+    /// The source is out of range; `delta` is invalid (the message starts with
+    /// [`INVALID_SSSP_DELTA`]); an edge weight is negative (in the symmetric CSR that is a
+    /// negative cycle); a registered buffer is shorter than the graph needs; a CUDA call fails;
+    /// or the relaxation does not converge. Invalid arguments leave any kept distances alone;
+    /// every other failure discards them.
     pub fn run_sssp(&mut self, source_idx: usize, delta: Option<f32>) -> Result<Vec<f32>> {
         if source_idx >= self.num_nodes {
             return Err(anyhow!("source node {} out of range", source_idx));
+        }
+        if let Some(d) = delta {
+            check_sssp_delta(d).map_err(|e| anyhow!(e))?;
+            let floor = self.sssp_edge_weight_range.1 * SSSP_MIN_DELTA_FRACTION;
+            if d < floor {
+                return Err(anyhow!(
+                    "{INVALID_SSSP_DELTA}: {d} is below {floor}, 1/4096 of the largest edge \
+                     weight ({}); use a wider bucket or omit delta",
+                    self.sssp_edge_weight_range.1
+                ));
+            }
+        }
+        if self.sssp_edge_weight_range.0 < 0.0 {
+            return Err(anyhow!(
+                "SSSP needs non-negative edge weights; the smallest is {} (in the symmetric CSR \
+                 a negative weight is a negative cycle)",
+                self.sssp_edge_weight_range.0
+            ));
         }
         self.sssp_available = false;
         self.sssp_device_distances = None;
         self.require_graph_capacity(SSSP_BUFFERS)?;
 
-        let bucket_width = delta.filter(|d| *d > 0.0 && d.is_finite());
-        let result = self.relax_from(source_idx, bucket_width);
+        let result = self.relax_from(source_idx, delta);
 
         match result {
             Ok((distances, kept)) => {
@@ -65,7 +116,7 @@ impl UnifiedGPUCompute {
     /// synchronous default-stream copies used before S1a were not ordered against its kernels.
     ///
     /// Returns the distances and a device copy of them for the force pass.
-    fn relax_from(
+    pub(super) fn relax_from(
         &self,
         source: usize,
         bucket_width: Option<f32>,
@@ -93,21 +144,34 @@ impl UnifiedGPUCompute {
         }
         let mut frontier_len = 1usize;
 
-        // Nodes closer than `bound` are settled once the inner loop drains.
-        let mut bound = bucket_width.unwrap_or(f32::INFINITY);
-        let max_rounds = 10 * n.max(1);
-        let mut rounds = 0usize;
+        // Nodes closer than `bound` are settled once the inner loop drains. `width` becomes
+        // `None` when the run falls back to the plain relaxation.
+        let mut width = bucket_width;
+        let mut bound = width.unwrap_or(f32::INFINITY);
+        // Within one drain of the frontier, a shortest path gains at least one hop per round,
+        // so more than n + 1 rounds means the weights are not what `run_sssp` checked.
+        let max_rounds_per_drain = n + 1;
+        let mut buckets = 0usize;
         // Re-seeded frontier for the next bucket. Declared outside the loop so it outlives its
         // asynchronous upload, which completes at the inner loop's next synchronise.
         let mut frontier: Vec<i32> = Vec::new();
-        loop {
+        // Termination: every pass either ends the loop, or (bucketed) strictly raises `bound`
+        // and counts a bucket, or (fallback) clears `width`, after which the next pass ends
+        // the loop. So there are at most SSSP_MAX_DELTA_BUCKETS + 2 passes; the check below
+        // turns any violation of that argument into an error rather than a spin under the lock.
+        for pass in 0.. {
+            if pass > SSSP_MAX_DELTA_BUCKETS + 2 {
+                return Err(anyhow!(
+                    "SSSP exceeded {} bucket passes; the bucket loop failed to terminate",
+                    SSSP_MAX_DELTA_BUCKETS + 2
+                ));
+            }
+            let mut rounds = 0usize;
             while frontier_len > 0 {
                 rounds += 1;
-                if rounds > max_rounds {
+                if rounds > max_rounds_per_drain {
                     return Err(anyhow!(
-                        "SSSP did not converge within {max_rounds} relaxation rounds; edge \
-                         weights must be non-negative (in the symmetric CSR a negative weight \
-                         is a negative cycle)"
+                        "SSSP did not converge within {max_rounds_per_drain} relaxation rounds"
                     ));
                 }
                 let grid = (frontier_len as u32).div_ceil(BLOCK);
@@ -145,7 +209,7 @@ impl UnifiedGPUCompute {
                 frontier_len = count[0] as usize;
             }
 
-            let Some(width) = bucket_width else {
+            let Some(w) = width else {
                 break;
             };
             // The bucket below `bound` is settled. Distances at or beyond it were recorded by
@@ -167,17 +231,32 @@ impl UnifiedGPUCompute {
             if !nearest.is_finite() {
                 break;
             }
+            buckets += 1;
             let lower = bound;
-            bound = ((nearest / width).floor() + 1.0) * width;
-            if bound <= nearest {
-                bound = nearest + width;
+            let mut next = ((nearest / w).floor() + 1.0) * w;
+            if next.partial_cmp(&nearest) != Some(std::cmp::Ordering::Greater) {
+                next = nearest + w;
+            }
+            let advances = next.partial_cmp(&nearest) == Some(std::cmp::Ordering::Greater);
+            if advances && buckets < SSSP_MAX_DELTA_BUCKETS {
+                bound = next;
+            } else {
+                // Either `w` is below half the f32 spacing at `nearest` (the bound cannot move)
+                // or the bucket budget is spent: finish with the plain relaxation from every
+                // tentatively labelled, unsettled node.
+                log::debug!(
+                    "SSSP: delta-stepping falls back to plain relaxation after {buckets} \
+                     buckets (bound {bound}, nearest {nearest}, delta {w})"
+                );
+                width = None;
+                bound = f32::INFINITY;
             }
             frontier.clear();
             frontier.extend(
                 snapshot
                     .iter()
                     .enumerate()
-                    .filter(|(_, d)| **d >= lower && **d < bound)
+                    .filter(|(_, d)| d.is_finite() && **d >= lower && **d < bound)
                     .map(|(i, _)| i as i32),
             );
             // SAFETY: `frontier.len() <= n`; the vector is not touched again until after the

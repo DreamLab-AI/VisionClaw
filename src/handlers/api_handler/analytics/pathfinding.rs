@@ -21,7 +21,20 @@ use crate::services::pathfinding::{
     AStarPathfinder, BidirectionalDijkstra, PathAlgorithm, PathResult as PfPathResult,
     SemanticPathfinder,
 };
+use crate::utils::unified_gpu_compute::sssp::{check_sssp_delta, INVALID_SSSP_DELTA};
 use crate::{error_json, ok_json, AppState};
+
+/// HTTP 400 for a `delta` that is not a finite number greater than zero, answered before any
+/// graph or GPU is consulted. A `delta` that passes may still be refused by the engine for
+/// being below 1/4096 of the largest edge weight; that also answers 400 (see `compute_sssp`).
+fn invalid_delta_response(delta: Option<f32>) -> Option<HttpResponse> {
+    let message = check_sssp_delta(delta?).err()?;
+    Some(HttpResponse::BadRequest().json(SSSPResponse {
+        success: false,
+        result: None,
+        error: Some(message),
+    }))
+}
 
 /// SSSP request payload
 #[derive(Debug, Deserialize)]
@@ -170,6 +183,9 @@ pub async fn compute_sssp(
     caller: crate::settings::OptionalAuth,
 ) -> Result<HttpResponse> {
     info!("API: Computing SSSP from node {}", payload.source_idx);
+    if let Some(rejection) = invalid_delta_response(payload.delta) {
+        return Ok(rejection);
+    }
 
     // ADR-060: a caller whose view hides nodes gets a CPU answer over that view and never
     // reaches the GPU actor, which runs over the whole graph. A
@@ -218,6 +234,15 @@ pub async fn compute_sssp(
                     result: Some(SsspPayload::Whole(result)),
                     error: None,
                 })
+            }
+            Ok(Err(e)) if e.contains(INVALID_SSSP_DELTA) => {
+                // The weight-relative minimum needs the graph, so the engine checks it.
+                info!("SSSP refused: {}", e);
+                Ok(HttpResponse::BadRequest().json(SSSPResponse {
+                    success: false,
+                    result: None,
+                    error: Some(e),
+                }))
             }
             Ok(Err(e)) => {
                 error!("SSSP computation failed: {}", e);
@@ -809,5 +834,37 @@ mod gate_tests {
             anyhow::anyhow!("source node {} out of range", 7)
         );
         assert_eq!(super::sssp_source_out_of_range(7), gpu);
+    }
+}
+
+#[cfg(test)]
+mod sssp_delta_validation_tests {
+    use super::*;
+
+    #[test]
+    fn a_delta_that_is_not_finite_and_positive_is_a_400() {
+        for delta in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.0, -0.0, -1.0] {
+            let response = invalid_delta_response(Some(delta)).expect("refused");
+            assert_eq!(
+                response.status(),
+                actix_web::http::StatusCode::BAD_REQUEST,
+                "{delta}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_absent_or_positive_delta_goes_on_to_the_engine() {
+        for delta in [None, Some(1e-30), Some(0.5), Some(f32::MAX)] {
+            assert!(invalid_delta_response(delta).is_none(), "{delta:?}");
+        }
+    }
+
+    #[test]
+    fn a_json_delta_beyond_f32_arrives_infinite_and_is_refused() {
+        let request: SSSPRequest =
+            serde_json::from_str(r#"{"sourceIdx": 0, "delta": 1e60}"#).expect("parses");
+        assert!(request.delta.is_some_and(|d| d.is_infinite()));
+        assert!(invalid_delta_response(request.delta).is_some());
     }
 }

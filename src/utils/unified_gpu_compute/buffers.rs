@@ -273,6 +273,31 @@ impl UnifiedGPUCompute {
         self.sssp_available = false;
         self.sssp_device_distances = None;
     }
+
+    /// Discards every piece of host-tracked state that is indexed by node and was set for the
+    /// previous graph, so nothing pushes forces onto whichever nodes now hold those indices.
+    /// Called on every `resize_buffers` call (growth or shrink) and by `initialize_graph`
+    /// whenever the node count, edge count or CSR topology changes. The actor re-uploads each
+    /// of these after `initialize_graph`; until it does, the term is off, never stale:
+    ///
+    /// - SSSP distances (`invalidate_graph_derived_state`);
+    /// - the sparse compute mask (all nodes computed until `set_compute_mask`);
+    /// - community labels and their count (the next cohesion step re-runs detection);
+    /// - degree weights (unweighted until `upload_degree_weights`);
+    /// - the hold overlay's per-slot rest lengths (the next hold captures fresh ones);
+    /// - semantic metadata (`SemanticGpu`, off until `enable_semantic`).
+    ///
+    /// Not covered: the constraint index. Constraints name nodes by index and are owned by the
+    /// constraint actors, which re-send them on their own schedule; see ADR-2191.
+    pub(crate) fn invalidate_node_indexed_state(&mut self) {
+        self.invalidate_graph_derived_state();
+        self.compute_mask_len = 0;
+        self.community_count_active = 0;
+        self.last_cohesion_refresh_iter = 0;
+        self.degree_weights_available = false;
+        self.hold_overlay.invalidate();
+        self.semantic = None;
+    }
 }
 
 #[cfg(test)]

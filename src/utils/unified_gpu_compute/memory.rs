@@ -50,6 +50,16 @@ fn checked_copy_to<T: cust::memory::DeviceCopy>(
         .map_err(|e| anyhow!("copy_to CUDA error in {}: {}", label, e))
 }
 
+/// Fingerprint of a CSR topology. Equal fingerprints with equal counts are treated as the same
+/// graph by `initialize_graph`; a relabelled graph with an identical CSR is indistinguishable.
+fn csr_fingerprint(row_offsets: &[i32], col_indices: &[i32]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    row_offsets.hash(&mut h);
+    col_indices.hash(&mut h);
+    h.finish()
+}
+
 impl UnifiedGPUCompute {
     pub fn upload_positions(&mut self, x: &[f32], y: &[f32], z: &[f32]) -> Result<()> {
         if x.len() != self.num_nodes || y.len() != self.num_nodes || z.len() != self.num_nodes {
@@ -266,6 +276,15 @@ impl UnifiedGPUCompute {
         self.num_edges = col_indices.len();
         // The CSR changed, so any captured rest lengths no longer line up with its slots.
         self.hold_overlay.invalidate();
+        self.graph_fingerprint = Some(csr_fingerprint(row_offsets, col_indices));
+        self.sssp_edge_weight_range = weights
+            .iter()
+            .copied()
+            .filter(|w| w.is_finite())
+            .fold(None, |range: Option<(f32, f32)>, w| {
+                Some(range.map_or((w, w), |(lo, hi)| (lo.min(w), hi.max(w))))
+            })
+            .unwrap_or((0.0, 0.0));
         Ok(())
     }
 
@@ -446,10 +465,13 @@ impl UnifiedGPUCompute {
     /// across; every other registered buffer returns to its default and the actor re-uploads
     /// it. A shrink keeps the allocation and only lowers the live counts.
     ///
-    /// Any call is a graph change: results computed from the previous graph (SSSP distances)
-    /// are discarded first, because node indices may have moved even when capacity has not.
+    /// Any call is a graph change: everything indexed by the previous graph's nodes is
+    /// discarded first (`invalidate_node_indexed_state`), because node indices may have moved
+    /// even when capacity has not. A failed growth leaves buffers, counts and capacities as they
+    /// were; only that derived state is lost.
     pub fn resize_buffers(&mut self, new_num_nodes: usize, new_num_edges: usize) -> Result<()> {
-        self.invalidate_graph_derived_state();
+        self.invalidate_node_indexed_state();
+        self.graph_fingerprint = None;
 
         if new_num_nodes <= self.num_nodes && new_num_edges <= self.num_edges {
             self.num_nodes = new_num_nodes;
@@ -476,7 +498,44 @@ impl UnifiedGPUCompute {
         checked_copy_to(&self.vel_in_y, &mut carried[4], "vel_in_y")?;
         checked_copy_to(&self.vel_in_z, &mut carried[5], "vel_in_z")?;
 
-        let fresh = GraphSizedBuffers::allocate(actual_new_nodes, actual_new_edges)?;
+        let mut fresh = GraphSizedBuffers::allocate(actual_new_nodes, actual_new_edges)?;
+
+        // Carry positions and velocities into the fresh set *before* installing it, so a
+        // failure here drops the fresh set and leaves the engine exactly as it was (counts,
+        // capacities and buffers all old and mutually consistent).
+        let new_capacity = Extent::Nodes.capacity(actual_new_nodes, actual_new_edges);
+        let keep = copy_size.min(new_capacity);
+        let [px, py, pz, vx, vy, vz] = &carried;
+        #[cfg(test)]
+        let inject_failure = std::mem::take(&mut self.inject_resize_carry_failure);
+        for (i, (buf, data, name)) in [
+            (&mut fresh.pos_in_x, px, "pos_in_x"),
+            (&mut fresh.pos_in_y, py, "pos_in_y"),
+            (&mut fresh.pos_in_z, pz, "pos_in_z"),
+            (&mut fresh.pos_out_x, px, "pos_out_x"),
+            (&mut fresh.pos_out_y, py, "pos_out_y"),
+            (&mut fresh.pos_out_z, pz, "pos_out_z"),
+            (&mut fresh.vel_in_x, vx, "vel_in_x"),
+            (&mut fresh.vel_in_y, vy, "vel_in_y"),
+            (&mut fresh.vel_in_z, vz, "vel_in_z"),
+            (&mut fresh.vel_out_x, vx, "vel_out_x"),
+            (&mut fresh.vel_out_y, vy, "vel_out_y"),
+            (&mut fresh.vel_out_z, vz, "vel_out_z"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            #[cfg(test)]
+            if inject_failure && i == 6 {
+                return Err(anyhow!(
+                    "carrying {name} across the resize: injected test failure"
+                ));
+            }
+            let _ = i;
+            buf.index(0..keep)
+                .copy_from(&data[..keep])
+                .map_err(|e| anyhow!("carrying {name} across the resize: {e}"))?;
+        }
 
         // The force kernels hold the old edge_rest_snapshot address in `g_edge_rest_snapshot`;
         // unbind it before that buffer is freed. The next step binds the new one. The overlay's
@@ -485,38 +544,7 @@ impl UnifiedGPUCompute {
         self.install_graph_sized(fresh);
         self.hold_overlay.invalidate();
 
-        let new_capacity = Extent::Nodes.capacity(actual_new_nodes, actual_new_edges);
-        let keep = copy_size.min(new_capacity);
-        let [px, py, pz, vx, vy, vz] = &carried;
-        for (buf, data, name) in [
-            (&mut self.pos_in_x, px, "pos_in_x"),
-            (&mut self.pos_in_y, py, "pos_in_y"),
-            (&mut self.pos_in_z, pz, "pos_in_z"),
-            (&mut self.pos_out_x, px, "pos_out_x"),
-            (&mut self.pos_out_y, py, "pos_out_y"),
-            (&mut self.pos_out_z, pz, "pos_out_z"),
-            (&mut self.vel_in_x, vx, "vel_in_x"),
-            (&mut self.vel_in_y, vy, "vel_in_y"),
-            (&mut self.vel_in_z, vz, "vel_in_z"),
-            (&mut self.vel_out_x, vx, "vel_out_x"),
-            (&mut self.vel_out_y, vy, "vel_out_y"),
-            (&mut self.vel_out_z, vz, "vel_out_z"),
-        ] {
-            buf.index(0..keep)
-                .copy_from(&data[..keep])
-                .map_err(|e| anyhow!("carrying {name} across the resize: {e}"))?;
-        }
-
-        // Host-side state that describes the replaced buffers' contents.
-        // Degree weights were reset to 1.0; the actor re-uploads them.
-        self.degree_weights_available = false;
-        // The compute mask was zeroed (node indices may have moved); rebuilt on the next
-        // set_compute_mask call.
-        self.compute_mask_len = 0;
-        // Community labels were invalidated, so the next force step re-runs detection before
-        // applying cohesion.
-        self.community_count_active = 0;
-        self.last_cohesion_refresh_iter = 0;
+        // Node-indexed host state was discarded at the top (invalidate_node_indexed_state).
         self.aabb_num_blocks = self.aabb_block_results.len();
 
         self.num_nodes = new_num_nodes;
@@ -733,7 +761,13 @@ impl UnifiedGPUCompute {
             // grow defensively rather than truncate silently.
             self.compute_mask = DeviceBuffer::from_slice(&filtered)?;
         } else {
-            checked_copy_from(&mut self.compute_mask, &filtered, "compute_mask")?;
+            // A sparse mask is shorter than the buffer's capacity: fill only its prefix (the
+            // kernel reads `compute_mask_len` entries). A whole-buffer copy demanded equal
+            // lengths, so every sparse mask failed before S1a's review round.
+            self.compute_mask
+                .index(0..filtered.len())
+                .copy_from(&filtered[..])
+                .map_err(|e| anyhow!("uploading compute_mask: {e}"))?;
         }
         self.compute_mask_len = filtered.len();
         debug!(
@@ -818,6 +852,9 @@ impl UnifiedGPUCompute {
     ) -> Result<()> {
         if num_nodes != self.num_nodes || num_edges != self.num_edges {
             self.resize_buffers(num_nodes, num_edges)?;
+        } else if self.graph_fingerprint != Some(csr_fingerprint(row_offsets, col_indices)) {
+            // Same counts, different graph: node indices may now name other nodes.
+            self.invalidate_node_indexed_state();
         }
 
         self.upload_edges_csr(row_offsets, col_indices, edge_weights)?;

@@ -660,3 +660,270 @@ fn sssp_with_a_negative_weight_is_an_error() {
         assert!(engine.sssp_distances_for_force_pass().is_null());
     }
 }
+
+// ---------------------------------------------------------------------------
+// Review round 1: SSSP delta policy, resize atomicity, graph-change invalidation
+// ---------------------------------------------------------------------------
+
+/// A path 0 - 1 - ... - (n-1) with edge `i` weighing `weight(i)`.
+fn chain(n: usize, weight: impl Fn(usize) -> f32) -> Graph {
+    let mut adjacency: Vec<Vec<(i32, f32)>> = vec![Vec::new(); n];
+    for i in 0..n - 1 {
+        let w = weight(i);
+        adjacency[i].push((i as i32 + 1, w));
+        adjacency[i + 1].push((i as i32, w));
+    }
+    let mut offsets = vec![0i32];
+    let mut cols = Vec::new();
+    let mut weights = Vec::new();
+    for row in &adjacency {
+        for &(c, w) in row {
+            cols.push(c);
+            weights.push(w);
+        }
+        offsets.push(cols.len() as i32);
+    }
+    Graph {
+        n,
+        offsets,
+        cols,
+        weights,
+        component: vec![0; n],
+    }
+}
+
+/// The same graph with node `i` renamed `n - 1 - i`: equal counts, different CSR.
+fn reversed(g: &Graph) -> Graph {
+    let n = g.n;
+    let mut offsets = vec![0i32];
+    let mut cols = Vec::new();
+    let mut weights = Vec::new();
+    for new_row in 0..n {
+        let old = n - 1 - new_row;
+        for e in g.offsets[old] as usize..g.offsets[old + 1] as usize {
+            cols.push((n - 1) as i32 - g.cols[e]);
+            weights.push(g.weights[e]);
+        }
+        offsets.push(cols.len() as i32);
+    }
+    Graph {
+        n,
+        offsets,
+        cols,
+        weights,
+        component: g.component.iter().rev().copied().collect(),
+    }
+}
+
+/// The review's measured hangs: a bucket width below half the f32 spacing at the nearest
+/// unsettled distance stopped the bound advancing, and the bucket loop never ended (while
+/// holding the engine lock). The loop itself must now terminate with Dijkstra's distances
+/// for any width (`relax_from` bypasses `run_sssp`'s validation on purpose), and `run_sssp`
+/// must refuse those widths as invalid.
+#[test]
+#[ignore = "needs GPU: run with --ignored --test-threads=1"]
+fn sssp_tiny_delta_terminates() {
+    let Some(g) = gpu("sssp_tiny_delta_terminates") else {
+        return;
+    };
+    // (delta, chain length, edge weight): distances reach 2.0+, 100+ and 1000+ respectively.
+    for &(delta, n, w) in &[
+        (1e-7f32, 64usize, 2.0f32),
+        (1e-6, 64, 2.0),
+        (1e-5, 600, 2.0),
+    ] {
+        let fixture = chain(n, |_| w);
+        let mut engine = UnifiedGPUCompute::new(n, fixture.cols.len(), &g.ptx).expect("engine");
+        load(&mut engine, &fixture);
+        let started = std::time::Instant::now();
+        let (d, _) = engine.relax_from(0, Some(delta)).expect("relax_from");
+        let elapsed = started.elapsed();
+        let label = format!("delta={delta:e} n={n}");
+        assert_eq!(
+            compare_distances(&label, &d, &dijkstra(&fixture, 0)),
+            0,
+            "{label}"
+        );
+        assert!(elapsed.as_secs() < 30, "{label}: took {elapsed:?}");
+        let refused = engine
+            .run_sssp(0, Some(delta))
+            .expect_err("tiny delta accepted");
+        println!("{label}: {elapsed:?}; run_sssp: {refused:#}");
+        assert!(refused
+            .to_string()
+            .starts_with(super::sssp::INVALID_SSSP_DELTA));
+    }
+}
+
+/// Non-finite, zero and negative widths are refused before anything runs, and a refusal
+/// leaves the distances kept from the last good run in place.
+#[test]
+#[ignore = "needs GPU: run with --ignored --test-threads=1"]
+fn sssp_rejects_invalid_delta_and_keeps_prior_result() {
+    let Some(g) = gpu("sssp_rejects_invalid_delta_and_keeps_prior_result") else {
+        return;
+    };
+    let fixture = graph(200, 1, 1.0, 0.5, 3.0, 61);
+    let mut engine = production_engine(&g);
+    load(&mut engine, &fixture);
+    engine.run_sssp(0, None).expect("baseline SSSP");
+    for delta in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.0, -0.0, -1.0] {
+        let e = engine
+            .run_sssp(0, Some(delta))
+            .expect_err("invalid delta accepted");
+        println!("delta={delta}: {e:#}");
+        assert!(e.to_string().starts_with(super::sssp::INVALID_SSSP_DELTA));
+        assert!(
+            engine.sssp_available,
+            "a refused request discarded the kept distances"
+        );
+    }
+}
+
+/// Valid but awkward widths on awkward graphs, all against Dijkstra: the smallest accepted
+/// width on a disconnected graph (exhausts the bucket budget, then falls back), zero-weight
+/// edges (all zero, and alternating zero and one), and very large widths (one bucket).
+#[test]
+#[ignore = "needs GPU: run with --ignored --test-threads=1"]
+fn sssp_delta_edge_cases_match_dijkstra() {
+    let Some(g) = gpu("sssp_delta_edge_cases_match_dijkstra") else {
+        return;
+    };
+    let split = graph(1500, 3, 1.5, 0.5, 3.0, 71);
+    let max_w = split.weights.iter().copied().fold(0.0f32, f32::max);
+    let floor = max_w * super::sssp::SSSP_MIN_DELTA_FRACTION;
+    let cases: Vec<(&str, Graph, Vec<Option<f32>>)> = vec![
+        ("split at the minimum delta", split, vec![Some(floor)]),
+        (
+            "all zero weights",
+            chain(300, |_| 0.0),
+            vec![None, Some(1e-3), Some(1.0)],
+        ),
+        (
+            "alternating zero and one",
+            chain(300, |i| (i % 2) as f32),
+            vec![None, Some(1.0 / 4096.0), Some(0.5), Some(3.0)],
+        ),
+        (
+            "very large delta",
+            graph(1500, 1, 1.5, 0.5, 3.0, 72),
+            vec![Some(1e30), Some(f32::MAX)],
+        ),
+    ];
+    for (name, fixture, deltas) in cases {
+        let mut engine =
+            UnifiedGPUCompute::new(fixture.n, fixture.cols.len(), &g.ptx).expect("engine");
+        load(&mut engine, &fixture);
+        let oracle = dijkstra(&fixture, 0);
+        for delta in deltas {
+            let label = format!("{name} delta={delta:?}");
+            let d = engine.run_sssp(0, delta).expect(&label);
+            assert_eq!(compare_distances(&label, &d, &oracle), 0, "{label}");
+        }
+    }
+}
+
+/// A growth that fails after the fresh buffers are allocated (injected while carrying
+/// positions) leaves counts, capacities, every registered buffer and the positions as they
+/// were, and the next growth succeeds.
+#[test]
+#[ignore = "needs GPU: run with --ignored --test-threads=1"]
+fn failed_resize_leaves_the_engine_intact() {
+    let Some(g) = gpu("failed_resize_leaves_the_engine_intact") else {
+        return;
+    };
+    let mut engine = production_engine(&g);
+    let before = graph(PRODUCTION_CAPACITY, 1, 1.0, 0.5, 3.0, 81);
+    load(&mut engine, &before);
+    let lengths = engine.graph_sized_lengths();
+    let counts = (engine.num_nodes, engine.num_edges);
+    let capacity = (engine.allocated_nodes, engine.allocated_edges);
+    let positions = engine.get_node_positions().expect("positions");
+
+    let after = graph(1500, 1, 1.0, 0.5, 3.0, 82);
+    engine.inject_resize_carry_failure = true;
+    let [x, y, z] = positions_of(&after);
+    let err = engine
+        .initialize_graph(
+            &after.offsets,
+            &after.cols,
+            &after.weights,
+            [&x, &y, &z],
+            after.n,
+            after.cols.len(),
+        )
+        .expect_err("injected failure ignored");
+    println!("failed growth: {err:#}");
+    assert_eq!(
+        (engine.num_nodes, engine.num_edges),
+        counts,
+        "counts changed"
+    );
+    assert_eq!((engine.allocated_nodes, engine.allocated_edges), capacity);
+    assert_eq!(
+        engine.graph_sized_lengths(),
+        lengths,
+        "a registered buffer was replaced"
+    );
+    assert_eq!(engine.get_node_positions().expect("positions"), positions);
+
+    load(&mut engine, &after);
+    assert_eq!(engine.num_nodes, after.n);
+    let d = engine
+        .run_sssp(0, None)
+        .expect("SSSP after the retried growth");
+    assert_eq!(compare_distances("retry", &d, &dijkstra(&after, 0)), 0);
+}
+
+fn positions_of(g: &Graph) -> [Vec<f32>; 3] {
+    positions(g.n, 7)
+}
+
+/// A graph change that keeps the counts (here the same graph with nodes renamed) or shrinks
+/// them discards every node-indexed piece of state; re-uploading the identical graph (two
+/// actors share the engine) keeps it.
+#[test]
+#[ignore = "needs GPU: run with --ignored --test-threads=1"]
+fn graph_changes_discard_node_indexed_state() {
+    let Some(g) = gpu("graph_changes_discard_node_indexed_state") else {
+        return;
+    };
+    let a = graph(PRODUCTION_CAPACITY, 1, 1.0, 0.5, 3.0, 91);
+    let b = reversed(&a);
+    let mut engine = production_engine(&g);
+    let arm = |engine: &mut UnifiedGPUCompute| {
+        engine
+            .upload_degree_weights(&vec![2.0; engine.num_nodes])
+            .expect("degree weights");
+        engine.set_compute_mask(&[0, 1, 2]).expect("mask");
+        engine.run_sssp(0, None).expect("SSSP");
+        engine.community_count_active = 3;
+        assert!(engine.degree_weights_available && engine.compute_mask_active());
+    };
+    let armed = |engine: &UnifiedGPUCompute| {
+        [
+            engine.degree_weights_available,
+            engine.compute_mask_active(),
+            engine.sssp_available,
+            engine.community_count_active > 0,
+        ]
+    };
+
+    load(&mut engine, &a);
+    arm(&mut engine);
+    load(&mut engine, &a);
+    assert_eq!(
+        armed(&engine),
+        [true, true, false, true],
+        "identical re-upload"
+    );
+
+    arm(&mut engine);
+    load(&mut engine, &b);
+    assert_eq!(engine.num_nodes, a.n);
+    assert_eq!(armed(&engine), [false; 4], "same counts, renamed nodes");
+
+    arm(&mut engine);
+    load(&mut engine, &graph(400, 1, 1.0, 0.5, 3.0, 92));
+    assert_eq!(armed(&engine), [false; 4], "shrink");
+}

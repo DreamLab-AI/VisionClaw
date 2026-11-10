@@ -144,6 +144,17 @@ pub struct UnifiedGPUCompute {
     pub(crate) constraint_node_ids: DeviceBuffer<i32>,
 
     pub sssp_available: bool,
+    /// Smallest and largest finite edge weight of the uploaded CSR, recorded by
+    /// `upload_edges_csr`; `run_sssp` checks `delta` and the weight sign against them.
+    pub(crate) sssp_edge_weight_range: (f32, f32),
+    /// Fingerprint of the uploaded CSR topology (`row_offsets`, `col_indices`). A graph upload
+    /// whose counts and fingerprint match the previous one is not a graph change, so the
+    /// node-indexed state other uploads set is kept (two actors upload the same graph).
+    pub(crate) graph_fingerprint: Option<u64>,
+    /// Test hook: makes the next growing `resize_buffers` fail while carrying positions, after
+    /// the fresh buffers are allocated, to prove a failed resize leaves the engine intact.
+    #[cfg(test)]
+    pub(crate) inject_resize_carry_failure: bool,
 
     /// Persistent device-side copy of SSSP distances for the force kernel's
     /// `d_sssp_dist` parameter.  Populated after each successful `run_sssp()`.
@@ -504,6 +515,10 @@ impl UnifiedGPUCompute {
             constraint_node_offsets: DeviceBuffer::from_slice(&[])?,
             constraint_node_ids: DeviceBuffer::from_slice(&[])?,
             sssp_available: false,
+            sssp_edge_weight_range: (0.0, 0.0),
+            graph_fingerprint: None,
+            #[cfg(test)]
+            inject_resize_carry_failure: false,
             sssp_device_distances: None,
             sssp_spring_adjust_enabled: false,
             performance_metrics: GPUPerformanceMetrics::default(),
