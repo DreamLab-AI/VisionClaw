@@ -11,18 +11,23 @@ export interface NodeFilterCounts {
   visible: number | null;
   /** Nodes in this client's graph view before scope and filter; null until answered. */
   total: number | null;
+  /** Why the last recompute could not count (the server could not read the graph), or null. */
+  error?: string | null;
 }
 
 interface NodeFilterCountState extends NodeFilterCounts {
   setCounts: (visible: number, total: number) => void;
+  setError: (error: string) => void;
   reset: () => void;
 }
 
 export const useNodeFilterCountStore = create<NodeFilterCountState>((set) => ({
   visible: null,
   total: null,
-  setCounts: (visible, total) => set({ visible, total }),
-  reset: () => set({ visible: null, total: null }),
+  error: null,
+  setCounts: (visible, total) => set({ visible, total, error: null }),
+  setError: (error) => set({ visible: null, total: null, error }),
+  reset: () => set({ visible: null, total: null, error: null }),
 }));
 
 /**
@@ -45,6 +50,7 @@ export function parseFilterCounts(data: unknown): { visible: number; total: numb
 
 /** The panel text for a pair of counts. */
 export function formatFilterCounts(counts: NodeFilterCounts): string {
+  if (counts.error) return `Node count unavailable: ${counts.error}`;
   if (counts.visible === null || counts.total === null) {
     return 'Node count arrives with the next filter update';
   }

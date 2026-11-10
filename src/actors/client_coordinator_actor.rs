@@ -118,6 +118,44 @@ pub(crate) fn filter_counts_message(visible: usize, total: usize) -> String {
     .to_string()
 }
 
+/// The `filter_update_error` frame sent when a filter recompute could not read the graph, so
+/// the client's "Showing N of M" says why instead of keeping a stale count (ADR-2192).
+pub(crate) fn filter_counts_error_message(reason: &str) -> String {
+    serde_json::json!({
+        "type": "filter_update_error",
+        "data": { "error": reason }
+    })
+    .to_string()
+}
+
+/// Recompute every client's filter against `graph` and send each its counts: run when the
+/// graph changes (a sync), so the stream's node set and "Showing N of M" follow the new graph
+/// (ADR-2192). Clients refetch the graph themselves on the `graphUpdated` frame.
+pub(crate) fn refresh_all_filters(
+    manager: &mut ClientManager,
+    graph: &std::sync::Arc<visionclaw_domain::models::graph::GraphData>,
+) -> usize {
+    let visibility = visionclaw_domain::utils::visibility_filter::filter_enabled();
+    let mut n = 0;
+    for client in manager.clients.values_mut() {
+        let _ = filter_update_reply(
+            &mut client.filter,
+            graph,
+            client.pubkey.as_deref(),
+            visibility,
+        );
+        client
+            .addr
+            .text
+            .do_send(SendToClientText(filter_counts_message(
+                client.filter.filtered_node_ids.len(),
+                client.filter.considered_nodes,
+            )));
+        n += 1;
+    }
+    n
+}
+
 /// Per-client filter settings for graph visibility
 #[derive(Debug, Clone)]
 pub struct ClientFilter {
@@ -1474,8 +1512,26 @@ impl Handler<SetGraphServiceAddress> for ClientCoordinatorActor {
 impl Handler<UpdateNodeTypeArrays> for ClientCoordinatorActor {
     type Result = ();
 
-    fn handle(&mut self, msg: UpdateNodeTypeArrays, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: UpdateNodeTypeArrays, ctx: &mut Self::Context) -> Self::Result {
         self.update_node_type_arrays(msg.arrays);
+        // Sent on every graph change (load, sync): refresh each client's filter and counts.
+        let Some(graph_addr) = self.graph_service_addr.clone() else {
+            return;
+        };
+        let manager_arc = self.client_manager.clone();
+        ctx.spawn(actix::fut::wrap_future::<_, Self>(async move {
+            use crate::actors::messages::GetGraphData;
+            match graph_addr.send(GetGraphData).await {
+                Ok(Ok(graph)) => {
+                    if let Ok(mut manager) = manager_arc.write() {
+                        let n = refresh_all_filters(&mut manager, &graph);
+                        debug!("Graph changed: refreshed {} client filters", n);
+                    }
+                }
+                Ok(Err(e)) => warn!("Graph changed but could not be read for filters: {}", e),
+                Err(e) => warn!("Graph changed but the graph service did not answer: {}", e),
+            }
+        }));
     }
 }
 
@@ -1717,13 +1773,33 @@ impl Handler<UpdateClientFilter> for ClientCoordinatorActor {
                                 }
                             }
                         }
-                        Err(e) => warn!("Failed to fetch graph data for filter recomputation: {}", e),
-                        Ok(Err(e)) => warn!("Graph data fetch error: {}", e),
+                        // Always answer (ADR-2192): the panel shows why, not a stale count.
+                        failure => {
+                            let reason = match failure {
+                                Err(e) => format!("graph service did not answer: {}", e),
+                                Ok(Err(e)) => format!("graph could not be read: {}", e),
+                                Ok(Ok(_)) => unreachable!("handled above"),
+                            };
+                            warn!("Filter recompute for client {} failed: {}", client_id, reason);
+                            if let Ok(manager) = manager_arc.read() {
+                                if let Some(client) = manager.clients.get(&client_id) {
+                                    client.addr.text.do_send(SendToClientText(
+                                        filter_counts_error_message(&reason),
+                                    ));
+                                }
+                            }
+                        }
                     }
                 }).map(|_, _, _| ()));
             } else {
                 // Clear filtered_node_ids if we can't fetch graph data
                 client.filter.filtered_node_ids.clear();
+                client
+                    .addr
+                    .text
+                    .do_send(SendToClientText(filter_counts_error_message(
+                        "graph service not available",
+                    )));
             }
 
             Ok(())
@@ -1735,6 +1811,22 @@ impl Handler<UpdateClientFilter> for ClientCoordinatorActor {
 
 #[cfg(test)]
 mod tests {
+    /// ADR-2192: the count frames the node-filter panel reads, success and failure.
+    #[test]
+    fn filter_count_frames_carry_counts_or_the_reason() {
+        let ok: serde_json::Value =
+            serde_json::from_str(&super::filter_counts_message(2500, 9688)).unwrap();
+        assert_eq!(ok["type"], "filter_update_success");
+        assert_eq!(ok["data"]["visible_nodes"], 2500);
+        assert_eq!(ok["data"]["total_nodes"], 9688);
+        let err: serde_json::Value = serde_json::from_str(&super::filter_counts_error_message(
+            "graph could not be read",
+        ))
+        .unwrap();
+        assert_eq!(err["type"], "filter_update_error");
+        assert_eq!(err["data"]["error"], "graph could not be read");
+    }
+
     /// Re-review finding (2026-11-06): a `filter_update` reply was built from the unfiltered
     /// graph, so any desktop session (anonymous included) received private nodes. The reply must
     /// match the `/wss` initial load for the same identity.

@@ -29,6 +29,14 @@ describe('nodeFilterCountStore', () => {
     expect(formatFilterCounts({ visible: null, total: null })).toBe('Node count arrives with the next filter update');
   });
 
+  it('shows the server\'s error until the next counts arrive', () => {
+    useNodeFilterCountStore.getState().setError('graph could not be read');
+    const s = useNodeFilterCountStore.getState();
+    expect(formatFilterCounts(s)).toBe('Node count unavailable: graph could not be read');
+    s.setCounts(3, 4);
+    expect(formatFilterCounts(useNodeFilterCountStore.getState())).toBe('Showing 3 of 4 nodes');
+  });
+
   it('stores the last counts', () => {
     useNodeFilterCountStore.getState().setCounts(10, 20);
     expect(useNodeFilterCountStore.getState()).toMatchObject({ visible: 10, total: 20 });

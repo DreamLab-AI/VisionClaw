@@ -105,6 +105,12 @@ export function handleTextMessage(
     return;
   }
 
+  if (message.type === 'filter_update_error') {
+    // ADR-2192: the server could not read the graph for this client's recompute.
+    const reason = typeof message.data?.error === 'string' ? message.data.error : 'unknown error';
+    useNodeFilterCountStore.getState().setError(reason);
+  }
+
   if (message.type === 'filter_update_success') {
     if (debugState.isEnabled()) {
       logger.info(`Filter applied: ${message.data?.visible_nodes}/${message.data?.total_nodes} nodes visible`);

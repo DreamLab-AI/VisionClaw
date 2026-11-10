@@ -16,9 +16,10 @@ export interface NodeFilterCountProps {
 export const NodeFilterCount: React.FC<NodeFilterCountProps> = ({ field, testId }) => {
   const visible = useNodeFilterCountStore((s) => s.visible);
   const total = useNodeFilterCountStore((s) => s.total);
+  const error = useNodeFilterCountStore((s) => s.error);
   return (
     <div id={testId} data-testid={testId} role="status" aria-label={field.label} className="cc-helper-text">
-      {formatFilterCounts({ visible, total })}
+      {formatFilterCounts({ visible, total, error })}
     </div>
   );
 };
