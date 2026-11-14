@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -417,3 +417,8 @@ Governed-path changes since `809a859aa`:
 - `.github/workflows/ci.yml` (`9f2e75fa3`): `push` and `pull_request` gain a `paths:` filter, and every job gains `timeout-minutes`. The filter includes `crates/**` and `Cargo.toml`, so any change that could move a crate boundary still triggers `rust-cpu`. That job runs `layer_direction` (`:154`).
 
 No actor moved between crates. **Decision and `partial` status hold.** Re-run: `git diff 809a859aa..7bd25427e -- <verified_paths>`. Checked by reading that diff; `layer_direction` was not re-run for this stamp.
+
+
+## Scoped source review — 2026-11-14
+
+Reviewed the governed-path delta through `a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c`. The actor changes implement ADR-2192 inside the existing root tree: per-client filter counts and deterministic caps; separate ontology/user constraint caches with one device writer; stored constraint policy routed through the GPU manager and physics supervisor; and archive-before-persist migration of the retired strength setting. The message types change accordingly. No actor is extracted into the actor crate, the crate membership and layer-direction test are unchanged, and the extraction remains partial. Cargo dependency versions move, while CI removes its push trigger and retains pull-request/on-demand definitions. Source review does not repeat the earlier compilation or runtime receipts.

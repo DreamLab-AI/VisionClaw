@@ -7,9 +7,9 @@ implementation_status: none
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
+verified_commit: a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c
 relates: [ADR-2174, ADR-2139, ADR-2157, ADR-2160, ADR-2170, ADR-2022, ADR-2115]
-verified_paths: [crates/relational-field/Cargo.toml, crates/relational-field/PREREGISTRATION.md, crates/relational-field/PREREGISTRATION-D2.md, src/services/semantic_type_registry.rs, crates/visionclaw-domain/src/utils/visibility_filter.rs, src/handlers/api_handler/graph/mod.rs, docs/DATA-authority-erasure.md]
+verified_paths: [crates/relational-field/src/lib.rs, crates/relational-field/src/bin/h1.rs, crates/relational-field/results/h1/summary.json, crates/relational-field/Cargo.toml, crates/relational-field/PREREGISTRATION.md, crates/relational-field/PREREGISTRATION-D2.md, src/services/semantic_type_registry.rs, crates/visionclaw-domain/src/utils/visibility_filter.rs, src/handlers/api_handler/graph/mod.rs, docs/DATA-authority-erasure.md]
 owner: jjohare
 review_trigger: the relational-field learner builds as a library, the Innovate UK competition 2582 outcome is known, or any of the four mission conditions below is met
 repo: visionclaw
@@ -22,7 +22,7 @@ acceptance_boundary: integration requirements I1–I5 met before any Phase 2 wor
 ## Context
 
 - ADR-2174 proposes learning a spring law per relation type and proving it offline first. Since then the design has grown, in the Innovate UK bid (competition 2582) and its whitepaper, into accountable federated inference. The spring energy is read as a Gaussian factor graph. Each company keeps its private factors on its own machine and sees "ghosts": the shared layout conditioned on its own evidence. It releases only bounded summaries with fixed public precision and declared noise. Each release is charged in a signed leakage ledger, and a departing company is removed by cheap retraining.
-- The draft learner was merged to `main` in `309c03ae2`: `crates/relational-field` (`corpus.rs`, `embed.rs`, `sim.rs`, `split.rs`), its 3 November preregistration and the D2 amendment. It has no `lib.rs` or runner, so it does not build on its own. Its `Cargo.toml` declares a standalone `[workspace]`, and the root workspace lists its members explicitly, so the main build is unaffected.
+- The draft learner was merged to `main` in `309c03ae2`: `crates/relational-field` (`corpus.rs`, `embed.rs`, `sim.rs`, `split.rs`), its 3 November preregistration and the D2 amendment. At that initial revision it had no `lib.rs` or runner. Main now includes both the library and the scored H1 harness; the November result review below states its limits. Its `Cargo.toml` declares a standalone `[workspace]`, and the root workspace lists its members explicitly, so the main build is unaffected.
 - The owner asked whether this work serves the estate's primary mission, agentic collaboration across organisations, or becomes a side project. It serves the mission only if it is built into the estate.
 - Facts that bound this decision (verified at `309c03ae2`):
   - The force registry (`src/services/semantic_type_registry.rs`) holds 46 hand-set `register_internal` entries, many of them aliases (`requires` and `ngm:requires`). Its fields are `strength`, `rest_length`, `is_directional` and `force_type`. The learner trains 14 corpus types; `uses`, `supports`, `depends-on`, `part-of`, `implemented-in-layer` and `related-to` have no registry entry.
@@ -33,7 +33,7 @@ acceptance_boundary: integration requirements I1–I5 met before any Phase 2 wor
 
 ## Decision
 
-The learned relation law and its federated inference are adopted as core estate infrastructure: the shared epistemic layer that agents acting for different principals reason over. They are built into the estate through the integration requirements below. Each mission condition gets its own ADR before it is activated.
+This proposed decision would adopt the learned relation law and its federated inference as core estate infrastructure: the shared epistemic layer that agents acting for different principals reason over. Their adoption would require the integration requirements below. Each mission condition gets its own ADR before it is activated.
 
 ### Integration requirements (before any Phase 2 work)
 
@@ -54,7 +54,7 @@ Without M1 and M2 the work remains a well-tested library; with all four it is th
 
 ## Consequences
 
-- The learner's next work (a `lib.rs`, the runner, the history extractor) starts against I1–I3, inside the bid's WP1–WP2 days, rather than as standalone code to be migrated later.
+- The library and offline runner now exist. Any reusable integration and history-extractor work must first satisfy I1–I3; the standalone experiment is not evidence that those integration requirements have been met.
 - M2 is security work that pays off regardless of the bid: today's REST read returns private nodes to any caller, so it is a prerequisite for any external session on the workspace.
 - The Innovate UK bid does not use the agent framing: that competition excludes agent orchestration, so M1–M4 belong to the whitepaper and the Phase 2 roadmap. The bid stays on physics-structured learning.
 - Cost: I1–I3 are small (a membership change, a parser decision, a mapping table). M1–M4 are substantial; each is scoped and accepted separately.
@@ -90,3 +90,8 @@ Governed-path change: `src/handlers/api_handler/graph/mod.rs`, where `GET /api/g
 ## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
 
 `graph/mod.rs`: `GET /api/graph/data` takes the caller's own `node_filter` snapshot in place of the stored row, and still runs the visibility gate first. **Decision unaffected.**
+
+
+## Scoped source review — 2026-11-14
+
+Reviewed the governed-path delta through `a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c`. The governed preregistration now includes D4 and the original static H1 result. It reports H1 not supported: gates 1, 3 and 5 fail, while 2, 4 and 6 pass. The committed summary agrees with all six numeric comparisons. The result supplies no evidence for activating the shared learned law, and the D2 target-state exposure disclosure must accompany any later D2 result. I1–I4 and M1–M4 retain their separate acceptance requirements. ADR-2174 now records this result and corrects its live-force description (I5). This record remains proposed/none/inactive; no federated inference or live kernel integration was implemented by the offline experiment.

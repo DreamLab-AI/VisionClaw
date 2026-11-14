@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
+verified_commit: a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c
 verified_paths: [Cargo.toml, scripts/rust-backend-wrapper.sh, build.rs]
 owner: jjohare
 review_trigger: a runtime-performance regression traced to the dev-runtime profile, or a move to pre-baked dev binaries (ADR-2008)
@@ -79,3 +79,8 @@ library compile check pass; prior runtime and activation limits remain.
 Re-verified after merging feat/splats (ADR-2170, Gaussian splat scenes). The governed-path changes since `efbd7f6f0` are additive: `Cargo.toml`: a workspace member and path dependency for `crates/visionclaw-splat`; no profile, feature or other dependency changed. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1823 passed, 1 failed (`nip98_proxy_tests::prod_lan_headset_wss_authenticate_validates_through_nginx`, which reads only `nginx.*.conf` and `auth.rs`, neither touched; it fails identically at `d74b25143`); `xr-client/rust` 699 passed; XR GUT 595 of 598 passing (3 pending pixel tests); vitest 1593 passed. Re-run: `git diff efbd7f6f0..5c94c3cbd -- <governed path>`.
 
 Governed-path change (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `Cargo.toml` drops the fastwebsockets/postcard/hyper/hyper-util/http-body-util/http dependencies of the deleted `FastWebSocketServer`. The `dev-runtime` profile is untouched. **Decision unaffected.**
+
+
+## Scoped source review — 2026-11-14
+
+Reviewed the governed-path delta through `a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c`. Only Cargo dependency version requirements changed: nostr-bbs-core beta.19 and Solid alpha.21. The dev-runtime/release profile tables, wrapper and build script are unchanged. The incremental/LTO decision holds; the historical live profile receipt remains dated and no new rebuild timing or deployment is claimed.

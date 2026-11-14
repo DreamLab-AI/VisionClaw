@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c
 verified_paths: [src/config/security_profile.rs, src/main.rs, .github/workflows/ci.yml, Dockerfile.production]
 owner: jjohare
 review_trigger: any change to the production Dockerfile build line, the dev-auth feature gates, or enforce_release_env_hygiene
@@ -200,3 +200,8 @@ Governed-path changes since `b5200feb4`:
 - `.github/workflows/ci.yml` (`9f2e75fa3`): `push`/`pull_request` gain a `paths:` filter, the concurrency group becomes `${{ github.workflow }}-${{ github.ref }}`, and every job gains `timeout-minutes` (`dev-auth-release-gate` 5, job at `:178`). The gate's assertions are byte-identical and still carry no `continue-on-error`. Every file it reads (`Dockerfile.production`, `Dockerfile.unified`, `scripts/prod-entrypoint.sh`, `scripts/dev-entrypoint.sh`, `scripts/rust-backend-wrapper.sh`) is inside the new filter (`Dockerfile.production`, `Dockerfile.unified`, `scripts/**`), so a change to any gated input still triggers it.
 
 **Decision unaffected; status stays `partial`/`staged`.** Re-run: `git diff b5200feb4..7bd25427e -- <verified_paths>`. Checked by reading that diff; the gate was not re-run locally for this stamp.
+
+
+## Scoped source review — 2026-11-14
+
+Reviewed the governed-path delta through `a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c`. The only governed delta removes the CI push-to-main trigger; pull-request and workflow_dispatch definitions remain. The dev-auth-release-gate job is unchanged at `.github/workflows/ci.yml:162`, as are production Dockerfiles and release hygiene code. Repository Actions are currently disabled, so the presence of the job is not evidence that it runs. The binary/image acceptance boundary and proposed/partial/staged status remain.

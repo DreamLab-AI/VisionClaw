@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c
 verified_paths: [Cargo.toml, Cargo.lock, crates/vault/Cargo.toml, crates/vault/src/main.rs, crates/vault/tests/shared_layout.rs, src/services/corpus_source/local.rs]
 owner: jjohare
 review_trigger: a layout or discovery change, Ontomark dependency upgrade, or producer cutover
@@ -80,3 +80,8 @@ Governed-path change (server consolidation, 2026-11-06, `923feef34..b5200feb4`):
 ## Re-verification — 2026-11-07 (`7bd25427e`)
 
 Governed-path change since `809a859aa`: `crates/vault/src/main.rs` (`a5a265dd4`) lets a grouped `vault propose --dry-run` run without a signing key (`:455-461`, `:520-535`). The shared-layout code is untouched: the `LayoutError` refusal still exits 2 (`crates/vault/src/main.rs:323-329`), and `Layout::default().validate(&root)` (`:364-365`) is unchanged. **Decision unaffected.** Re-run: `git diff 809a859aa..7bd25427e -- <verified_paths>`. Checked by reading that diff; `shared_layout` was not re-run for this stamp.
+
+
+## Scoped source review — 2026-11-14
+
+Reviewed the governed-path delta through `a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c`. Cargo manifests move nostr-bbs-core to beta.19 and Solid to alpha.21, with corresponding HTTP, compression and cryptography lock updates. Parsed Ontomark lock entries remain identical: ontomark-compile 0.6.3, ontomark-parse 0.1.3 and ontomark-ngg1 0.1.0, including their sources, checksums and dependency lists. The shared-layout feature declarations, CLI, local-source implementation and tests are unchanged. This source review preserves staged activation; the historical registry/CLI acceptance suite was not rerun.
