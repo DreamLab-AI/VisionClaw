@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -297,3 +297,8 @@ Governed-path change since `809a859aa`: `src/app_state.rs` (`57ba04beb`, `f284c2
 - `ontology_inference_engine` (`:301`), one `WhelkInferenceEngine` shared by the sync and the ontology-agent routes.
 
 At start-up it is loaded from the Oxigraph store (`load_shared_inference`, `:573`, non-fatal on failure). Neither field is a store: both hold derived state rebuilt from Oxigraph. No database, persistence backend or `Cargo.toml` dependency changed. **Decision unaffected.** Re-run: `git diff 809a859aa..7bd25427e -- Cargo.toml src/app_state.rs`. Checked by reading that diff; no test was re-run for this stamp.
+
+
+## Scoped source review — 2026-11-14
+
+Reviewed the governed-path delta through `a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c`. The dependency-only Cargo changes move nostr-bbs-core to beta.19 and Solid to alpha.21. AppState removes the retired ontology pipeline and adds the ADR-2192 ontology-strength migration: it archives the old quality-gate row before persisting the migrated physics document. Oxigraph is still opened once and shared (`src/app_state.rs:409-414`); settings, enrichment, liveness and KPI remain separate SQLite files (`:417`, `:430`, `:445`, `:475`). The existing graph-share store is separate too (`:484`). This confirms storage composition; it does not establish a cross-store transaction or repeat restore acceptance.

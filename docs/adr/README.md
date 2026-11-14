@@ -40,7 +40,7 @@ The [historical closeout routing note](../adr-history-closeout.md) points each f
 
 The [estate status/evidence contract](../../../VisionFlow/docs/architecture/adr-status-contract.md) defines the independent decision, implementation and activation axes and distinguishes lineage from supersession (2026-09-07).
 
-_160 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
+_162 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 
 | ID | Title | Domain | Date | Decision | Impl | Activation | Supersedes | Superseded by | Owner | Repo |
 |----|-------|--------|------|----------|------|------------|------------|---------------|-------|------|
@@ -190,7 +190,7 @@ _160 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2171](ADR-2171-desktop-catches-up-on-webgpurenderer-not-meshlets.md) | The desktop client catches up on WebGPURenderer's own facilities and does not adopt the meshlet drawing pipeline | BASELINE-architecture | 2026-11-01 | proposed | none | inactive | — | — | jjohare | visionclaw |
 | [ADR-2172](ADR-2172-a-node-is-grabbed-with-either-hand-in-any-visionclaw-volume.md) | A node is grabbed with either hand, up to two at once, in any VisionClaw volume | XR-client | 2026-11-01 | accepted | partial | inactive | — | — | jjohare | visionclaw |
 | [ADR-2173](ADR-2173-force-pass-reads-a-per-node-constraint-index.md) | The force pass reads a per-node constraint index, not every constraint | — | 2026-11-01 | accepted | complete | staged | — | — | jjohare | visionclaw |
-| [ADR-2174](ADR-2174-layout-forces-are-learned-per-relation-type.md) | Layout forces are learned per relation type, proved offline before they touch the kernel | — | 2026-11-03 | proposed | none | inactive | — | — | jjohare | visionclaw |
+| [ADR-2174](ADR-2174-layout-forces-are-learned-per-relation-type.md) | Layout forces are learned per relation type, proved offline before they touch the kernel | — | 2026-11-03 | proposed | partial | inactive | — | — | jjohare | visionclaw |
 | [ADR-2176](ADR-2176-the-learned-relation-law-is-the-shared-epistemic-layer-for-multi-principal-agents.md) | The learned relation law is the shared epistemic layer for multi-principal agents, built into the estate, not beside it | — | 2026-11-05 | proposed | none | inactive | — | — | jjohare | visionclaw |
 | [ADR-2178](ADR-2178-a-staged-splat-scene-and-the-ontology-merge-into-one-walkable-space.md) | A staged splat scene and the ontology volume merge into one walkable space at viewer scale | XR-client | 2026-11-05 | proposed | partial | staged | — | — | jjohare | visionclaw |
 | [ADR-2179](ADR-2179-the-desktop-knowledge-view-is-overview-first.md) | The desktop knowledge view is overview-first — the whole graph legible at a glance, then filtered by highlight | BASELINE-architecture | 2026-11-05 | accepted | partial | staged | — | — | jjohare | visionclaw |

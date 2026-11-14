@@ -3,24 +3,24 @@ id: ADR-2174
 title: Layout forces are learned per relation type, proved offline before they touch the kernel
 date: 2026-11-03
 decision_status: proposed
-implementation_status: none
+implementation_status: partial
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit:
+verified_commit: a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c
 relates: [ADR-2028, ADR-2029, ADR-2035, ADR-2143]
-verified_paths: []
+verified_paths: [crates/relational-field/PREREGISTRATION.md, crates/relational-field/results/h1/summary.json, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, crates/visionclaw-gpu/src/cuda_sources/semantic_forces.cu, crates/visionclaw-domain/src/types/physics_config.rs, src/utils/unified_gpu_compute/execution.rs]
 owner: jjohare
-review_trigger: the preregistered experiment in crates/relational-field reports, the H2 temporal-edge source is chosen, or an Innovate UK application is submitted on this work
+review_trigger: the H2 temporal-edge source is chosen, a further experiment is preregistered, an integration decision is proposed, or an application cites this work
 repo: visionclaw
-evidence_class:
-acceptance_boundary:
+evidence_class: source
+acceptance_boundary: committed H1 result and machine-readable gate summary reviewed; no experiment rerun, kernel integration, deployment or live geometry acceptance
 ---
 
 # ADR-2174 — Layout forces are learned per relation type, proved offline before they touch the kernel
 
 ## Context
-- The force pass gives every edge the same Hooke spring: `springK` 12, `restLength` 50, `repelK` 120, `centerGravityK` 0.2 (`data/settings.yaml`). The layout shows *that* two nodes are near, never *how* they relate.
+- The current force path already consumes typed registry weights. The default edge attraction is LinLog (`crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu:434-437`, `crates/visionclaw-domain/src/types/physics_config.rs:645`); Hooke attraction is the alternative branch (`visionclaw_unified.cu:439-451`). The semantic pass adds configured attribute and relation forces (`src/utils/unified_gpu_compute/execution.rs:955-970`, `crates/visionclaw-gpu/src/cuda_sources/semantic_forces.cu:382-388,560-563`). These hand-set laws are distinct from the proposed learned relation law; the experiment's B0 is a specified CPU comparator, not a measurement of every live GPU force.
 - The visionGraph corpus feeding the ontology volume is 9,610 `Class` pages carrying about fourteen typed relation keys (`is-a`, `has-part`, `requires`, `enables`, `uses`, `contrasts-with`, `bridges-to`, `depends-on`, `implements`, `supports`, `standardized-by`, `related-to`, plus the generic `links`) and a `domain` label.
 - Codescape renders the code graph through the same PTX (ADR-2143), and RuVector already adjusts edge weights over time, so a typed, learned force law would serve the knowledge, ontology and code volumes alike.
 - `SimParams` is a 212-byte ABI mirrored in CUDA (ADR-2028), and the `ForceChannel` registry (`src/models/force_channels.rs`, ADR-2029) is the mapping layer over it, with the spring and DAG radial-bias channels already in the kernel.
@@ -46,11 +46,19 @@ acceptance_boundary:
   - Integration will grow the per-edge GPU data (a relation index plus a small parameter table) and change kernel arity, which Codescape must follow under ADR-2143.
 - **Forbidden until a follow-on ADR is accepted:** shipping learned parameters to the live physics, and changing a preregistered threshold after results exist other than through a recorded deviation.
 - **Follow-on work:**
-  1. Finish and run the experiment: the corpus, split, embedding and simulator modules are drafted; the metrics and runner are not.
-  2. Record results and evidence.
+  1. The original static H1 experiment and its result are recorded; see the review below.
+  2. Preserve the negative result and its D2 exposure disclosure in any subsequent write-up.
   3. Preregister H2 once the RuVector temporal-edge source is identified.
   4. Write the integration ADR if H1 holds.
   5. Draft the application from the real figures. Company facts (SME status, team CVs, IP ownership of the corpus) are for the owner to supply, not to be asserted.
 
 ## Verification
-None yet: `implementation_status` is `none` and nothing is claimed as built. The preregistration's commit timestamps (`422f78b80`, `f3e040b10`) can be checked with `git log --format='%h %cI' -- crates/relational-field/PREREGISTRATION.md`, and establish only that the thresholds came before any result. The drafted modules in `crates/relational-field/src` have not been compiled or run at the time of writing.
+At drafting, the modules had not been compiled or run. The preregistration commits (`422f78b80`, `f3e040b10`) establish the original threshold chronology. The later result below replaces that initial verification state.
+
+## Result reconciliation — 2026-11-14
+
+The original static H1 result is committed on main in [the preregistration](../../crates/relational-field/PREREGISTRATION.md#result-appended-2026-11-10-after-the-single-scored-run-nothing-above-was-changed), with [the machine-readable summary](../../crates/relational-field/results/h1/summary.json). At `a6d05ed1a`, both agree: **H1 is not supported as stated**. Gates 2, 4 and 6 pass; gates 1, 3 and 5 fail. The result records one five-seed run at experiment code `9219ac099` against visionGraph `d8277151a` (9,609 nodes, 168,360 triples and 50 relation types).
+
+The passing gates do not establish typed geometry. RF matches the untyped B1 on hard-negative link prediction; most of its margin over B0 survives degree-preserving rewiring. The learned parameters do not reproduce RF geometry in the simulator. D4 also discloses exposure of D2's held-out target state; any D2 write-up must retain that limitation.
+
+This review compares the committed result and summary, including all six numeric thresholds and verdicts. It does not rerun the experiment. `implementation_status: partial` records the completed offline test while the proposed live force-law integration remains absent. The decision stays proposed and activation inactive. H1 supplies no basis to accept the conditional integration; a further experiment requires its own preregistration, and live kernel changes still require the follow-on ADR specified above.
