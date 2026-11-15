@@ -15,12 +15,17 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const KIND_PANEL_DEFINITION: u16 = 31400;
-pub const KIND_PANEL_STATE: u16 = 31401;
-pub const KIND_ACTION_REQUEST: u16 = 31402;
-pub const KIND_ACTION_RESPONSE: u16 = 31403;
-pub const KIND_PANEL_UPDATE: u16 = 31404;
-pub const KIND_PANEL_RETIRED: u16 = 31405;
+// Single source of truth: the governance kinds are defined by `nostr-bbs-core`
+// (`u64` there; ACSP builders use `u16`, so each is narrowed in a const
+// context, which the compiler checks cannot truncate for 31400..=31405).
+use nostr_bbs_core::governance as gov;
+
+pub const KIND_PANEL_DEFINITION: u16 = gov::KIND_PANEL_DEFINITION as u16;
+pub const KIND_PANEL_STATE: u16 = gov::KIND_PANEL_STATE as u16;
+pub const KIND_ACTION_REQUEST: u16 = gov::KIND_ACTION_REQUEST as u16;
+pub const KIND_ACTION_RESPONSE: u16 = gov::KIND_ACTION_RESPONSE as u16;
+pub const KIND_PANEL_UPDATE: u16 = gov::KIND_PANEL_UPDATE as u16;
+pub const KIND_PANEL_RETIRED: u16 = gov::KIND_PANEL_RETIRED as u16;
 
 // ── Panel vocabulary (kebab-case on the wire) ───────────────────────────────
 
@@ -334,6 +339,23 @@ pub fn extract_tag<'a>(tags: &'a [Vec<String>], name: &str) -> Option<&'a str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The governance kinds are a wire contract with the forum and agentbox:
+    /// fail loudly if the re-exported values ever drift from 31400-31405.
+    #[test]
+    fn governance_kinds_are_31400_to_31405() {
+        assert_eq!(
+            [
+                KIND_PANEL_DEFINITION,
+                KIND_PANEL_STATE,
+                KIND_ACTION_REQUEST,
+                KIND_ACTION_RESPONSE,
+                KIND_PANEL_UPDATE,
+                KIND_PANEL_RETIRED,
+            ],
+            [31400u16, 31401, 31402, 31403, 31404, 31405]
+        );
+    }
 
     /// The example panel from the architecture doc must serialise with
     /// kebab-case enums and snake_case keys — the exact strings the consumer
