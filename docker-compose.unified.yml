@@ -102,18 +102,22 @@ services:
       # headset. ADR-2108: the dev profile arms it BY DEFAULT, so every
       # `launch.sh up dev` backend accepts the HP headset's server-routed HUD
       # writes (View 3D/Flat, Hierarchy, Radial, Layout Mode, Reset) with no
-      # NIP-98 setup. Opt OUT with VISIONCLAW_DEV_MODE=0 in .env/environ.
+      # NIP-98 setup. SECURITY (2026-11-15 estate review): this is now OFF by
+      # default (0) and the dev ports bind to loopback by default
+      # (VISIONCLAW_BIND, below). To restore the LAN-headset loop, put these two
+      # lines in .env: VISIONCLAW_BIND=0.0.0.0 and VISIONCLAW_DEV_MODE=1
+      # (ADR-2108 armed it by default; the default is deliberately reversed).
       # Compiled only into dev/`dev-auth` builds; a release binary REFUSES TO
       # BOOT if this is set (ADR-06 §D11), so it can never reach production.
       #
       # SCOPE (codex review, ADR-2039): this line lives in the DEV service only —
       # NOT in the `*common-environment` anchor and NOT in the production service —
-      # so the always-present `:-1` default is injected only into the dev build
+      # so the `:-0` default is injected only into the dev build
       # (which does not boot-refuse). A release deploy never receives it here.
       # Caveat: both services load `env_file: .env`; do NOT put VISIONCLAW_DEV_MODE
       # in a `.env` shared with a prod deployment, or the release binary will
       # (by design, §D11) refuse to boot on the mere presence of the var.
-      VISIONCLAW_DEV_MODE: "${VISIONCLAW_DEV_MODE:-1}"
+      VISIONCLAW_DEV_MODE: "${VISIONCLAW_DEV_MODE:-0}"
       # ADR-2114 — corpus ingest source. `local` walks the mounted vault; no
       # GitHub credentials are read. Set CORPUS_SOURCE=github to fall back to
       # the remote pull (then PRIVATE_REPO_GITHUB_PAT/GITHUB_OWNER/GITHUB_REPO
@@ -222,8 +226,9 @@ services:
       - agent-workspace:/vault:ro
     ports:
       # Development: Nginx entry point + API port
-      - "${DEV_NGINX_PORT:-3001}:3001"
-      - "${API_PORT:-4000}:4000"
+      # Loopback by default; VISIONCLAW_BIND=0.0.0.0 publishes on the LAN.
+      - "${VISIONCLAW_BIND:-127.0.0.1}:${DEV_NGINX_PORT:-3001}:3001"
+      - "${VISIONCLAW_BIND:-127.0.0.1}:${API_PORT:-4000}:4000"
     networks:
       visionclaw_network:
         aliases:
