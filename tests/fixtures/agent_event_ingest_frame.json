@@ -1,0 +1,22 @@
+{
+  "jsonrpc": "2.0",
+  "method": "notifications/agent_action",
+  "params": {
+    "type": "agent_action",
+    "event": {
+      "version": 3,
+      "id": 918273646,
+      "source_agent_id": 7,
+      "target_node_id": 4242,
+      "action_type": 1,
+      "action_type_name": "update",
+      "timestamp": 1748500000000,
+      "duration_ms": 250,
+      "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "metadata": { "note": "x" }
+    },
+    "message_type": 35,
+    "protocol_version": 2,
+    "timestamp": "2026-05-29T00:00:00.000Z"
+  }
+}

@@ -345,6 +345,34 @@ mod tests {
         )
     }
 
+    /// Shared fixture for the sending side (agentbox): one valid inbound frame
+    /// exactly as [`process_frame`] (parsing `AgentActionNotification`, then
+    /// `is_canonical`) accepts it. Agentbox should test its emitter against
+    /// `tests/fixtures/agent_event_ingest_frame.json`; if this test needs the
+    /// fixture changed, the wire contract has changed.
+    #[test]
+    fn shared_fixture_frame_is_accepted() {
+        let frame = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/agent_event_ingest_frame.json"
+        ));
+        match process_frame(frame) {
+            IngestOutcome::Published {
+                action,
+                provenance_status,
+                crossings_recorded,
+                ctc_present,
+                ..
+            } => {
+                assert_eq!(action, "update");
+                assert_eq!(provenance_status, ProvenanceStatus::Attributed);
+                assert_eq!(crossings_recorded, 0);
+                assert!(!ctc_present);
+            }
+            other => panic!("fixture must be accepted as Published, got {other:?}"),
+        }
+    }
+
     #[test]
     fn canonical_frame_publishes_to_hub_and_round_trips() {
         // Subscribe before publishing so this receiver observes our own frame.
