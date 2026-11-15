@@ -479,6 +479,65 @@ pub async fn decide_as_operator(
     apply_decision(path.into_inner(), req, &state, &client_coordinator).await
 }
 
+/// Environment variable that opts a production deployment out of the
+/// forum-required decide gate (see [`forum_gate`]). Any non-empty value other
+/// than `0`/`false` counts as set.
+pub const ALLOW_DECIDE_WITHOUT_FORUM_ENV: &str = "ALLOW_DECIDE_WITHOUT_FORUM";
+
+/// Is this a production profile? True for a production artefact (no debug
+/// assertions and no `dev-auth`, per [`crate::config::security_profile::BuildIdentity`])
+/// or when `APP_ENV` / `NODE_ENV` is `production` (case-insensitive), the same
+/// runtime signal the elevation actors use for their opt-in defaults.
+fn is_production_profile() -> bool {
+    let env_prod = |name: &str| {
+        std::env::var(name)
+            .map(|v| v.eq_ignore_ascii_case("production"))
+            .unwrap_or(false)
+    };
+    crate::config::security_profile::BuildIdentity::current().is_production_artefact()
+        || env_prod("APP_ENV")
+        || env_prod("NODE_ENV")
+}
+
+/// Pure decision for [`forum_gate`]: `Some(message)` when a decision must be
+/// refused, i.e. production, no forum client, and no explicit opt-out.
+fn forum_gate_refusal(
+    production: bool,
+    forum_configured: bool,
+    opted_out: bool,
+) -> Option<&'static str> {
+    if production && !forum_configured && !opted_out {
+        Some(
+            "decisions are refused: no forum (ACSP) client is configured, so a decision \
+             would never reach the single authority. Set FORUM_RELAY_URL and \
+             ACSP_PANEL_NOSTR_KEY_FILE (or ACSP_PANEL_NOSTR_PRIVKEY), or set \
+             ALLOW_DECIDE_WITHOUT_FORUM=1 to accept local-only decisions.",
+        )
+    } else {
+        None
+    }
+}
+
+/// Refuse a decision with 503 when running in production without a forum client
+/// (unless [`ALLOW_DECIDE_WITHOUT_FORUM_ENV`] is set). Development profiles are
+/// unchanged: the projection is skipped and logged as degraded.
+fn forum_gate(forum_configured: bool) -> Option<HttpResponse> {
+    let opted_out = std::env::var(ALLOW_DECIDE_WITHOUT_FORUM_ENV)
+        .map(|v| {
+            let v = v.trim();
+            !(v.is_empty() || v == "0" || v.eq_ignore_ascii_case("false"))
+        })
+        .unwrap_or(false);
+    forum_gate_refusal(is_production_profile(), forum_configured, opted_out).map(|msg| {
+        warn!("[enrichment-decide] refused: {msg}");
+        HttpResponse::ServiceUnavailable().json(serde_json::json!({
+            "success": false,
+            "code": "forum_not_configured",
+            "error": msg,
+        }))
+    })
+}
+
 /// The shared decide core (REC-2 / D3): validate → mint provenance → persist →
 /// optional Oxigraph write-back → broadcast → `broker:new_case` /
 /// `broker:case_decided` → `CANARY-VC-REC2-CASE`. Both the service route
@@ -490,6 +549,11 @@ pub(crate) async fn apply_decision(
     state: &AppState,
     client_coordinator: &actix::Addr<ClientCoordinatorActor>,
 ) -> HttpResponse {
+    // Production without a forum client would record decisions that never reach
+    // the single authority; refuse before anything is minted or persisted.
+    if let Some(resp) = forum_gate(state.acsp_client.is_some()) {
+        return resp;
+    }
     let record = match record_decision(&case_id, &body) {
         Ok(r) => r,
         Err(e) => {
@@ -919,6 +983,60 @@ mod tests {
         assert!(check_rationale(tier.as_deref(), "approve", Some("ok")).is_err());
         let tier = gate_tier(Some("low"), Some("medium"));
         assert!(check_rationale(tier.as_deref(), "approve", Some("ok")).is_ok());
+    }
+
+    #[test]
+    fn forum_gate_refuses_in_production_without_a_forum_client() {
+        assert!(forum_gate_refusal(true, false, false).is_some());
+    }
+
+    #[test]
+    fn forum_gate_allows_production_with_a_forum_client_or_explicit_opt_out() {
+        assert!(forum_gate_refusal(true, true, false).is_none());
+        assert!(forum_gate_refusal(true, false, true).is_none());
+    }
+
+    #[test]
+    fn forum_gate_leaves_development_unchanged() {
+        assert!(forum_gate_refusal(false, false, false).is_none());
+        assert!(forum_gate_refusal(false, true, false).is_none());
+    }
+
+    /// One test owns every env mutation (APP_ENV, opt-out) so parallel tests
+    /// cannot race on process-global state.
+    #[test]
+    fn forum_gate_reads_the_profile_and_opt_out_from_the_environment() {
+        use actix_web::http::StatusCode;
+        let keys = ["APP_ENV", "NODE_ENV", ALLOW_DECIDE_WITHOUT_FORUM_ENV];
+        let saved: Vec<_> = keys.iter().map(|k| (*k, std::env::var(k).ok())).collect();
+        for k in keys {
+            std::env::remove_var(k);
+        }
+
+        // Development build, no production signal: allowed. (A release
+        // artefact is production by construction, so only assert on dev builds.)
+        if !crate::config::security_profile::BuildIdentity::current().is_production_artefact() {
+            assert!(forum_gate(false).is_none());
+        }
+
+        // Production by runtime profile: refused with 503.
+        std::env::set_var("APP_ENV", "Production");
+        let resp = forum_gate(false).expect("production without forum must refuse");
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+        // A configured forum client passes.
+        assert!(forum_gate(true).is_none());
+        // The explicit opt-out passes, but "0" is not an opt-in.
+        std::env::set_var(ALLOW_DECIDE_WITHOUT_FORUM_ENV, "0");
+        assert!(forum_gate(false).is_some());
+        std::env::set_var(ALLOW_DECIDE_WITHOUT_FORUM_ENV, "1");
+        assert!(forum_gate(false).is_none());
+
+        for (k, v) in saved {
+            match v {
+                Some(v) => std::env::set_var(k, v),
+                None => std::env::remove_var(k),
+            }
+        }
     }
 
     const PK: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
