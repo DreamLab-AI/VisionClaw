@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c
+verified_commit: d1d3fa0d5a70ecf366ccbce6681944a4cce5988d
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -302,3 +302,8 @@ At start-up it is loaded from the Oxigraph store (`load_shared_inference`, `:573
 ## Scoped source review — 2026-11-14
 
 Reviewed the governed-path delta through `a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c`. The dependency-only Cargo changes move nostr-bbs-core to beta.19 and Solid to alpha.21. AppState removes the retired ontology pipeline and adds the ADR-2192 ontology-strength migration: it archives the old quality-gate row before persisting the migrated physics document. Oxigraph is still opened once and shared (`src/app_state.rs:409-414`); settings, enrichment, liveness and KPI remain separate SQLite files (`:417`, `:430`, `:445`, `:475`). The existing graph-share store is separate too (`:484`). This confirms storage composition; it does not establish a cross-store transaction or repeat restore acceptance.
+
+
+## Scoped source review — 2026-11-15
+
+Reviewed the governed-path delta through `d1d3fa0d5a70ecf366ccbce6681944a4cce5988d`. `Cargo.toml` (`ea7de1fb5`, VisionClaw #43) moves the four solid-pod-rs crates from 0.5.0-alpha.21 to alpha.22; the lock also moves `rustix` 1.0.8 to 1.1.6 (RUSTSEC-2026-0486) with `libc` and `linux-raw-sys`. No workspace member, feature or patch changes. No Oxigraph, rusqlite or persistence crate moves, and `src/app_state.rs` is unchanged. Decision intact.

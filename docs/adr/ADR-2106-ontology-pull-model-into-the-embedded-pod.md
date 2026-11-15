@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: d1d3fa0d5a70ecf366ccbce6681944a4cce5988d
 verified_paths: [src/services/ontology_generation.rs, .github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).
@@ -227,3 +227,8 @@ Governed-path changes since `b5200feb4`:
 - `.github/workflows/ontology-publish.yml` (`9f2e75fa3`, `d27b3d2d7`): `push` drops the non-existent `develop` branch; `push` and `pull_request` also fire on `crates/vault/**` and `crates/vault-core/**`; a concurrency group cancels in-progress runs on pull requests only, so a run that moves the `ontology-latest` tag is never cut off half-way; every job gains `timeout-minutes`. `publish-release` and `deploy-target-missing` (the pull-model jobs) keep their steps and conditions.
 
 **Decision and `partial` status unaffected.** Re-run: `git diff b5200feb4..7bd25427e -- <verified_paths>`. Checked by reading that diff and the anchors at HEAD; the workflow was not run for this stamp.
+
+
+## Scoped source review — 2026-11-15
+
+Reviewed the governed-path delta through `d1d3fa0d5a70ecf366ccbce6681944a4cce5988d`. `.github/workflows/ontology-publish.yml` (`d1d3fa0d5`) drops the `pull_request` trigger (`:12`) and deletes the `pr-preview` dry-run job, which only that trigger reached. `push` to main (`:4`), `repository_dispatch` corpus-sync (`:14`) and `workflow_dispatch` are unchanged, as are `build-ontology` (`:140`), `publish-release` (`:294`, still needing `build-ontology`), `deploy-jss` (`:365`) and `deploy-target-missing` (`:560`). The pull model holds: the release the server boot-pulls is still published only from a successful main build. Ontology changes are no longer built on pull requests; run the workflow by dispatch to pre-check one.

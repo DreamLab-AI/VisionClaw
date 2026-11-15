@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c
+verified_commit: d1d3fa0d5a70ecf366ccbce6681944a4cce5988d
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -422,3 +422,8 @@ No actor moved between crates. **Decision and `partial` status hold.** Re-run: `
 ## Scoped source review — 2026-11-14
 
 Reviewed the governed-path delta through `a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c`. The actor changes implement ADR-2192 inside the existing root tree: per-client filter counts and deterministic caps; separate ontology/user constraint caches with one device writer; stored constraint policy routed through the GPU manager and physics supervisor; and archive-before-persist migration of the retired strength setting. The message types change accordingly. No actor is extracted into the actor crate, the crate membership and layer-direction test are unchanged, and the extraction remains partial. Cargo dependency versions move, while CI removes its push trigger and retains pull-request/on-demand definitions. Source review does not repeat the earlier compilation or runtime receipts.
+
+
+## Scoped source review — 2026-11-15
+
+Reviewed the governed-path delta through `d1d3fa0d5a70ecf366ccbce6681944a4cce5988d`. `Cargo.toml` (`ea7de1fb5`, VisionClaw #43) moves the four solid-pod-rs crates from 0.5.0-alpha.21 to alpha.22; the lock also moves `rustix` 1.0.8 to 1.1.6 (RUSTSEC-2026-0486) with `libc` and `linux-raw-sys`. No workspace member, feature or patch changes. `.github/workflows/ci.yml` (`d1d3fa0d5`) gates the advisory `client-quality` job to `workflow_dispatch` (`:254`). `rust-cpu` (`:92`) and its `--test layer_direction` step (`:138`) are unchanged, and the pull-request filter still includes `crates/**` and `Cargo.toml` (`:48`, `:52`), so a crate-boundary change still triggers the machine check. Decision intact.
