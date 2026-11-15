@@ -209,13 +209,27 @@ fn blank_node_triples(path: &Path) -> usize {
 }
 
 #[test]
-fn scaffold_index_is_byte_identical_to_the_python_pipeline() {
+fn scaffold_retains_legacy_payload_and_adds_source_review_metadata() {
     let (_scratch, out) = fixture_and_build();
-    assert_byte_identical(
-        "scaffold-index.json",
+    let expected: serde_json::Value = serde_json::from_str(&without_timestamp(&read(
         &golden_dir().join("python/scaffold-index.json"),
+    )))
+    .unwrap();
+    let mut actual: serde_json::Value = serde_json::from_str(&without_timestamp(&read(
         &out.join("data/scaffold-index.json"),
-    );
+    )))
+    .unwrap();
+    for entry in actual["classes"].as_object_mut().unwrap().values_mut() {
+        assert!(entry["review_binding"]["current"].is_u64());
+        assert!(entry["review_binding"]["stale"].is_u64());
+        assert!(entry["review_binding"]["unbound"].is_u64());
+        // ADR-2024 additions are checked above and by review_binding.rs.
+        // Every historical payload field must still agree with the frozen fixture.
+        for key in ["generated", "verified", "review_binding"] {
+            entry.as_object_mut().unwrap().remove(key);
+        }
+    }
+    assert_eq!(actual, expected);
 }
 
 #[test]
