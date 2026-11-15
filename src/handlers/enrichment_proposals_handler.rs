@@ -215,15 +215,29 @@ pub(crate) fn record_decision(
 /// decision. Uses the minted proposal URN as the subject so the KG node is
 /// owner-scoped + content-addressed.
 fn summary_triples_for(record: &RecordedDecision) -> Vec<(String, String, String)> {
+    summary_triples(
+        record.proposal_urn.as_deref(),
+        &record.case_id,
+        &record.outcome,
+    )
+}
+
+/// The `:summary` triples for one approved decision, from the columns that are
+/// persisted in `enrichment_decisions`. Shared by the decide path and by the
+/// regenerate replay so both produce byte-identical writes.
+pub(crate) fn summary_triples(
+    proposal_urn: Option<&str>,
+    case_id: &str,
+    outcome: &str,
+) -> Vec<(String, String, String)> {
     const P_ENRICHMENT_DECISION: &str = "https://narrativegoldmine.com/ns/v1#enrichmentDecision";
-    let subject = record
-        .proposal_urn
-        .clone()
-        .unwrap_or_else(|| format!("urn:ngm:enrichment-proposal:{}", record.case_id));
+    let subject = proposal_urn
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("urn:ngm:enrichment-proposal:{case_id}"));
     vec![(
         subject,
         P_ENRICHMENT_DECISION.to_string(),
-        record.outcome.clone(),
+        outcome.to_string(),
     )]
 }
 

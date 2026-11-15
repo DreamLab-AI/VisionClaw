@@ -846,7 +846,9 @@ impl OxigraphOntologyRepository {
     /// Mirrors [`clear_inferred_graph`]. Never touches `:assert`/`:inferred`.
     pub async fn clear_derived_graph(&self, which: &str) -> RepoResult<()> {
         let graph = Self::derived_graph_iri(which)?;
-        self.run_update(format!("{PROLOGUE}CLEAR GRAPH <{graph}>\n"))
+        // SILENT: clearing a derived graph that was never written is a no-op,
+        // not an error (a fresh store has neither graph until the first write).
+        self.run_update(format!("{PROLOGUE}CLEAR SILENT GRAPH <{graph}>\n"))
             .await
     }
 
