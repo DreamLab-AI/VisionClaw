@@ -159,6 +159,7 @@ pub fn scaffold_index(
                 .map(|v| v.iter().take(BACKLINK_CAP).cloned().collect::<Vec<_>>())
                 .unwrap_or_default()),
         );
+        entry.extend(record.attestations.clone());
         classes.insert(slug, Value::Object(entry));
     }
 
@@ -424,6 +425,7 @@ mod tests {
             maturity: "draft".into(),
             quality: 0.0,
             legacy_term_id: String::new(),
+            attestations: serde_json::Map::new(),
             generated_by: None,
             sub_class_of: Vec::new(),
             instance_of: Vec::new(),

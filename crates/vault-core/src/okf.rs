@@ -167,13 +167,20 @@ pub struct Stamp {
     pub by: Actor,
     /// When, as an ISO-8601 instant.
     pub at: String,
+    /// Review scope, content binding and future metadata preserved verbatim.
+    #[serde(flatten)]
+    pub extensions: std::collections::BTreeMap<String, Yaml>,
 }
 
 impl Stamp {
     /// Build a stamp.
     #[must_use]
     pub fn new(by: Actor, at: impl Into<String>) -> Self {
-        Self { by, at: at.into() }
+        Self {
+            by,
+            at: at.into(),
+            extensions: std::collections::BTreeMap::default(),
+        }
     }
 
     /// Render as an inline YAML mapping value.
@@ -182,6 +189,11 @@ impl Stamp {
         let mut m = serde_yaml::Mapping::new();
         m.insert(Yaml::String("by".into()), Yaml::String(self.by.as_string()));
         m.insert(Yaml::String("at".into()), Yaml::String(self.at.clone()));
+        for (key, value) in &self.extensions {
+            if key != "by" && key != "at" {
+                m.insert(Yaml::String(key.clone()), value.clone());
+            }
+        }
         Yaml::Mapping(m)
     }
 
@@ -192,7 +204,14 @@ impl Stamp {
         let m = v.as_mapping()?;
         let by = m.get(Yaml::String("by".into()))?.as_str()?.parse().ok()?;
         let at = m.get(Yaml::String("at".into()))?.as_str()?.to_owned();
-        Some(Self { by, at })
+        let extensions = m
+            .iter()
+            .filter_map(|(key, value)| {
+                let key = key.as_str()?;
+                (!matches!(key, "by" | "at")).then(|| (key.to_owned(), value.clone()))
+            })
+            .collect();
+        Some(Self { by, at, extensions })
     }
 }
 

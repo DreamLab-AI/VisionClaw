@@ -266,3 +266,20 @@ Ontology pull publication is not generation-atomic: `src/services/ontology_pull.
 ## Proposed shared ontology workspace extension — 2026-10-11
 
 [Shared workspace proposal](adr/ADR-2137-consume-shared-ontology-workspace.md) is proposed, unimplemented and inactive. Keep authored Markdown and machine-readable headers authoritative while making ontology query stores optional rebuildable projections. Existing accepted invariants and running behaviour are unchanged. OCR and document ingestion are outside this scope.
+
+## Source review and compiler provenance (2026-11-15)
+
+VisionFlow ADR-2024 separates content attribution, compilation, human review,
+logical derivation and governance admission. `vault-core::Page` assesses the exact
+source through Ontomark's portable contract. A changed bound value makes a human
+stamp stale; historical review still protects its keys from automated ingest.
+Stamp scope and digest metadata survive the OKF parser/writer round-trip.
+
+The legacy vault builder identifies itself with `built_by`, carries source review
+counts in scaffold records and `api/v3/pages`, and preserves explicit attestations
+through the public redactor. Counts describe original source content, not redacted
+projection bytes. Missing source attribution remains unknown; compiler identity
+cannot certify content or grant governance admission. Existing context URLs keep
+their meanings; the added review terms use `context/v3.jsonld` and `ns/v3.jsonld`.
+Ontomark owns the digest and assessment rules; the legacy builder remains a
+compatibility consumer pending its separate retirement decision.

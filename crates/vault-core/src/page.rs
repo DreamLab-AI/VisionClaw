@@ -165,6 +165,8 @@ pub struct Page {
     /// The 1-based file line [`Page::body`] starts on, so a body offset can be
     /// reported as a file position.
     pub body_line: usize,
+    /// Exact parsed source for portable review bindings.
+    pub source: String,
 }
 
 impl Page {
@@ -195,7 +197,28 @@ impl Page {
             frontmatter: fm,
             body: split.body.to_owned(),
             body_line: split.body_line,
+            source: text.to_owned(),
         })
+    }
+
+    /// Assess human review against the exact current source using Ontomark.
+    #[must_use]
+    pub fn review_assessment(&self) -> ontomark_parse::certification::Assessment {
+        ontomark_parse::certification::assess(
+            &ontomark_parse::Document::parse(&self.source),
+            "verified",
+        )
+    }
+
+    /// Source review freshness, without inferring content authorship or authority.
+    #[must_use]
+    pub fn review_summary(&self) -> ontomark_parse::provenance::ReviewSummary {
+        let assessment = self.review_assessment();
+        ontomark_parse::provenance::ReviewSummary {
+            current: assessment.current,
+            stale: assessment.stale,
+            unbound: assessment.unbound,
+        }
     }
 
     /// The page's title: the `title` property, else the file stem.

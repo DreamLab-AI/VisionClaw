@@ -375,7 +375,13 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
         whelk::inferred_turtle(&reasoning, &generated),
     );
 
-    let scaffold = indexes::scaffold_index(&corpus, &structural, &backlinks, &generated);
+    let mut scaffold = indexes::scaffold_index(&corpus, &structural, &backlinks, &generated);
+    for record in corpus.public_classes() {
+        if let Some(page) = vault.get(&record.page_id) {
+            scaffold["classes"][record.class_slug()]["review_binding"] =
+                serde_json::to_value(page.review_summary())?;
+        }
+    }
     staged.add("data/scaffold-index.json", to_compact(&scaffold)?);
     let prose = indexes::prose_index(&corpus, &generated);
     staged.add("data/prose-index.json", to_default_utf8(&prose)?);
@@ -393,6 +399,21 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
             doc.page_id.clone(),
         );
     }
+    for doc in &documents {
+        let mut value = doc.value.clone();
+        if let Some(page) = vault.get(&doc.page_id) {
+            value["reviewBinding"] = serde_json::to_value(page.review_summary())?;
+        }
+        staged.add_for(
+            format!("api/v3/pages/{}.json", doc.slug),
+            to_indented(&value)?,
+            doc.page_id.clone(),
+        );
+    }
+    staged.add(
+        "api/v3/pages/_domain-index.json",
+        to_indented(&domain_index)?,
+    );
     staged.add("api/pages/_domain-index.json", to_indented(&domain_index)?);
     staged.add("api/census.json", to_indented(&census)?);
     staged.add(
@@ -409,6 +430,17 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
     staged.add("context/v1.jsonld", context_json.clone());
     staged.add("api/schema/context.jsonld", context_json.clone());
     staged.add("ns/v2.jsonld", context_json);
+    let mut v3 = context.clone();
+    v3["@context"]["reviewBinding"] = serde_json::json!({
+        "@id": "vc:reviewBinding",
+        "@context": {
+            "current": {"@id": "vc:currentReviewCount", "@type": "xsd:nonNegativeInteger"},
+            "stale": {"@id": "vc:staleReviewCount", "@type": "xsd:nonNegativeInteger"},
+            "unbound": {"@id": "vc:unboundReviewCount", "@type": "xsd:nonNegativeInteger"}
+        }
+    });
+    staged.add("context/v3.jsonld", to_indented(&v3)?);
+    staged.add("ns/v3.jsonld", to_indented(&v3)?);
 
     // WebVOWL graph — the explorer's build input.
     staged.add(

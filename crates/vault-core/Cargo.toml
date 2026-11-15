@@ -16,6 +16,7 @@ categories = ["parser-implementations", "text-processing"]
 publish = false
 
 [dependencies]
+ontomark-parse = { version = "0.1.4", features = ["serde"] }
 # The consequence delta a proposal carries (ADR-2147); the engine is shared with ontomark.
 rdfs-certificate = "0.1.0"
 serde = { version = "1", features = ["derive"] }

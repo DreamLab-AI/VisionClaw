@@ -47,6 +47,8 @@ impl Artifact {
 /// The `.generation.json` document (contract C3).
 #[derive(Debug, Clone, Serialize)]
 pub struct Generation {
+    /// Identity of this legacy compiler, separate from content attribution.
+    pub built_by: vault_core::provenance::BuildProducer,
     /// `visionGraph@<sha>`, suffixed `+dirty` for an uncommitted build.
     pub id: String,
     /// The source commit, or `unknown` outside a git checkout. Always the bare
@@ -194,6 +196,10 @@ pub fn generation(
     artifacts: Vec<Artifact>,
 ) -> Generation {
     Generation {
+        built_by: vault_core::provenance::BuildProducer {
+            name: env!("CARGO_PKG_NAME").into(),
+            version: env!("CARGO_PKG_VERSION").into(),
+        },
         id: generation_id(&commit, dirty),
         commit,
         dirty,

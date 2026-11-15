@@ -156,6 +156,9 @@ pub struct ClassRecord {
     /// Who generated the page, from the OKF `generated.by` stamp (an [`Actor`](vault_core::okf::Actor)), or
     /// `None` when the page carries no parseable stamp. Resolved to a `did:nostr`
     /// by the attribution roster at emit time; never guessed.
+    /// Explicit source attestations, separate from compiler identity.
+    pub attestations: serde_json::Map<String, serde_json::Value>,
+    /// Parsed explicit content generator.
     pub generated_by: Option<vault_core::okf::Actor>,
     /// `is-a`.
     pub sub_class_of: Vec<Ref>,
@@ -399,6 +402,14 @@ impl Corpus {
                     .unwrap_or_else(|| "draft".to_owned()),
                 quality: fm.number("quality").unwrap_or(0.0),
                 legacy_term_id: fm.text("legacy-term-id").unwrap_or_default(),
+                attestations: ["generated", "verified"]
+                    .into_iter()
+                    .filter_map(|key| {
+                        fm.get(key)
+                            .and_then(|value| serde_json::to_value(value).ok())
+                            .map(|value| (key.to_owned(), value))
+                    })
+                    .collect(),
                 generated_by: fm
                     .get("generated")
                     .and_then(vault_core::okf::Stamp::from_yaml)

@@ -4055,11 +4055,12 @@ checksum = "2058af92365f7da7fba44c4e6cecee871899676e39b940653e4ffcb353e5baff"
 
 [[package]]
 name = "ontomark-parse"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7ebd909350cc7bb94771f4b8ecf67a74688a4c75727db84598c010232a01400"
+checksum = "85ae4ad2fbec1f522a515f06669500b2e8270d059dff812d9e7375ef8416f071"
 dependencies = [
  "indexmap 2.10.0",
+ "serde",
  "sha2 0.11.0",
  "thiserror 2.0.16",
  "yaml-rust2 0.13.0",
@@ -7323,6 +7324,7 @@ version = "0.1.0"
 dependencies = [
  "hex",
  "indexmap 2.10.0",
+ "ontomark-parse",
  "rdfs-certificate",
  "regex",
  "serde",

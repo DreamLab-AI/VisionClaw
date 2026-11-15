@@ -143,6 +143,9 @@ fn concept_file(record: &ClassRecord) -> String {
             let _ = writeln!(out, "  - {}", r.iri);
         }
     }
+    for (key, value) in &record.attestations {
+        let _ = writeln!(out, "{key}: {value}");
+    }
     let _ = writeln!(out, "---");
     let _ = writeln!(out);
     let _ = writeln!(out, "# {}", record.label);
@@ -211,6 +214,7 @@ scalars:
             maturity: "established".into(),
             quality: 0.5,
             legacy_term_id: String::new(),
+            attestations: serde_json::Map::new(),
             generated_by: None,
             sub_class_of: Vec::new(),
             instance_of: Vec::new(),

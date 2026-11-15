@@ -224,6 +224,7 @@ mod tests {
             maturity: "draft".into(),
             quality: 0.5,
             legacy_term_id: String::new(),
+            attestations: serde_json::Map::new(),
             generated_by: None,
             sub_class_of: Vec::new(),
             instance_of: Vec::new(),

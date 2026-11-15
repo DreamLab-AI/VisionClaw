@@ -89,3 +89,6 @@ pub use page::{load_vault, parse_page, Page, Vault, VaultKind};
 pub use promotion::{Blocker, PromotionState, Transition};
 pub use proposal::{Level, PatchProposal};
 pub use vocabulary::Vocabulary;
+
+/// Portable compiler and review wire metadata shared with Ontomark.
+pub use ontomark_parse::provenance;
