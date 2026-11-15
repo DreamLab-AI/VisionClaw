@@ -160,8 +160,10 @@ impl Handler<crate::actors::messages::InitializeActor> for TaskOrchestratorActor
             let mut to_remove = Vec::new();
 
             for (task_id, task) in &act.active_tasks {
-                if (task.status == ApiTaskState::Completed || task.status == ApiTaskState::Failed)
-                    && (now - task.last_updated).num_minutes() > 5
+                if matches!(
+                    task.status,
+                    ApiTaskState::Completed | ApiTaskState::Failed | ApiTaskState::Stopped
+                ) && (now - task.last_updated).num_minutes() > 5
                 {
                     to_remove.push(task_id.clone());
                 }

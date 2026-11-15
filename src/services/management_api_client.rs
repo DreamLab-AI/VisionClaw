@@ -71,6 +71,8 @@ pub enum TaskState {
     Running,
     Completed,
     Failed,
+    /// Stopped on request (agentbox reports `"stopped"`). Terminal, not a failure.
+    Stopped,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -669,5 +671,16 @@ mod tests {
 
         assert_eq!(client.base_url, "http://agentic-workstation:9090");
         assert_eq!(client.api_key, "test-key");
+    }
+
+    #[test]
+    fn task_state_deserialises_stopped() {
+        let state: TaskState = serde_json::from_str("\"stopped\"").unwrap();
+        assert_eq!(state, TaskState::Stopped);
+        let info: TaskInfo = serde_json::from_str(
+            r#"{"taskId":"t1","agent":"coder","task":"x","provider":"p","status":"stopped","startTime":1,"duration":2}"#,
+        )
+        .unwrap();
+        assert_eq!(info.status, TaskState::Stopped);
     }
 }
