@@ -3363,9 +3363,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.175"
+version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a82ae493e598baaea5209805c49bbf2ea7de956d50d7da0da1164f9c6d28543"
+checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
 
 [[package]]
 name = "libloading"
@@ -3417,9 +3417,9 @@ dependencies = [
 
 [[package]]
 name = "linux-raw-sys"
-version = "0.9.4"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd945864f07fe9f5371a27ad7b52a172b4b499999f1d97574c9fa68373937e12"
+checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
 name = "litemap"
@@ -5406,15 +5406,15 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.0.8"
+version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11181fbabf243db407ef8df94a6ce0b2f9a733bd8be4ad02b4eda9602296cac8"
+checksum = "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa"
 dependencies = [
  "bitflags 2.13.0",
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6010,9 +6010,9 @@ dependencies = [
 
 [[package]]
 name = "solid-pod-rs"
-version = "0.5.0-alpha.21"
+version = "0.5.0-alpha.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b3960401054516783afb507967c472597892033a4545d7c1bdb77f274fa2234"
+checksum = "59b8a7e87c645b62ac3e6de6758408f1d212baf8ddf994af744459feafc187a6"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -6051,9 +6051,9 @@ dependencies = [
 
 [[package]]
 name = "solid-pod-rs-idp"
-version = "0.5.0-alpha.21"
+version = "0.5.0-alpha.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce33a58819f1c3da0fff1223c65c4a26d0d3d9419d761c1619f9a60a11e6a109"
+checksum = "0f2ae34a5d9caa8c7c9d91fb621b382c212c10ad6182198d45d7d9f74147a421"
 dependencies = [
  "argon2",
  "async-trait",
@@ -6080,9 +6080,9 @@ dependencies = [
 
 [[package]]
 name = "solid-pod-rs-nostr"
-version = "0.5.0-alpha.21"
+version = "0.5.0-alpha.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8125ec053fb859969fded7f32dd5efc681a73253d04e10de65d4389939430f5c"
+checksum = "8fcf8362c8dbe4fff98e59ebb4ac5ec0f336883bf5247e04bec56a6974d0bf59"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -6102,9 +6102,9 @@ dependencies = [
 
 [[package]]
 name = "solid-pod-rs-server"
-version = "0.5.0-alpha.21"
+version = "0.5.0-alpha.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c855218db24d9111a502acafebb2726768eb2a81614fede65aa42e2ec6debcc4"
+checksum = "c194f93924ca88d820de93967c823319246f02e14079a571d9bc231d76eb5c2b"
 dependencies = [
  "actix-web",
  "anyhow",
