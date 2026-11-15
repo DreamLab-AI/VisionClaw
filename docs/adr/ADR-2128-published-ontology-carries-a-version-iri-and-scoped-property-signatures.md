@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
+verified_commit: 91fac7731cfb35d4348db3198a8ccb357ee34efe
 verified_paths: [crates/vault/src/build/turtle.rs, crates/vault/src/build/generation.rs, crates/vault/src/build/mod.rs, crates/vault-core/src/vocabulary.rs, crates/vault/tests/golden_parity.rs, crates/vault/tests/golden/README.md]
 owner: jjohare
 review_trigger: the first consumer pinning a versionIRI (agentbox ADR-2129); the first property given a non-Thing domain or range; any change to the ontology IRI itself
@@ -69,3 +69,11 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 Not re-run: no build was permitted. Governing document `docs/VAULT-corpus-format.md` listed this ADR as proposed; corrected in the same change (version 2.3.0).
 
 Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `crates/vault-core/src/vocabulary.rs` reads `validation.blockers` through `canonical_blocker_code` (the `RESOURCE_MUTATED` alias). Relation signatures and their check are untouched. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.
+
+## Re-verification — 2026-11-15
+
+Generation markers add compiler identity, separate from source and ontology digests. Existing version-IRI and property-signature tests pass; the graph digest still excludes its header.
+
+Evidence: `cargo test -p vault-core -p vault --tests` against published
+ontomark-parse 0.1.4: 520 passed, 5 existing diagnostics ignored. The source
+review contract is recorded in VisionFlow ADR-2024 and Ontomark ADR-OM-013.

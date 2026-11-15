@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c
+verified_commit: 91fac7731cfb35d4348db3198a8ccb357ee34efe
 verified_paths: [Cargo.toml, Cargo.lock, crates/vault/Cargo.toml, crates/vault/src/main.rs, crates/vault/tests/shared_layout.rs, src/services/corpus_source/local.rs]
 owner: jjohare
 review_trigger: a layout or discovery change, Ontomark dependency upgrade, or producer cutover
@@ -85,3 +85,11 @@ Governed-path change since `809a859aa`: `crates/vault/src/main.rs` (`a5a265dd4`)
 ## Scoped source review — 2026-11-14
 
 Reviewed the governed-path delta through `a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c`. Cargo manifests move nostr-bbs-core to beta.19 and Solid to alpha.21, with corresponding HTTP, compression and cryptography lock updates. Parsed Ontomark lock entries remain identical: ontomark-compile 0.6.3, ontomark-parse 0.1.3 and ontomark-ngg1 0.1.0, including their sources, checksums and dependency lists. The shared-layout feature declarations, CLI, local-source implementation and tests are unchanged. This source review preserves staged activation; the historical registry/CLI acceptance suite was not rerun.
+
+## Re-verification — 2026-11-15
+
+The lockfile adopts ontomark-parse 0.1.4 with serde for portable review metadata. The shared-layout compiler remains 0.6.3; layout ownership and the deployed filesystem contract are unchanged.
+
+Evidence: `cargo test -p vault-core -p vault --tests` against published
+ontomark-parse 0.1.4: 520 passed, 5 existing diagnostics ignored. The source
+review contract is recorded in VisionFlow ADR-2024 and Ontomark ADR-OM-013.

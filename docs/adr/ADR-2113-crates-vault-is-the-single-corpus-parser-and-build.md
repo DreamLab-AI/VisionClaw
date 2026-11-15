@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: [ADR-2042]
 superseded_by: []
-verified_commit: 81e71126779b0b312b93ab459058ee8977233331
+verified_commit: 91fac7731cfb35d4348db3198a8ccb357ee34efe
 verified_paths: [crates/vault/src/build/mod.rs, crates/vault/src/build/rvdb.rs, crates/vault/src/nostr.rs, crates/vault/tests/golden_parity.rs]
 owner: jjohare
 review_trigger: "`vault build --with-rvdb` run against the live Xinference endpoint, and `vault propose` posting a signed 31402 to the local forum relay (the WS-F end-to-end test); at that point implementation_status moves to complete"
@@ -459,3 +459,11 @@ has not been posted to the local relay.
 Governed-path change since the last stamp: `crates/vault/src/nostr.rs` (`6b811f7a1`): `action_request` refuses a grouped proposal with an actionable error and the `pages` scope tag that only grouped events carried is removed with it. Single-page events are unchanged; the tag assembly, `nostr-bbs-core` signing and the single-parser decision are not affected. **Decision unaffected.** The record's description of the 31402 path (`nostr.rs`) stays true for single-page proposals; a signed grouped 31402 is not currently produced.
 
 Re-run: `git diff 772039bd1..81e711267 -- crates/vault/src/build/mod.rs crates/vault/src/build/rvdb.rs crates/vault/src/nostr.rs crates/vault/tests/golden_parity.rs`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
+
+## Re-verification — 2026-11-15
+
+The legacy builder now preserves explicit attestations and adds source review counts. Golden parity retains all legacy payload fields while allowing the named metadata additions. The portable review rules are owned by Ontomark under VisionFlow ADR-2024; this amends the historical one-crate ownership statement for that contract only.
+
+Evidence: `cargo test -p vault-core -p vault --tests` against published
+ontomark-parse 0.1.4: 520 passed, 5 existing diagnostics ignored. The source
+review contract is recorded in VisionFlow ADR-2024 and Ontomark ADR-OM-013.

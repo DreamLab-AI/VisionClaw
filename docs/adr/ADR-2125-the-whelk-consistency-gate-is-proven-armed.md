@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
+verified_commit: 91fac7731cfb35d4348db3198a8ccb357ee34efe
 verified_paths: [crates/vault-core/src/consistency.rs, crates/vault-core/src/lib.rs, crates/vault/src/model.rs, crates/vault/src/build/turtle.rs, crates/vault/src/whelk.rs, crates/vault/src/validate.rs, crates/vault/src/build/mod.rs, crates/vault/src/propose.rs, crates/vault/tests/probe_consistency.rs, src/actors/elevation_actor.rs]
 owner: jjohare
 review_trigger: the `disjoint-with` key entering ontology/vocabulary.yaml; any proposal to re-enable domain-root disjointness; a WHELK_INCONSISTENT blocker firing on a real proposal
@@ -89,3 +89,11 @@ Governed-path change since the last stamp: `crates/vault/src/propose.rs` (`6b811
 Re-run: `git diff c75004696..81e711267 -- crates/vault-core/src/consistency.rs crates/vault-core/src/lib.rs crates/vault/src/model.rs crates/vault/src/build/turtle.rs crates/vault/src/whelk.rs crates/vault/src/validate.rs crates/vault/src/build/mod.rs crates/vault/src/propose.rs crates/vault/tests/probe_consistency.rs src/actors/elevation_actor.rs`. Read from the diff and the repair record; the repair's own test results are in that record and were not repeated here.
 
 Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `crates/vault/src/propose.rs` names the `RESOURCE_IMMUTABLE` blocker through a constant; the emitted code is byte-identical. The consistency gate is untouched. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.
+
+## Re-verification — 2026-11-15
+
+Only metadata fields and fixture constructors changed in the governed code. The Whelk and conflict controls pass, including the armed inconsistency probes; no trust or review result substitutes for a consistency gate.
+
+Evidence: `cargo test -p vault-core -p vault --tests` against published
+ontomark-parse 0.1.4: 520 passed, 5 existing diagnostics ignored. The source
+review contract is recorded in VisionFlow ADR-2024 and Ontomark ADR-OM-013.

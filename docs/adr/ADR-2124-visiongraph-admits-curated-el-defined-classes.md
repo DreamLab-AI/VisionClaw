@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
+verified_commit: 91fac7731cfb35d4348db3198a8ccb357ee34efe
 verified_paths: [crates/vault-core/src/definition.rs, crates/vault-core/src/lib.rs, crates/vault-core/src/vocabulary.rs, crates/vault/src/whelk.rs, crates/vault/src/build/turtle.rs, crates/vault/src/build/mod.rs, crates/vault/src/validate.rs, crates/vault/src/model.rs, crates/vault/src/projection.rs, crates/vault/tests/defined_classes.rs]
 owner: jjohare
 review_trigger: the first `defines-as` key accepted into ontology/vocabulary.yaml; a corpus build whose wall time with Restrictions::Relevant exceeds the CI budget; any proposal to emit a non-EL class expression
@@ -115,3 +115,11 @@ Governing document `docs/VAULT-corpus-format.md` still listed this ADR as **PROP
 Re-verified 2026-10-30 at c75004696: `crates/vault/src/model.rs` changes one rustdoc link (`[`Actor`](vault_core::okf::Actor)`, the ADR-2147 rustdoc fix). No admission code changed. The decision holds.
 
 Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `crates/vault-core/src/vocabulary.rs` reads `validation.blockers` through `canonical_blocker_code` (the `RESOURCE_MUTATED` alias). Definitions and their checks are untouched. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.
+
+## Re-verification — 2026-11-15
+
+Class records carry explicit attestations through the existing redactor; definition projection and EL reasoning are unchanged. Defined-class, golden and corpus build integration controls pass.
+
+Evidence: `cargo test -p vault-core -p vault --tests` against published
+ontomark-parse 0.1.4: 520 passed, 5 existing diagnostics ignored. The source
+review contract is recorded in VisionFlow ADR-2024 and Ontomark ADR-OM-013.

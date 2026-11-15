@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 91fac7731cfb35d4348db3198a8ccb357ee34efe
 verified_paths: [crates/vault/src/main.rs, crates/vault-core/Cargo.toml]
 owner: jjohare
 review_trigger: "any reintroduction of a corpus-format converter, a JSON-LD fence reader or migration mapping types; a second supported authored format"
@@ -74,3 +74,11 @@ remain in force; this stamp does not repeat historical runtime measurements.
 ## Re-verification — 2026-11-07 (`7bd25427e`)
 
 Governed-path change since `974daf5d2`: `crates/vault/src/main.rs` (`a5a265dd4`) lets a grouped `vault propose --dry-run` run without a signing key (`:455-461`, `:520-535`). No subcommand was added or removed. The close-out cites the retired-command test at `crates/vault/src/main.rs:895`; it is now `retired_migration_command_is_rejected` at `:941-942`, and `parse(&["migrate", "--fences-to-properties"])` must still fail. **Decision unaffected.** Re-run: `git diff 974daf5d2..7bd25427e -- crates/vault/src/main.rs`. Checked by reading that diff and the test at HEAD; the test was not re-run for this stamp.
+
+## Re-verification — 2026-11-15
+
+The manifest adds the published portable Ontomark parser for review assessment. The retired converter stays absent; no migration command or corpus rewrite was reintroduced.
+
+Evidence: `cargo test -p vault-core -p vault --tests` against published
+ontomark-parse 0.1.4: 520 passed, 5 existing diagnostics ignored. The source
+review contract is recorded in VisionFlow ADR-2024 and Ontomark ADR-OM-013.

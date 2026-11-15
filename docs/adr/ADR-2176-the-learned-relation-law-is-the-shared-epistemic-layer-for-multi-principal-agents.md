@@ -7,7 +7,7 @@ implementation_status: none
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c
+verified_commit: 91fac7731cfb35d4348db3198a8ccb357ee34efe
 relates: [ADR-2174, ADR-2139, ADR-2157, ADR-2160, ADR-2170, ADR-2022, ADR-2115]
 verified_paths: [crates/relational-field/src/lib.rs, crates/relational-field/src/bin/h1.rs, crates/relational-field/results/h1/summary.json, crates/relational-field/Cargo.toml, crates/relational-field/PREREGISTRATION.md, crates/relational-field/PREREGISTRATION-D2.md, src/services/semantic_type_registry.rs, crates/visionclaw-domain/src/utils/visibility_filter.rs, src/handlers/api_handler/graph/mod.rs, docs/DATA-authority-erasure.md]
 owner: jjohare
@@ -95,3 +95,11 @@ Governed-path change: `src/handlers/api_handler/graph/mod.rs`, where `GET /api/g
 ## Scoped source review — 2026-11-14
 
 Reviewed the governed-path delta through `a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c`. The governed preregistration now includes D4 and the original static H1 result. It reports H1 not supported: gates 1, 3 and 5 fail, while 2, 4 and 6 pass. The committed summary agrees with all six numeric comparisons. The result supplies no evidence for activating the shared learned law, and the D2 target-state exposure disclosure must accompany any later D2 result. I1–I4 and M1–M4 retain their separate acceptance requirements. ADR-2174 now records this result and corrects its live-force description (I5). This record remains proposed/none/inactive; no federated inference or live kernel integration was implemented by the offline experiment.
+
+## Re-verification — 2026-11-15
+
+The governing document adds an independent source-review/provenance section. Learned relation laws, qualification rules and epistemic-layer status are unchanged; no review digest is treated as learned evidence or admission authority.
+
+Evidence: `cargo test -p vault-core -p vault --tests` against published
+ontomark-parse 0.1.4: 520 passed, 5 existing diagnostics ignored. The source
+review contract is recorded in VisionFlow ADR-2024 and Ontomark ADR-OM-013.

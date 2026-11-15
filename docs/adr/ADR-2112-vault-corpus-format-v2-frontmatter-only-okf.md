@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: [ADR-2040]
 superseded_by: []
-verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
+verified_commit: 91fac7731cfb35d4348db3198a8ccb357ee34efe
 verified_paths: [crates/vault/src/validate.rs, crates/vault-core/src/vocabulary.rs, crates/vault/tests/golden_parity.rs]
 owner: jjohare
 review_trigger: "Activation (staged → live): PRD acceptance 2, one class count across Loom, VisionClaw and `vault build --stats` for the same generation; or the first Schema-level proposal against ontology/vocabulary.yaml, whichever is earlier"
@@ -237,3 +237,11 @@ The Verification section's outstanding list, item by item:
 Still open, for `live`: PRD acceptance 2 (see `review_trigger`).
 
 Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `crates/vault-core/src/vocabulary.rs` reads `validation.blockers` through `vault_core::promotion::canonical_blocker_code`, so the corpus's `RESOURCE_MUTATED` reads as the emitted `RESOURCE_IMMUTABLE`. Frontmatter and vocabulary parsing are otherwise unchanged. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.
+
+## Re-verification — 2026-11-15
+
+Frontmatter-only parsing and the OKF header remain the format contract. The
+golden scaffold comparison now allows only the explicit provenance fields added
+by VisionFlow ADR-2024, and still compares every legacy payload field. All 15
+golden tests pass; the complete vault/core test run passes 520 tests with 5
+existing diagnostics ignored. No legacy fence reader was reintroduced.
