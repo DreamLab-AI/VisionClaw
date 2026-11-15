@@ -252,7 +252,9 @@ jobs:
 
   # ── NON-BLOCKING (advisory / hardware-gated) ──────────────────────────────
   client-quality:
-    name: Client lint + typecheck (advisory)
+    name: Client lint + typecheck (advisory, manual)
+    # Manual only (Actions volume, 2026-11-15): run it with workflow_dispatch.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Advisory only: the client tree has not yet been audited lint/type clean.
