@@ -9,14 +9,8 @@ on:
       - 'crates/vault/**'
       - 'crates/vault-core/**'
       - '.github/workflows/ontology-publish.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'ontology/**'
-      - 'public/ontology/**'
-      - 'crates/vault/**'
-      - 'crates/vault-core/**'
-      - '.github/workflows/ontology-publish.yml'
+  # pull_request dropped 2026-11-15 (Actions volume): the push to main rebuilds,
+  # and publish-release needs build-ontology, so a broken build never publishes.
   repository_dispatch:
     types: [corpus-sync]
   workflow_dispatch:
@@ -558,57 +552,6 @@ jobs:
 
           WebSocket subscribers notified at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
           EOF
-
-  pr-preview:
-    name: PR Preview (Dry Run)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    needs: build-ontology
-    if: github.event_name == 'pull_request'
-
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          path: artifacts/
-
-      - name: Generate PR comment
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
-        with:
-          script: |
-            const fs = require('fs');
-
-            // Read manifest
-            const manifest = JSON.parse(fs.readFileSync('artifacts/ontology-jsonld/index.jsonld', 'utf8'));
-
-            // Read stats if available
-            let stats = { triples: 'N/A', pages_processed: 'N/A' };
-            try {
-              stats = JSON.parse(fs.readFileSync('artifacts/ontology-ttl/visionflow.stats.json', 'utf8'));
-            } catch (e) {}
-
-            const comment = `## Ontology Conversion Preview
-
-            **Conversion Status**: Success
-            **TTL SHA1**: \`${{ needs.build-ontology.outputs.ttl_sha }}\`
-            **JSON-LD SHA1**: \`${{ needs.build-ontology.outputs.jsonld_sha }}\`
-
-            ### Statistics
-            - Triples generated: ${stats.triples}
-            - Pages processed: ${stats.pages_processed}
-            - Resources in manifest: ${manifest['ldp:contains']?.length || 0}
-
-            ### Preview Files
-            Artifacts are available for download from the workflow run.
-
-            **Note**: This is a dry run. Merge to \`main\` to deploy to JSS.`;
-
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: comment
-            });
 
   # deploy-jss is the PUSH path, only for a deployment whose pod is reachable
   # from a runner (vars.SOLID_POD_URL). The default delivery is the PULL model

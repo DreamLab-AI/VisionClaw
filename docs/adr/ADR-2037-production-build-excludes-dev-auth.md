@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c
+verified_commit: d1d3fa0d5a70ecf366ccbce6681944a4cce5988d
 verified_paths: [src/config/security_profile.rs, src/main.rs, .github/workflows/ci.yml, Dockerfile.production]
 owner: jjohare
 review_trigger: any change to the production Dockerfile build line, the dev-auth feature gates, or enforce_release_env_hygiene
@@ -205,3 +205,8 @@ Governed-path changes since `b5200feb4`:
 ## Scoped source review — 2026-11-14
 
 Reviewed the governed-path delta through `a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c`. The only governed delta removes the CI push-to-main trigger; pull-request and workflow_dispatch definitions remain. The dev-auth-release-gate job is unchanged at `.github/workflows/ci.yml:162`, as are production Dockerfiles and release hygiene code. Repository Actions are currently disabled, so the presence of the job is not evidence that it runs. The binary/image acceptance boundary and proposed/partial/staged status remain.
+
+
+## Scoped source review — 2026-11-15
+
+Reviewed the governed-path delta through `d1d3fa0d5a70ecf366ccbce6681944a4cce5988d`. `.github/workflows/ci.yml` (`d1d3fa0d5`) gates only the advisory `client-quality` job to `workflow_dispatch` (`:254`). `dev-auth-release-gate` (`:162`) is byte-identical, still blocking, and still fires on pull requests; it passed on VisionClaw #44. Production Dockerfiles and release hygiene code are unchanged. The binary/image acceptance boundary and proposed/partial/staged status remain.

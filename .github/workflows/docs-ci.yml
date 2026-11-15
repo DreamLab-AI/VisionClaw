@@ -43,7 +43,9 @@ jobs:
         run: bash scripts/adr-ratchet.sh docs/adr "${BASE:-0}" "${{ github.sha }}"
 
   validate-documentation:
-    name: Validate Documentation Quality
+    name: Validate Documentation Quality (manual)
+    # Manual only (Actions volume, 2026-11-15): run it with workflow_dispatch.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 

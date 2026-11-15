@@ -34,7 +34,8 @@ on:
       - 'crates/visionclaw-tri-layout/**'
       - 'crates/visionclaw-splat/**'
       - 'crates/visionclaw-wire/**'
-      - 'Cargo.lock'
+      # Cargo.lock dropped 2026-11-15: a dependency-only PR no longer fans out
+      # to Godot; xr-presence is covered by ci.yml's rust-cpu. Dispatch for the rest.
       - '.github/workflows/xr-godot-ci.yml'
   workflow_dispatch:
 
@@ -139,7 +140,9 @@ jobs:
 
   # ── NON-BLOCKING ──────────────────────────────────────────────────────────
   quest3-android:
-    name: Quest 3 arm64 APK export (advisory until first green run)
+    name: Quest 3 arm64 APK export (advisory, manual)
+    # Manual only (Actions volume, 2026-11-15): run it with workflow_dispatch.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     continue-on-error: true
