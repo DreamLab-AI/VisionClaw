@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 5a9b6fc3801c17c4e45ae71b974ea8d609553936
+verified_commit: 2671bdb5f08c642bfb7a5b78da228e2851018930
 verified_paths: [crates/visionclaw-backup/src/run.rs, crates/visionclaw-backup/src/checkpoint.rs, crates/visionclaw-backup/tests/restore_roundtrip.rs, src/services/ontology_checkpoint.rs, src/services/data_reconciliation.rs, docs/how-to/store-backup-restore.md]
 owner: jjohare
 review_trigger: an Oxigraph/RocksDB data-loss incident, a restore drill, or any change to scripts/backup-sqlite.sh's membership contract
@@ -17,6 +17,17 @@ lineage: extends ADR-2017 (SQLite-only online backup, no PITR for Oxigraph); ADR
 ---
 
 # ADR-2103 — Give Oxigraph a point-in-time backup with a declared RPO and RTO
+
+Deployment verification, 2026-11-16: the combined implementation and updated
+how-to were reviewed together. The real stopped-server backup restored into
+an empty directory in 19.512 seconds with 2,093,326 quads and all SQLite
+integrity/content checks passing. The server then produced its first live
+checkpoint, the read-only nightly service completed against it, and its user
+timer was enabled. See
+[the rollout receipt](../estate-closeout/2026-11-16/deployment-rollout.md).
+This is an executed restore measurement, not an end-to-end recovery SLA,
+cross-store transaction or continuous PITR claim; partial implementation and
+the record's existing decision status are retained.
 
 ## Context
 
