@@ -124,6 +124,14 @@ services:
       CORPUS_SOURCE: "${CORPUS_SOURCE:-local}"
       VAULT_ROOT: "${VAULT_ROOT:-/vault/visionGraph}"
       VAULT_BASE_PATHS: "${VAULT_BASE_PATHS:-knowledge,working}"
+      # ADR-2106 amendment (2026-11-16) — pod ontology source, local like the
+      # corpus. scripts/ontology/build-local-release.sh (run in agentbox) builds
+      # the vault's committed HEAD into ~/workspace/.ontology-release, seen here
+      # read-only through the /vault mount. The GitHub release `ontology-latest`
+      # is parked (network-expensive); to use it again set ONTOLOGY_PULL_URL to
+      # https://github.com/DreamLab-AI/VisionClaw/releases/download/ontology-latest
+      # and run ontology-publish.yml by dispatch.
+      ONTOLOGY_PULL_URL: "${ONTOLOGY_PULL_URL:-file:///vault/.ontology-release/current}"
       # ADR-142 multi-user RBAC (defaults are fail-closed; these preserve the
       # current single-operator behaviour *visibly*):
       #  - RBAC_PUBLIC_READS=1 keeps anonymous /api GET reads open (client fetches
