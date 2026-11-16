@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: d1d3fa0d5a70ecf366ccbce6681944a4cce5988d
+verified_commit: 83a17dd6270ccb2095efa09fdc50762b58b733c9
 verified_paths: [Cargo.toml, scripts/rust-backend-wrapper.sh, build.rs]
 owner: jjohare
 review_trigger: a runtime-performance regression traced to the dev-runtime profile, or a move to pre-baked dev binaries (ADR-2008)
