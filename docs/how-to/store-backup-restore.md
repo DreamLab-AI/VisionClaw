@@ -5,8 +5,10 @@ store and the SQLite databases in one run, checks a run against its manifest,
 and rebuilds the stores from a run into an empty directory. It implements
 ADR-2103 and extends ADR-2017; the owner's decision is register row G-7.
 
-**Status: built and tested against synthetic stores, on a branch. Not merged, not
-scheduled, not running; it has not been run against the live stores.** See [What is not yet switched on](#what-is-not-yet-switched-on).
+**Status (2026-11-16): merged and deployed. A real stopped-server backup has
+verified and restored successfully into an empty scratch directory.** Host
+checkpoint/schedule activation evidence is recorded in
+[the deployment receipt](../estate-closeout/2026-11-16/deployment-rollout.md).
 
 Deployment integration (2026-11-16): compose now mounts a dedicated
 `visionclaw-checkpoints` volume outside `/app/data`. The dev Solid root
@@ -30,7 +32,9 @@ not part of the store-backup tool's coverage.
 Not covered by this tool (listed so the gap is visible): the payment and
 exchange ledger (`cfg.ledger_dir`), Solid pod data (`/app/data/solid`),
 `/app/data/metadata` and `/app/data/markdown`. The corpus is sourced from GitHub
-and the vault; the ledger and pod data are not rebuildable and have no backup.
+and the vault; the ledger and pod data are not rebuildable and have no recurring
+backup from this tool. The November deployment retains a separate one-off
+Solid migration archive; that does not close recurring backup coverage.
 
 ## What a run contains
 
@@ -127,9 +131,9 @@ example systemd service and timer are in `scripts/systemd/`
 (`*.example`; nothing installs them). They run the tool nightly at 03:15 and mark
 the unit failed on a non-zero exit.
 
-## What is not yet switched on
+## Deployment checklist
 
-Nothing here is merged, scheduled or running. To switch it on:
+For another installation, explicitly provision and verify each step:
 
 1. Merge `feat/store-backup-and-restore` and rebuild the server image (the checkpoint
    task is in the server binary). On the production image, add a volume for the
@@ -143,4 +147,12 @@ Nothing here is merged, scheduled or running. To switch it on:
 5. Check the server log for `ontology checkpoint: wrote`, run `visionclaw-backup verify` on the first run, then a `restore` into an empty directory on the live data and time it: that figure is the RTO ADR-2103 asks for.
 
 Evidence that the tool works: `docs/estate-closeout/2026-11-16/store-backup-restore-test.md`
-(synthetic stores only).
+(synthetic fixtures), plus the linked deployment receipt (real stores).
+
+The deployed host uses a user-systemd Docker one-shot, not direct traversal of
+Docker's private volume directories: data and checkpoints are read-only mounts,
+network is disabled, the executable is mounted read-only, output is the private
+NAS directory, and `UMask=0077` applies inside and outside the container. The
+example host-binary unit remains a template, not an installer. Both approaches
+must refuse a missing NAS mount. Keep the one-shot's image and executable when
+reclaiming old runtime images.
