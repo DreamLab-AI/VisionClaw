@@ -7657,6 +7657,7 @@ dependencies = [
  "visionclaw-actors",
  "visionclaw-adapters",
  "visionclaw-analytics-oracle",
+ "visionclaw-backup",
  "visionclaw-domain",
  "visionclaw-gpu",
  "visionclaw-jev",

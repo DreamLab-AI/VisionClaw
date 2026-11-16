@@ -13,8 +13,8 @@ use std::path::Path;
 use std::thread::sleep;
 use std::time::Duration;
 use visionclaw_backup::{
-    backup, restore, sqlite_content_digest, verify, BackupRequest, MANIFEST_FILE, OPTIONAL_SQLITE,
-    REQUIRED_SQLITE,
+    backup, backup_at, checkpoint, restore, sqlite_content_digest, verify, BackupRequest,
+    OxigraphSource, MANIFEST_FILE, OPTIONAL_SQLITE, REQUIRED_SQLITE,
 };
 
 const PROVENANCE: &str = "urn:graph:provenance";
@@ -135,7 +135,7 @@ fn fixture(include_optional: bool, skip_required: Option<&str>) -> Fixture {
 fn request(f: &Fixture, keep: usize) -> BackupRequest {
     BackupRequest {
         data_dir: f.data.clone(),
-        oxigraph_dir: None,
+        oxigraph: OxigraphSource::Store(None),
         dest_root: f.dest.clone(),
         keep,
     }
@@ -301,7 +301,7 @@ fn a_checkpoint_directory_can_be_backed_up_while_the_store_stays_open() {
     let checkpoint = f.dest.parent().expect("parent").join("checkpoint");
     server.backup(&checkpoint).expect("server-side checkpoint");
     let mut req = request(&f, 14);
-    req.oxigraph_dir = Some(checkpoint);
+    req.oxigraph = OxigraphSource::Store(Some(checkpoint));
     let outcome = backup(&req).expect("backup of checkpoint beside a live store");
     assert_eq!(
         outcome.manifest.artefacts.len(),
@@ -360,4 +360,79 @@ fn retention_keeps_the_newest_runs_and_ignores_partial_folders() {
     assert_eq!(runs.len(), 2, "{runs:?}");
     assert_eq!(runs.last(), Some(&last), "newest run survives");
     assert!(f.dest.join(".20200101T000000Z.partial").exists());
+}
+
+fn checkpoint_request(f: &Fixture, dir: &Path) -> BackupRequest {
+    BackupRequest {
+        oxigraph: OxigraphSource::Checkpoint {
+            dir: dir.to_path_buf(),
+            max_age: Duration::from_secs(24 * 3600),
+        },
+        ..request(f, 14)
+    }
+}
+
+#[test]
+fn a_fresh_server_checkpoint_is_backed_up_and_restores_to_the_same_quads() {
+    let f = fixture(true, None);
+    let original_quads = quads_of(&f.data.join("oxigraph"));
+    // The server holds the store open while its task checkpoints it.
+    let server = Store::open(f.data.join("oxigraph")).expect("hold the store like a server");
+    let cp_dir = f.dest.parent().expect("parent").join("checkpoints");
+    let cp = checkpoint::write(&server, &cp_dir).expect("server-side checkpoint");
+
+    let outcome = backup(&checkpoint_request(&f, &cp_dir)).expect("backup from checkpoint");
+    let record = outcome
+        .manifest
+        .oxigraph_checkpoint
+        .as_ref()
+        .expect("manifest records the checkpoint");
+    assert_eq!(record.name, cp.name);
+    assert_eq!(record.taken_utc, cp.sidecar.taken_utc);
+    assert_eq!(record.triples, 7);
+    verify(&outcome.run_dir).expect("verify");
+
+    drop(server);
+    let target = f.dest.join("restored");
+    let (_, manifest) = restore(&outcome.run_dir, &target).expect("restore");
+    assert_eq!(manifest, outcome.manifest);
+    assert_eq!(quads_of(&target.join("oxigraph")), original_quads);
+    assert_eq!(provenance_count(&target.join("oxigraph")), 3);
+}
+
+#[test]
+fn a_stale_checkpoint_is_refused_and_nothing_is_published() {
+    let f = fixture(true, None);
+    let server = Store::open(f.data.join("oxigraph")).expect("hold the store like a server");
+    let cp_dir = f.dest.parent().expect("parent").join("checkpoints");
+    let cp = checkpoint::write(&server, &cp_dir).expect("checkpoint");
+    let later = cp.taken().expect("taken") + chrono::Duration::hours(25);
+    let err = backup_at(&checkpoint_request(&f, &cp_dir), later).expect_err("must refuse");
+    let text = format!("{err:#}");
+    assert!(
+        text.contains("oxigraph") && text.contains("24 h maximum"),
+        "{text}"
+    );
+    assert!(complete_runs(&f.dest).is_empty());
+    let soon = cp.taken().expect("taken") + chrono::Duration::hours(1);
+    backup_at(&checkpoint_request(&f, &cp_dir), soon).expect("a young checkpoint passes");
+}
+
+#[test]
+fn an_empty_checkpoint_directory_is_refused_by_name() {
+    let f = fixture(true, None);
+    let cp_dir = f.dest.parent().expect("parent").join("none");
+    fs::create_dir_all(&cp_dir).expect("mkdir");
+    let err = backup(&checkpoint_request(&f, &cp_dir)).expect_err("must refuse");
+    assert!(
+        format!("{err:#}").contains("no complete Oxigraph checkpoint"),
+        "{err:#}"
+    );
+}
+
+#[test]
+fn a_direct_dump_leaves_no_checkpoint_record() {
+    let f = fixture(true, None);
+    let outcome = backup(&request(&f, 14)).expect("backup");
+    assert!(outcome.manifest.oxigraph_checkpoint.is_none());
 }

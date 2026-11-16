@@ -39,22 +39,34 @@ pub(crate) struct DumpFacts {
     pub quads: u64,
 }
 
+/// How the source store is opened.
+#[derive(Clone, Copy)]
+pub(crate) enum Access {
+    /// A live or stopped store: opened read-write because Oxigraph forbids a
+    /// read-only reader beside a live writer, so a store locked by a running
+    /// server fails by name instead of being read unsafely.
+    ReadWrite,
+    /// A server checkpoint: nobody writes to it, and a read-only open leaves the
+    /// artefact being copied untouched.
+    ReadOnly,
+}
+
 /// Dumps every graph of the store at `store_dir` to `out` as N-Quads.
-///
-/// The store is opened read-write because Oxigraph forbids a read-only reader
-/// beside a live writer; a store locked by a running server therefore fails
-/// here, by name, instead of being read unsafely.
-pub(crate) fn dump(store_dir: &Path, out: &Path) -> Result<DumpFacts> {
+pub(crate) fn dump(store_dir: &Path, out: &Path, access: Access) -> Result<DumpFacts> {
     if !store_dir.join("CURRENT").is_file() {
         bail!(
             "{} is not an Oxigraph store (no RocksDB CURRENT file)",
             store_dir.display()
         );
     }
-    let store = Store::open(store_dir).with_context(|| {
+    let opened = match access {
+        Access::ReadWrite => Store::open(store_dir),
+        Access::ReadOnly => Store::open_read_only(store_dir),
+    };
+    let store = opened.with_context(|| {
         format!(
             "cannot open Oxigraph store {}: if the server is running it holds the lock; \
-             stop it or back up a checkpoint directory instead",
+             stop it or back up the server's checkpoint directory (--checkpoint-dir) instead",
             store_dir.display()
         )
     })?;

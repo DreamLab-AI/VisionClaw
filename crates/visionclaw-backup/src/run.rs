@@ -1,12 +1,13 @@
 //! The backup, verify and restore operations.
 
-use crate::manifest::{Artefact, ArtefactKind, Manifest, MANIFEST_FILE};
-use crate::{oxigraph_dump, sqlite_snapshot};
+use crate::manifest::{Artefact, ArtefactKind, CheckpointRecord, Manifest, MANIFEST_FILE};
+use crate::{checkpoint, oxigraph_dump, sqlite_snapshot};
 use anyhow::{anyhow, bail, Context, Result};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 /// SQLite databases whose absence fails a run: authored configuration, the
 /// enrichment decision ledger, the KPI series and shared graphs. None can be
@@ -29,13 +30,29 @@ const OXIGRAPH_RESTORE_DIR: &str = "oxigraph";
 const STAMP_FORMAT: &str = "%Y%m%dT%H%M%SZ";
 const STAMP_LEN: usize = 16;
 
+/// Where the Oxigraph part of a run comes from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OxigraphSource {
+    /// Dump a store directly (default `<data_dir>/oxigraph`). Works only when no
+    /// server holds the store; a held store fails with a named error.
+    Store(Option<PathBuf>),
+    /// Dump the latest complete checkpoint the server wrote into `dir` (see
+    /// [`crate::checkpoint`]). Refused when it is older than `max_age`.
+    Checkpoint {
+        /// The server's `ONTOLOGY_CHECKPOINT_DIR`.
+        dir: PathBuf,
+        /// Oldest acceptable checkpoint.
+        max_age: Duration,
+    },
+}
+
 /// What to back up and where to put it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackupRequest {
     /// The server's data directory, holding the SQLite files and `oxigraph/`.
     pub data_dir: PathBuf,
-    /// Oxigraph store or checkpoint directory; defaults to `<data_dir>/oxigraph`.
-    pub oxigraph_dir: Option<PathBuf>,
+    /// Where the Oxigraph dump is taken from.
+    pub oxigraph: OxigraphSource,
     /// Folder that receives one dated sub-folder per run.
     pub dest_root: PathBuf,
     /// Number of complete runs to keep; at least one.
@@ -88,6 +105,20 @@ fn sync_dir(dir: &Path) -> Result<()> {
 /// a required store is missing or cannot be backed up, or any file operation
 /// fails.
 pub fn backup(request: &BackupRequest) -> Result<BackupOutcome> {
+    backup_at(request, chrono::Utc::now())
+}
+
+/// [`backup`] with an explicit clock: `now` names the run and judges how old a
+/// checkpoint may be. Exists so staleness can be tested without sleeping.
+///
+/// # Errors
+///
+/// As [`backup`], and additionally when a checkpoint source is older than its
+/// maximum age.
+pub fn backup_at(
+    request: &BackupRequest,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<BackupOutcome> {
     if request.keep == 0 {
         bail!("keep must be at least 1");
     }
@@ -95,14 +126,14 @@ pub fn backup(request: &BackupRequest) -> Result<BackupOutcome> {
         .data_dir
         .canonicalize()
         .with_context(|| format!("data directory {}", request.data_dir.display()))?;
-    let oxigraph_dir = request
-        .oxigraph_dir
-        .clone()
-        .unwrap_or_else(|| data_dir.join("oxigraph"));
+    let oxigraph_guard = match &request.oxigraph {
+        OxigraphSource::Store(dir) => dir.clone().unwrap_or_else(|| data_dir.join("oxigraph")),
+        OxigraphSource::Checkpoint { dir, .. } => dir.clone(),
+    };
     fs::create_dir_all(&request.dest_root)
         .with_context(|| format!("creating {}", request.dest_root.display()))?;
     let dest_root = request.dest_root.canonicalize()?;
-    for source in [&data_dir, &oxigraph_dir] {
+    for source in [&data_dir, &oxigraph_guard] {
         if let Ok(source) = source.canonicalize() {
             if dest_root.starts_with(&source) {
                 bail!(
@@ -114,7 +145,7 @@ pub fn backup(request: &BackupRequest) -> Result<BackupOutcome> {
         }
     }
 
-    let started = chrono::Utc::now();
+    let started = now;
     let stamp = started.format(STAMP_FORMAT).to_string();
     let run_dir = dest_root.join(&stamp);
     let partial = dest_root.join(format!(".{stamp}.partial"));
@@ -123,7 +154,7 @@ pub fn backup(request: &BackupRequest) -> Result<BackupOutcome> {
     }
     fs::create_dir(&partial)?;
 
-    let result = write_run(&partial, &data_dir, &oxigraph_dir, started);
+    let result = write_run(&partial, &data_dir, &request.oxigraph, started);
     let manifest = match result {
         Ok(manifest) => manifest,
         Err(err) => {
@@ -144,21 +175,19 @@ pub fn backup(request: &BackupRequest) -> Result<BackupOutcome> {
 fn write_run(
     partial: &Path,
     data_dir: &Path,
-    oxigraph_dir: &Path,
+    source: &OxigraphSource,
     started: chrono::DateTime<chrono::Utc>,
 ) -> Result<Manifest> {
     let mut artefacts = Vec::new();
     let mut absent_optional = Vec::new();
     let mut failures: Vec<String> = Vec::new();
 
-    match oxigraph_dump::dump(oxigraph_dir, &partial.join(OXIGRAPH_ARTEFACT)) {
-        Ok(facts) => artefacts.push(Artefact {
-            name: OXIGRAPH_ARTEFACT.to_owned(),
-            bytes: facts.bytes,
-            sha256: facts.sha256,
-            required: true,
-            kind: ArtefactKind::OxigraphNquads { quads: facts.quads },
-        }),
+    let mut oxigraph_checkpoint = None;
+    match dump_oxigraph(partial, data_dir, source, started) {
+        Ok((artefact, record)) => {
+            artefacts.push(artefact);
+            oxigraph_checkpoint = record;
+        }
         Err(err) => failures.push(format!("oxigraph: {err:#}")),
     }
 
@@ -211,12 +240,60 @@ fn write_run(
         created_utc: started.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         artefacts,
         absent_optional,
+        oxigraph_checkpoint,
     };
     let path = partial.join(MANIFEST_FILE);
     fs::write(&path, serde_json::to_vec_pretty(&manifest)?)?;
     File::open(&path)?.sync_all()?;
     sync_dir(partial)?;
     Ok(manifest)
+}
+
+/// Dumps the Oxigraph part of a run from a store or from the latest checkpoint.
+fn dump_oxigraph(
+    partial: &Path,
+    data_dir: &Path,
+    source: &OxigraphSource,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<(Artefact, Option<CheckpointRecord>)> {
+    let out = partial.join(OXIGRAPH_ARTEFACT);
+    let (facts, record) = match source {
+        OxigraphSource::Store(dir) => {
+            let dir = dir.clone().unwrap_or_else(|| data_dir.join("oxigraph"));
+            (
+                oxigraph_dump::dump(&dir, &out, oxigraph_dump::Access::ReadWrite)?,
+                None,
+            )
+        }
+        OxigraphSource::Checkpoint { dir, max_age } => {
+            let cp = checkpoint::latest(dir)?;
+            checkpoint::require_fresh(&cp, now, *max_age)?;
+            let facts =
+                oxigraph_dump::dump(&cp.store_dir(), &out, oxigraph_dump::Access::ReadOnly)?;
+            if facts.quads != cp.sidecar.triples {
+                bail!(
+                    "checkpoint {} holds {} quads but its sidecar says {}",
+                    cp.name,
+                    facts.quads,
+                    cp.sidecar.triples
+                );
+            }
+            let record = CheckpointRecord {
+                name: cp.name,
+                taken_utc: cp.sidecar.taken_utc,
+                triples: cp.sidecar.triples,
+            };
+            (facts, Some(record))
+        }
+    };
+    let artefact = Artefact {
+        name: OXIGRAPH_ARTEFACT.to_owned(),
+        bytes: facts.bytes,
+        sha256: facts.sha256,
+        required: true,
+        kind: ArtefactKind::OxigraphNquads { quads: facts.quads },
+    };
+    Ok((artefact, record))
 }
 
 /// Complete runs under `root`, oldest first. `.partial` folders and folders

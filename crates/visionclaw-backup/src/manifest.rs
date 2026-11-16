@@ -40,6 +40,17 @@ pub struct Artefact {
     pub kind: ArtefactKind,
 }
 
+/// The server checkpoint an Oxigraph artefact was taken from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckpointRecord {
+    /// Checkpoint folder name, `checkpoint-<stamp>`.
+    pub name: String,
+    /// When the server took the checkpoint, RFC 3339 UTC.
+    pub taken_utc: String,
+    /// Quad count the checkpoint's sidecar recorded.
+    pub triples: u64,
+}
+
 /// Everything a reader needs to check or restore a run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
@@ -51,6 +62,10 @@ pub struct Manifest {
     pub artefacts: Vec<Artefact>,
     /// Optional stores that were not present and so were skipped.
     pub absent_optional: Vec<String>,
+    /// Set when the Oxigraph artefact was dumped from a server checkpoint
+    /// rather than directly from a store; absent in runs that predate it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oxigraph_checkpoint: Option<CheckpointRecord>,
 }
 
 impl Manifest {

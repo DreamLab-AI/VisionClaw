@@ -285,6 +285,11 @@ mod tests {
 /// The destination must be outside the source data tree. A checkpoint on the
 /// same filesystem may share immutable SST hardlinks; off-device replication is
 /// still an operations requirement before claiming independent disaster recovery.
+///
+/// This is the single checkpoint implementation: it delegates to
+/// `visionclaw_backup::checkpoint::write`, which builds the checkpoint under a
+/// `.partial` name, writes the sidecar, renames, and keeps the latest two.
+/// Returns the openable store directory inside the new checkpoint.
 pub fn checkpoint_oxigraph(
     store: &oxigraph::store::Store,
     data_root: &Path,
@@ -296,9 +301,9 @@ pub fn checkpoint_oxigraph(
     if destination.starts_with(&source) {
         return Err("ontology checkpoint destination must be outside the source data tree".into());
     }
-    let target = destination.join(format!("ontology-{}", uuid::Uuid::new_v4()));
-    store.backup(&target).map_err(|e| e.to_string())?;
-    Ok(target)
+    let checkpoint =
+        visionclaw_backup::checkpoint::write(store, &destination).map_err(|e| format!("{e:#}"))?;
+    Ok(checkpoint.store_dir())
 }
 
 #[cfg(test)]

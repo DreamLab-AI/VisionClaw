@@ -4,7 +4,8 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process::ExitCode;
-use visionclaw_backup::{backup, restore, verify, BackupRequest, Manifest};
+use std::time::Duration;
+use visionclaw_backup::{backup, restore, verify, BackupRequest, Manifest, OxigraphSource};
 
 /// Back up, verify and restore the VisionClaw Oxigraph store and SQLite databases.
 #[derive(Parser)]
@@ -24,9 +25,25 @@ enum Command {
         /// The server's data directory.
         #[arg(long, env = "DATA_DIR", default_value = "./data")]
         data_dir: PathBuf,
-        /// Oxigraph store or checkpoint directory (default: `<data-dir>/oxigraph`).
-        #[arg(long, env = "VISIONCLAW_BACKUP_OXIGRAPH_DIR")]
+        /// Oxigraph store to dump directly (default: `<data-dir>/oxigraph`); a store
+        /// held by a running server is refused. Use `--checkpoint-dir` for that.
+        #[arg(
+            long,
+            env = "VISIONCLAW_BACKUP_OXIGRAPH_DIR",
+            conflicts_with = "checkpoint_dir"
+        )]
         oxigraph_dir: Option<PathBuf>,
+        /// The server's checkpoint directory (its `ONTOLOGY_CHECKPOINT_DIR`): dump the
+        /// latest complete checkpoint instead of the live store.
+        #[arg(long, env = "VISIONCLAW_BACKUP_CHECKPOINT_DIR")]
+        checkpoint_dir: Option<PathBuf>,
+        /// Refuse a checkpoint older than this many seconds (default 24 hours).
+        #[arg(
+            long,
+            env = "VISIONCLAW_BACKUP_MAX_CHECKPOINT_AGE_SECS",
+            default_value_t = 86_400
+        )]
+        max_checkpoint_age_secs: u64,
         /// Complete runs to keep.
         #[arg(long, env = "VISIONCLAW_BACKUP_KEEP", default_value_t = 14)]
         keep: usize,
@@ -56,6 +73,12 @@ fn summarise(verb: &str, run: &std::path::Path, manifest: &Manifest) {
             artefact.name, artefact.bytes, artefact.sha256
         );
     }
+    if let Some(cp) = &manifest.oxigraph_checkpoint {
+        println!(
+            "  oxigraph taken from server checkpoint {} ({}, {} quads)",
+            cp.name, cp.taken_utc, cp.triples
+        );
+    }
     for name in &manifest.absent_optional {
         println!("  {name:<20} absent (optional)");
     }
@@ -67,11 +90,20 @@ fn run(cli: Cli) -> Result<()> {
             dest,
             data_dir,
             oxigraph_dir,
+            checkpoint_dir,
+            max_checkpoint_age_secs,
             keep,
         } => {
+            let oxigraph = match checkpoint_dir {
+                Some(dir) => OxigraphSource::Checkpoint {
+                    dir,
+                    max_age: Duration::from_secs(max_checkpoint_age_secs),
+                },
+                None => OxigraphSource::Store(oxigraph_dir),
+            };
             let outcome = backup(&BackupRequest {
                 data_dir,
-                oxigraph_dir,
+                oxigraph,
                 dest_root: dest,
                 keep,
             })?;
