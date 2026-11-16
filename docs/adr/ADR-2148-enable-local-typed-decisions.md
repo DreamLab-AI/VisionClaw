@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 9450923f912046d69249477683d35dce5d9621fb
+verified_commit: a45077526e9bad84163ccd0883c2fd1ff8a9378a
 verified_paths: [docker-compose.unified.yml, crates/visionclaw-jev/src/edge.rs, src/handlers/jev_handler.rs, crates/visionclaw-jev/src/wire.rs]
 owner: operator
 review_trigger: "labelled confidence calibration setting the automatic thresholds (VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE); the System One route moving off the shared agentbox proxy; any graph write or proposal approval driven by /api/jev/edge"
@@ -112,3 +112,8 @@ Re-run: `git diff 772039bd1..81e711267 -- docker-compose.unified.yml crates/visi
 Governed-path change since `81e711267`: `bd170e81a` only (`cargo fmt --all`) in `crates/visionclaw-jev/src/edge.rs`, `crates/visionclaw-jev/src/wire.rs` and `src/handlers/jev_handler.rs`. I re-ran `rustfmt --edition 2021` on each Rust file as of `bd170e81a^` and got byte-for-byte what `bd170e81a` committed, so no Rust token changed. The `low-confidence` path cited at `edge.rs:191-204` is now `:207-222`: `client.ask(Item::EdgeMeaning, …)` is at `:207-209`, and `Fallback::LowConfidence` is returned on an `unsupported` choice or a domain/range rejection at `:218-222`. **Decision unaffected.** Re-run: `git diff 81e711267..7bd25427e -- <verified_paths>`. Checked by reading that diff and re-running rustfmt; no test was re-run for this stamp.
 
 **Owner ruling (2026-11-16).** `VISIONCLAW_JEV_ALLOW_CLOUD`, `LOOM_JEV_ALLOW_CLOUD` and `CODESCAPE_JEV_ALLOW_CLOUD` now default to 0 in `docker-compose.unified.yml`, `env.example` and `env.development.template`, reversing the default of 1 recorded above. With the default, an item marked local-only resolves no endpoint unless the backend is declared local (`AGENTBOX_SYSTEM_ONE_BACKEND_LOCAL=1` or `VISIONCLAW_JEV_LOCAL=1`) and takes its non-judge fallback (`crates/visionclaw-jev/src/config.rs`, `resolve`); items that are not local-only are unaffected. Setting a variable to 1 restores the earlier behaviour. The change takes effect at the next rebuild of the dev stack.
+
+
+## Scoped source review — 2026-11-16 (local ontology feed)
+
+Reviewed the governed-path delta through `a45077526e9bad84163ccd0883c2fd1ff8a9378a`. `docker-compose.unified.yml` gains one environment default on the dev service, `ONTOLOGY_PULL_URL: "${ONTOLOGY_PULL_URL:-file:///vault/.ontology-release/current}"` (`:134`), with its comment (ADR-2106 amendment 2026-11-16). No service, profile, port, mount, build target or image changes. The Jev variables and the owner ruling recorded above are untouched. Decision intact.
