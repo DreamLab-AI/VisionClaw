@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: d0084892a95592c8bc5d6cc5260388e8a5f07f48
+verified_commit: e1e9f98917dffdf5fb041d8633a71892aa99375a
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
