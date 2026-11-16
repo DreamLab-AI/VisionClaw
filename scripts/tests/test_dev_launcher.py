@@ -10,6 +10,28 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class DevelopmentLauncher(unittest.TestCase):
+    def test_conflict_cleanup_preserves_recovery_containers(self):
+        script = '''
+export LAUNCH_SH_NO_MAIN=1
+source "$1"
+docker() {
+    if [[ "$*" == 'ps -a --format {{.Names}}' ]]; then
+        printf '%s\\n' visionclaw_container visionclaw-recovery-fixture
+    else
+        printf '%s\\n' "$*" >> "$CALLS"
+    fi
+}
+cleanup_conflicts
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            calls = Path(directory) / "calls"
+            result = subprocess.run(
+                ["bash", "-c", script, "fixture", str(ROOT / "scripts/launch.sh")],
+                env=dict(os.environ, CALLS=str(calls)), capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(calls.read_text().splitlines(), ["rm -f visionclaw_container"])
+
     def test_build_restart_and_failed_build(self):
         with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as checkout:
             root = Path(directory)

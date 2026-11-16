@@ -435,9 +435,10 @@ cleanup_conflicts() {
         fi
     done
 
-    # Remove orphan containers from previous runs
-    cd "$PROJECT_ROOT"
-    docker compose -f "$COMPOSE_FILE" down --remove-orphans 2>/dev/null || true
+    # Do not tear down the project here. Renamed recovery containers still have
+    # compose labels, so down --remove-orphans would destroy their writable
+    # layers. Normal compose up reconciles selected services below; unrelated
+    # sidecars and retained recovery containers are outside this cleanup.
 
     success "Conflict cleanup complete"
 }
