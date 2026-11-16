@@ -362,6 +362,29 @@ fn retention_keeps_the_newest_runs_and_ignores_partial_folders() {
     assert!(f.dest.join(".20200101T000000Z.partial").exists());
 }
 
+/// Every file under `dir` with its size, sorted: a cheap fingerprint of a folder.
+fn listing(dir: &Path) -> Vec<(String, u64)> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for entry in fs::read_dir(&d).expect("read dir").flatten() {
+            let meta = entry.metadata().expect("metadata");
+            if meta.is_dir() {
+                stack.push(entry.path());
+            } else {
+                let rel = entry
+                    .path()
+                    .strip_prefix(dir)
+                    .expect("under dir")
+                    .to_owned();
+                out.push((rel.to_string_lossy().into_owned(), meta.len()));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 fn checkpoint_request(f: &Fixture, dir: &Path) -> BackupRequest {
     BackupRequest {
         oxigraph: OxigraphSource::Checkpoint {
@@ -380,8 +403,14 @@ fn a_fresh_server_checkpoint_is_backed_up_and_restores_to_the_same_quads() {
     let server = Store::open(f.data.join("oxigraph")).expect("hold the store like a server");
     let cp_dir = f.dest.parent().expect("parent").join("checkpoints");
     let cp = checkpoint::write(&server, &cp_dir).expect("server-side checkpoint");
+    let listing_before = listing(&cp.path);
 
     let outcome = backup(&checkpoint_request(&f, &cp_dir)).expect("backup from checkpoint");
+    assert_eq!(
+        listing(&cp.path),
+        listing_before,
+        "backing up must not alter the checkpoint (names and sizes)"
+    );
     let record = outcome
         .manifest
         .oxigraph_checkpoint

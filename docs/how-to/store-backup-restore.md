@@ -51,7 +51,8 @@ The newest `VISIONCLAW_BACKUP_KEEP` complete runs are kept (default 14).
 
 ```bash
 cargo build --release -p visionclaw-backup      # binary: target/release/visionclaw-backup
-visionclaw-backup backup  --dest /mnt/dell/visionclaw-backups
+visionclaw-backup backup  --dest /mnt/dell/visionclaw-backups --checkpoint-dir <ONTOLOGY_CHECKPOINT_DIR>   # server running
+visionclaw-backup backup  --dest /mnt/dell/visionclaw-backups                                            # server stopped: dumps <DATA_DIR>/oxigraph
 visionclaw-backup verify  --run  /mnt/dell/visionclaw-backups            # newest run, or a run folder
 visionclaw-backup restore --run  /mnt/dell/visionclaw-backups --target /srv/restore-test   # must be empty
 ```
@@ -92,6 +93,10 @@ against the sidecar, refuses one older than the maximum age (default 24 hours, s
 stalled checkpoint task fails the nightly run loudly instead of backing up stale data),
 and records in `manifest.json` under `oxigraph_checkpoint` the checkpoint's name, when it
 was taken and its quad count. The SQLite databases are safe to snapshot live.
+
+Disk: `link(2)` does not cross mount points, so a checkpoint directory on a separate
+Docker volume gets copied SSTs, not hard links; size that volume for about two full
+copies of the store (the newest two checkpoints are kept).
 
 Consequence for the RPO: Oxigraph is as old as the latest checkpoint (up to the
 checkpoint interval plus the backup interval), the SQLite files as old as the run.
