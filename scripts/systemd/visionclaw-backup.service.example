@@ -1,0 +1,25 @@
+# EXAMPLE ONLY. Nothing in this repository installs or enables it.
+# Copy to /etc/systemd/system/visionclaw-backup.service and edit the three
+# marked lines (see docs/how-to/store-backup-restore.md).
+[Unit]
+Description=VisionClaw nightly store backup (Oxigraph N-Quads + SQLite snapshots)
+# /mnt/dell (an NFS mount) must be mounted before the run starts.
+RequiresMountsFor=/mnt/dell/visionclaw-backups
+
+[Service]
+Type=oneshot
+# Needs read access to the data volume (SQLite files) and the checkpoint directory;
+# the server runs as appuser.
+User=appuser
+# 1. The one line the owner must set: where the dated runs are written.
+Environment=VISIONCLAW_BACKUP_DEST=/mnt/dell/visionclaw-backups
+# 2. The host path of the visionclaw-data volume (docker volume inspect visionclaw-data).
+Environment=DATA_DIR=/mnt/nvme/docker/volumes/visionclaw-data/_data
+# 3. The server's ONTOLOGY_CHECKPOINT_DIR as the host sees it. The server holds the
+#    Oxigraph lock while it runs, so the tool dumps the latest checkpoint the server
+#    wrote instead (refused if older than 24 hours; override with
+#    VISIONCLAW_BACKUP_MAX_CHECKPOINT_AGE_SECS).
+Environment=VISIONCLAW_BACKUP_CHECKPOINT_DIR=/mnt/nvme/docker/volumes/visionclaw-checkpoints/_data
+Environment=VISIONCLAW_BACKUP_KEEP=14
+ExecStart=/usr/local/bin/visionclaw-backup backup
+# A non-zero exit marks the unit failed: `systemctl status visionclaw-backup`.

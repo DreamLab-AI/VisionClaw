@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: [ADR-2113]
-verified_commit: d1d3fa0d5a70ecf366ccbce6681944a4cce5988d
+verified_commit: 5db8ccf308a40948b89ec5976c15431387e03766
 verified_paths: [crates/vault-migrate, Cargo.toml, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: the in-place conversion of the corpus repo is committed, after which the crate is kept only as the round-trip/no-op checker
@@ -216,3 +216,14 @@ Reviewed the governed-path delta through `a6d05ed1a8d090e290944ebb8a9c122c7f59ef
 ## Scoped source review — 2026-11-15
 
 Reviewed the governed-path delta through `d1d3fa0d5a70ecf366ccbce6681944a4cce5988d`. `Cargo.toml` (`ea7de1fb5`, VisionClaw #43) moves the four solid-pod-rs crates from 0.5.0-alpha.21 to alpha.22; the lock also moves `rustix` 1.0.8 to 1.1.6 (RUSTSEC-2026-0486) with `libc` and `linux-raw-sys`. No workspace member, feature or patch changes. Nothing concerns the converter; `crates/vault-migrate` and `docs/VAULT-corpus-format.md` are unchanged. Superseded status unchanged.
+
+## Re-verification — 2026-11-16 (visionclaw-backup workspace member)
+
+Governed-path change: `Cargo.toml` adds the workspace member `crates/visionclaw-backup`
+and `Cargo.lock` gains its package entry (it reuses oxigraph 0.4.11 and rusqlite 0.31.0
+already locked; rusqlite gains the `backup` feature). The converter record is unaffected. No decision in this record
+changes. `verified_commit` is bumped on that basis.
+
+## Re-verification — 2026-11-16 (periodic Oxigraph checkpoint)
+
+Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `Cargo.toml` gains the path dependency `visionclaw-backup = { path = "crates/visionclaw-backup" }` and a comment line (two lines, after the `visionclaw-ontology` entry); `Cargo.lock` gains one dependency line for the root package and no registry package. Line numbers after `:57` of `Cargo.toml` move down by two. The retired converter, workspace membership of `vault` and `vault-core`, and `docs/VAULT-corpus-format.md` are unchanged; the record stays superseded by ADR-2113. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.

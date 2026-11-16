@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: e1e9f98917dffdf5fb041d8633a71892aa99375a
 verified_paths: [src/services/data_reconciliation.rs, crates/visionclaw-adapters/src/provenance_emitter.rs, crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs, src/services/ontology_mutation_service.rs]
 owner: jjohare
 review_trigger: a GDPR/right-to-erasure obligation landing on provenance-recorded subjects, or introduction of a redaction/crypto-shred mechanism
@@ -255,3 +255,7 @@ None of these writes to `GRAPH_PROVENANCE`. No `DELETE`, `DROP` or `CLEAR` names
 **Drift in "all emission funnels through the single `reify_activity` primitive".** Since `9fd0e85cc` the corpus-history step has written provenance through a second path. `services::corpus_history::apply_history` (`src/services/corpus_history.rs:357`) builds the activity with the same `provenance_emitter::build_activity_quads` that `reify_activity` uses (`provenance_emitter.rs:137`, `:307`). It then inserts the activity, assertion-version and closing quads in one store transaction of its own (`:364`), not through `reify_activity`/`emit_activity`. A version is closed by **adding** `dl:validTo`; nothing is deleted. `provenance_writer.rs`, the bi-temporal decision writer, also inserts directly, and it predates this record's last stamp. The Decision's substance therefore holds: the graph stays insert-only, and every activity triad is built by one function. Its wording does not: there is more than one insertion call site, and a future reviewer checking "single primitive" should look for `build_activity_quads` callers, not `reify_activity` alone. Corpus-history versions can only be removed by the redaction mechanism this record says does not exist yet. The module therefore versions public pages only (`corpus_history.rs` module doc, *Scope*).
 
 **Decision holds; wording of the single-primitive clause superseded by this note.** Re-run: `git diff 3b3ee7779..7bd25427e -- <verified_paths>`. Checked by reading that diff and grepping the tree for destructive updates on the provenance graph; no test was re-run for this stamp.
+
+## Re-verification — 2026-11-16 (periodic Oxigraph checkpoint)
+
+Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `src/services/data_reconciliation.rs` changed only inside `checkpoint_oxigraph`, which now delegates to `visionclaw_backup::checkpoint::write` and returns the store directory of the new checkpoint. No DELETE, DROP or CLEAR is added against the provenance graph; the checkpoint only reads, and the existing source-loss restore test still passes. The append-only decision holds. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.

@@ -33,6 +33,7 @@ const ALLOWED: &[(&str, &[&str])] = &[
     ("visionclaw-xr-presence", &[]),
     ("visionclaw-jev", &[]),
     ("visionclaw-splat", &[]),
+    ("visionclaw-backup", &[]),
     ("vault-core", &[]),
     ("visionclaw-integration-tests", &[]),
     // Layers above the domain.

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: d1d3fa0d5a70ecf366ccbce6681944a4cce5988d
+verified_commit: 5db8ccf308a40948b89ec5976c15431387e03766
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -427,3 +427,14 @@ Reviewed the governed-path delta through `a6d05ed1a8d090e290944ebb8a9c122c7f59ef
 ## Scoped source review — 2026-11-15
 
 Reviewed the governed-path delta through `d1d3fa0d5a70ecf366ccbce6681944a4cce5988d`. `Cargo.toml` (`ea7de1fb5`, VisionClaw #43) moves the four solid-pod-rs crates from 0.5.0-alpha.21 to alpha.22; the lock also moves `rustix` 1.0.8 to 1.1.6 (RUSTSEC-2026-0486) with `libc` and `linux-raw-sys`. No workspace member, feature or patch changes. `.github/workflows/ci.yml` (`d1d3fa0d5`) gates the advisory `client-quality` job to `workflow_dispatch` (`:254`). `rust-cpu` (`:92`) and its `--test layer_direction` step (`:138`) are unchanged, and the pull-request filter still includes `crates/**` and `Cargo.toml` (`:48`, `:52`), so a crate-boundary change still triggers the machine check. Decision intact.
+
+## Re-verification — 2026-11-16 (visionclaw-backup workspace member)
+
+Governed-path change: `Cargo.toml` adds the workspace member `crates/visionclaw-backup`
+and `Cargo.lock` gains its package entry (it reuses oxigraph 0.4.11 and rusqlite 0.31.0
+already locked; rusqlite gains the `backup` feature). The member list above is a historical count; current members are in `Cargo.toml`. The new crate is a leaf tool with no dependency on the server layers. No decision in this record
+changes. `verified_commit` is bumped on that basis.
+
+## Re-verification — 2026-11-16 (periodic Oxigraph checkpoint)
+
+Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `Cargo.toml` gains the path dependency `visionclaw-backup = { path = "crates/visionclaw-backup" }` and a comment line (two lines, after the `visionclaw-ontology` entry); `Cargo.lock` gains one dependency line for the root package and no registry package. Line numbers after `:57` of `Cargo.toml` move down by two. The `[workspace].members` list holds 19 entries (`.` plus 18 crates), `visionclaw-backup` among them. The root crate now depends on `visionclaw-backup`, a leaf with no workspace dependency (it imports only external crates). Checked by running `cargo test -p visionclaw-integration-tests --test layer_direction`: it failed because the backup crate had no declared layer (a defect of this branch), and passes now that `layer_direction.rs` lists `visionclaw-backup` as a leaf. The decision holds. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.

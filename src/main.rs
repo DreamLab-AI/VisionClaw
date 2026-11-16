@@ -748,29 +748,15 @@ async fn main() -> std::io::Result<()> {
     }
 
     let app_state_data = web::Data::new(app_state);
-    // Opt-in checkpoint uses the open writer's consistent RocksDB snapshot.
-    // It never opens a second writer or copies live WAL/SST files by hand.
-    if let Ok(backup_root) = std::env::var("ONTOLOGY_BACKUP_DIR") {
-        let store = Arc::clone(app_state_data.ontology_repository.store());
-        let source = std::path::PathBuf::from(&data_dir);
-        let destination = std::path::PathBuf::from(backup_root);
-        match tokio::task::spawn_blocking(move || {
-            visionclaw_server::services::data_reconciliation::checkpoint_oxigraph(
-                &store,
-                &source,
-                &destination,
-            )
-        })
-        .await
-        {
-            Ok(Ok(path)) => info!("Ontology checkpoint created at {}", path.display()),
-            result => {
-                return Err(std::io::Error::other(format!(
-                    "configured ontology checkpoint failed: {result:?}"
-                )))
-            }
-        }
-    }
+    // ADR-2103: the server checkpoints its own Oxigraph store (RocksDB checkpoint
+    // from the open writer) every ONTOLOGY_CHECKPOINT_INTERVAL_SECS, first run at
+    // start, for the visionclaw-backup tool to pick up. Never blocks start-up and
+    // never fails the server; a failure is a logged warning.
+    let checkpoint_task = visionclaw_server::services::ontology_checkpoint::spawn(
+        Arc::clone(app_state_data.ontology_repository.store()),
+        std::path::PathBuf::from(&data_dir),
+        visionclaw_server::services::ontology_checkpoint::CheckpointConfig::from_env(),
+    );
 
     // ADR-142 multi-user RBAC: build the pubkey→role store over the settings
     // SQLite connection, bootstrap the Owner from RBAC_OWNER_PUBKEY, and install
@@ -1368,6 +1354,10 @@ async fn main() -> std::io::Result<()> {
 
     info!("main: HTTP server startup sequence complete. Server is now running.");
     server.await?;
+
+    if let Some(task) = checkpoint_task {
+        task.shutdown().await;
+    }
 
     info!("HTTP server stopped");
     Ok(())

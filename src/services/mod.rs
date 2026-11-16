@@ -43,13 +43,14 @@ pub mod voice_intent_client;
 // instead of dispatching it.
 pub mod edge_classifier;
 pub mod inferred_edge_materialiser;
+#[cfg(feature = "solid-pod-embed")]
+pub mod ontology_checkpoint;
 pub mod ontology_class_index;
 pub mod ontology_converter;
 pub mod ontology_enrichment_service;
 #[cfg(feature = "solid-pod-embed")]
 pub mod ontology_generation;
 pub mod ontology_mutation_service;
-#[cfg(feature = "solid-pod-embed")]
 pub mod ontology_pull;
 pub mod ontology_query_service;
 pub mod ontology_reasoner;

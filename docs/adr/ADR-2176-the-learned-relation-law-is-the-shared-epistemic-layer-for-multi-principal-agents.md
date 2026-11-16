@@ -7,7 +7,7 @@ implementation_status: none
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 91fac7731cfb35d4348db3198a8ccb357ee34efe
+verified_commit: e1e9f98917dffdf5fb041d8633a71892aa99375a
 relates: [ADR-2174, ADR-2139, ADR-2157, ADR-2160, ADR-2170, ADR-2022, ADR-2115]
 verified_paths: [crates/relational-field/src/lib.rs, crates/relational-field/src/bin/h1.rs, crates/relational-field/results/h1/summary.json, crates/relational-field/Cargo.toml, crates/relational-field/PREREGISTRATION.md, crates/relational-field/PREREGISTRATION-D2.md, src/services/semantic_type_registry.rs, crates/visionclaw-domain/src/utils/visibility_filter.rs, src/handlers/api_handler/graph/mod.rs, docs/DATA-authority-erasure.md]
 owner: jjohare
@@ -103,3 +103,11 @@ The governing document adds an independent source-review/provenance section. Lea
 Evidence: `cargo test -p vault-core -p vault --tests` against published
 ontomark-parse 0.1.4: 520 passed, 5 existing diagnostics ignored. The source
 review contract is recorded in VisionFlow ADR-2024 and Ontomark ADR-OM-013.
+
+## Re-verification — 2026-11-16
+
+`docs/DATA-authority-erasure.md` changed only in its backup-coverage paragraph (the Oxigraph backup tool on branch feat/store-backup-and-restore). Nothing this record decides changes; `verified_commit` is bumped on that basis.
+
+## Re-verification — 2026-11-16 (periodic Oxigraph checkpoint)
+
+Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `docs/DATA-authority-erasure.md` changed only in its backup-coverage paragraph (the server's own periodic checkpoint replaces the mention of the boot-time checkpoint). Nothing this record decides changes. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.

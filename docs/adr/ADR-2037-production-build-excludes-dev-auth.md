@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: d1d3fa0d5a70ecf366ccbce6681944a4cce5988d
+verified_commit: 5db8ccf308a40948b89ec5976c15431387e03766
 verified_paths: [src/config/security_profile.rs, src/main.rs, .github/workflows/ci.yml, Dockerfile.production]
 owner: jjohare
 review_trigger: any change to the production Dockerfile build line, the dev-auth feature gates, or enforce_release_env_hygiene
@@ -210,3 +210,14 @@ Reviewed the governed-path delta through `a6d05ed1a8d090e290944ebb8a9c122c7f59ef
 ## Scoped source review — 2026-11-15
 
 Reviewed the governed-path delta through `d1d3fa0d5a70ecf366ccbce6681944a4cce5988d`. `.github/workflows/ci.yml` (`d1d3fa0d5`) gates only the advisory `client-quality` job to `workflow_dispatch` (`:254`). `dev-auth-release-gate` (`:162`) is byte-identical, still blocking, and still fires on pull requests; it passed on VisionClaw #44. Production Dockerfiles and release hygiene code are unchanged. The binary/image acceptance boundary and proposed/partial/staged status remain.
+
+## Re-verification — 2026-11-16 (visionclaw-backup workspace member)
+
+Governed-path change: `Cargo.toml` adds the workspace member `crates/visionclaw-backup`
+and `Cargo.lock` gains its package entry (it reuses oxigraph 0.4.11 and rusqlite 0.31.0
+already locked; rusqlite gains the `backup` feature). The crate has no features and no auth path. No decision in this record
+changes. `verified_commit` is bumped on that basis.
+
+## Re-verification — 2026-11-16 (periodic Oxigraph checkpoint)
+
+Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `src/main.rs` loses the one-shot `ONTOLOGY_BACKUP_DIR` boot checkpoint block and gains a `ontology_checkpoint::spawn` call and a shutdown await; net 14 fewer lines at the block (about `:753`), so nothing before it moves, plus four lines after `server.await`. Anchors now: `init_solid_state().await` `:906`, `spawn_boot_pull` `:913`, `assert_effective_profile_or_exit` import `:945` and call `:948`, `HttpServer::new` `:991`, `.bind()` `:1289`. The file's net change is 10 fewer lines (13 added, 23 removed: 14 fewer at the block, 4 more after `server.await`). Everything before the block (hygiene call `:209`) is unchanged; the owner-less refusal sits after it and moved up by 14 (`RBAC_ALLOW_OWNERLESS_ENV` import `:782` to `:768`). No dev-auth gate is touched. The decision holds. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.

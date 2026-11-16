@@ -1,0 +1,32 @@
+[package]
+name = "visionclaw-backup"
+version = "0.1.0"
+edition = "2021"
+description = "Nightly backup, verify and restore of the VisionClaw Oxigraph store and SQLite databases (ADR-2017, ADR-2103)"
+authors = ["jjohare <github@thedreamlab.uk>"]
+license = "AGPL-3.0-only"
+repository = "https://github.com/jjohare/VisionClaw"
+publish = false
+
+[lib]
+name = "visionclaw_backup"
+path = "src/lib.rs"
+
+[[bin]]
+name = "visionclaw-backup"
+path = "src/main.rs"
+
+[dependencies]
+# Versions match the root crate so the lockfile gains no new registry package.
+# `backup` is rusqlite's online-backup API; it is feature-gated upstream.
+oxigraph = { version = "0.4" }
+rusqlite = { version = "0.31", features = ["bundled", "backup"] }
+sha2 = "0.10"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4.41", default-features = false, features = ["clock", "std"] }
+anyhow = "1.0.99"
+clap = { version = "4.5", features = ["derive", "env"] }
+
+[dev-dependencies]
+tempfile = "3.14"

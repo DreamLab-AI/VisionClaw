@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: e1e9f98917dffdf5fb041d8633a71892aa99375a
 verified_paths: [src/utils/nip98.rs, docs/SECURITY-profiles.md]
 owner: jjohare
 review_trigger: horizontal scaling of the backend (replicas/load balancer), or any change to TOKEN_MAX_AGE_SECONDS
@@ -212,3 +212,7 @@ Re-stamped at the merge of `phys/integrate` and `viz/edge-tracking` (`ff849f2ba`
 ## Re-verification — 2026-11-07 (`7bd25427e`)
 
 Governed-path change since `ff849f2ba`: `docs/SECURITY-profiles.md` 0.1.4 → 0.1.8 (`ab05ee9d6`, `809a859aa`, `57ba04beb`, `1a6dd031f`). The new "Outbound visibility surface" section covers the 2026-11-06 sweep, the ontology deny-list and per-view reasoning, and the `PUBKEY_VISIBILITY_FILTER` anchors are refreshed. The NIP-98 section ("NIP-98 replay resistance", `:75` on) and Invariant 4 (`:212`) are unchanged: both layers are still required, the cache is still process-local, and the capacity ceiling still fails closed. `src/utils/nip98.rs` is unchanged (`REPLAY_CACHE_TTL` `:178`, `ReplayCacheFull` `:187`). **Decision unaffected.** Re-run: `git diff ff849f2ba..7bd25427e -- src/utils/nip98.rs docs/SECURITY-profiles.md`. Checked by reading that diff; no test was re-run for this stamp.
+
+## Re-verification — 2026-11-16 (periodic Oxigraph checkpoint)
+
+Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `docs/SECURITY-profiles.md` changed only in the paragraph on the opt-in Oxigraph checkpoint (now `ONTOLOGY_CHECKPOINT_DIR`, periodic, failure is a warning). The NIP-98 replay cache is not mentioned in it. Nothing this record decides changes. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.

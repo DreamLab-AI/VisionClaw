@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 5db8ccf308a40948b89ec5976c15431387e03766
 verified_paths: [src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs]
 owner: jjohare
 review_trigger: any new security-relevant env flag, or a request to soften the release boot-abort to a warning
@@ -220,3 +220,7 @@ Governed-path change since the last stamp (server consolidation, 2026-11-06, `92
 ## Re-verification — 2026-11-07 (`7bd25427e`)
 
 Governed-path change since `b5200feb4`: `src/main.rs` (`57ba04beb`, `f284c2953`, both 2026-11-07, Whelk merge `67de9bd98`): the background sync is handed `app_state.ontology_inference_engine` (`:494`), the ontology-agent services reuse that engine instead of building a fresh `WhelkInferenceEngine` (`:534`), and the query service gains `.with_view_reasoner(app_state.ontology_view_reasoner)` (`:543`, ADR-2184 Q1). Net +1 line after `:543`; nothing before it moves. The view reasoner narrows what a gated caller is reasoned over; it does not open a default. Current anchors: `enforce_release_env_hygiene` `src/main.rs:118-163` with the dev stub at `:169` (unchanged); owner-less refusal `:793-822` (`RBAC_ALLOW_OWNERLESS_ENV` read `:798`, `PermissionDenied` `:817`). `rbac_gate.rs` and `role_store.rs` are unchanged. **Decision unaffected.** Re-run: `git diff b5200feb4..7bd25427e -- src/middleware/rbac_gate.rs src/main.rs src/services/role_store.rs`. Checked by reading that diff and the anchors at HEAD; no test was re-run for this stamp.
+
+## Re-verification — 2026-11-16 (periodic Oxigraph checkpoint)
+
+Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `src/main.rs` loses the one-shot `ONTOLOGY_BACKUP_DIR` boot checkpoint block and gains a `ontology_checkpoint::spawn` call and a shutdown await; net 14 fewer lines at the block (about `:753`), so nothing before it moves, plus four lines after `server.await`. Anchors now: `init_solid_state().await` `:906`, `spawn_boot_pull` `:913`, `assert_effective_profile_or_exit` import `:945` and call `:948`, `HttpServer::new` `:991`, `.bind()` `:1289`. The file's net change is 10 fewer lines (13 added, 23 removed: 14 fewer at the block, 4 more after `server.await`). Everything before the block (hygiene call `:209`) is unchanged; the owner-less refusal sits after it and moved up by 14 (`RBAC_ALLOW_OWNERLESS_ENV` import `:782` to `:768`). The assertion and the fail-closed paths are untouched; the only change is that the checkpoint now runs as a background task that cannot fail startup, which does not bypass the profile assertion. The decision holds. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.

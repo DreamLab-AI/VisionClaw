@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
+verified_commit: e1e9f98917dffdf5fb041d8633a71892aa99375a
 verified_paths: [src/services/data_reconciliation.rs, src/services/github_sync_service.rs, scripts/backup-sqlite.sh, scripts/backup-secrets.sh]
 owner: jjohare
 review_trigger: an Oxigraph/RocksDB PITR or backup requirement, a cross-store consistency incident, or wiring RuVector delete-propagation
@@ -280,3 +280,19 @@ Governed-path change: `src/services/github_sync_service.rs` reads the ADR-2192 s
 ## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
 
 `github_sync_service.rs`: with `qualityGates.ontologyReasoning` off, a sync clears the shared Whelk closure and the stored inferred graph (`forget_inference`). Backup and write-master posture are unchanged. **Decision unaffected.**
+
+## Update — 2026-11-16 (branch feat/store-backup-and-restore)
+
+The "no Oxigraph/RocksDB backup script exists" statements above are superseded on
+this branch only: `crates/visionclaw-backup` dumps Oxigraph as N-Quads and snapshots
+the same SQLite databases (`settings`, `enrichment`, `kpi`, `shares` required;
+`liveness` optional) with the online backup API, and its restore round trip passes on
+synthetic stores. It is not merged, not scheduled and has not run against the live
+stores; no production restore has run. The SQLite posture, including
+`scripts/backup-sqlite.sh`, is unchanged. The code has five SQLite databases
+(`app_state.rs:417-484`), not four. See ADR-2103 and
+`docs/how-to/store-backup-restore.md`. `implementation_status` stays `partial`.
+
+## Re-verification — 2026-11-16 (periodic Oxigraph checkpoint)
+
+Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `src/services/data_reconciliation.rs` changed only inside `checkpoint_oxigraph`. The progress note above that describes an opt-in `ONTOLOGY_BACKUP_DIR` checkpoint is now superseded in its mechanism: the server takes the checkpoint periodically (`ONTOLOGY_CHECKPOINT_DIR`, every `ONTOLOGY_CHECKPOINT_INTERVAL_SECS`, default 6 hours), builds it under a `.partial` name and keeps two; a failure is a warning, not a startup failure. The source-loss restore fixture still passes. The decision (one write-master per class, no 2PC, SQLite online backup) is unchanged; scheduling and off-device retention remain outstanding (ADR-2103). Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.

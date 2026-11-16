@@ -18,6 +18,7 @@ members = [
     "crates/visionclaw-tri-layout",
     "crates/visionclaw-jev",
     "crates/visionclaw-splat",
+    "crates/visionclaw-backup",
 ]
 # PRD-008: the Godot gdext client (xr-client/rust) is its own workspace context
 # (cdylib for the Quest APK, separate target). Exclude it from the server
@@ -52,6 +53,8 @@ visionclaw-protocol = { path = "crates/visionclaw-protocol" }
 visionclaw-adapters = { path = "crates/visionclaw-adapters" }
 visionclaw-gpu = { path = "crates/visionclaw-gpu" }
 visionclaw-ontology = { path = "crates/visionclaw-ontology" }
+# ADR-2103 — the one Oxigraph checkpoint writer, shared with the backup tool.
+visionclaw-backup = { path = "crates/visionclaw-backup" }
 # ADR-2113 — the one corpus parser. Ingest reads pages and the relation
 # vocabulary through the same implementation `vault` builds from.
 vault-core = { path = "crates/vault-core" }

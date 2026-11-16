@@ -359,9 +359,12 @@ Pinned resources use the canonical resource's ACL. Private generation paths are
 not accessible through the Solid handler. Old generations are retained; capacity
 planning and a reader-safe retention policy remain required.
 
-Setting `ONTOLOGY_BACKUP_DIR` enables an Oxigraph checkpoint from the open writer
-at startup. Its destination must be outside the active data tree. A failed
-configured checkpoint fails startup. This is opt-in and does not schedule backups
-or certify an off-device recovery copy. The durable reconciliation journal records
+Setting `ONTOLOGY_CHECKPOINT_DIR` (or the older `ONTOLOGY_BACKUP_DIR`) enables an
+Oxigraph checkpoint from the open writer, taken at start and then every
+`ONTOLOGY_CHECKPOINT_INTERVAL_SECS` (default 6 hours; `0` disables). Its destination
+must be outside the active data tree. A failed checkpoint is logged as a warning and
+retried at the next interval; it no longer fails startup. This is opt-in and does not
+certify an off-device recovery copy; the `visionclaw-backup` tool copies the checkpoint
+off the host. The durable reconciliation journal records
 explicit erase/restore operation IDs, selected store membership and per-store
 receipts; destructive production adapters and subject selection remain outstanding.

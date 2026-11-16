@@ -7410,6 +7410,21 @@ name = "visionclaw-analytics-oracle"
 version = "0.1.0"
 
 [[package]]
+name = "visionclaw-backup"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap 4.5.49",
+ "oxigraph",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+]
+
+[[package]]
 name = "visionclaw-contracts"
 version = "0.1.0"
 dependencies = [
@@ -7642,6 +7657,7 @@ dependencies = [
  "visionclaw-actors",
  "visionclaw-adapters",
  "visionclaw-analytics-oracle",
+ "visionclaw-backup",
  "visionclaw-domain",
  "visionclaw-gpu",
  "visionclaw-jev",

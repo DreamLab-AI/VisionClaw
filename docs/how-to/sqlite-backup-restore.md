@@ -1,7 +1,8 @@
 # How-to: SQLite backup & restore (VisionClaw)
 
-Covers the four operational SQLite databases: `kpi`, `enrichment`, `settings`,
-`liveness`. Closes TODO-unified **C-3** (exposed by the PRD-014 correction:
+Covers the operational SQLite databases: `kpi`, `enrichment`, `settings`,
+`shares`, `liveness`. The Rust tool that also dumps Oxigraph is described in
+[store-backup-restore.md](store-backup-restore.md). Closes TODO-unified **C-3** (exposed by the PRD-014 correction:
 these databases previously had **no backup at all**).
 
 ## Where the live databases actually are
@@ -33,7 +34,7 @@ host and inside the container.
 ## Back up
 
 ```bash
-# Default: auto-detect, snapshot all four, keep newest 14, write to data/backups/
+# Default: auto-detect, snapshot every database, keep newest 14, write to ./backups/sqlite/
 ./scripts/backup-sqlite.sh
 
 # Common overrides
@@ -42,7 +43,7 @@ KEEP=30 ./scripts/backup-sqlite.sh                    # deeper rotation
 MODE=host DATA_DIR=./data ./scripts/backup-sqlite.sh  # force host mode
 ```
 
-Each run creates `data/backups/<UTC-STAMP>/` containing one file per database
+Each run creates `<BACKUP_ROOT>/<UTC-STAMP>/` (default `./backups/sqlite/`) containing one file per database
 plus `MANIFEST.txt` (mode, source, per-DB sha256). Every snapshot is
 `PRAGMA integrity_check`-ed before it is trusted; the run fails loudly if any
 check is not `ok`.
@@ -58,7 +59,7 @@ pruned at the end of each successful run. With a daily schedule that is a
 two-week window. Raise `KEEP` for a longer retention tail.
 
 **Physical-disk separation (already satisfied by the default).** The default
-`BACKUP_ROOT=./data/backups` is not the same disk as the live data on the reference host: the checkout and
+`BACKUP_ROOT=./backups/sqlite` (never inside `./data`: the script refuses that) is not the same disk as the live data on the reference host: the checkout and
 the live `visionclaw-data` volume sit on different physical disks. So a default-configured backup already lands on a *different
 physical disk* from the source — a single-disk failure cannot take both. Point
 `BACKUP_ROOT` at a third host/disk (or off-box entirely) for defence against
@@ -95,17 +96,17 @@ before restore and the result is integrity-checked after.
 ```bash
 # Safe: restore to a scratch file and inspect
 ./scripts/restore-sqlite.sh \
-  --backup data/backups/<STAMP> --db kpi.sqlite3 \
+  --backup backups/sqlite/<STAMP> --db kpi.sqlite3 \
   --to /tmp/kpi.restored.sqlite3
 
 # Destructive: restore INTO the live container DB (stop writers first if possible)
 ./scripts/restore-sqlite.sh \
-  --backup data/backups/<STAMP> --db kpi.sqlite3 \
+  --backup backups/sqlite/<STAMP> --db kpi.sqlite3 \
   --into-container --yes
 
 # Destructive: restore to a host path that already exists
 ./scripts/restore-sqlite.sh \
-  --backup data/backups/<STAMP> --db settings.sqlite3 \
+  --backup backups/sqlite/<STAMP> --db settings.sqlite3 \
   --to ./data/settings.sqlite3 --yes
 ```
 
@@ -114,7 +115,7 @@ before restore and the result is integrity-checked after.
 Prove the backups are restorable without touching live data:
 
 ```bash
-BK=$(ls -d data/backups/20*/ | tail -1)
+BK=$(ls -d backups/sqlite/20*/ | tail -1)
 
 # 1. Live row count (source of truth)
 docker exec visionclaw_container sqlite3 /app/data/kpi.sqlite3 \

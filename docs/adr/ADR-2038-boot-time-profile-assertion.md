@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 5db8ccf308a40948b89ec5976c15431387e03766
 verified_paths: [src/config/security_profile.rs, src/main.rs]
 owner: jjohare
 review_trigger: adoption of a production deployment, or any change to the profile env vars (RBAC_PUBLIC_READS, PUBKEY_VISIBILITY_FILTER, RBAC_DEFAULT_ROLE)
@@ -329,3 +329,7 @@ Governed-path change since the last stamp (server consolidation, 2026-11-06, `92
 ## Re-verification — 2026-11-07 (`7bd25427e`)
 
 Governed-path change since `b5200feb4`: `src/main.rs` (`57ba04beb`, `f284c2953`, both 2026-11-07, Whelk merge `67de9bd98`): the background sync is handed `app_state.ontology_inference_engine` (`:494`), the ontology-agent services reuse that engine instead of building a fresh `WhelkInferenceEngine` (`:534`), and the query service gains `.with_view_reasoner(app_state.ontology_view_reasoner)` (`:543`, ADR-2184 Q1). Net +1 line after `:543`; nothing before it moves. The boot assertion is untouched; current anchors: `assert_effective_profile_or_exit` imported `src/main.rs:959`, called `:962`, before `HttpServer::new` (`:1005`) and `.bind()` (`:1303`); boot receipt `:968-972`. `security_profile.rs` is unchanged. **Decision and `partial` status unaffected.** Re-run: `git diff b5200feb4..7bd25427e -- src/config/security_profile.rs src/main.rs`. Checked by reading that diff and the anchors at HEAD; no test was re-run for this stamp.
+
+## Re-verification — 2026-11-16 (periodic Oxigraph checkpoint)
+
+Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `src/main.rs` loses the one-shot `ONTOLOGY_BACKUP_DIR` boot checkpoint block and gains a `ontology_checkpoint::spawn` call and a shutdown await; net 14 fewer lines at the block (about `:753`), so nothing before it moves, plus four lines after `server.await`. Anchors now: `init_solid_state().await` `:906`, `spawn_boot_pull` `:913`, `assert_effective_profile_or_exit` import `:945` and call `:948`, `HttpServer::new` `:991`, `.bind()` `:1289`. The file's net change is 10 fewer lines (13 added, 23 removed: 14 fewer at the block, 4 more after `server.await`). Everything before the block (hygiene call `:209`) is unchanged; the owner-less refusal sits after it and moved up by 14 (`RBAC_ALLOW_OWNERLESS_ENV` import `:782` to `:768`). The boot assertion still runs before `HttpServer::new` and `.bind()`. The decision holds. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.
