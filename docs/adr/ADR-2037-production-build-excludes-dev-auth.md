@@ -210,3 +210,10 @@ Reviewed the governed-path delta through `a6d05ed1a8d090e290944ebb8a9c122c7f59ef
 ## Scoped source review — 2026-11-15
 
 Reviewed the governed-path delta through `d1d3fa0d5a70ecf366ccbce6681944a4cce5988d`. `.github/workflows/ci.yml` (`d1d3fa0d5`) gates only the advisory `client-quality` job to `workflow_dispatch` (`:254`). `dev-auth-release-gate` (`:162`) is byte-identical, still blocking, and still fires on pull requests; it passed on VisionClaw #44. Production Dockerfiles and release hygiene code are unchanged. The binary/image acceptance boundary and proposed/partial/staged status remain.
+
+## Re-verification — 2026-11-16 (visionclaw-backup workspace member)
+
+Governed-path change: `Cargo.toml` adds the workspace member `crates/visionclaw-backup`
+and `Cargo.lock` gains its package entry (it reuses oxigraph 0.4.11 and rusqlite 0.31.0
+already locked; rusqlite gains the `backup` feature). The crate has no features and no auth path. No decision in this record
+changes. `verified_commit` is bumped on that basis.

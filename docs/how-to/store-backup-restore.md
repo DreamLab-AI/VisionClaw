@@ -57,23 +57,24 @@ visionclaw-backup restore --run  /mnt/nas/visionclaw-backups --target /srv/resto
 Every command exits non-zero on failure. `restore` verifies the run first,
 refuses a non-empty target, and checks each restored store against the manifest
 (quad count; SQLite integrity, row counts and content digest). Restored
-`oxigraph/` is a normal Oxigraph store; the SQLite files drop in under their own names.
+`oxigraph/` is a normal Oxigraph store (blank-node labels are re-minted on load, which RDF treats as the same graph; named graphs and every other term are preserved); the SQLite files drop in under their own names.
 
 ## Oxigraph and a running server
 
 Oxigraph on RocksDB admits one read-write process, and its documentation calls a
 read-only open beside a live writer undefined behaviour. The tool opens the
 store read-write, so against a running server it **fails by name** instead of
-reading unsafely. The server already writes a consistent checkpoint (`Store::backup`)
-at boot when `ONTOLOGY_BACKUP_DIR` is set (`src/main.rs`); the tool dumps such a
-directory happily while the server stays up. The SQLite databases are safe to
-snapshot live.
+reading unsafely. The server writes a consistent checkpoint (`Store::backup`) only **once, at boot**,
+when `ONTOLOGY_BACKUP_DIR` is set (`src/main.rs`), into a new `ontology-<uuid>`
+directory that is never pruned. The tool can dump such a directory while the server
+stays up, but a nightly run pointed at it would dump the same boot-time state every
+night. The SQLite databases are safe to snapshot live.
 
 So the nightly run needs one of these, which is the owner's choice:
 
 1. a periodic in-server checkpoint (a small change to the server, not made here);
 2. an authenticated admin route that writes a checkpoint (also a server change);
-3. a short stop window around the run (`ExecStartPre`/`ExecStopPost` in the example unit).
+3. a short stop window around the run (`ExecStartPre`/`ExecStopPost` in the example unit). The tool opens the stopped store read-write, which writes new RocksDB files (MANIFEST, OPTIONS, LOG); run it as the user that owns the volume (the server runs as `appuser`), or the server may be unable to open the store afterwards.
 
 ## Schedule
 

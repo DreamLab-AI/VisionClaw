@@ -427,3 +427,10 @@ Reviewed the governed-path delta through `a6d05ed1a8d090e290944ebb8a9c122c7f59ef
 ## Scoped source review — 2026-11-15
 
 Reviewed the governed-path delta through `d1d3fa0d5a70ecf366ccbce6681944a4cce5988d`. `Cargo.toml` (`ea7de1fb5`, VisionClaw #43) moves the four solid-pod-rs crates from 0.5.0-alpha.21 to alpha.22; the lock also moves `rustix` 1.0.8 to 1.1.6 (RUSTSEC-2026-0486) with `libc` and `linux-raw-sys`. No workspace member, feature or patch changes. `.github/workflows/ci.yml` (`d1d3fa0d5`) gates the advisory `client-quality` job to `workflow_dispatch` (`:254`). `rust-cpu` (`:92`) and its `--test layer_direction` step (`:138`) are unchanged, and the pull-request filter still includes `crates/**` and `Cargo.toml` (`:48`, `:52`), so a crate-boundary change still triggers the machine check. Decision intact.
+
+## Re-verification — 2026-11-16 (visionclaw-backup workspace member)
+
+Governed-path change: `Cargo.toml` adds the workspace member `crates/visionclaw-backup`
+and `Cargo.lock` gains its package entry (it reuses oxigraph 0.4.11 and rusqlite 0.31.0
+already locked; rusqlite gains the `backup` feature). The member list above is a historical count; current members are in `Cargo.toml`. The new crate is a leaf tool with no dependency on the server layers. No decision in this record
+changes. `verified_commit` is bumped on that basis.

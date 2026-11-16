@@ -3,7 +3,7 @@
 //! the live system and touches nothing outside its temporary directories.
 
 use oxigraph::io::RdfFormat;
-use oxigraph::model::{GraphName, Literal, NamedNode, Quad};
+use oxigraph::model::{BlankNode, GraphName, Literal, NamedNode, Quad};
 use oxigraph::sparql::QueryResults;
 use oxigraph::store::Store;
 use rusqlite::Connection;
@@ -42,6 +42,24 @@ fn make_oxigraph(dir: &Path) {
                 iri(&format!("urn:activity:{n}")),
                 iri(PROV_USED),
                 iri(&format!("urn:entity:{n}")),
+                GraphName::NamedNode(iri(PROVENANCE)),
+            ))
+            .expect("insert");
+    }
+    // OWL restrictions and rdf:List cells are blank nodes; they must survive.
+    let blank = BlankNode::new("restriction1").expect("blank node");
+    for (predicate, object) in [
+        ("http://www.w3.org/2002/07/owl#onProperty", iri(PROV_USED)),
+        (
+            "http://www.w3.org/2002/07/owl#someValuesFrom",
+            iri("urn:entity:1"),
+        ),
+    ] {
+        store
+            .insert(&Quad::new(
+                blank.clone(),
+                iri(predicate),
+                object,
                 GraphName::NamedNode(iri(PROVENANCE)),
             ))
             .expect("insert");
@@ -123,7 +141,38 @@ fn request(f: &Fixture, keep: usize) -> BackupRequest {
     }
 }
 
+/// Quads of the store with blank-node labels replaced by a signature of the
+/// statements the node takes part in. A reload mints fresh blank-node labels
+/// (labels carry no meaning in RDF), so equality here means isomorphic: the same
+/// nodes, in the same graphs, joined the same way.
 fn quads_of(dir: &Path) -> BTreeSet<String> {
+    let lines = raw_quads_of(dir);
+    let label = |line: &str| -> Option<String> {
+        line.strip_prefix("_:")
+            .and_then(|rest| rest.split(' ').next())
+            .map(str::to_owned)
+    };
+    let signature = |blank: &str| -> String {
+        let mut own: Vec<String> = lines
+            .iter()
+            .filter(|l| label(l).as_deref() == Some(blank))
+            .map(|l| l.replacen(&format!("_:{blank}"), "_:SELF", 1))
+            .collect();
+        own.sort();
+        own.join("|")
+    };
+    lines
+        .iter()
+        .map(|line| match label(line) {
+            Some(blank) => {
+                format!("[{}] {line}", signature(&blank)).replacen(&format!("_:{blank}"), "_:b", 1)
+            }
+            None => line.clone(),
+        })
+        .collect()
+}
+
+fn raw_quads_of(dir: &Path) -> Vec<String> {
     let store = Store::open(dir).expect("open store");
     let dump = store
         .dump_to_writer(RdfFormat::NQuads, Vec::new())
@@ -170,7 +219,7 @@ fn complete_runs(dest: &Path) -> Vec<String> {
 fn backup_then_restore_reproduces_every_store() {
     let f = fixture(true, None);
     let original_quads = quads_of(&f.data.join("oxigraph"));
-    assert_eq!(original_quads.len(), 5, "fixture quad count");
+    assert_eq!(original_quads.len(), 7, "fixture quad count");
     assert_eq!(provenance_count(&f.data.join("oxigraph")), 3);
 
     let outcome = backup(&request(&f, 14)).expect("backup");

@@ -103,3 +103,7 @@ The governing document adds an independent source-review/provenance section. Lea
 Evidence: `cargo test -p vault-core -p vault --tests` against published
 ontomark-parse 0.1.4: 520 passed, 5 existing diagnostics ignored. The source
 review contract is recorded in VisionFlow ADR-2024 and Ontomark ADR-OM-013.
+
+## Re-verification — 2026-11-16
+
+`docs/DATA-authority-erasure.md` changed only in its backup-coverage paragraph (the Oxigraph backup tool on branch feat/store-backup-and-restore). Nothing this record decides changes; `verified_commit` is bumped on that basis.

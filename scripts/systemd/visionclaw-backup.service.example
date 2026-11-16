@@ -8,14 +8,17 @@ RequiresMountsFor=/mnt/nas/visionclaw-backups
 
 [Service]
 Type=oneshot
+# Must own the data volume (the server runs as appuser). A stop-window run opens the
+# store read-write and creates RocksDB files; as root they would lock the server out.
+User=appuser
 # 1. The one line the owner must set: where the dated runs are written.
 Environment=VISIONCLAW_BACKUP_DEST=/mnt/nas/visionclaw-backups
 # 2. The host path of the visionclaw-data volume (docker volume inspect visionclaw-data).
 Environment=DATA_DIR=/mnt/nvme/docker/volumes/visionclaw-data/_data
 # 3. Where Oxigraph is read from. A running server holds the RocksDB lock, so the
 #    default (<DATA_DIR>/oxigraph) fails while it is up. Point this at a checkpoint
-#    directory the server wrote, or add the stop window below. See the how-to.
-#Environment=VISIONCLAW_BACKUP_OXIGRAPH_DIR=/mnt/nvme/visionclaw-checkpoints/current
+#    directory (the boot-time one is never refreshed), or add the stop window below.
+#Environment=VISIONCLAW_BACKUP_OXIGRAPH_DIR=/path/to/a/checkpoint/directory
 Environment=VISIONCLAW_BACKUP_KEEP=14
 # Stop window variant (owner decision; downtime of the server for the dump):
 #ExecStartPre=/usr/bin/docker stop visionclaw_container

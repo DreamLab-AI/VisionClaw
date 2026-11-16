@@ -5,8 +5,9 @@ directories**. It was **NOT** run against the live Oxigraph store, the live SQLi
 databases, the `visionclaw_container` container or the `visionclaw-data` volume.
 No live restore has been performed and no RTO has been measured.
 
-Code under test: `crates/visionclaw-backup` at `23b5cfc49` (branch
-`feat/store-backup-and-restore`, base `dreamlab-github/main`). Oxigraph 0.4.11,
+Code under test: `crates/visionclaw-backup` on branch
+`feat/store-backup-and-restore` (base `dreamlab-github/main`; the commit that adds
+this record is the code state tested). Oxigraph 0.4.11,
 rusqlite 0.31.0 (bundled SQLite).
 
 Command: `cargo test --offline -p visionclaw-backup`
@@ -22,20 +23,23 @@ test restore_refuses_a_non_empty_target_and_leaves_it_alone ... ok
 test a_checkpoint_directory_can_be_backed_up_while_the_store_stays_open ... ok
 test backup_then_restore_reproduces_every_store ... ok
 test retention_keeps_the_newest_runs_and_ignores_partial_folders ... ok
-test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.22s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.88s
 Doc-tests visionclaw_backup: 1 passed; 0 failed
 ```
 
 ## What the round-trip test proves
 
 `backup_then_restore_reproduces_every_store` builds, in a temporary directory, an
-Oxigraph store (one default-graph quad and four quads in a named provenance graph,
-one literal containing a newline, quotes and a non-ASCII letter) and five SQLite
+Oxigraph store (one default-graph quad and six quads in a named provenance graph, among them
+a blank-node subject with two quads, as OWL restrictions have, and one literal
+containing a newline, quotes and a non-ASCII letter) and five SQLite
 databases in WAL mode with open writer connections, so committed rows may sit in
 the WAL. It backs them up, verifies the run, restores the newest run into a second
 empty directory, then asserts:
 
-- the restored Oxigraph holds exactly the same set of quads (5, every graph);
+- the restored Oxigraph holds the same quads (7, every graph). Blank-node labels are re-minted on load, so
+  the comparison is by isomorphism: each blank node is matched by the statements it
+  takes part in;
 - a SPARQL `COUNT` over the provenance graph is 3 in both stores;
 - for each SQLite database the content digest (schema plus every row, ordered)
   and the row count of `items` equal the original's.
