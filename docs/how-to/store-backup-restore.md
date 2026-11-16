@@ -9,6 +9,8 @@ ADR-2103 and extends ADR-2017; the owner's decision is register row G-7.
 verified and restored successfully into an empty scratch directory.** Host
 checkpoint/schedule activation evidence is recorded in
 [the deployment receipt](../estate-closeout/2026-11-16/deployment-rollout.md).
+The exact read-only checkpoint backup service also completed successfully;
+the nightly 03:15 user timer is enabled (up to five minutes of jitter).
 
 Deployment integration (2026-11-16): compose now mounts a dedicated
 `visionclaw-checkpoints` volume outside `/app/data`. The dev Solid root

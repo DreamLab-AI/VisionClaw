@@ -74,6 +74,10 @@ Unrelated authority/governance, Ontomark and other WIP branches remain parked.
   Its immutable compatibility runtime is retained as
   `visionclaw-backup-runtime:nov16`. The user service mounts only the executable,
   read-only stores/checkpoints and private NAS output; it has no network.
+- First live checkpoint completed in 110.0 s. The exact user service then
+  completed successfully against it, producing run `20261116T212245Z` with
+  checkpoint metadata and the same 2,093,326-quads count. The 03:15 nightly
+  timer is enabled with up to five minutes of jitter; user lingering is enabled.
 - The six-hour checkpoint interval plus nightly backup permits up to roughly
   30 hours of Oxigraph age before failures/delays. A checkpoint older than
   24 hours is refused by the backup tool. There is no claim of cross-store
