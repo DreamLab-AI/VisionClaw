@@ -8,6 +8,7 @@ RequiresMountsFor=/mnt/dell/visionclaw-backups
 
 [Service]
 Type=oneshot
+UMask=0077
 # Needs read access to the data volume (SQLite files) and the checkpoint directory;
 # the server runs as appuser.
 User=appuser
