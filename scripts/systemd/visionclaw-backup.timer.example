@@ -1,0 +1,12 @@
+# EXAMPLE ONLY. Copy to /etc/systemd/system/visionclaw-backup.timer, then
+# `systemctl enable --now visionclaw-backup.timer`.
+[Unit]
+Description=Nightly VisionClaw store backup
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

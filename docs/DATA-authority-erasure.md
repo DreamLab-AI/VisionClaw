@@ -101,16 +101,19 @@ distributed transaction and no compensating-action framework in code.
   RuVector for agent memory (030) and provenance trails (033/034/124/128). Code
   resolves this as the matrix above; the legacy prose is not reconciled and must
   not be treated as authority.
-- **Backup coverage is partial — Oxigraph only.** `scripts/backup-sqlite.sh` (2026-08-31) takes
-  lock-consistent online snapshots of the SQLite DBs via the SQLite backup
-  API. Off-volume placement depends on configuration: the host default is
-  `./data/backups`. Membership is a contract, not a best-effort sweep: a missing
-  member of `REQUIRED_DBS` (`settings.sqlite3 enrichment.sqlite3 kpi.sqlite3`,
-  `backup-sqlite.sh:75`) aborts the run and publishes no manifest
-  (`:242-245`), while a missing member of `OPTIONAL_DBS` (`liveness.sqlite3`,
-  `:76`) is logged and the run continues (`:229`) — ADR-2069. **Oxigraph has NO
-  point-in-time backup.** There is no cross-store consistent restore and no
-  declared RPO/RTO.
+- **Backup coverage is partial.** `scripts/backup-sqlite.sh` takes lock-consistent online
+  snapshots of the SQLite DBs via the SQLite backup API; its default destination is
+  `./backups/sqlite`, outside `./data`. Membership is a contract (ADR-2069): a missing
+  member of `REQUIRED_DBS` (`settings`, `enrichment`, `kpi`, `shares`) aborts the run and
+  publishes no manifest, while a missing `OPTIONAL_DBS` member (`liveness`) is logged and
+  skipped. **Oxigraph:** on branch `feat/store-backup-and-restore` the `visionclaw-backup`
+  tool (`crates/visionclaw-backup`, ADR-2103) dumps the whole store as N-Quads with a
+  SHA-256 manifest and restores it into an empty directory; this is tested against
+  synthetic stores only. It is not merged to main, not scheduled and has not run against
+  the live stores, so on `main` Oxigraph still has no scheduled backup. The server's
+  boot-time `ONTOLOGY_BACKUP_DIR` checkpoint is the only live-writer-safe source. There
+  is no cross-store consistent restore and no declared RPO/RTO until a restore is timed on
+  the live data.
 - **Graph shares persist, and hold the creator's private nodes.** A share is a file
   of the creator's view at share time (`get_current_graph`, ADR-060), so it can carry
   the creator's own private nodes. Until 2026-11-06 the share record lived in a map per

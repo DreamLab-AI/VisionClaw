@@ -280,3 +280,15 @@ Governed-path change: `src/services/github_sync_service.rs` reads the ADR-2192 s
 ## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
 
 `github_sync_service.rs`: with `qualityGates.ontologyReasoning` off, a sync clears the shared Whelk closure and the stored inferred graph (`forget_inference`). Backup and write-master posture are unchanged. **Decision unaffected.**
+
+## Update — 2026-11-16 (branch feat/store-backup-and-restore)
+
+The "no Oxigraph/RocksDB backup script exists" statements above are superseded on
+this branch only: `crates/visionclaw-backup` dumps Oxigraph as N-Quads and snapshots
+the same SQLite databases (`settings`, `enrichment`, `kpi`, `shares` required;
+`liveness` optional) with the online backup API, and its restore round trip passes on
+synthetic stores. It is not merged, not scheduled and has not run against the live
+stores; no production restore has run. The SQLite posture, including
+`scripts/backup-sqlite.sh`, is unchanged. The code has five SQLite databases
+(`app_state.rs:417-484`), not four. See ADR-2103 and
+`docs/how-to/store-backup-restore.md`. `implementation_status` stays `partial`.
