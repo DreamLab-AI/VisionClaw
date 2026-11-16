@@ -8,13 +8,12 @@
 
 The board's history from 7 September to 15 November 2026, with the definition of each row id, is in the [archived board](archive/TODO-unified-2026-09-07-to-2026-11-15.md).
 
-## Waiting on an owner decision (10)
+## Waiting on an owner decision (9)
 
 | Id | Item | Seam | Components | Blocked by | State | Checked |
 |---|---|---|---|---|---|---|
 | 11-08 #4 | Audit journal: torn records `events/2026-10-12.jsonl` lines 35, 64; refused-revoke not journalled (B4/B5) | none | visionclaw | owner-decision | open | 2026-11-15 |
 | cheap: nix-flake-update | Merge bot's `deps/nix-flake-update` | none | agentbox | owner-decision | open | 2026-11-15 |
-| ratify: VC 2039/2108 | VisionClaw ADR-2108 (dev profile arms the bypass by default) contradicts the ruling on ADR-2039 (bypass off by default): supersede ADR-2108? | none | visionclaw | owner-decision | open | 2026-11-16 |
 | ratify: AB 2080/2162/2177 | agentbox ADR-2162: accept, amend or reject (ADR-2177 accepted and ADR-2080 item 3 deferred on 2026-11-16) | none | agentbox | owner-decision | open | 2026-11-15 |
 | G-7 | Backup policy per store | none | visionclaw | owner-decision | open | 2026-11-15 |
 | V-1 | Matching semantic bundle/server activation | ontology-pipeline | loom, visiongraph, visionclaw | owner-decision | open | 2026-11-15 |
@@ -30,7 +29,7 @@ The board's history from 7 September to 15 November 2026, with the definition of
 | cheap: Gemini key | Gemini audit key 401; ADR-2131 audit leg never ran | none | visionclaw | owner-act | open | 2026-11-15 |
 | X-4 | Upgrade rehearsal built, never run | none | visionclaw, agentbox | owner-act | open | 2026-11-15 |
 
-## Ordinary engineering: can start now (17)
+## Ordinary engineering: can start now (18)
 
 | Id | Item | Seam | Components | Blocked by | State | Checked |
 |---|---|---|---|---|---|---|
@@ -43,6 +42,7 @@ The board's history from 7 September to 15 November 2026, with the definition of
 | W2-01 (also CONTRACTS-F1, CONTRACTS-F2) | Agent events sent bare; VisionClaw drops them as Malformed | agent-control-api | agentbox, visionclaw | engineering | fixed on an unmerged branch: yes: agentbox `fix/estate-review-contracts` 9040efc6f; project `fix/estate-review-2026-11-15` eafa7d3e4 (test only) | 2026-11-15 |
 | W3-02 | Saved API keys never read back | none | visionclaw | engineering | open | 2026-11-15 |
 | 11-15 new | RUSTSEC-2026-0459: `libsqlite3-sys 0.28` via direct `rusqlite 0.31` | none | visionclaw | engineering | open | 2026-11-15 |
+| ratify: VC 2039/2108 | When VisionClaw branch fix/estate-review-2026-11-15 merges: mark ADR-2039 accepted with its verified commit, and supersede ADR-2108 | none | visionclaw | engineering | open | 2026-11-16 |
 | X-1 | Same-UID boundary; per-role accounts and `/run/secrets` | key-custody | agentbox | engineering | open | 2026-11-15 |
 | X-2 | Actor bypass audit (direct store reads, `execute_in_thread`) | none | visionclaw | engineering | open | 2026-11-15 |
 | X-3 | One request id across seven layers; change locked 52-byte frame | xr-presence | visionclaw | engineering | open | 2026-11-15 |
