@@ -2,7 +2,7 @@
 id: ADR-2134
 title: The graph socket relays the memory explorer's beat clock and route to the same user's other sessions
 date: 2026-10-07
-decision_status: proposed
+decision_status: accepted
 implementation_status: complete
 activation_status: staged
 supersedes: []
@@ -144,3 +144,5 @@ Governed-path change: `src/actors/client_coordinator_actor.rs` applies the parse
 ## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
 
 `client_coordinator_actor.rs` recomputes every client's filter and sends its counts on each graph change, sends `filter_update_error` when the graph cannot be read, and maps `filter_update` through `apply_filter_update`. Same-user relay is untouched. **Decision unaffected.**
+
+**Owner ruling (2026-11-16).** Accepted. The owner ratified this record in session on 16 November 2026; `decision_status` is `accepted`. Implementation and activation are unchanged by the ruling: activation stays `staged` until the run its review trigger names.

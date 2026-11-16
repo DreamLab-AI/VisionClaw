@@ -2,7 +2,7 @@
 id: ADR-2138
 title: Directed cycles are one server analysis that every client consumes
 date: 2026-10-13
-decision_status: proposed
+decision_status: accepted
 implementation_status: complete
 activation_status: staged
 supersedes: []
@@ -142,3 +142,5 @@ Governed-path changes since `7bd25427e`: `render_store.rs` gains the headset qua
 ## Re-verification — 2026-11-10 (`2a93efd1d`, merge of main into the XR slice-1 branch)
 
 The merge combines main's ADR-2192 changes (the two sections above it) with the XR slice-1 changes (the section above this one). The merge resolved without a conflict in any governed source file, only in this record's own text, and neither change touches the other's lines. **Decision unaffected.** Re-run: `git diff 2a93efd1d^1 2a93efd1d -- <verified_paths>` and `git diff 2a93efd1d^2 2a93efd1d -- <verified_paths>`.
+
+**Owner ruling (2026-11-16).** Accepted. The owner ratified this record in session on 16 November 2026; `decision_status` is `accepted`. Implementation and activation are unchanged by the ruling: activation stays `staged` until the run its review trigger names.
