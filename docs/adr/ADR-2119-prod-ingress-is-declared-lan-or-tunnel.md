@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 8702b58c2480041c29cb6c8081681d06051861aa
+verified_commit: c7dfdea2d8dcd85f8ec300193c9aad032120fb92
 verified_paths: [scripts/launch.sh, docker-compose.unified.yml, crates/visionclaw-integration-tests/tests/prod_ingress.rs]
 owner: jjohare
 review_trigger: "Activation (staged → live): the first prod-profile start on the Trust DGX Spark (NHS residential 2026-11-03..05), LAN-only with the tunnel down. Review: a third ingress (reverse proxy, VPN, public port), any change to the prod pre-flight in scripts/launch.sh, or the cloudflared service's profiles"
