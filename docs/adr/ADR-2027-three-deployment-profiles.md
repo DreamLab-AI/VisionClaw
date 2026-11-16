@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: a45077526e9bad84163ccd0883c2fd1ff8a9378a
+verified_commit: 5a9b6fc3801c17c4e45ae71b974ea8d609553936
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -17,6 +17,11 @@ lineage: legacy ADR-142 (RBAC lattice + flag surface), ADR-011 (auth-enforcement
 ---
 
 # ADR-2027 — Three named deployment profiles, with the shipped compose booting demo-open
+
+Deployment review, 2026-11-16: the merged checkpoint task changes only backup
+lifecycle in `main.rs`; checkpoint and legacy Solid persistence mounts do not
+change the six security-profile flags or their defaults. Existing partial/live
+status is retained; no new authority branch is included in this rollout.
 
 ## Context
 
