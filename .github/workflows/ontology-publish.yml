@@ -1,18 +1,11 @@
 name: Ontology Federation CI/CD
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'ontology/**'
-      - 'public/ontology/**'
-      - 'crates/vault/**'
-      - 'crates/vault-core/**'
-      - '.github/workflows/ontology-publish.yml'
-  # pull_request dropped 2026-11-15 (Actions volume): the push to main rebuilds,
-  # and publish-release needs build-ontology, so a broken build never publishes.
-  repository_dispatch:
-    types: [corpus-sync]
+  # Parked 2026-11-16 (ADR-2106 amendment): the GitHub path is network-expensive
+  # and the pod ontology is built locally by scripts/ontology/build-local-release.sh.
+  # push, pull_request and repository_dispatch (corpus-sync) are removed; run
+  # this by dispatch to refresh the `ontology-latest` release deliberately.
+  # publish-release needs build-ontology, so a broken build never publishes.
   workflow_dispatch:
     inputs:
       source_repo:

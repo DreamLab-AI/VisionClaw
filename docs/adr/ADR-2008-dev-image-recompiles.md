@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 9450923f912046d69249477683d35dce5d9621fb
+verified_commit: a45077526e9bad84163ccd0883c2fd1ff8a9378a
 verified_paths: [scripts/dev-entrypoint.sh, docker-compose.unified.yml, scripts/rust-backend-wrapper.sh, scripts/lib/dev-inputs.sh, scripts/launch.sh]
 owner: jjohare
 review_trigger: a dev-loop turnaround that makes on-start compilation intolerable, or a move to pre-baked dev binaries by default
@@ -225,3 +225,8 @@ Re-verified 2026-10-30 at c75004696: `docker-compose.unified.yml` gains the shar
 Re-verified 2026-10-30 at 17e3cdda0: `scripts/rust-backend-wrapper.sh` retry now cleans only the root package (`cargo clean --profile dev-runtime -p visionclaw-server`) instead of a full `cargo clean` — ADR-2156 amendment; the failure/retry path and build stamp handling are otherwise unchanged.
 
 Re-verified 2026-11-16 at 9450923f9: the only change to this record's governed paths since its previous stamp is the cloud-judge default (`*_JEV_ALLOW_CLOUD` 1 to 0, ADR-2148 owner ruling) in `docker-compose.unified.yml` and `env.example`. This record makes no claim about that setting, so its decision and evidence are unaffected.
+
+
+## Scoped source review — 2026-11-16 (local ontology feed)
+
+Reviewed the governed-path delta through `a45077526e9bad84163ccd0883c2fd1ff8a9378a`. `docker-compose.unified.yml` gains one environment default on the dev service, `ONTOLOGY_PULL_URL: "${ONTOLOGY_PULL_URL:-file:///vault/.ontology-release/current}"` (`:134`), with its comment (ADR-2106 amendment 2026-11-16). No service, profile, port, mount, build target or image changes. The development build target and the recompile-on-start path are untouched. Decision intact.

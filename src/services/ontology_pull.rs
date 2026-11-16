@@ -1,7 +1,14 @@
 //! Pull the published ontology into the in-process Solid pod at boot (ADR-2106).
 //!
-//! `ontology-publish.yml` builds the pod resources from the vault and attaches
-//! them to the rolling GitHub release `ontology-latest` on this repository.
+//! The source is a release directory: `index.jsonld`, `SHA256SUMS` and the
+//! four content files under one base URL. The default delivery is local
+//! (`file://`, ADR-2106 amendment 2026-11-16): `scripts/ontology/build-local-release.sh`
+//! builds the committed HEAD of the agentbox vault checkout into
+//! `~/workspace/.ontology-release`, which the container sees read-only at
+//! `/vault/.ontology-release`. The `https://` source is the rolling GitHub
+//! release `ontology-latest` that `ontology-publish.yml` builds on dispatch;
+//! it is parked because it is network-expensive.
+//!
 //! A GitHub-hosted runner cannot reach the pod (it is served in-process on the
 //! LAN, ADR-2098), so delivery is inverted: the server fetches the release at
 //! start-up and writes the resources into its own `FsBackend` under
@@ -140,10 +147,46 @@ pub enum PullError {
     Storage(#[from] PodError),
 }
 
-/// The one network operation the puller needs.
+/// The one read operation the puller needs.
 #[async_trait]
 pub trait Fetch: Send + Sync {
     async fn get(&self, url: &str) -> Result<Bytes, PullError>;
+}
+
+/// Filesystem-backed [`Fetch`] for `file://` base URLs: reads a release
+/// directory written by `scripts/ontology/build-local-release.sh`.
+pub struct FileFetch;
+
+#[async_trait]
+impl Fetch for FileFetch {
+    async fn get(&self, url: &str) -> Result<Bytes, PullError> {
+        let path = file_url_path(url).ok_or_else(|| PullError::Fetch {
+            url: url.to_string(),
+            reason: "not an absolute file:// URL".into(),
+        })?;
+        tokio::fs::read(path)
+            .await
+            .map(Bytes::from)
+            .map_err(|e| PullError::Fetch {
+                url: url.to_string(),
+                reason: e.to_string(),
+            })
+    }
+}
+
+/// The absolute path of a `file:///abs/path` URL, or `None`.
+fn file_url_path(url: &str) -> Option<&str> {
+    url.strip_prefix("file://").filter(|p| p.starts_with('/'))
+}
+
+/// The fetcher for `cfg.base_url`'s scheme: `file://` reads the local release
+/// directory, anything else goes over HTTP.
+fn fetcher_for(cfg: &OntologyPullConfig) -> Result<Box<dyn Fetch>, PullError> {
+    if cfg.base_url.starts_with("file://") {
+        Ok(Box::new(FileFetch))
+    } else {
+        Ok(Box::new(HttpFetch::new(cfg.timeout)?))
+    }
 }
 
 /// `reqwest`-backed [`Fetch`]; follows GitHub's release redirects.
@@ -410,15 +453,21 @@ where
         return;
     }
     tokio::spawn(async move {
-        let fetch = match HttpFetch::new(cfg.timeout) {
+        let fetch = match fetcher_for(&cfg) {
             Ok(f) => f,
             Err(e) => {
-                warn!("ontology pull: cannot build HTTP client: {e}");
+                warn!(
+                    "ontology pull: cannot build fetcher for {}: {e}",
+                    cfg.base_url
+                );
                 return;
             }
         };
         loop {
-            log_outcome(pull_once(&fetch, storage.as_ref(), &cfg).await, &cfg);
+            log_outcome(
+                pull_once(fetch.as_ref(), storage.as_ref(), &cfg).await,
+                &cfg,
+            );
             match cfg.interval {
                 Some(every) => tokio::time::sleep(every).await,
                 None => break,
@@ -688,6 +737,74 @@ mod tests {
             .collect();
         files.insert(SUMS.into(), Bytes::from(sums));
         files
+    }
+
+    /// Write `files` into a fresh directory and return it with its file:// URL.
+    fn release_dir(files: &HashMap<String, Bytes>) -> (tempfile::TempDir, String) {
+        let dir = tempfile::tempdir().unwrap();
+        for (name, body) in files {
+            std::fs::write(dir.path().join(name), body).unwrap();
+        }
+        let url = format!("file://{}", dir.path().display());
+        (dir, url)
+    }
+
+    #[test]
+    fn file_url_path_requires_an_absolute_file_url() {
+        assert_eq!(file_url_path("file:///vault/rel/x"), Some("/vault/rel/x"));
+        assert_eq!(file_url_path("file://relative/x"), None);
+        assert_eq!(file_url_path("https://example.test/x"), None);
+    }
+
+    #[tokio::test]
+    async fn file_fetch_reads_a_file_and_reports_a_missing_one() {
+        let (_dir, url) = release_dir(&release("abc123"));
+        let body = FileFetch.get(&format!("{url}/{MANIFEST}")).await.unwrap();
+        assert_eq!(parse_manifest(&body).unwrap().build_sha, "abc123");
+        let err = FileFetch
+            .get(&format!("{url}/absent.ttl"))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, PullError::Fetch { ref url, .. } if url.ends_with("absent.ttl")));
+    }
+
+    #[tokio::test]
+    async fn local_release_directory_pulls_into_the_pod() {
+        let (_dir, url) = release_dir(&release("local-1df8eb49"));
+        let cfg = OntologyPullConfig {
+            base_url: url,
+            ..cfg()
+        };
+        let storage = MemoryBackend::new();
+        let fetch = fetcher_for(&cfg).unwrap();
+        let out = pull_once(fetch.as_ref(), &storage, &cfg).await.unwrap();
+        assert!(
+            matches!(out, PullOutcome::Updated { ref build_sha, .. } if build_sha == "local-1df8eb49")
+        );
+        assert_eq!(
+            pod_build_sha(&storage).await.as_deref(),
+            Some("local-1df8eb49")
+        );
+        let again = pull_once(fetch.as_ref(), &storage, &cfg).await.unwrap();
+        assert!(matches!(again, PullOutcome::UpToDate { .. }));
+    }
+
+    #[tokio::test]
+    async fn tampered_local_file_writes_nothing() {
+        let mut files = release("local-bad");
+        files.insert(
+            "ontology.jsonld".into(),
+            Bytes::from_static(b"{\"@graph\":[1]}"),
+        );
+        let (_dir, url) = release_dir(&files);
+        let cfg = OntologyPullConfig {
+            base_url: url,
+            ..cfg()
+        };
+        let storage = MemoryBackend::new();
+        let err = pull_once(&FileFetch, &storage, &cfg).await.unwrap_err();
+        assert!(matches!(err, PullError::Digest { ref file, .. } if file == "ontology.jsonld"));
+        assert!(!storage.exists(POD_CONTAINER).await.unwrap());
     }
 
     fn fetcher(files: HashMap<String, Bytes>) -> MapFetch {

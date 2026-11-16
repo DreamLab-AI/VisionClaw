@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 9450923f912046d69249477683d35dce5d9621fb
+verified_commit: a45077526e9bad84163ccd0883c2fd1ff8a9378a
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -384,3 +384,8 @@ Governed-path change since the last stamp (server consolidation, 2026-11-06, `92
 Governed-path change since `b5200feb4`: `src/main.rs` (`57ba04beb`, `f284c2953`, both 2026-11-07, Whelk merge `67de9bd98`): the background sync is handed `app_state.ontology_inference_engine` (`:494`), the ontology-agent services reuse that engine instead of building a fresh `WhelkInferenceEngine` (`:534`), and the query service gains `.with_view_reasoner(app_state.ontology_view_reasoner)` (`:543`, ADR-2184 Q1). Net +1 line after `:543`; nothing before it moves. No profile table, flag, RBAC gate or compose default is touched. Current anchors: owner-less refusal `src/main.rs:793-822`; `assert_effective_profile_or_exit` called at `:962`, ahead of `HttpServer::new` (`:1005`) and `.bind()` (`:1303`), boot receipt logged at `:968-972`. **Decision and `partial` status unaffected.** Re-run: `git diff b5200feb4..7bd25427e -- <verified_paths>`. Checked by reading that diff and the anchors at HEAD; no test was re-run for this stamp.
 
 Re-verified 2026-11-16 at 9450923f9: the only change to this record's governed paths since its previous stamp is the cloud-judge default (`*_JEV_ALLOW_CLOUD` 1 to 0, ADR-2148 owner ruling) in `docker-compose.unified.yml` and `env.example`. This record makes no claim about that setting, so its decision and evidence are unaffected.
+
+
+## Scoped source review — 2026-11-16 (local ontology feed)
+
+Reviewed the governed-path delta through `a45077526e9bad84163ccd0883c2fd1ff8a9378a`. `docker-compose.unified.yml` gains one environment default on the dev service, `ONTOLOGY_PULL_URL: "${ONTOLOGY_PULL_URL:-file:///vault/.ontology-release/current}"` (`:134`), with its comment (ADR-2106 amendment 2026-11-16). No service, profile, port, mount, build target or image changes. `PROFILE_FLAGS` and the profile mapping are untouched. Decision intact.
