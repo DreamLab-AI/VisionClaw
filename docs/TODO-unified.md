@@ -8,14 +8,22 @@
 
 The board's history from 7 September to 15 November 2026, with the definition of each row id, is in the [archived board](archive/TODO-unified-2026-09-07-to-2026-11-15.md).
 
-## Waiting on an owner act (2)
+## Waiting on an owner decision (1)
+
+| Id | Item | Seam | Components | Blocked by | State | Checked |
+|---|---|---|---|---|---|---|
+| ER-7 | VisionClaw proposals now conform to the forum contract on a branch. Open: which risk tier and task properties each builder declares (concept elevation, decision elevation, voice command) | governance-events | visionclaw | owner-decision | fixed on an unmerged branch: visionclaw fix/governance-builders-to-contract (11134cc41) | 2026-11-16 |
+
+## Waiting on an owner act (4)
 
 | Id | Item | Seam | Components | Blocked by | State | Checked |
 |---|---|---|---|---|---|---|
 | cheap: nix-flake-update | Merge bot's `deps/nix-flake-update` | none | agentbox | owner-act | open | 2026-11-15 |
 | X-4 | Upgrade rehearsal built, never run | none | visionclaw, agentbox | owner-act | open | 2026-11-15 |
+| G-7 | Backups: tool and in-server Oxigraph checkpoint built on a branch. Still to do: merge, rebuild, set ONTOLOGY_CHECKPOINT_DIR, mount /mnt/dell on the host, enable the timer, one timed restore of the real stores | none | visionclaw | owner-act | fixed on an unmerged branch: visionclaw feat/store-backup-and-restore | 2026-11-16 |
+| V-1 | Loom promotion, nightly, start-up fallback and publish-matching build flags built on a branch. Still to do: merge, then deploy on the Loom host | ontology-pipeline | loom, visiongraph, visionclaw | owner-act | fixed on an unmerged branch: loom feat/nightly-promotion | 2026-11-16 |
 
-## Ordinary engineering: can start now (26)
+## Ordinary engineering: can start now (23)
 
 | Id | Item | Seam | Components | Blocked by | State | Checked |
 |---|---|---|---|---|---|---|
@@ -34,15 +42,12 @@ The board's history from 7 September to 15 November 2026, with the definition of
 | X-1 | Same-UID boundary; per-role accounts and `/run/secrets` | key-custody | agentbox | engineering | open | 2026-11-15 |
 | X-2 | Actor bypass audit (direct store reads, `execute_in_thread`) | none | visionclaw | engineering | open | 2026-11-15 |
 | X-3 | One request id across seven layers; change locked 52-byte frame | xr-presence | visionclaw | engineering | open | 2026-11-15 |
-| G-7 | Backups: tool built on a branch. Still to do: in-server periodic Oxigraph checkpoint, destination /mnt/dell, schedule, one timed restore of the real stores | none | visionclaw | engineering | fixed on an unmerged branch: visionclaw feat/store-backup-and-restore | 2026-11-16 |
 | L-3 | Clamp-fire receipt | none | visionclaw | engineering | open | 2026-11-15 |
-| V-1 | Loom promotion and nightly built on a branch. Still to do: start-up fallback to the previous generation, build flags matching the visionGraph publish workflow, then merge and deploy on the Loom host | ontology-pipeline | loom, visiongraph, visionclaw | engineering | fixed on an unmerged branch: loom feat/nightly-promotion | 2026-11-16 |
 | E-5 | Direct axiom writes need forum apply path (waits on N-2) | decision-attribution | nostr-rust-forum, visionclaw | engineering | open | 2026-11-15 |
 | N-2 | Forum `vault propose` apply path | decision-attribution | nostr-rust-forum, visionclaw | engineering | open | 2026-11-15 |
 | N-6 | Key-custody surfaces on shared UID | key-custody | agentbox, sidestr-rs | engineering | open | 2026-11-15 |
 | N-10 | Correct the ecosystem map: sidestr is running with development paused; adoption of its capabilities is parked | payments | sidestr-rs, agentbox | engineering | open | 2026-11-15 |
 | CY-C | Bring-up runbook for a clean machine (was: fresh-host runbook and Trust letter) | none | visionclaw | engineering | open | 2026-11-15 |
-| ER-7 | VisionClaw's own 31402 builders declare task properties | governance-events | visionclaw | engineering | open | 2026-11-15 |
 | JOURNAL-LOCK | Two processes writing the audit journal at once can fork its hash chain: the writer takes no lock | none | agentbox | engineering | open | 2026-11-16 |
 | CODEX-LEG-CONFINE | The Codex audit leg can read any file the cron user can read, and its turn count and spend are not bounded by the budget reservation | key-custody | agentbox | engineering | open | 2026-11-16 |
 
