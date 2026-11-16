@@ -110,8 +110,10 @@ distributed transaction and no compensating-action framework in code.
   tool (`crates/visionclaw-backup`, ADR-2103) dumps the whole store as N-Quads with a
   SHA-256 manifest and restores it into an empty directory; this is tested against
   synthetic stores only. It is not merged to main, not scheduled and has not run against
-  the live stores, so on `main` Oxigraph still has no scheduled backup. The server's
-  boot-time `ONTOLOGY_BACKUP_DIR` checkpoint is the only live-writer-safe source. There
+  the live stores, so on `main` Oxigraph still has no scheduled backup. On that branch the
+  server also writes its own periodic Oxigraph checkpoint (`ONTOLOGY_CHECKPOINT_DIR`,
+  `ONTOLOGY_CHECKPOINT_INTERVAL_SECS`, default 6 hours), which is the live-writer-safe source
+  the tool backs up; the checkpoint task is built and tested but not running. There
   is no cross-store consistent restore and no declared RPO/RTO until a restore is timed on
   the live data.
 - **Graph shares persist, and hold the creator's private nodes.** A share is a file

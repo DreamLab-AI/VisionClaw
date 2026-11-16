@@ -53,3 +53,21 @@ empty directory, then asserts:
 - Store sizes here are a few rows. Dump time, restore time and disk use at the live
   store's size are unmeasured, so ADR-2103's RTO is still undeclared.
 - Nothing is scheduled; the systemd files in `scripts/systemd/` are examples.
+
+## Addendum: server checkpoints (owner ruling, 16 November 2026)
+
+Same scope: synthetic stores in temporary directories, nothing live, nothing written to
+`/mnt/dell`. After the periodic checkpoint was added:
+
+- `cargo test -p visionclaw-backup`: 6 unit tests passed (`checkpoint::tests`), 13
+  integration tests passed (adds a fresh checkpoint backed up and restored to the same
+  quads with the checkpoint recorded in the manifest, a stale checkpoint refused with
+  nothing published, an empty checkpoint directory refused), 1 doc-test passed.
+- `cargo test --lib -p visionclaw-server -- services::ontology_checkpoint services::data_reconciliation`:
+  8 passed (the task writes at start, refreshes each interval and stops cleanly; the
+  existing source-loss restore of `checkpoint_oxigraph` still passes).
+- `cargo clippy -p visionclaw-backup --all-targets -- -D warnings`, `cargo fmt --check` and
+  `cargo doc -p visionclaw-backup --no-deps`: clean.
+
+The existing restore round-trip test passes unchanged in behaviour; the field
+`oxigraph_dir` became `oxigraph: OxigraphSource`.
