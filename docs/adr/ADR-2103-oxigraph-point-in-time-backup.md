@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 83a17dd6270ccb2095efa09fdc50762b58b733c9
+verified_commit: d0084892a95592c8bc5d6cc5260388e8a5f07f48
 verified_paths: [crates/visionclaw-backup/src/run.rs, crates/visionclaw-backup/tests/restore_roundtrip.rs, docs/how-to/store-backup-restore.md]
 owner: jjohare
 review_trigger: an Oxigraph/RocksDB data-loss incident, a restore drill, or any change to scripts/backup-sqlite.sh's membership contract

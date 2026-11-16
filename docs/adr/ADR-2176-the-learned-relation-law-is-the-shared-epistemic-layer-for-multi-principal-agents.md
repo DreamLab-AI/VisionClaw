@@ -7,7 +7,7 @@ implementation_status: none
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 83a17dd6270ccb2095efa09fdc50762b58b733c9
+verified_commit: d0084892a95592c8bc5d6cc5260388e8a5f07f48
 relates: [ADR-2174, ADR-2139, ADR-2157, ADR-2160, ADR-2170, ADR-2022, ADR-2115]
 verified_paths: [crates/relational-field/src/lib.rs, crates/relational-field/src/bin/h1.rs, crates/relational-field/results/h1/summary.json, crates/relational-field/Cargo.toml, crates/relational-field/PREREGISTRATION.md, crates/relational-field/PREREGISTRATION-D2.md, src/services/semantic_type_registry.rs, crates/visionclaw-domain/src/utils/visibility_filter.rs, src/handlers/api_handler/graph/mod.rs, docs/DATA-authority-erasure.md]
 owner: jjohare
