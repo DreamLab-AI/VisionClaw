@@ -8,6 +8,14 @@ ADR-2103 and extends ADR-2017; the owner's decision is register row G-7.
 **Status: built and tested against synthetic stores, on a branch. Not merged, not
 scheduled, not running; it has not been run against the live stores.** See [What is not yet switched on](#what-is-not-yet-switched-on).
 
+Deployment integration (2026-11-16): compose now mounts a dedicated
+`visionclaw-checkpoints` volume outside `/app/data`. The dev Solid root
+`/data/solid` also receives a named `visionclaw-solid` volume: existing
+container-layer data must be copied and verified while the backend is stopped
+before the first recreation. Keep the original container and an independent
+private recovery copy until that migration is verified. This Solid copy is
+not part of the store-backup tool's coverage.
+
 ## The stores
 
 | Store | Path under the data directory | Compose volume | Irreplaceable? |

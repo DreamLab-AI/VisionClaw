@@ -23,6 +23,9 @@ x-common-environment: &common-environment
   # 2026-11-16: off by default; the same holds for LOOM_ and CODESCAPE_).
   VISIONCLAW_JEV: "${VISIONCLAW_JEV:-1}"
   VISIONCLAW_JEV_ALLOW_CLOUD: "${VISIONCLAW_JEV_ALLOW_CLOUD:-0}"
+  # Server-owned live Oxigraph checkpoints, outside the irreplaceable data volume.
+  ONTOLOGY_CHECKPOINT_DIR: "${ONTOLOGY_CHECKPOINT_DIR:-/app/checkpoints}"
+  ONTOLOGY_CHECKPOINT_INTERVAL_SECS: "${ONTOLOGY_CHECKPOINT_INTERVAL_SECS:-21600}"
   VISIONCLAW_JEV_TIMEOUT_MS: "${VISIONCLAW_JEV_TIMEOUT_MS:-4000}"
   # An unset automatic threshold deliberately accepts no autonomous change.
   VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE: "${VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE:-}"
@@ -174,6 +177,9 @@ services:
     volumes:
       # Data volumes - ALWAYS mounted (both dev and prod)
       - visionclaw-data:/app/data
+      - visionclaw-checkpoints:/app/checkpoints
+      # Preserve the legacy dev Solid root across container replacement.
+      - visionclaw-solid:/data/solid
       - visionclaw-logs:/app/logs
       # SOURCE CODE MOUNTS - Live sync from host for development hot-reload
       # These override the COPY'd source in the image with current host files
@@ -313,6 +319,7 @@ services:
     volumes:
       # Production: ONLY data volumes (no source mounts, no Docker socket)
       - visionclaw-data:/app/data
+      - visionclaw-checkpoints:/app/checkpoints
       - visionclaw-logs:/app/logs
     ports:
       # Production: Only API port
@@ -698,6 +705,10 @@ volumes:
   # Persistent data volumes
   visionclaw-data:
     name: ${DATA_VOLUME_NAME:-visionclaw-data}
+  visionclaw-checkpoints:
+    name: visionclaw-checkpoints
+  visionclaw-solid:
+    name: visionclaw-solid
     driver: local
   visionclaw-logs:
     name: ${LOGS_VOLUME_NAME:-visionclaw-logs}
