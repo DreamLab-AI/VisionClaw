@@ -107,6 +107,7 @@ jobs:
         -p visionclaw-analytics-oracle
         -p vault-core
         -p vault
+        -p visionclaw-backup
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Install Rust toolchain (clippy)

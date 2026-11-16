@@ -18,6 +18,7 @@ members = [
     "crates/visionclaw-tri-layout",
     "crates/visionclaw-jev",
     "crates/visionclaw-splat",
+    "crates/visionclaw-backup",
 ]
 # PRD-008: the Godot gdext client (xr-client/rust) is its own workspace context
 # (cdylib for the Quest APK, separate target). Exclude it from the server
