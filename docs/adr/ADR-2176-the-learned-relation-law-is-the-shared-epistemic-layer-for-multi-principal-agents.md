@@ -107,3 +107,7 @@ review contract is recorded in VisionFlow ADR-2024 and Ontomark ADR-OM-013.
 ## Re-verification — 2026-11-16
 
 `docs/DATA-authority-erasure.md` changed only in its backup-coverage paragraph (the Oxigraph backup tool on branch feat/store-backup-and-restore). Nothing this record decides changes; `verified_commit` is bumped on that basis.
+
+## Re-verification — 2026-11-16 (periodic Oxigraph checkpoint)
+
+Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `docs/DATA-authority-erasure.md` changed only in its backup-coverage paragraph (the server's own periodic checkpoint replaces the mention of the boot-time checkpoint). Nothing this record decides changes. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.

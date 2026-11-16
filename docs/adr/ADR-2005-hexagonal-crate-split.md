@@ -434,3 +434,7 @@ Governed-path change: `Cargo.toml` adds the workspace member `crates/visionclaw-
 and `Cargo.lock` gains its package entry (it reuses oxigraph 0.4.11 and rusqlite 0.31.0
 already locked; rusqlite gains the `backup` feature). The member list above is a historical count; current members are in `Cargo.toml`. The new crate is a leaf tool with no dependency on the server layers. No decision in this record
 changes. `verified_commit` is bumped on that basis.
+
+## Re-verification — 2026-11-16 (periodic Oxigraph checkpoint)
+
+Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `Cargo.toml` adds the workspace member `crates/visionclaw-backup` (already present on this branch) and the path dependency `visionclaw-backup = { path = "crates/visionclaw-backup" }` (two lines, after the `visionclaw-ontology` entry); `Cargo.lock` gains one dependency line for the root package and no registry package. Line numbers after `:57` of `Cargo.toml` move down by three. The workspace members were already thirteen on this branch with the backup crate; one path dependency from the root crate to a leaf crate that depends on no other workspace crate adds no layer violation (`visionclaw-backup` imports only external crates). The decision holds. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.

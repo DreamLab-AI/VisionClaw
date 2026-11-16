@@ -292,3 +292,7 @@ stores; no production restore has run. The SQLite posture, including
 `scripts/backup-sqlite.sh`, is unchanged. The code has five SQLite databases
 (`app_state.rs:417-484`), not four. See ADR-2103 and
 `docs/how-to/store-backup-restore.md`. `implementation_status` stays `partial`.
+
+## Re-verification — 2026-11-16 (periodic Oxigraph checkpoint)
+
+Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `src/services/data_reconciliation.rs` changed only inside `checkpoint_oxigraph`. The progress note above that describes an opt-in `ONTOLOGY_BACKUP_DIR` checkpoint is now superseded in its mechanism: the server takes the checkpoint periodically (`ONTOLOGY_CHECKPOINT_DIR`, every `ONTOLOGY_CHECKPOINT_INTERVAL_SECS`, default 6 hours), builds it under a `.partial` name and keeps two; a failure is a warning, not a startup failure. The source-loss restore fixture still passes. The decision (one write-master per class, no 2PC, SQLite online backup) is unchanged; scheduling and off-device retention remain outstanding (ADR-2103). Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.

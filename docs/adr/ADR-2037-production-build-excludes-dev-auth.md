@@ -217,3 +217,7 @@ Governed-path change: `Cargo.toml` adds the workspace member `crates/visionclaw-
 and `Cargo.lock` gains its package entry (it reuses oxigraph 0.4.11 and rusqlite 0.31.0
 already locked; rusqlite gains the `backup` feature). The crate has no features and no auth path. No decision in this record
 changes. `verified_commit` is bumped on that basis.
+
+## Re-verification — 2026-11-16 (periodic Oxigraph checkpoint)
+
+Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `src/main.rs` loses the one-shot `ONTOLOGY_BACKUP_DIR` boot checkpoint block and gains a `ontology_checkpoint::spawn` call and a shutdown await; net 14 fewer lines, all after the checkpoint block (about `:753`), so nothing before it moves. Anchors now: `init_solid_state().await` `:906`, `spawn_boot_pull` `:913`, `assert_effective_profile_or_exit` import `:945` and call `:948`, `HttpServer::new` `:991`, `.bind()` `:1289`. Everything before `:753` (hygiene call `:209`, owner-less refusal) is unchanged. No dev-auth gate is touched. The decision holds. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.
