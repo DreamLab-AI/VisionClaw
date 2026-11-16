@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: d1d3fa0d5a70ecf366ccbce6681944a4cce5988d
+verified_commit: 9450923f912046d69249477683d35dce5d9621fb
 verified_paths: [src/services/ontology_generation.rs, .github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).
@@ -232,3 +232,5 @@ Governed-path changes since `b5200feb4`:
 ## Scoped source review — 2026-11-15
 
 Reviewed the governed-path delta through `d1d3fa0d5a70ecf366ccbce6681944a4cce5988d`. `.github/workflows/ontology-publish.yml` (`d1d3fa0d5`) drops the `pull_request` trigger (`:12`) and deletes the `pr-preview` dry-run job, which only that trigger reached. `push` to main (`:4`), `repository_dispatch` corpus-sync (`:14`) and `workflow_dispatch` are unchanged, as are `build-ontology` (`:140`), `publish-release` (`:294`, still needing `build-ontology`), `deploy-jss` (`:365`) and `deploy-target-missing` (`:560`). The pull model holds: the release the server boot-pulls is still published only from a successful main build. Ontology changes are no longer built on pull requests; run the workflow by dispatch to pre-check one.
+
+Re-verified 2026-11-16 at 9450923f9: the only change to this record's governed paths since its previous stamp is the cloud-judge default (`*_JEV_ALLOW_CLOUD` 1 to 0, ADR-2148 owner ruling) in `docker-compose.unified.yml` and `env.example`. This record makes no claim about that setting, so its decision and evidence are unaffected.

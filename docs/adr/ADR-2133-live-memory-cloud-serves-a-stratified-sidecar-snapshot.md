@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: adf382ea4bc96992861f48797edfbbe9cc54f26a
+verified_commit: 9450923f912046d69249477683d35dce5d9621fb
 verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml, src/middleware/rate_limit.rs, tests/memory_cloud_auth_test.rs, client/src/features/visualisation/memoryCloud/api.ts, client/src/features/visualisation/memoryCloud/MemoryExplorerPanel.tsx, client/src/features/graph/components/GraphCanvas.tsx]
 owner: jjohare
 review_trigger: "a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context; the System One rerank egress (ADR-2148) being widened"
@@ -266,3 +266,5 @@ The snapshot, stratification, sidecar contract and routes are unchanged. **Decis
 ## Re-verification — 2026-11-07 (`adf382ea4`)
 
 **Governed change:** `client/src/features/graph/components/GraphCanvas.tsx` (`adf382ea4`): a comment-only change. The stale `:34` note this record's 2026-11-07 amendment flagged ("Memory explorer — HTML overlay … mounted with it") now says the explorer is not mounted by the canvas but is a tab of the control centre's right-hand drawer (`RightDrawer.tsx`, ADR-2189 §3). No import, mount or prop changed. `<EmbeddingCloudLayer>` is still mounted at `:366`. **Decision unaffected.** Re-run: `git diff 7bd25427e..adf382ea4 -- client/src/features/graph/components/GraphCanvas.tsx`. Checked by reading that diff; client `npx tsc --noEmit -p .` clean at `adf382ea4`, vitest not re-run.
+
+Re-verified 2026-11-16 at 9450923f9: the only change to this record's governed paths since its previous stamp is the cloud-judge default (`*_JEV_ALLOW_CLOUD` 1 to 0, ADR-2148 owner ruling) in `docker-compose.unified.yml` and `env.example`. This record makes no claim about that setting, so its decision and evidence are unaffected.

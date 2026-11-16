@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 9450923f912046d69249477683d35dce5d9621fb
 verified_paths: [docker-compose.unified.yml, crates/visionclaw-jev/src/edge.rs, src/handlers/jev_handler.rs, crates/visionclaw-jev/src/wire.rs]
 owner: operator
 review_trigger: "labelled confidence calibration setting the automatic thresholds (VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE); the System One route moving off the shared agentbox proxy; any graph write or proposal approval driven by /api/jev/edge"

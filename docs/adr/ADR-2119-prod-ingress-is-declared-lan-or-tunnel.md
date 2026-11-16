@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: c750046962749715a4efb1b6056c7f40d9865110
+verified_commit: 9450923f912046d69249477683d35dce5d9621fb
 verified_paths: [scripts/launch.sh, docker-compose.unified.yml, crates/visionclaw-integration-tests/tests/prod_ingress.rs]
 owner: jjohare
 review_trigger: "Activation (staged → live): the first prod-profile start on the Trust DGX Spark (NHS residential 2026-11-03..05), LAN-only with the tunnel down. Review: a third ingress (reverse proxy, VPN, public port), any change to the prod pre-flight in scripts/launch.sh, or the cloudflared service's profiles"
@@ -111,3 +111,5 @@ this decision governs moved, so it holds as written.
 - **Test wiring:** `prod_ingress.rs` still holds the nine named cases and CI runs it (`.github/workflows/ci.yml:120`). Not re-run here: no build was permitted.
 
 Re-verified 2026-10-30 at c75004696: `docker-compose.unified.yml` gains the shared System One block and Codescape estate mounts; `scripts/launch.sh` gains sidecar selection (dev `up`/`restart` only). The ingress decision is untouched. Anchors at HEAD: `PROD_INGRESS` default `launch.sh:25`, `resolve_prod_ingress` `:177`, required secrets `:215`, tunnel `COMPOSE_PROFILES="prod,tunnel"` `:297`, LAN stray-cloudflared removal `:885`, `down` `:907`; `cloudflared` service `docker-compose.unified.yml:339` with its profile at `:358`. Sidecar selection is dev-only (`main`: `ENVIRONMENT == dev`), so no prod path changed. The decision holds.
+
+Re-verified 2026-11-16 at 9450923f9: the only change to this record's governed paths since its previous stamp is the cloud-judge default (`*_JEV_ALLOW_CLOUD` 1 to 0, ADR-2148 owner ruling) in `docker-compose.unified.yml` and `env.example`. This record makes no claim about that setting, so its decision and evidence are unaffected.
