@@ -9,7 +9,9 @@ Unrelated authority/governance, Ontomark and other WIP branches remain parked.
 - Image: `sha256:7652f551ce73a3e72895af8f738bd0a8103a3809f41fdbf26b127a45d1dd7fb4`.
 - Preparation: Nix 384.809 s; push 25.132 s; pull 173.074 s. Changed layers
   total 3.599 GB; platform, toolchains and agent-CLI layers were reused.
-  Nix used two jobs with eight cores each to limit shared-disk pressure.
+  The affinity-limited client selected one job with sixteen cores (16 total
+  build slots). The earlier two-jobs/eight-cores description was incorrect;
+  `nixBuildBudget(28)` prefers the larger per-job allocation on equal totals.
 - Candidate isolated smoke and actual shipped-path inventory passed: no local
   QtWebEngine, WebKitGTK, QGIS, diff-pdf or OrcaSlicer was brought back.
 - Readiness settled without degraded services. Persistent mount identity was
