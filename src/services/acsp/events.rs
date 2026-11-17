@@ -630,3 +630,350 @@ mod broker_kernel_reconciliation {
         );
     }
 }
+
+/// Producer-side contract: everything VisionClaw builds is run through the
+/// forum crate's own parser and validator (`nostr-bbs-core`), so a contract
+/// change in the forum fails here rather than in production. The consumer-side
+/// golden files only prove VisionClaw can *read* the forum's events; these prove
+/// the forum can read ours.
+///
+/// The pinned crate exposes `validate_governance_event` (kind range plus a
+/// non-empty `d` tag), typed content structs, and `check_rationale`. It has no
+/// single "validate this 31402/31403" entry point, so content rules are
+/// asserted by deserialising into the crate's own types and calling
+/// `check_rationale` for the 31403 human-rationale rule.
+#[cfg(test)]
+mod forum_contract {
+    use super::*;
+    use nostr_bbs_core::governance::{
+        self as forum, check_rationale, validate_governance_event, RationaleError, RiskTier,
+    };
+    use nostr_bbs_core::NostrEvent;
+
+    /// Wrap an unsigned builder output in the forum's event type. Id and
+    /// signature are irrelevant to the governance validator.
+    fn as_forum_event(ev: &UnsignedAcspEvent) -> NostrEvent {
+        NostrEvent {
+            id: "0".repeat(64),
+            pubkey: "1".repeat(64),
+            created_at: 1_760_000_000,
+            kind: u64::from(ev.kind),
+            tags: ev.tags.clone(),
+            content: ev.content.clone(),
+            sig: "2".repeat(128),
+        }
+    }
+
+    fn assert_forum_accepts(ev: &UnsignedAcspEvent) -> NostrEvent {
+        let forum_ev = as_forum_event(ev);
+        validate_governance_event(&forum_ev)
+            .unwrap_or_else(|e| panic!("forum validator rejected kind {}: {e}", ev.kind));
+        assert!(forum::is_governance_kind(forum_ev.kind));
+        assert_eq!(
+            forum::extract_d_tag(&forum_ev.tags),
+            Some(ev.tags[0][1].as_str())
+        );
+        forum_ev
+    }
+
+    fn sample_panel() -> PanelDefinition {
+        PanelDefinition {
+            title: "Knowledge Elevation".into(),
+            description: "Frontier concepts proposed for formalisation".into(),
+            version: "1.0.0".into(),
+            schema: PanelSchema::ActionInbox,
+            fields: vec![FieldDef {
+                name: "name".into(),
+                field_type: FieldType::String,
+                label: "Proposed class".into(),
+            }],
+            actions: vec![
+                ActionDef {
+                    id: "approve".into(),
+                    label: "Elevate".into(),
+                    style: ActionStyle::Primary,
+                },
+                ActionDef {
+                    id: "reject".into(),
+                    label: "Reject".into(),
+                    style: ActionStyle::Destructive,
+                },
+            ],
+            layout: LayoutHint::InboxTable,
+            capabilities: vec![PanelCapability::Filter, PanelCapability::Sort],
+            refresh_secs: 30,
+        }
+    }
+
+    fn sample_spec(category: CaseCategory, subject: SubjectKind) -> CaseSpec {
+        CaseSpec {
+            case_id: "vc-elev-finality-mechanism".into(),
+            title: "Elevate finality mechanism".into(),
+            priority: ActionPriority::High,
+            category,
+            subject_kind: subject,
+            subject_id: "urn:visionclaw:concept:finality".into(),
+            request: ActionRequest {
+                fields: serde_json::json!({"name": "Finality", "domain": "bc"}),
+                reasoning: Some("Referenced by three classes".into()),
+                context_url: Some("https://example.org/ctx".into()),
+            },
+        }
+    }
+
+    #[test]
+    fn kinds_match_the_forum_constants() {
+        assert_eq!(
+            u64::from(KIND_PANEL_DEFINITION),
+            forum::KIND_PANEL_DEFINITION
+        );
+        assert_eq!(u64::from(KIND_PANEL_STATE), forum::KIND_PANEL_STATE);
+        assert_eq!(u64::from(KIND_ACTION_REQUEST), forum::KIND_ACTION_REQUEST);
+        assert_eq!(u64::from(KIND_ACTION_RESPONSE), forum::KIND_ACTION_RESPONSE);
+        assert_eq!(u64::from(KIND_PANEL_UPDATE), forum::KIND_PANEL_UPDATE);
+        assert_eq!(u64::from(KIND_PANEL_RETIRED), forum::KIND_PANEL_RETIRED);
+    }
+
+    #[test]
+    fn panel_definition_31400_parses_as_forum_type() {
+        let def = sample_panel();
+        let ev = assert_forum_accepts(&build_panel_definition("vc-elevation", &def));
+        assert_eq!(ev.kind, 31400);
+        let parsed: forum::PanelDefinition =
+            serde_json::from_str(&ev.content).expect("forum PanelDefinition parses our content");
+        assert_eq!(parsed.title, def.title);
+        assert_eq!(parsed.schema, forum::PanelSchema::ActionInbox);
+        assert_eq!(parsed.layout, forum::LayoutHint::InboxTable);
+        assert_eq!(parsed.actions.len(), 2);
+        assert_eq!(parsed.refresh_secs, 30);
+    }
+
+    #[test]
+    fn every_panel_vocabulary_value_we_emit_parses_in_the_forum() {
+        for schema in [
+            PanelSchema::ActionInbox,
+            PanelSchema::Dashboard,
+            PanelSchema::ConfigForm,
+            PanelSchema::StatusBoard,
+            PanelSchema::ChatBridge,
+        ] {
+            for layout in [
+                LayoutHint::InboxTable,
+                LayoutHint::Kanban,
+                LayoutHint::CardGrid,
+                LayoutHint::SplitDetail,
+            ] {
+                let mut def = sample_panel();
+                def.schema = schema.clone();
+                def.layout = layout;
+                def.capabilities = vec![
+                    PanelCapability::BulkAction,
+                    PanelCapability::Filter,
+                    PanelCapability::Search,
+                    PanelCapability::Sort,
+                    PanelCapability::Export,
+                ];
+                def.fields = [
+                    FieldType::String,
+                    FieldType::Int,
+                    FieldType::Float,
+                    FieldType::Bool,
+                    FieldType::Json,
+                    FieldType::Enum,
+                    FieldType::Timestamp,
+                ]
+                .into_iter()
+                .map(|field_type| FieldDef {
+                    name: "f".into(),
+                    field_type,
+                    label: "F".into(),
+                })
+                .collect();
+                let ev = build_panel_definition("p", &def);
+                serde_json::from_str::<forum::PanelDefinition>(&ev.content)
+                    .expect("forum parses every vocabulary value");
+            }
+        }
+    }
+
+    #[test]
+    fn panel_state_31401_update_31404_and_retired_31405_are_valid() {
+        let state = assert_forum_accepts(&build_panel_state(
+            "vc-elevation",
+            &serde_json::json!({"cases": [], "pending": 0}),
+        ));
+        assert_eq!(state.kind, 31401);
+        assert!(serde_json::from_str::<serde_json::Value>(&state.content)
+            .unwrap()
+            .is_object());
+
+        let update = assert_forum_accepts(&build_panel_update(
+            "vc-elevation",
+            &serde_json::json!({"pending": 1}),
+        ));
+        assert_eq!(update.kind, 31404);
+
+        let status = assert_forum_accepts(&build_case_status_update(
+            "vc-elevation",
+            "vc-elev-x",
+            "concept_elevated",
+            "https://github.com/o/r/pull/1",
+        ));
+        assert_eq!(status.kind, 31404);
+        let merge: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(&status.content).expect("31404 content is a merge object");
+        assert_eq!(merge["case_id"], "vc-elev-x");
+
+        let retired = assert_forum_accepts(&build_panel_retired("vc-elevation"));
+        assert_eq!(retired.kind, 31405);
+    }
+
+    #[test]
+    fn action_request_31402_parses_and_tags_are_forum_vocabulary() {
+        for (category, subject) in [
+            (CaseCategory::KnowledgeEnrichment, SubjectKind::WorkArtifact),
+            (CaseCategory::DecisionElevation, SubjectKind::Opaque),
+            (
+                CaseCategory::ManualSubmission,
+                SubjectKind::AutomationProposal,
+            ),
+            (CaseCategory::WorkflowReview, SubjectKind::SkillPackage),
+            (CaseCategory::PolicyException, SubjectKind::PolicyException),
+        ] {
+            let spec = sample_spec(category, subject);
+            let ev = assert_forum_accepts(&build_action_request(&spec));
+            assert_eq!(ev.kind, 31402);
+            let parsed: forum::ActionRequest =
+                serde_json::from_str(&ev.content).expect("forum ActionRequest parses");
+            assert_eq!(parsed.fields["name"], "Finality");
+            assert_eq!(
+                parsed.reasoning.as_deref(),
+                Some("Referenced by three classes")
+            );
+            // Priority is a tag label and must parse as the forum's enum.
+            let priority = forum::extract_tag(&ev.tags, "priority").unwrap();
+            let p: forum::ActionPriority =
+                serde_json::from_value(serde_json::Value::String(priority.into()))
+                    .expect("priority tag is a forum ActionPriority");
+            assert_eq!(p, forum::ActionPriority::High);
+            // We declare no tier or task properties; the forum must read that
+            // as "absent", not as an error.
+            assert!(parsed.risk_tier.is_none() && parsed.task_properties.is_none());
+        }
+    }
+
+    #[test]
+    fn every_priority_we_emit_parses_in_the_forum() {
+        for p in [
+            ActionPriority::Critical,
+            ActionPriority::High,
+            ActionPriority::Medium,
+            ActionPriority::Low,
+        ] {
+            serde_json::from_value::<forum::ActionPriority>(serde_json::Value::String(
+                p.as_tag_value().into(),
+            ))
+            .expect("priority label parses");
+        }
+    }
+
+    #[test]
+    fn voice_request_31402_is_valid() {
+        let ev = crate::services::voice_intent_client::build_voice_action_request(
+            "restart the crawler",
+            "did:nostr:abcd",
+        );
+        let forum_ev = assert_forum_accepts(&ev);
+        assert_eq!(forum_ev.kind, 31402);
+        serde_json::from_str::<forum::ActionRequest>(&forum_ev.content).unwrap();
+    }
+
+    #[test]
+    fn action_response_31403_parses_as_forum_type() {
+        let reasoning = "Checked the axioms against the corpus; the draft holds.";
+        let ev = assert_forum_accepts(&build_action_response(
+            "vc-elev-finality-mechanism",
+            "approve",
+            reasoning,
+        ));
+        assert_eq!(ev.kind, 31403);
+        let parsed: forum::ActionResponse =
+            serde_json::from_str(&ev.content).expect("forum ActionResponse parses");
+        assert_eq!(parsed.action, "approve");
+        assert_eq!(parsed.reasoning, reasoning);
+        // The d-tag must be the case id of the 31402 it answers.
+        assert_eq!(
+            forum::extract_d_tag(&ev.tags),
+            Some("vc-elev-finality-mechanism")
+        );
+    }
+
+    /// FR2.2: at a High or Critical effective tier a human decision needs a
+    /// rationale of at least `MIN_HUMAN_RATIONALE_CHARS`. A representative
+    /// rationale built by VisionClaw passes at every tier.
+    #[test]
+    fn action_response_31403_with_a_real_rationale_passes_every_tier() {
+        let ev = build_action_response(
+            "c1",
+            "approve",
+            "Checked the axioms against the corpus; the draft holds.",
+        );
+        let parsed: forum::ActionResponse = serde_json::from_str(&ev.content).unwrap();
+        for tier in [
+            RiskTier::Low,
+            RiskTier::Medium,
+            RiskTier::High,
+            RiskTier::Critical,
+        ] {
+            assert_eq!(
+                check_rationale(tier, &parsed.action, Some(&parsed.reasoning)),
+                Ok(()),
+                "tier {tier:?}"
+            );
+        }
+    }
+
+    /// The forum refuses a short rationale at a consequential tier; the builder
+    /// passes the text through verbatim, so the rule bites for short input.
+    /// This documents that the check runs over VisionClaw's output.
+    #[test]
+    fn action_response_31403_short_rationale_is_refused_at_high_tier() {
+        let ev = build_action_response("c1", "approve", "ok");
+        let parsed: forum::ActionResponse = serde_json::from_str(&ev.content).unwrap();
+        assert_eq!(
+            check_rationale(RiskTier::High, &parsed.action, Some(&parsed.reasoning)),
+            Err(RationaleError::TooShort { chars: 2 })
+        );
+        assert_eq!(
+            check_rationale(RiskTier::Medium, &parsed.action, Some(&parsed.reasoning)),
+            Ok(())
+        );
+    }
+
+    /// Every action word VisionClaw's kernel projection can emit is one the
+    /// forum treats as a human decision needing a rationale (or knowingly not).
+    #[test]
+    fn projected_action_vocabulary_is_known_to_the_forum() {
+        for action in ["approve", "reject", "amend", "delegate"] {
+            assert!(forum::outcome_requires_rationale(action), "{action}");
+        }
+    }
+
+    /// KNOWN CONTRACT VIOLATION (reported, not fixed): the decide path projects
+    /// `record.reasoning.unwrap_or_default()`, so a decision recorded without
+    /// reasoning is published as a 31403 with an empty rationale. At a High or
+    /// Critical effective tier the forum relay refuses that. The builder must
+    /// not invent a rationale (the forum forbids filling one in), so the fix
+    /// belongs at the decide route (require reasoning when the case tier is
+    /// High+), not here. This test pins the current behaviour and will fail,
+    /// prompting a revisit, once the producer stops emitting empty rationales.
+    #[test]
+    fn known_failure_empty_rationale_projection_is_refused_at_high_tier() {
+        let ev = build_action_response("c1", "approve", "");
+        let parsed: forum::ActionResponse = serde_json::from_str(&ev.content).unwrap();
+        assert_eq!(
+            check_rationale(RiskTier::High, &parsed.action, Some(&parsed.reasoning)),
+            Err(RationaleError::Missing)
+        );
+    }
+}

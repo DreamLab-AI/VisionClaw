@@ -846,6 +846,52 @@ impl SqliteEnrichmentRepository {
             .map_err(map_db_err)
     }
 
+    /// Every decision whose `:summary` write-back was triggered, attributed and
+    /// committed, oldest first. This is the set `regenerate` must replay after
+    /// it clears the derived graph: each row carries the owner DID, activity
+    /// URN, proposal URN and outcome the decide path wrote with.
+    pub async fn committed_writebacks(&self) -> Result<Vec<StoredDecision>> {
+        self.conn
+            .call(move |c| {
+                let mut stmt = c.prepare_cached(
+                    "SELECT case_id, outcome, attributed, broker_pubkey, reasoning,
+                            writeback_triggered, writeback_committed, activity_urn,
+                            proposal_urn, owner_did, decided_at_ms,
+                            decision_event_id, decision_created_at_s
+                     FROM enrichment_decisions
+                     WHERE writeback_committed = 1
+                       AND writeback_triggered = 1
+                       AND attributed = 1
+                     ORDER BY decided_at_ms ASC, id ASC",
+                )?;
+                let mut q = stmt.query([])?;
+                let mut out = Vec::new();
+                while let Some(r) = q.next()? {
+                    let attributed: i64 = r.get(2)?;
+                    let writeback_triggered: i64 = r.get(5)?;
+                    let writeback_committed: i64 = r.get(6)?;
+                    out.push(StoredDecision {
+                        case_id: r.get(0)?,
+                        outcome: r.get(1)?,
+                        attributed: attributed != 0,
+                        broker_pubkey: r.get(3)?,
+                        reasoning: r.get(4)?,
+                        writeback_triggered: writeback_triggered != 0,
+                        writeback_committed: writeback_committed != 0,
+                        activity_urn: r.get(7)?,
+                        proposal_urn: r.get(8)?,
+                        owner_did: r.get(9)?,
+                        decided_at_ms: r.get(10)?,
+                        decision_event_id: r.get(11)?,
+                        decision_created_at_s: r.get(12)?,
+                    });
+                }
+                Ok(out)
+            })
+            .await
+            .map_err(map_db_err)
+    }
+
     /// Joined loop-trace rows (REC-10), newest proposal first, capped at `limit`.
     /// Each proposal is joined to its **terminal** decision — the one with the
     /// greatest `decided_at_ms` — so the five-stage loop is assembled from a
