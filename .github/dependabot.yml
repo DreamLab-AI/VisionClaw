@@ -1,0 +1,35 @@
+# Weekly dependency updates, minor and patch grouped into one PR per ecosystem.
+# Majors arrive as separate PRs. Open-PR limits are deliberately low.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 3
+    groups:
+      cargo-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: "/"
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 3
+    groups:
+      npm-root-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: "/client"
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 3
+    groups:
+      npm-client-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 2
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
