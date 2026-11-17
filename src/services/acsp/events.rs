@@ -149,7 +149,13 @@ pub struct ActionResponse {
 
 // ── Broker-case projection tags (31402) ─────────────────────────────────────
 
-/// Relay-side `CaseCategory` (snake_case tag values).
+/// The `category` tag vocabulary of a 31402: exactly the six values of the forum
+/// contract's `broker::CaseCategory`. There is deliberately no variant for a
+/// decision elevation: the contract has none, and the relay would fold an
+/// unknown category to `manual_submission`. Decision elevations travel as
+/// [`CaseCategory::KnowledgeEnrichment`]; the `vc-decelev-` case-id prefix keeps
+/// them distinguishable. [`From`] below is exhaustive, so a variant added here
+/// without a forum counterpart does not compile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaseCategory {
     ContributorMeshShare,
@@ -158,11 +164,6 @@ pub enum CaseCategory {
     TrustAlert,
     ManualSubmission,
     KnowledgeEnrichment,
-    /// ADR-050: elevate a significant decision record into the public corpus so
-    /// the `force_full` assert-graph rebuild re-derives it (the inverse of
-    /// `KnowledgeEnrichment` for `dl:DecisionRecord` instances). Carries no
-    /// share-state ladder, like `KnowledgeEnrichment`.
-    DecisionElevation,
 }
 
 impl CaseCategory {
@@ -174,12 +175,12 @@ impl CaseCategory {
             Self::TrustAlert => "trust_alert",
             Self::ManualSubmission => "manual_submission",
             Self::KnowledgeEnrichment => "knowledge_enrichment",
-            Self::DecisionElevation => "decision_elevation",
         }
     }
 }
 
-/// Relay-side `SubjectKind` (snake_case tag values).
+/// The `subject-kind` tag vocabulary of a 31402: exactly the forum contract's
+/// `broker::SubjectKind`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubjectKind {
     WorkArtifact,
@@ -197,6 +198,58 @@ impl SubjectKind {
             Self::AutomationProposal => "automation_proposal",
             Self::PolicyException => "policy_exception",
             Self::Opaque => "opaque",
+        }
+    }
+}
+
+impl From<CaseCategory> for gov::broker::CaseCategory {
+    fn from(c: CaseCategory) -> Self {
+        match c {
+            CaseCategory::ContributorMeshShare => Self::ContributorMeshShare,
+            CaseCategory::WorkflowReview => Self::WorkflowReview,
+            CaseCategory::PolicyException => Self::PolicyException,
+            CaseCategory::TrustAlert => Self::TrustAlert,
+            CaseCategory::ManualSubmission => Self::ManualSubmission,
+            CaseCategory::KnowledgeEnrichment => Self::KnowledgeEnrichment,
+        }
+    }
+}
+
+impl From<SubjectKind> for gov::broker::SubjectKind {
+    fn from(k: SubjectKind) -> Self {
+        match k {
+            SubjectKind::WorkArtifact => Self::WorkArtifact,
+            SubjectKind::SkillPackage => Self::SkillPackage,
+            SubjectKind::AutomationProposal => Self::AutomationProposal,
+            SubjectKind::PolicyException => Self::PolicyException,
+            SubjectKind::Opaque => Self::Opaque,
+        }
+    }
+}
+
+impl From<ActionPriority> for gov::ActionPriority {
+    fn from(p: ActionPriority) -> Self {
+        match p {
+            ActionPriority::Critical => Self::Critical,
+            ActionPriority::High => Self::High,
+            ActionPriority::Medium => Self::Medium,
+            ActionPriority::Low => Self::Low,
+        }
+    }
+}
+
+impl From<ActionRequest> for gov::ActionRequest {
+    /// The forum's content type. VisionClaw declares no risk tier, confidence,
+    /// task properties or probe on its requests, so those stay `None`.
+    fn from(r: ActionRequest) -> Self {
+        Self {
+            fields: r.fields,
+            reasoning: r.reasoning,
+            context_url: r.context_url,
+            risk_tier: None,
+            confidence: None,
+            task_properties: None,
+            probe: None,
         }
     }
 }
@@ -324,7 +377,8 @@ pub fn build_action_request(spec: &CaseSpec) -> UnsignedAcspEvent {
             vec!["subject-id".into(), spec.subject_id.clone()],
             vec!["title".into(), spec.title.clone()],
         ],
-        content: serde_json::to_string(&spec.request).expect("ActionRequest serialises"),
+        content: serde_json::to_string(&gov::ActionRequest::from(spec.request.clone()))
+            .expect("ActionRequest serialises"),
     }
 }
 
@@ -537,10 +591,6 @@ mod broker_kernel_reconciliation {
                 KernelCaseCategory::KnowledgeEnrichment,
                 CaseCategory::KnowledgeEnrichment,
             ),
-            (
-                KernelCaseCategory::DecisionElevation,
-                CaseCategory::DecisionElevation,
-            ),
         ];
         for (kernel, acsp) in pairs {
             let kernel_wire = serde_json::to_value(&kernel).unwrap();
@@ -550,6 +600,21 @@ mod broker_kernel_reconciliation {
                 "kernel serde vs ACSP tag drifted for {kernel:?}"
             );
         }
+    }
+
+    /// The kernel's `DecisionElevation` has no counterpart in the forum contract,
+    /// so it is projected as `knowledge_enrichment` (the kernel's own doc calls
+    /// it the inverse of that category). Pinned so the remap is deliberate.
+    #[test]
+    fn kernel_decision_elevation_projects_as_knowledge_enrichment() {
+        assert_eq!(
+            serde_json::to_value(KernelCaseCategory::DecisionElevation).unwrap(),
+            "decision_elevation"
+        );
+        assert_eq!(
+            CaseCategory::KnowledgeEnrichment.as_tag_value(),
+            "knowledge_enrichment"
+        );
     }
 
     /// The kernel `SubjectKind` snake_case serde form equals the ACSP producer
@@ -832,7 +897,11 @@ mod forum_contract {
     fn action_request_31402_parses_and_tags_are_forum_vocabulary() {
         for (category, subject) in [
             (CaseCategory::KnowledgeEnrichment, SubjectKind::WorkArtifact),
-            (CaseCategory::DecisionElevation, SubjectKind::Opaque),
+            (CaseCategory::TrustAlert, SubjectKind::Opaque),
+            (
+                CaseCategory::ContributorMeshShare,
+                SubjectKind::WorkArtifact,
+            ),
             (
                 CaseCategory::ManualSubmission,
                 SubjectKind::AutomationProposal,
@@ -875,6 +944,147 @@ mod forum_contract {
             ))
             .expect("priority label parses");
         }
+    }
+
+    const ALL_CATEGORIES: [CaseCategory; 6] = [
+        CaseCategory::ContributorMeshShare,
+        CaseCategory::WorkflowReview,
+        CaseCategory::PolicyException,
+        CaseCategory::TrustAlert,
+        CaseCategory::ManualSubmission,
+        CaseCategory::KnowledgeEnrichment,
+    ];
+    const ALL_SUBJECTS: [SubjectKind; 5] = [
+        SubjectKind::WorkArtifact,
+        SubjectKind::SkillPackage,
+        SubjectKind::AutomationProposal,
+        SubjectKind::PolicyException,
+        SubjectKind::Opaque,
+    ];
+
+    /// Strict (no fallback) parse of the `category` and `subject-kind` tags into
+    /// the forum's enums. `CaseCategory::parse` is not used: it folds an
+    /// unknown value to `manual_submission` and would pass anything.
+    fn assert_tags_strictly_in_contract(ev: &UnsignedAcspEvent) {
+        let category = extract_tag(&ev.tags, "category").expect("category tag");
+        serde_json::from_value::<forum::broker::CaseCategory>(serde_json::Value::String(
+            category.into(),
+        ))
+        .unwrap_or_else(|e| panic!("category `{category}` is outside the contract: {e}"));
+        let subject = extract_tag(&ev.tags, "subject-kind").expect("subject-kind tag");
+        serde_json::from_value::<forum::broker::SubjectKind>(serde_json::Value::String(
+            subject.into(),
+        ))
+        .unwrap_or_else(|e| panic!("subject-kind `{subject}` is outside the contract: {e}"));
+    }
+
+    /// Every category and subject kind a `CaseSpec` can name serialises to the
+    /// exact string the forum's strict serde produces for the matching variant.
+    #[test]
+    fn every_category_and_subject_tag_is_the_forum_serde_form() {
+        for c in ALL_CATEGORIES {
+            let forum_form = serde_json::to_value(forum::broker::CaseCategory::from(c)).unwrap();
+            assert_eq!(forum_form, c.as_tag_value(), "{c:?}");
+        }
+        for k in ALL_SUBJECTS {
+            let forum_form = serde_json::to_value(forum::broker::SubjectKind::from(k)).unwrap();
+            assert_eq!(forum_form, k.as_tag_value(), "{k:?}");
+        }
+    }
+
+    /// Whatever combination a builder is given, the 31402 it emits carries only
+    /// contract vocabulary in `category` and `subject-kind`.
+    #[test]
+    fn built_requests_use_only_contract_category_and_subject_values() {
+        for c in ALL_CATEGORIES {
+            for k in ALL_SUBJECTS {
+                assert_tags_strictly_in_contract(&build_action_request(&sample_spec(c, k)));
+            }
+        }
+    }
+
+    /// Content survives the forum's own type with no loss, and VisionClaw adds
+    /// no key the contract does not define.
+    #[test]
+    fn action_request_content_round_trips_through_the_forum_type() {
+        let spec = sample_spec(CaseCategory::KnowledgeEnrichment, SubjectKind::WorkArtifact);
+        let ev = build_action_request(&spec);
+        let raw: serde_json::Value = serde_json::from_str(&ev.content).unwrap();
+        let parsed: forum::ActionRequest = serde_json::from_value(raw.clone()).unwrap();
+        assert_eq!(parsed.fields, spec.request.fields);
+        assert_eq!(parsed.reasoning, spec.request.reasoning);
+        assert_eq!(parsed.context_url, spec.request.context_url);
+        // Re-serialising the forum value reproduces our content exactly.
+        assert_eq!(serde_json::to_value(&parsed).unwrap(), raw);
+        let keys: std::collections::BTreeSet<_> =
+            raw.as_object().unwrap().keys().cloned().collect();
+        let contract: std::collections::BTreeSet<_> = [
+            "fields",
+            "reasoning",
+            "context_url",
+            "risk_tier",
+            "confidence",
+            "task_properties",
+            "probe",
+        ]
+        .iter()
+        .map(|k| k.to_string())
+        .collect();
+        assert!(
+            keys.is_subset(&contract),
+            "extra keys: {:?}",
+            keys.difference(&contract)
+        );
+    }
+
+    /// The tag set is the contract's: `d` first, then only names the relay or
+    /// the forum client reads. Nothing VisionClaw-specific rides in tags.
+    #[test]
+    fn action_request_tag_names_are_the_contract_set() {
+        let ev = build_action_request(&sample_spec(
+            CaseCategory::KnowledgeEnrichment,
+            SubjectKind::WorkArtifact,
+        ));
+        let names: Vec<&str> = ev.tags.iter().map(|t| t[0].as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "d",
+                "priority",
+                "category",
+                "subject-kind",
+                "subject-id",
+                "title"
+            ]
+        );
+        assert!(ev.tags.iter().all(|t| t.len() == 2));
+        assert!(ev.tags.iter().all(|t| !t[1].is_empty()));
+    }
+
+    /// VisionClaw declares no tier or task properties on its 31402s: the forum
+    /// reads none from tags (`TaskProperties::from_tags`) or content. Which to
+    /// declare is an owner decision (ER-7); this pins today's honest "absent".
+    #[test]
+    fn action_request_declares_no_tier_or_task_properties() {
+        let ev = build_action_request(&sample_spec(
+            CaseCategory::KnowledgeEnrichment,
+            SubjectKind::WorkArtifact,
+        ));
+        assert!(forum::TaskProperties::from_tags(&ev.tags).is_none());
+        assert!(forum::extract_tag(&ev.tags, "risk-tier").is_none());
+        let parsed: forum::ActionRequest = serde_json::from_str(&ev.content).unwrap();
+        assert!(parsed.risk_tier.is_none() && parsed.task_properties.is_none());
+        assert!(parsed.confidence.is_none() && parsed.probe.is_none());
+    }
+
+    /// The voice 31402 stays inside the contract vocabulary too.
+    #[test]
+    fn voice_request_31402_tags_are_in_contract() {
+        let ev = crate::services::voice_intent_client::build_voice_action_request(
+            "restart the crawler",
+            "did:nostr:abcd",
+        );
+        assert_tags_strictly_in_contract(&ev);
     }
 
     #[test]

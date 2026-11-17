@@ -611,51 +611,7 @@ impl Handler<ElevateDecision> for DecisionElevationActor {
             dec.input.summary.clone()
         };
 
-        let causal: Vec<String> = dec
-            .input
-            .caused
-            .iter()
-            .chain(dec.input.precedent_for.iter())
-            .chain(dec.input.influenced.iter())
-            .cloned()
-            .collect();
-        let priority = if dec.acsp_approved {
-            ActionPriority::High
-        } else {
-            ActionPriority::Medium
-        };
-        let reasoning = format!(
-            "Significant decision (caused {} / precedent {} / influenced {}{}) proposed for the \
-             public corpus so the force_full assert-graph rebuild re-derives it (ADR-050).",
-            dec.input.caused.len(),
-            dec.input.precedent_for.len(),
-            dec.input.influenced.len(),
-            if dec.input.proposal_urn.is_some() {
-                "; governed a graph mutation"
-            } else {
-                ""
-            },
-        );
-        let spec = CaseSpec {
-            case_id: case_id.clone(),
-            title: format!("Elevate decision: {summary}"),
-            priority,
-            category: CaseCategory::DecisionElevation,
-            subject_kind: SubjectKind::AutomationProposal,
-            subject_id: dec.decision_urn.clone(),
-            request: ActionRequest {
-                fields: json!({
-                    "summary": summary,
-                    "decision_urn": dec.decision_urn,
-                    "causal_edges": causal,
-                    "file_path": file_path.clone(),
-                    "operation": { "kind": "corpus-pr", "file_path": file_path.clone(), "draft": draft.clone() },
-                    "acsp_approved": dec.acsp_approved,
-                }),
-                reasoning: Some(reasoning),
-                context_url: None,
-            },
-        };
+        let spec = case_spec_for(&dec, &case_id, &summary, &file_path, &draft);
 
         let pending = PendingCase {
             decision_urn: dec.decision_urn.clone(),
@@ -1018,9 +974,102 @@ impl DecisionElevationSink for ActorElevationSink {
     }
 }
 
+/// The kind-31402 case spec for an elevated decision. Pure, so the contract
+/// vocabulary it emits is unit-testable without an actor or a relay.
+fn case_spec_for(
+    dec: &ElevatedDecision,
+    case_id: &str,
+    summary: &str,
+    file_path: &str,
+    draft: &str,
+) -> CaseSpec {
+    let causal: Vec<String> = dec
+        .input
+        .caused
+        .iter()
+        .chain(dec.input.precedent_for.iter())
+        .chain(dec.input.influenced.iter())
+        .cloned()
+        .collect();
+    let priority = if dec.acsp_approved {
+        ActionPriority::High
+    } else {
+        ActionPriority::Medium
+    };
+    let reasoning = format!(
+        "Significant decision (caused {} / precedent {} / influenced {}{}) proposed for the \
+         public corpus so the force_full assert-graph rebuild re-derives it (ADR-050).",
+        dec.input.caused.len(),
+        dec.input.precedent_for.len(),
+        dec.input.influenced.len(),
+        if dec.input.proposal_urn.is_some() {
+            "; governed a graph mutation"
+        } else {
+            ""
+        },
+    );
+    CaseSpec {
+        case_id: case_id.to_string(),
+        title: format!("Elevate decision: {summary}"),
+        priority,
+        // The contract has no decision-elevation category; the `vc-decelev-`
+        // case id carries the distinction.
+        category: CaseCategory::KnowledgeEnrichment,
+        subject_kind: SubjectKind::AutomationProposal,
+        subject_id: dec.decision_urn.clone(),
+        request: ActionRequest {
+            fields: json!({
+                "summary": summary,
+                "decision_urn": dec.decision_urn,
+                "causal_edges": causal,
+                "file_path": file_path,
+                "operation": { "kind": "corpus-pr", "file_path": file_path, "draft": draft },
+                "acsp_approved": dec.acsp_approved,
+            }),
+            reasoning: Some(reasoning),
+            context_url: None,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The decision-elevation 31402 stays inside the forum contract: category
+    /// and subject kind parse strictly, and content round-trips the forum type.
+    #[test]
+    fn decision_case_spec_is_inside_the_forum_contract() {
+        use nostr_bbs_core::governance as forum;
+        let dec = ElevatedDecision {
+            decision_urn: "urn:agentbox:decision:ab:sha256-12-abc".into(),
+            input: crate::services::decision_service::DecisionInput {
+                summary: "Adopt finality gadget".into(),
+                rationale: "r".into(),
+                proposal_urn: None,
+                caused: vec!["urn:a".into()],
+                precedent_for: vec![],
+                influenced: vec![],
+                considered_inputs: vec![],
+                governed_by: vec![],
+            },
+            agent_did: "did:nostr:ab".into(),
+            generated_at: "2026-11-16T00:00:00Z".into(),
+            acsp_approved: true,
+        };
+        let spec = case_spec_for(&dec, "vc-decelev-x", "Adopt finality gadget", "p.md", "d");
+        let ev = build_action_request(&spec);
+        let category = crate::services::acsp::events::extract_tag(&ev.tags, "category").unwrap();
+        assert_eq!(category, "knowledge_enrichment");
+        serde_json::from_value::<forum::broker::CaseCategory>(category.into())
+            .expect("category is in the forum enum");
+        let subject = crate::services::acsp::events::extract_tag(&ev.tags, "subject-kind").unwrap();
+        serde_json::from_value::<forum::broker::SubjectKind>(subject.into())
+            .expect("subject-kind is in the forum enum");
+        let parsed: forum::ActionRequest = serde_json::from_str(&ev.content).unwrap();
+        assert_eq!(parsed.fields["decision_urn"], dec.decision_urn);
+        assert_eq!(parsed.fields["operation"]["file_path"], "p.md");
+    }
 
     #[test]
     fn uncertain_pr_application_never_replays_or_expires_as_if_unapplied() {

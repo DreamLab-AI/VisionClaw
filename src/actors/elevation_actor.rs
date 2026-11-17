@@ -1784,6 +1784,29 @@ mod tests {
 
     const DAY_S: i64 = 24 * 60 * 60;
 
+    /// The concept-elevation 31402 stays inside the forum contract.
+    #[test]
+    fn elevation_case_spec_is_inside_the_forum_contract() {
+        use crate::services::acsp::events::extract_tag;
+        use nostr_bbs_core::governance as forum;
+        let c = FrontierCandidate {
+            label: "Finality Mechanism".into(),
+            degree: 3,
+            domain: "bc".into(),
+            referenced_by: vec!["A".into()],
+        };
+        let (spec, _) = ElevationActor::case_for(&c, None, ActionPriority::High);
+        let ev = build_action_request(&spec);
+        let category = extract_tag(&ev.tags, "category").unwrap();
+        serde_json::from_value::<forum::broker::CaseCategory>(category.into())
+            .expect("category is in the forum enum");
+        let subject = extract_tag(&ev.tags, "subject-kind").unwrap();
+        serde_json::from_value::<forum::broker::SubjectKind>(subject.into())
+            .expect("subject-kind is in the forum enum");
+        let parsed: forum::ActionRequest = serde_json::from_str(&ev.content).unwrap();
+        assert_eq!(parsed.reasoning, spec.request.reasoning);
+    }
+
     #[test]
     fn ttl_is_fourteen_days_matching_the_decision_elevation_actor() {
         assert_eq!(OPEN_CASE_TTL.as_secs() as i64, 14 * DAY_S);
