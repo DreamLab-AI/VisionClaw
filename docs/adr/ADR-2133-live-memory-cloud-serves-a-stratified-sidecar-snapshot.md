@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 8702b58c2480041c29cb6c8081681d06051861aa
+verified_commit: c143ef890a5273ae708fdfa0f52d4724c418b2b9
 verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml, src/middleware/rate_limit.rs, tests/memory_cloud_auth_test.rs, client/src/features/visualisation/memoryCloud/api.ts, client/src/features/visualisation/memoryCloud/MemoryExplorerPanel.tsx, client/src/features/graph/components/GraphCanvas.tsx]
 owner: jjohare
 review_trigger: "a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context; the System One rerank egress (ADR-2148) being widened"
@@ -273,3 +273,5 @@ Re-verified 2026-11-16 at 9450923f9: the only change to this record's governed p
 ## Scoped source review — 2026-11-16 (local ontology feed)
 
 Reviewed the governed-path delta through `a45077526e9bad84163ccd0883c2fd1ff8a9378a`. `docker-compose.unified.yml` gains one environment default on the dev service, `ONTOLOGY_PULL_URL: "${ONTOLOGY_PULL_URL:-file:///vault/.ontology-release/current}"` (`:134`), with its comment (ADR-2106 amendment 2026-11-16). No service, profile, port, mount, build target or image changes. The memory-cloud sample default is unchanged (`:168`, `:307`). Decision intact.
+
+**Amendment (2026-11-17).** The "Accepted risk" paragraph of the 2026-10-07 amendment says the dev compose service publishes its ports on every interface. That is no longer true on `main` at `c143ef890`: the dev service publishes 3001 and 4000 on `${VISIONCLAW_BIND:-127.0.0.1}` (`docker-compose.unified.yml:247-248`), and `VISIONCLAW_DEV_MODE` defaults to `0` (`:126`), so with no operator setting neither the bypass nor LAN reachability exists (ADR-2039, owner ruling 2026-11-16). The risk applies only where the operator sets both `VISIONCLAW_DEV_MODE=1` and a non-loopback `VISIONCLAW_BIND`. Decision 5 and the dev-mode admission amendment are otherwise unchanged. The running dev container still predates this change (activation unaffected by this note).

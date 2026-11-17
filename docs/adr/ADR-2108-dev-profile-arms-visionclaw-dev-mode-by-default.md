@@ -2,12 +2,12 @@
 id: ADR-2108
 title: Dev compose profile arms VISIONCLAW_DEV_MODE by default
 date: 2026-09-08
-decision_status: proposed
+decision_status: superseded
 implementation_status: complete
 activation_status: staged
 supersedes: []
-superseded_by: []
-verified_commit:
+superseded_by: [ADR-2039]
+verified_commit: c143ef890a5273ae708fdfa0f52d4724c418b2b9
 verified_paths: [docker-compose.unified.yml, src/utils/auth.rs, src/settings/auth_extractor.rs, xr-client/scripts/graph_scene.gd, xr-client/scripts/hud.gd]
 owner: jjohare
 review_trigger: any change to the dev compose environment block, dev_full_bypass_active, enforce_release_env_hygiene, or the XR client's _auth_headers / _on_physics_completed
@@ -87,3 +87,7 @@ The owner said: "Yes: the Cloudflare tunnel may stay down. The Trust box is LAN-
 "LAN-only" does not bring back this record's dev premise, that "the LAN is the trust boundary". The prod profile authenticates every write whatever the network, so on the Trust box the LAN is a reachability boundary, not an authentication boundary.
 
 **Known defect, recorded and not fixed:** `launch.sh up prod` refuses an `.env.prod` without a concrete `CLOUDFLARE_TUNNEL_TOKEN` (`scripts/launch.sh:173`). It also always brings up `cloudflared` under the `prod` profile (`scripts/launch.sh:684-685`, `docker-compose.unified.yml:271-292`). The prod profile therefore cannot start tunnel-less as it stands. Tracked as CY-C-D1 in `docs/TODO-unified.md`, with its exit test.
+
+## Superseded — 2026-11-17 (owner ruling, 2026-11-16)
+
+On 16 November 2026 the owner accepted ADR-2039 as amended and ruled that this record is superseded by it: the dev bypass is off unless the operator sets `VISIONCLAW_DEV_MODE=1`, and the dev service's ports bind to loopback unless the operator sets `VISIONCLAW_BIND`. Decision 1 above (the `:-1` default) is reversed on `main` (`docker-compose.unified.yml:126` reads `:-0`; lines 247-248 bind `${VISIONCLAW_BIND:-127.0.0.1}`; merge `c888bf83f`). Decision 2 (the XR client's write-failure notice) is not reversed. Residue: a dev container started before that change still runs armed; it needs recreating. The original text above is unchanged.

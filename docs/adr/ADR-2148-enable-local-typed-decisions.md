@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 8702b58c2480041c29cb6c8081681d06051861aa
+verified_commit: c143ef890a5273ae708fdfa0f52d4724c418b2b9
 verified_paths: [docker-compose.unified.yml, crates/visionclaw-jev/src/edge.rs, src/handlers/jev_handler.rs, crates/visionclaw-jev/src/wire.rs]
 owner: operator
 review_trigger: "labelled confidence calibration setting the automatic thresholds (VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE); the System One route moving off the shared agentbox proxy; any graph write or proposal approval driven by /api/jev/edge"
@@ -117,3 +117,5 @@ Governed-path change since `81e711267`: `bd170e81a` only (`cargo fmt --all`) in 
 ## Scoped source review — 2026-11-16 (local ontology feed)
 
 Reviewed the governed-path delta through `a45077526e9bad84163ccd0883c2fd1ff8a9378a`. `docker-compose.unified.yml` gains one environment default on the dev service, `ONTOLOGY_PULL_URL: "${ONTOLOGY_PULL_URL:-file:///vault/.ontology-release/current}"` (`:134`), with its comment (ADR-2106 amendment 2026-11-16). No service, profile, port, mount, build target or image changes. The Jev variables and the owner ruling recorded above are untouched. Decision intact.
+
+Re-verified 2026-11-17 at c143ef890: `docker-compose.unified.yml` dev service: `VISIONCLAW_DEV_MODE` default `:-0` and dev ports bound to `${VISIONCLAW_BIND:-127.0.0.1}`; the System One and JEV variables are untouched; this record makes no claim about it.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: c7dfdea2d8dcd85f8ec300193c9aad032120fb92
+verified_commit: c143ef890a5273ae708fdfa0f52d4724c418b2b9
 verified_paths: [scripts/launch.sh, docker-compose.unified.yml, crates/visionclaw-integration-tests/tests/prod_ingress.rs]
 owner: jjohare
 review_trigger: "Activation (staged → live): the first prod-profile start on the Trust DGX Spark (NHS residential 2026-11-03..05), LAN-only with the tunnel down. Review: a third ingress (reverse proxy, VPN, public port), any change to the prod pre-flight in scripts/launch.sh, or the cloudflared service's profiles"
@@ -118,3 +118,5 @@ Re-verified 2026-11-16 at 9450923f9: the only change to this record's governed p
 ## Scoped source review — 2026-11-16 (local ontology feed)
 
 Reviewed the governed-path delta through `a45077526e9bad84163ccd0883c2fd1ff8a9378a`. `docker-compose.unified.yml` gains one environment default on the dev service, `ONTOLOGY_PULL_URL: "${ONTOLOGY_PULL_URL:-file:///vault/.ontology-release/current}"` (`:134`), with its comment (ADR-2106 amendment 2026-11-16). No service, profile, port, mount, build target or image changes. Ingress is untouched; `cloudflared` stays under `profiles: [tunnel]` (`:350`). Decision intact.
+
+Re-verified 2026-11-17 at c143ef890: `docker-compose.unified.yml` dev service: `VISIONCLAW_DEV_MODE` default `:-0` and dev ports bound to `${VISIONCLAW_BIND:-127.0.0.1}`; the prod service, the `tunnel` profile and the launcher are untouched; this record makes no claim about it.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: c143ef890a5273ae708fdfa0f52d4724c418b2b9
 verified_paths: [src/utils/agent_key.rs, src/handlers/image_gen_handler.rs, src/handlers/liveness_harness_handler.rs, src/handlers/enrichment_proposals_handler.rs]
 owner: jjohare
 review_trigger: any new route that authenticates with VISIONCLAW_AGENT_KEY, or a change to the dev-auth build profile
@@ -133,3 +133,5 @@ Re-verified 2026-10-30 at c75004696: `src/handlers/liveness_harness_handler.rs` 
 ## Re-verification — 2026-11-07 (`7bd25427e`)
 
 Governed-path change since `c75004696`: `src/handlers/liveness_harness_handler.rs`, `bd170e81a` only (`cargo fmt --all`). `git diff -w` shows import reordering and rewrapped expressions; no token changes. `canary_write_authorised` (release `:40`, dev stub `:54`) and `unauthorised_body` (`:58`) are unchanged. **Decision unaffected.** Re-run: `git diff -w c75004696..7bd25427e -- src/handlers/liveness_harness_handler.rs`. Checked by reading that diff; no test was re-run for this stamp.
+
+Re-verified 2026-11-17 at c143ef890: `enrichment_proposals_handler.rs`: a shared `summary_triples` helper and a production-without-forum-client 503 gate (`forum_gate`, `apply_decision`); the `X-Agent-Key` check and the no-bypass rule for the decision route are untouched; this record makes no claim about it.

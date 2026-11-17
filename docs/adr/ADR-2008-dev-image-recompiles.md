@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: c7dfdea2d8dcd85f8ec300193c9aad032120fb92
+verified_commit: c143ef890a5273ae708fdfa0f52d4724c418b2b9
 verified_paths: [scripts/dev-entrypoint.sh, docker-compose.unified.yml, scripts/rust-backend-wrapper.sh, scripts/lib/dev-inputs.sh, scripts/launch.sh]
 owner: jjohare
 review_trigger: a dev-loop turnaround that makes on-start compilation intolerable, or a move to pre-baked dev binaries by default
@@ -230,3 +230,5 @@ Re-verified 2026-11-16 at 9450923f9: the only change to this record's governed p
 ## Scoped source review — 2026-11-16 (local ontology feed)
 
 Reviewed the governed-path delta through `a45077526e9bad84163ccd0883c2fd1ff8a9378a`. `docker-compose.unified.yml` gains one environment default on the dev service, `ONTOLOGY_PULL_URL: "${ONTOLOGY_PULL_URL:-file:///vault/.ontology-release/current}"` (`:134`), with its comment (ADR-2106 amendment 2026-11-16). No service, profile, port, mount, build target or image changes. The development build target and the recompile-on-start path are untouched. Decision intact.
+
+Re-verified 2026-11-17 at c143ef890: `docker-compose.unified.yml` dev service: `VISIONCLAW_DEV_MODE` default reversed to `:-0` (the `:-1` the 2026-09-21 entry above records, ADR-2108, is superseded by ADR-2039) and ports 3001/4000 bound to `${VISIONCLAW_BIND:-127.0.0.1}`; this record makes no claim about it.

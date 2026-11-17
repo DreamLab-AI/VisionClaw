@@ -2,13 +2,13 @@
 id: ADR-2039
 title: "VISIONCLAW_DEV_MODE — a peer-agnostic LAN-local full auth bypass for a 100%-local dev headset"
 date: 2026-09-01
-decision_status: proposed
+decision_status: accepted
 implementation_status: complete
-activation_status: inactive
-supersedes: []
+activation_status: staged
+supersedes: [ADR-2108]
 superseded_by: []
-verified_commit:
-verified_paths: [src/utils/auth.rs, src/settings/auth_extractor.rs, src/handlers/socket_flow_handler/filter_auth.rs, src/main.rs, docker-compose.unified.yml]
+verified_commit: c143ef890a5273ae708fdfa0f52d4724c418b2b9
+verified_paths: [src/utils/auth.rs, src/settings/auth_extractor.rs, src/handlers/socket_flow_handler/filter_auth.rs, src/main.rs, docker-compose.unified.yml, env.example, env.development.template]
 owner: jjohare
 review_trigger: any change to verify_access, the dev-auth feature gates, enforce_release_env_hygiene, the WS authenticate handler, or the dev compose environment block
 repo: visionclaw
@@ -145,3 +145,5 @@ compile-gate, the release boot-refusal, the dev-service-only scoping and the
 - **Next:** Take one runtime receipt for this record and ADR-2108 together on the dev rig: run `launch.sh up dev`, send an unauthenticated non-loopback `PUT /api/settings/physics` and expect 2xx, then press View 3D/Flat on the HP headset. The record is then ready to accept, scoped to dev builds.
 
 **Owner ruling (2026-11-16).** The owner accepts this record as amended, on two conditions: it is off unless the operator sets `VISIONCLAW_DEV_MODE=1`, and the dev service's ports bind to loopback unless the operator sets a bind address. `main` does not meet either condition at the time of the ruling: `docker-compose.unified.yml` defaults the variable to 1 (the default ADR-2108 records) and publishes the dev ports on every interface, and on 15 November 2026 a power-user route on the running dev container answered an unauthenticated request. So `activation_status: inactive` in this header describes the accepted design, not the running system. The conditions are implemented on the unmerged branch `fix/estate-review-2026-11-15` (commit c1a407a42). `decision_status` stays `proposed` and `verified_commit` stays empty until that change is on `main`: the index refuses an accepted record with no verified commit, and there is no commit on `main` at which the accepted design is true. The change that lands the conditions sets both, and supersedes ADR-2108.
+
+**Conditions on `main` (2026-11-17).** Both conditions of the owner's ruling are now on local `main` (merge `c888bf83f`, from `c1a407a42`; verified at `c143ef890`), in the `visionclaw` service of `docker-compose.unified.yml` (the dev service). Off unless the operator opts in: `VISIONCLAW_DEV_MODE: "${VISIONCLAW_DEV_MODE:-0}"` at line 126. Loopback unless the operator sets a bind address: ports 3001 and 4000 are published as `${VISIONCLAW_BIND:-127.0.0.1}:...` at lines 247 and 248. `env.example` and `env.development.template` document the two lines that restore the LAN headset loop (`VISIONCLAW_BIND=0.0.0.0`, `VISIONCLAW_DEV_MODE=1`). `decision_status` is therefore `accepted` and ADR-2108 is superseded by this record. `activation_status` is `staged`: the change is in source, but the running dev container was last started before it and, as observed on 17 November 2026, still has the bypass armed (`VISIONCLAW_DEV_MODE=1` and `ALLOW_INSECURE_DEFAULTS=1` in its environment; the second comes from the host's `.env`, which no tracked file sets). The header's earlier `inactive` described the accepted design, not the running system; it becomes `live` only once the dev container is recreated from this compose file and its environment is observed with the bypass off. The runtime receipt named under "Next" in the 2026-10-02 disposition has not been taken; this acceptance rests on the owner's ruling and the source conditions, not on that receipt.

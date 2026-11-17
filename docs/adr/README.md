@@ -40,7 +40,7 @@ The [historical closeout routing note](../adr-history-closeout.md) points each f
 
 The [estate status/evidence contract](../../../VisionFlow/docs/architecture/adr-status-contract.md) defines the independent decision, implementation and activation axes and distinguishes lineage from supersession (2026-09-07).
 
-_162 record(s). Regenerate with_ `node scripts/adr-index-gen.js ../docs/adr`.
+_162 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 
 | ID | Title | Domain | Date | Decision | Impl | Activation | Supersedes | Superseded by | Owner | Repo |
 |----|-------|--------|------|----------|------|------------|------------|---------------|-------|------|
@@ -82,7 +82,7 @@ _162 record(s). Regenerate with_ `node scripts/adr-index-gen.js ../docs/adr`.
 | [ADR-2036](ADR-2036-defensive-openxr-boot.md) | Defensive OpenXR boot — query eye-gaze capability and degrade, never blind-bind | XR-client | 2026-08-31 | accepted | complete | live | — | — | jjohare | visionclaw |
 | [ADR-2037](ADR-2037-production-build-excludes-dev-auth.md) | Production release images are built without the dev-auth cargo feature, asserted in CI | SECURITY-profiles | 2026-08-31 | proposed | partial | staged | — | — | jjohare | visionclaw |
 | [ADR-2038](ADR-2038-boot-time-profile-assertion.md) | Boot-time deployment-profile assertion with illegal-combination abort | SECURITY-profiles | 2026-08-31 | accepted | partial | live | — | — | jjohare | visionclaw |
-| [ADR-2039](ADR-2039-visionclaw-dev-mode-lan-local-bypass.md) | VISIONCLAW_DEV_MODE — a peer-agnostic LAN-local full auth bypass for a 100%-local dev headset | SECURITY-profiles | 2026-09-01 | proposed | complete | inactive | — | — | jjohare | visionclaw |
+| [ADR-2039](ADR-2039-visionclaw-dev-mode-lan-local-bypass.md) | VISIONCLAW_DEV_MODE — a peer-agnostic LAN-local full auth bypass for a 100%-local dev headset | SECURITY-profiles | 2026-09-01 | accepted | complete | staged | ADR-2108 | — | jjohare | visionclaw |
 | [ADR-2040](ADR-2040-obsidian-vault-frontmatter-gate.md) | The authored corpus is an Obsidian vault; YAML frontmatter `public`/`owl-class` gate KG inclusion with bounded Logseq tolerance | VAULT-corpus-format | 2026-09-02 | superseded | partial | staged | ADR-2014 | ADR-2112 | jjohare | visionclaw |
 | [ADR-2041](ADR-2041-graph-settings-key-knowledge.md) | The knowledge-graph settings key and graph-type value are `knowledge`; `logseq` is a read-only alias for one release | VAULT-corpus-format | 2026-09-02 | superseded | complete | staged | — | ADR-2115 | jjohare | visionclaw |
 | [ADR-2042](ADR-2042-vault-migrate-converter.md) | `vault-migrate` is the sole Logseq→Obsidian converter — deterministic, output-dir by default, preserve-and-report | VAULT-corpus-format | 2026-09-02 | superseded | partial | live | — | ADR-2113 | jjohare | visionclaw |
@@ -144,7 +144,7 @@ _162 record(s). Regenerate with_ `node scripts/adr-index-gen.js ../docs/adr`.
 | [ADR-2105](ADR-2105-correlated-promotion-chain-end-to-end.md) | Carry one authoring correlation id through validation, PR, approval, merge and served corpus — VisionClaw echoes it | IDENTIFIER-taxonomy | 2026-09-05 | rejected | none | inactive | — | — | jjohare | visionclaw |
 | [ADR-2106](ADR-2106-ontology-pull-model-into-the-embedded-pod.md) | The published ontology is pulled into the embedded pod, not pushed from CI | BASELINE-architecture | 2026-09-06 | accepted | partial | live | — | — | jjohare | visionclaw |
 | [ADR-2107](ADR-2107-compatible-xr-visual-experience.md) | A shared XR visual language with reversible comfort and rendering budgets | BASELINE-architecture | 2026-09-07 | accepted | partial | staged | — | — | jjohare | visionclaw |
-| [ADR-2108](ADR-2108-dev-profile-arms-visionclaw-dev-mode-by-default.md) | Dev compose profile arms VISIONCLAW_DEV_MODE by default | — | 2026-09-08 | proposed | complete | staged | — | — | jjohare | visionclaw |
+| [ADR-2108](ADR-2108-dev-profile-arms-visionclaw-dev-mode-by-default.md) | Dev compose profile arms VISIONCLAW_DEV_MODE by default | — | 2026-09-08 | superseded | complete | staged | — | ADR-2039 | jjohare | visionclaw |
 | [ADR-2109](ADR-2109-xr-agent-embodiment-single-pose-owner-and-demo-via-ingest.md) | Embody registry agents in XR with a single pose owner; demo mode only via the real ingest path | — | 2026-09-09 | accepted | complete | live | — | — | jjohare | visionclaw |
 | [ADR-2110](ADR-2110-augmentation-conditions-visionclaw-substrate.md) | Instrument the VisionClaw judgment surfaces against the augmentation conditions | — | 2026-09-14 | accepted | complete | staged | — | — | jjohare | visionclaw |
 | [ADR-2111](ADR-2111-re-sequence-rgb-for-bridged-assets-and-delete-the-host-payment-store.md) | Re-sequence ADR-124/128 for the bridged-asset case only, delete FsPaymentStore and /pay/* in favour of a proxy to agentbox /v1/wallet, implement AnchorConfirmer against sidestr-node, delete the empty extraction/solid-pod-rs mirror, and disambiguate visionclaw-contracts | BASELINE-architecture | 2026-09-21 | proposed | none | inactive | — | — | jjohare | visionclaw |

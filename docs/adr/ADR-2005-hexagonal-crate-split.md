@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 5db8ccf308a40948b89ec5976c15431387e03766
+verified_commit: c143ef890a5273ae708fdfa0f52d4724c418b2b9
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -438,3 +438,5 @@ changes. `verified_commit` is bumped on that basis.
 ## Re-verification — 2026-11-16 (periodic Oxigraph checkpoint)
 
 Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `Cargo.toml` gains the path dependency `visionclaw-backup = { path = "crates/visionclaw-backup" }` and a comment line (two lines, after the `visionclaw-ontology` entry); `Cargo.lock` gains one dependency line for the root package and no registry package. Line numbers after `:57` of `Cargo.toml` move down by two. The `[workspace].members` list holds 19 entries (`.` plus 18 crates), `visionclaw-backup` among them. The root crate now depends on `visionclaw-backup`, a leaf with no workspace dependency (it imports only external crates). Checked by running `cargo test -p visionclaw-integration-tests --test layer_direction`: it failed because the backup crate had no declared layer (a defect of this branch), and passes now that `layer_direction.rs` lists `visionclaw-backup` as a leaf. The decision holds. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.
+
+Re-verified 2026-11-17 at c143ef890: `src/actors/decision_elevation_actor.rs` (decision-case spec extracted into `case_spec_for`, category now `knowledge_enrichment`), `elevation_actor.rs` (a contract test) and `task_orchestrator_actor.rs` (a `Stopped` task state is swept like `Completed`/`Failed`); this record makes no claim about it.

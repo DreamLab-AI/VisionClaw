@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: e1e9f98917dffdf5fb041d8633a71892aa99375a
+verified_commit: c143ef890a5273ae708fdfa0f52d4724c418b2b9
 verified_paths: [src/services/data_reconciliation.rs, crates/visionclaw-adapters/src/provenance_emitter.rs, crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs, src/services/ontology_mutation_service.rs]
 owner: jjohare
 review_trigger: a GDPR/right-to-erasure obligation landing on provenance-recorded subjects, or introduction of a redaction/crypto-shred mechanism
@@ -259,3 +259,5 @@ None of these writes to `GRAPH_PROVENANCE`. No `DELETE`, `DROP` or `CLEAR` names
 ## Re-verification — 2026-11-16 (periodic Oxigraph checkpoint)
 
 Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `src/services/data_reconciliation.rs` changed only inside `checkpoint_oxigraph`, which now delegates to `visionclaw_backup::checkpoint::write` and returns the store directory of the new checkpoint. No DELETE, DROP or CLEAR is added against the provenance graph; the checkpoint only reads, and the existing source-loss restore test still passes. The append-only decision holds. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.
+
+Re-verified 2026-11-17 at c143ef890: `oxigraph_ontology_repository.rs`: `clear_derived_graph` issues `CLEAR SILENT GRAPH` (was `CLEAR GRAPH`) on the `summary`/`observed` derived graphs only, never on `GRAPH_PROVENANCE`; this record makes no claim about it.
