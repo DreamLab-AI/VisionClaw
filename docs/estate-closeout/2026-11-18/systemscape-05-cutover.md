@@ -87,7 +87,9 @@ source fix should project before consumers or gate only the System launcher
 with a bounded wait, retaining missing-file and hand-written-file behavior.
 The current runtime is remediated; this report does not claim future boots
 are race-free. The live recorder's first complete slot after that reload was
-not yet written at the 21:30 runtime inspection (expected until about 21:35).
+verified at **21:35:23 UTC**: one 117-byte row, version 1, 150-second duration,
+nonzero sample count, only the expected numeric/version fields, owner devuser
+and mode 0600 on the retained volume. The initial absence at 21:30 was expected.
 
 ### Independent fleet activity
 
