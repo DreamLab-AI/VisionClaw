@@ -3,7 +3,7 @@ id: ADR-2204
 title: Relations have one declarative schema and one weighting stage, from corpus to pixels
 date: 2026-11-19
 decision_status: proposed
-implementation_status: none
+implementation_status: partial
 activation_status: inactive
 supersedes: []
 superseded_by: []

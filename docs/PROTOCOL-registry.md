@@ -303,6 +303,17 @@ documents and request bodies that still name the keys deserialise (unknown keys 
 `PUT /api/settings/path` and the batch path update accept a write to `...nodes.enableMetadataShape`
 as a no-op (`RETIRED_SETTING_KEYS`, `src/config/path_access.rs`) rather than answering 4xx.
 
+### Graph payload edge fields (ADR-2204 S1–S3, 2026-11-19)
+
+Edges in `/api/graph/data` and `initialGraphLoad` gain an optional `provenance` field
+(`asserted` | `inferred` | `derived`); it is omitted when unknown (edges stored before S1 reload
+without it until the next sync rewrites them). Edges built by `file_service` now carry
+`edgeType: "explicit_link"` where it was previously absent. Edge labels, predicate IRIs and
+`weight` values come from the relation schema (`crates/visionclaw-domain/data/relations.yaml`);
+in the default `weightingMode: legacy` the values are unchanged. The `relations` field and the
+physics-weight meaning change of ADR-2204 D10 are not yet on the wire (slice S5). Older clients
+ignore `provenance`; nothing is removed.
+
 ### Version negotiation & compatibility policy
 
 Legacy ADR-061 mandated "one binary protocol, no versioning". That doctrine is retired: the wire
