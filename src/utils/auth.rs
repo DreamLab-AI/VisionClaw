@@ -150,10 +150,35 @@ pub fn dev_bypass_permitted_for_addr(peer: Option<std::net::SocketAddr>) -> bool
     }
 }
 
-/// Convenience wrapper resolving the peer address from an [`HttpRequest`].
+/// Whether the dev-session-token bypass may fire for `req`.
+///
+/// The TCP peer must pass [`dev_bypass_permitted_for_addr`]. A loopback peer
+/// can still be a same-host reverse proxy: the dev nginx on :3001 proxies to
+/// 127.0.0.1:4000, so every request it forwards, from any container on the
+/// Docker network, arrives from loopback. Such a proxy names the real client
+/// in `X-Real-IP` / `X-Forwarded-For`, so when either header is present every
+/// address in it must be loopback too. Every hop is checked, not just the
+/// first, because a client can prepend a fake `127.0.0.1` to
+/// `X-Forwarded-For`; an unparsable entry fails closed.
 #[cfg(any(debug_assertions, feature = "dev-auth"))]
 pub fn dev_bypass_permitted(req: &HttpRequest) -> bool {
-    dev_bypass_permitted_for_addr(req.peer_addr())
+    if !dev_bypass_permitted_for_addr(req.peer_addr()) {
+        return false;
+    }
+    for name in ["X-Real-IP", "X-Forwarded-For"] {
+        for value in req.headers().get_all(name) {
+            let Ok(text) = value.to_str() else {
+                return false;
+            };
+            for hop in text.split(',') {
+                match hop.trim().parse::<std::net::IpAddr>() {
+                    Ok(ip) if ip.is_loopback() => {}
+                    _ => return false,
+                }
+            }
+        }
+    }
+    true
 }
 
 /// The absolute URL a NIP-98 `u` tag must name for `req`.
@@ -476,6 +501,45 @@ mod dev_bypass_tests {
         assert!(
             !dev_bypass_permitted(&req_rem),
             "remote peer must be refused even with opt-in"
+        );
+
+        // A loopback peer that is really a same-host reverse proxy (the dev
+        // nginx on :3001 proxies to 127.0.0.1:4000) forwards the true client in
+        // X-Real-IP / X-Forwarded-For. That client must be loopback too, or any
+        // container on the Docker network could reach the bypass through nginx.
+        let via_proxy_remote = TestRequest::default()
+            .peer_addr(loopback)
+            .insert_header(("X-Real-IP", "172.18.0.5"))
+            .insert_header(("X-Forwarded-For", "172.18.0.5"))
+            .to_http_request();
+        assert!(
+            !dev_bypass_permitted(&via_proxy_remote),
+            "proxied request from a non-loopback client must be refused"
+        );
+        let xff_only_remote = TestRequest::default()
+            .peer_addr(loopback)
+            .insert_header(("X-Forwarded-For", "127.0.0.1, 172.18.0.5"))
+            .to_http_request();
+        assert!(
+            !dev_bypass_permitted(&xff_only_remote),
+            "any non-loopback hop in X-Forwarded-For must refuse (a client can prepend a fake 127.0.0.1)"
+        );
+        let garbled = TestRequest::default()
+            .peer_addr(loopback)
+            .insert_header(("X-Real-IP", "not-an-ip"))
+            .to_http_request();
+        assert!(
+            !dev_bypass_permitted(&garbled),
+            "an unparsable forwarded address must fail closed"
+        );
+        let via_proxy_local = TestRequest::default()
+            .peer_addr(loopback)
+            .insert_header(("X-Real-IP", "127.0.0.1"))
+            .insert_header(("X-Forwarded-For", "::1"))
+            .to_http_request();
+        assert!(
+            dev_bypass_permitted(&via_proxy_local),
+            "proxied request from a loopback client must still permit"
         );
 
         // Opt-in unset: even loopback is refused.

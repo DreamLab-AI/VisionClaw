@@ -414,13 +414,13 @@ pub async fn socket_flow_handler(
         ws_server.is_power_user = user.is_power_user;
     }
 
-    // ADR-142 hardening: decide dev-token eligibility ONCE, here, from the real
-    // peer address — the same single gate the REST paths use. Only compiled in
-    // dev/dev-auth builds; stays `false` otherwise.
+    // ADR-142 hardening: decide dev-token eligibility ONCE, here, through the
+    // same request-level gate the REST paths use (peer address plus any
+    // forwarded client address). Only compiled in dev/dev-auth builds; stays
+    // `false` otherwise.
     #[cfg(any(debug_assertions, feature = "dev-auth"))]
     {
-        ws_server.dev_bypass_ok =
-            crate::utils::auth::dev_bypass_permitted_for_addr(req.peer_addr());
+        ws_server.dev_bypass_ok = crate::utils::auth::dev_bypass_permitted(&req);
     }
 
     // Store HTTP-equivalent URL for NIP-98 WS auth validation
