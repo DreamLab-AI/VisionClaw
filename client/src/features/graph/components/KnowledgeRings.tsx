@@ -9,7 +9,6 @@ interface KnowledgeRingsProps {
   nodePositionsRef: React.RefObject<Float32Array | null>;
   nodeIdToIndexMap: Map<string, number>;
   connectionCountMap: Map<string, number>;
-  edges: any[];
   hierarchyMap: Map<string, any>;
   settings: any;
   /**

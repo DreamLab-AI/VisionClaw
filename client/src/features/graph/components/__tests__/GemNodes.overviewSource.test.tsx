@@ -84,7 +84,7 @@ function props(nodes: GraphNode[], positionsRef: React.MutableRefObject<Float32A
   const nodeIdToIndexMap = new Map(nodes.map((n, i) => [String(n.id), i]));
   const noop = () => {};
   return {
-    nodes, edges: [], graphMode: 'knowledge_graph' as const, forceMode: 'knowledge_graph' as const,
+    nodes, edgeCount: 0, graphMode: 'knowledge_graph' as const, forceMode: 'knowledge_graph' as const,
     perNodeVisualModeMap: new Map(), nodePositionsRef: positionsRef,
     connectionCountMap: new Map(), hierarchyMap: new Map(), nodeIdToIndexMap,
     settings: undefined, ssspResult: null, selectedNodeId: null,

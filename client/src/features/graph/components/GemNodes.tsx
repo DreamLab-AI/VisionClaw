@@ -8,7 +8,6 @@ import { createCrystalOrbMaterial, createTslCrystalOrbMaterial, createCrystalOrb
 import { createAgentCapsuleMaterial, createTslAgentCapsuleMaterial, createAgentCapsuleGeometry } from '../../../rendering/materials/AgentCapsuleMaterial';
 import { useSettingsStore } from '../../../store/settingsStore';
 import type { GemMaterialSettings, GraphTypeVisualsSettings, QualityGatesSettings } from '../../settings/config/settings';
-import type { Edge } from '../managers/graphDataManager';
 import { useCyclicNodeIds } from '../hooks/useCyclicNodeIds';
 import type { ThreeEvent } from '@react-three/fiber';
 import { createLogger } from '../../../utils/loggerConfig';
@@ -56,7 +55,8 @@ interface SSSPResult {
 
 export interface GemNodesProps {
   nodes: GraphNode[];
-  edges: Edge[];
+  /** Edge count only: the edge array itself must never be a prop (see useEdgePointsHolder). */
+  edgeCount: number;
   graphMode: GraphVisualMode;
   perNodeVisualModeMap: Map<string, GraphVisualMode>;
   /**
@@ -286,7 +286,7 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
   // or 'base' (legacy baseColor + label-hash hue jitter). Default 'type'.
   const colorScheme = useSettingsStore(s => s.get<string>('visualisation.graphs.knowledge.nodes.colorScheme')) ?? 'type';
   // 'cycles' scheme: directed-cycle members, computed only while it is active.
-  const cyclicIds = useCyclicNodeIds(colorScheme === 'cycles', props.nodes.length, props.edges.length);
+  const cyclicIds = useCyclicNodeIds(colorScheme === 'cycles', props.nodes.length, props.edgeCount);
   // ADR-2022 P3: the bi-temporal scrubber's overlay. -1 while inactive, so an
   // idle scrubber never invalidates the colour cache.
   const timelineVersion = useTimelineStore(s => (s.active ? s.version : -1));

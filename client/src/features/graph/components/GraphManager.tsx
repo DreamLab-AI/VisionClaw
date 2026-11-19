@@ -1,3 +1,4 @@
+import { useEdgePointsHolder } from '../hooks/useEdgePointsHolder'
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import { useThree, useFrame, ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
@@ -207,8 +208,10 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
 
   const { tickFit: tickCameraFit } = useCameraAutoFit(nodePositionsRef, graphData.nodes.length)
 
-  const [edgePoints, setEdgePoints]               = useState<number[]>([])
-  const [highlightEdgePoints, setHighlightEdgePoints] = useState<number[]>([])
+  // Bulk arrays live behind stable refs (see useEdgePointsHolder): never a prop.
+  const { ref: edgePointsRef, version: edgePointsVersion, set: setEdgePoints } = useEdgePointsHolder()
+  const { ref: highlightPointsRef, version: highlightPointsVersion, set: setHighlightEdgePoints } = useEdgePointsHolder()
+  const highlightEdgePoints = highlightPointsRef.current
   const edgeFlowRef          = useRef<GlassEdgesHandle>(null)
   const highlightEdgeFlowRef = useRef<GlassEdgesHandle>(null)
   const prevLabelPositionsLengthRef = useRef<number>(0)
@@ -568,7 +571,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
       logger.debug('Component mounted', {
         nodeCount: graphData.nodes.length,
         edgeCount: graphData.edges.length,
-        edgePointsLength: edgePoints.length,
+        edgePointsLength: edgePointsRef.current.length,
         gemNodesRef: !!knowledgeGemRef.current,
       })
     }
@@ -678,7 +681,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
             forceMode={mode}
             spriteMode={spriteMode}
             instanceIdBase={base}
-            edges={graphData.edges}
+            edgeCount={graphData.edges.length}
             graphMode={graphMode}
             perNodeVisualModeMap={perNodeVisualModeMap}
             nodePositionsRef={nodePositionsRef}
@@ -701,7 +704,8 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
 
       <GlassEdges
         ref={edgeFlowRef}
-        points={edgePoints}
+        pointsRef={edgePointsRef}
+        pointsVersion={edgePointsVersion}
         settings={settings?.visualisation?.graphs?.knowledge?.edges || settings?.visualisation?.edges || defaultEdgeSettings}
         colorOverride={
           graphMode === 'knowledge_graph'
@@ -717,7 +721,8 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
 
       <GlassEdges
         ref={highlightEdgeFlowRef}
-        points={highlightEdgePoints}
+        pointsRef={highlightPointsRef}
+        pointsVersion={highlightPointsVersion}
         settings={settings?.visualisation?.graphs?.knowledge?.edges || settings?.visualisation?.edges || defaultEdgeSettings}
         colorOverride={settings?.visualisation?.interaction?.selectionHighlightColor || '#00FFFF'}
         bloom
@@ -741,7 +746,6 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
         nodePositionsRef={nodePositionsRef}
         nodeIdToIndexMap={nodeIdToIndexMap}
         connectionCountMap={connectionCountMap}
-        edges={graphData.edges}
         hierarchyMap={hierarchyMap}
         settings={settings}
         nodeColorSourceRef={knowledgeGemRef}

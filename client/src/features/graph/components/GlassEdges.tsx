@@ -39,13 +39,20 @@ import type { GemMaterialSettings, GlowSettings } from '../../settings/config/se
  */
 const EDGE_INITIAL = 1024;
 const DEFAULT_EDGE_CEILING = 65536;
+const EMPTY_POINTS: number[] = [];
 
 /**
  * ADR-2181 D3: under the overview layer the edge hook feeds these tubes only
  * the tube subset (overview/tubeSelect.ts), so the mesh draws what it is given.
  */
 interface GlassEdgesProps {
-  points: number[];
+  /**
+   * Seed points (6 floats per edge). A ref plus a version, never the array:
+   * React's dev props diff expands array props element by element.
+   */
+  pointsRef: React.RefObject<number[]>;
+  /** Bumped whenever `pointsRef.current` is replaced. */
+  pointsVersion: number;
   settings: any;
   colorOverride?: string;
   /** Put the tubes on the selective-bloom layer (the selection's edges). */
@@ -208,7 +215,8 @@ function allocateMesh(
 }
 
 export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
-  ({ points, settings, colorOverride, bloom = false }, ref) => {
+  ({ pointsRef, pointsVersion, settings, colorOverride, bloom = false }, ref) => {
+    const points = pointsRef.current ?? EMPTY_POINTS;
     const meshRef = useRef<THREE.InstancedMesh | null>(null);
     const bloomRef = useRef(bloom);
     bloomRef.current = bloom;
@@ -457,7 +465,7 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
         totalEdgesRef.current = 0;
         m.instanceMatrix.needsUpdate = true;
       }
-    }, [points, mesh, ensureCapacity]);
+    }, [pointsVersion, mesh, ensureCapacity]);
 
     // Dispose GPU resources on unmount.
     // R3F <primitive> never auto-disposes, so manual cleanup is required.
