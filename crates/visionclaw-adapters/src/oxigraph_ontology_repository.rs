@@ -82,6 +82,12 @@ pub const VC_NS: &str = "https://narrativegoldmine.com/ns/v1#";
 /// more than the cap; the row + byte fences below apply during serialisation
 /// as parse-independent defence in depth.
 const MAX_SPARQL_ROWS: usize = 10_000;
+
+/// Axioms per page of the inferred graph when the caller does not say.
+pub const DEFAULT_INFERRED_PAGE: usize = 500;
+
+/// Most axioms one page of the inferred graph may carry.
+pub const MAX_INFERRED_PAGE: usize = 2_000;
 const DEFAULT_SPARQL_LIMIT: usize = 10_000;
 const MAX_SPARQL_RESULT_BYTES: usize = 8 * 1024 * 1024;
 
@@ -566,6 +572,7 @@ const P_DERIVATION: &str = "https://narrativegoldmine.com/ns/v1#derivation";
 const P_CONFIDENCE: &str = "https://narrativegoldmine.com/ns/v1#confidence";
 const P_RUN_ID: &str = "https://narrativegoldmine.com/ns/v1#runId";
 const RDFS_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
+const OWL_DISJOINT_WITH: &str = "http://www.w3.org/2002/07/owl#disjointWith";
 const OWL_EQUIVALENT_CLASS: &str = "http://www.w3.org/2002/07/owl#equivalentClass";
 /// Derivation marker value: machine-inferred (vs asserted).
 const DERIVATION_INFERRED: &str = "inferred";
@@ -959,31 +966,99 @@ impl OxigraphOntologyRepository {
             .map(term_lexical))
     }
 
-    /// Read the inferred named graph as `{ namedGraph, runId?, triples: [...] }`
-    /// where each triple is `{ s, p, o }` lexical strings (ADR-099 D4 surface
-    /// for the `InferencePanel`). Reuses the store's pattern scan over
-    /// `urn:ngm:graph:ontology:inferred` only.
+    /// Read the first page of the inferred named graph; see
+    /// [`Self::read_inferred_graph_page`].
     pub async fn read_inferred_graph(&self) -> RepoResult<serde_json::Value> {
-        // WS-0: bound the server-built inferred-graph read so a large inferred
-        // closure cannot serialise unboundedly.
-        let q = format!(
+        self.read_inferred_graph_page(0, DEFAULT_INFERRED_PAGE)
+            .await
+    }
+
+    /// Read one page of the inferred named graph as
+    /// `{ namedGraph, runId?, triples, total, offset, limit, truncated }`.
+    ///
+    /// The unit of paging is the *axiom*: each `vc:Axiom` record is a reified
+    /// node of several `{ s, p, o }` triples, so a page holds whole records,
+    /// ordered by IRI (stable across pages), and `total` is the number of axioms
+    /// in the graph. `limit` is clamped to `1..=MAX_INFERRED_PAGE`.
+    /// `truncated` is true while axioms remain beyond this page.
+    pub async fn read_inferred_graph_page(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> RepoResult<serde_json::Value> {
+        let limit = limit.clamp(1, MAX_INFERRED_PAGE);
+        self.read_inferred_axioms(offset, Some(limit)).await
+    }
+
+    /// Every axiom of the inferred graph, unpaged. For callers that filter the
+    /// whole graph before paging (a gated view's scratch store); the stored
+    /// graph is served through [`Self::read_inferred_graph_page`].
+    pub async fn read_inferred_graph_all(&self) -> RepoResult<serde_json::Value> {
+        self.read_inferred_axioms(0, None).await
+    }
+
+    async fn read_inferred_axioms(
+        &self,
+        offset: usize,
+        limit: Option<usize>,
+    ) -> RepoResult<serde_json::Value> {
+        let count_q = format!(
             "{PROLOGUE}\
-             SELECT ?s ?p ?o\n\
+             SELECT (COUNT(DISTINCT ?a) AS ?n)\n\
              FROM <{GRAPH_ONTOLOGY_INFERRED}>\n\
-             WHERE {{ ?s ?p ?o }}\n\
-             LIMIT {MAX_SPARQL_ROWS}\n"
+             WHERE {{ ?a a <{T_VC_AXIOM}> }}\n"
         );
-        let (_vars, rows) = self.run_select(q).await?;
-        let truncated = rows.len() >= MAX_SPARQL_ROWS;
-        let triples: Vec<serde_json::Value> = rows
+        let (_v, count_rows) = self.run_select(count_q).await?;
+        let total: usize = count_rows
+            .first()
+            .and_then(|r| r.first())
+            .and_then(|t| t.as_ref())
+            .map(term_lexical)
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(0);
+
+        let window = match limit {
+            Some(l) => format!("LIMIT {l} OFFSET {offset}"),
+            None => String::new(),
+        };
+        let ids_q = format!(
+            "{PROLOGUE}\
+             SELECT ?a\n\
+             FROM <{GRAPH_ONTOLOGY_INFERRED}>\n\
+             WHERE {{ ?a a <{T_VC_AXIOM}> }}\n\
+             ORDER BY ?a {window}\n"
+        );
+        let (_v, id_rows) = self.run_select(ids_q).await?;
+        let ids: Vec<String> = id_rows
             .iter()
-            .filter_map(|row| {
+            .filter_map(|r| r.first().and_then(|t| t.as_ref()).map(term_lexical))
+            .collect();
+
+        let mut triples: Vec<serde_json::Value> = Vec::new();
+        // Bounded VALUES batches keep each query small whatever the page size.
+        for batch in ids.chunks(500) {
+            let values: String = batch.iter().map(|i| format!("<{i}> ")).collect();
+            let q = format!(
+                "{PROLOGUE}\
+                 SELECT ?s ?p ?o\n\
+                 FROM <{GRAPH_ONTOLOGY_INFERRED}>\n\
+                 WHERE {{\n\
+                   {{ VALUES ?s {{ {values} }} ?s ?p ?o }}\n\
+                   UNION\n\
+                   {{ VALUES ?a {{ {values} }}\n\
+                     ?a <{P_AXIOM_SUBJECT}> ?s ; <{P_AXIOM_OBJECT}> ?o .\n\
+                     ?s ?p ?o\n\
+                     FILTER(?p IN (<{RDFS_SUBCLASS_OF}>, <{OWL_EQUIVALENT_CLASS}>, <{OWL_DISJOINT_WITH}>)) }}\n\
+                 }}\n"
+            );
+            let (_v, rows) = self.run_select(q).await?;
+            triples.extend(rows.iter().filter_map(|row| {
                 let s = row.first().and_then(|t| t.as_ref()).map(term_lexical)?;
                 let p = row.get(1).and_then(|t| t.as_ref()).map(term_lexical)?;
                 let o = row.get(2).and_then(|t| t.as_ref()).map(term_lexical)?;
                 Some(serde_json::json!({ "s": s, "p": p, "o": o }))
-            })
-            .collect();
+            }));
+        }
 
         // Surface the latest run id if recorded.
         let run_id = self.inference_run_id_stored().await?;
@@ -992,7 +1067,10 @@ impl OxigraphOntologyRepository {
             "namedGraph": GRAPH_ONTOLOGY_INFERRED,
             "runId": run_id,
             "triples": triples,
-            "truncated": truncated,
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "truncated": offset + ids.len() < total,
         }))
     }
 
@@ -3490,6 +3568,55 @@ mod tests {
             object: b.to_string(),
             annotations: std::collections::HashMap::new(),
         }
+    }
+
+    /// The inferred graph pages by axiom: whole records per page, a stable order,
+    /// and a `total` that counts axioms, not the raw triples one page happens to hold.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn inferred_graph_pages_whole_axioms_with_a_true_total() {
+        let repo = in_memory_repo();
+        let axioms: Vec<_> = (0..25)
+            .map(|i| make_axiom(&format!("urn:test:S{i}"), &format!("urn:test:O{i}")))
+            .collect();
+        repo.store_inference_results(&inference_results_with(axioms))
+            .await
+            .unwrap();
+
+        let first = repo.read_inferred_graph_page(0, 10).await.unwrap();
+        let second = repo.read_inferred_graph_page(10, 10).await.unwrap();
+        let last = repo.read_inferred_graph_page(20, 10).await.unwrap();
+        assert_eq!(first["total"], 25);
+        assert_eq!(first["truncated"], true);
+        assert_eq!(last["truncated"], false);
+
+        let records = |g: &serde_json::Value| -> std::collections::BTreeSet<String> {
+            g["triples"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|t| t["p"] == "http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
+                .map(|t| t["s"].as_str().unwrap().to_string())
+                .collect()
+        };
+        let (a, b, c) = (records(&first), records(&second), records(&last));
+        assert_eq!((a.len(), b.len(), c.len()), (10, 10, 5));
+        assert!(
+            a.is_disjoint(&b) && b.is_disjoint(&c),
+            "no axiom on two pages"
+        );
+        // Whole records: every axiom on a page carries its subject and object triples.
+        for g in [&first, &second, &last] {
+            let triples = g["triples"].as_array().unwrap();
+            for rec in records(g) {
+                let has = |p: &str| triples.iter().any(|t| t["s"] == rec && t["p"] == p);
+                assert!(
+                    has(P_AXIOM_SUBJECT) && has(P_AXIOM_OBJECT),
+                    "split record {rec}"
+                );
+            }
+        }
+        let all = repo.read_inferred_graph_all().await.unwrap();
+        assert_eq!(records(&all).len(), 25);
     }
 
     /// ADR-099 D3: inferred quads land in the inferred named graph and carry

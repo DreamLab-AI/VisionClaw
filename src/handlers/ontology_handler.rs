@@ -6,7 +6,9 @@
 // `answer_*` function, which passes what the store returns through the matching
 // `HiddenClasses` scrubber so a hidden class reads exactly as one never stored.
 
-use crate::adapters::oxigraph_ontology_repository::{axiom_iri, OxigraphOntologyRepository};
+use crate::adapters::oxigraph_ontology_repository::{
+    axiom_iri, OxigraphOntologyRepository, DEFAULT_INFERRED_PAGE, MAX_INFERRED_PAGE,
+};
 use crate::handlers::graph_access::caller_hidden_classes;
 use crate::handlers::utils::execute_in_thread;
 use crate::services::ontology_view_reasoner::{ViewReasoner, VIEW_REASONING_UNAVAILABLE};
@@ -1147,17 +1149,92 @@ pub async fn answer_sparql_query(
 /// where each triple is `{ s, p, o }`. Surfaces the provenance-tagged inferences
 /// (rdfs:subClassOf closure, owl:equivalentClass, derivation markers) for the
 /// `InferencePanel`.
+///
+/// Paged by axiom: `?offset=` (default 0) and `?limit=` (default
+/// [`DEFAULT_INFERRED_PAGE`], at most [`MAX_INFERRED_PAGE`]). The reply carries
+/// `total` (axioms visible to the caller), `offset`, `limit` and `truncated`
+/// (more axioms beyond this page).
 pub async fn get_inferred_graph(
     state: web::Data<AppState>,
     caller: OptionalAuth,
+    page: web::Query<InferredPageQuery>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let hidden = caller_hidden_classes(&state.graph_service_addr, &caller).await?;
-    answer_get_inferred_graph(
+    answer_get_inferred_graph_page(
         &state.ontology_repository,
         &state.ontology_view_reasoner,
         &hidden,
+        page.offset.unwrap_or(0),
+        page.limit.unwrap_or(DEFAULT_INFERRED_PAGE),
     )
     .await
+}
+
+/// Query string of `GET /api/ontology/inferred`.
+#[derive(Debug, Deserialize)]
+pub struct InferredPageQuery {
+    /// Axioms to skip (default 0).
+    pub offset: Option<usize>,
+    /// Axioms per page (default [`DEFAULT_INFERRED_PAGE`], clamped to [`MAX_INFERRED_PAGE`]).
+    pub limit: Option<usize>,
+}
+
+/// One page of a whole inferred graph held in memory (a gated caller's view): the
+/// `vc:Axiom` records ordered by IRI, `offset`/`limit` of them with all their
+/// triples, and the view's own `total`.
+fn page_inferred_json(
+    mut graph: serde_json::Value,
+    offset: usize,
+    limit: usize,
+) -> serde_json::Value {
+    const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+    const VC_AXIOM: &str = "https://narrativegoldmine.com/ns/v1#Axiom";
+    let limit = limit.clamp(1, MAX_INFERRED_PAGE);
+    let term = |t: &serde_json::Value, k: &str| -> String {
+        t.get(k)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    let all = graph
+        .get("triples")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let records: std::collections::BTreeSet<String> = all
+        .iter()
+        .filter(|t| term(t, "p") == RDF_TYPE && term(t, "o") == VC_AXIOM)
+        .map(|t| term(t, "s"))
+        .collect();
+    let total = records.len();
+    let page: std::collections::HashSet<&String> =
+        records.iter().skip(offset).take(limit).collect();
+    // The direct inferred triple (`s subClassOf o`) travels with its axiom record.
+    let field = |rec: &str, p: &str| {
+        all.iter()
+            .find(|t| term(t, "s") == rec && term(t, "p") == p)
+            .map(|t| term(t, "o"))
+    };
+    let pairs: std::collections::HashSet<(String, String)> = page
+        .iter()
+        .filter_map(|r| {
+            Some((
+                field(r, "https://narrativegoldmine.com/ns/v1#subject")?,
+                field(r, "https://narrativegoldmine.com/ns/v1#object")?,
+            ))
+        })
+        .collect();
+    let kept: Vec<serde_json::Value> = all
+        .iter()
+        .filter(|t| page.contains(&term(t, "s")) || pairs.contains(&(term(t, "s"), term(t, "o"))))
+        .cloned()
+        .collect();
+    graph["triples"] = serde_json::Value::Array(kept);
+    graph["total"] = total.into();
+    graph["offset"] = offset.into();
+    graph["limit"] = limit.into();
+    graph["truncated"] = (offset + page.len() < total).into();
+    graph
 }
 
 /// The inferred graph of [`view_inference_results`]: that run materialised into a scratch
@@ -1177,7 +1254,7 @@ async fn view_inferred_graph(
         let store = oxigraph::store::Store::new().map_err(unavailable)?;
         let empty = OxigraphOntologyRepository::from_store(Arc::new(store));
         return Ok(Arc::new(
-            empty.read_inferred_graph().await.map_err(unavailable)?,
+            empty.read_inferred_graph_all().await.map_err(unavailable)?,
         ));
     }
     let view = reasoner.closure(repo.as_ref(), hidden).await?;
@@ -1193,7 +1270,7 @@ async fn view_inferred_graph(
                     .await
                     .map_err(unavailable)?;
             }
-            scratch.read_inferred_graph().await.map_err(unavailable)
+            scratch.read_inferred_graph_all().await.map_err(unavailable)
         })
         .await
 }
@@ -1205,16 +1282,31 @@ pub async fn answer_get_inferred_graph(
     reasoner: &ViewReasoner,
     hidden: &HiddenClasses,
 ) -> Result<HttpResponse, actix_web::Error> {
+    answer_get_inferred_graph_page(repo, reasoner, hidden, 0, DEFAULT_INFERRED_PAGE).await
+}
+
+/// [`answer_get_inferred_graph`] for the page of `limit` axioms from `offset`.
+pub async fn answer_get_inferred_graph_page(
+    repo: &Arc<OxigraphOntologyRepository>,
+    reasoner: &ViewReasoner,
+    hidden: &HiddenClasses,
+    offset: usize,
+    limit: usize,
+) -> Result<HttpResponse, actix_web::Error> {
     if !hidden.is_empty() {
         return match view_inferred_graph(repo, reasoner, hidden).await {
-            Ok(json) => ok_json!(hidden.triples_json(json.as_ref().clone())),
+            Ok(json) => ok_json!(page_inferred_json(
+                hidden.triples_json(json.as_ref().clone()),
+                offset,
+                limit
+            )),
             Err(e) => {
                 error!("Per-view inferred graph failed: {}", e);
                 service_unavailable!(VIEW_REASONING_UNAVAILABLE)
             }
         };
     }
-    match repo.read_inferred_graph().await {
+    match repo.read_inferred_graph_page(offset, limit).await {
         Ok(json) => ok_json!(json),
         Err(e) => {
             error!("Failed to read inferred graph: {}", e);
@@ -2025,7 +2117,7 @@ pub(crate) mod per_view_reasoning_tests {
         let graph = view_inferred_graph(&repo, &reasoner, &hidden)
             .await
             .expect("answers");
-        let empty = repo.read_inferred_graph().await.expect("reads");
+        let empty = repo.read_inferred_graph_all().await.expect("reads");
         assert_eq!(graph.as_ref(), &empty);
         assert_eq!(reasoner.runs(), 0, "no per-view Whelk run");
     }
@@ -2191,5 +2283,39 @@ pub(crate) mod per_view_reasoning_tests {
             view.inferred_axioms.len(),
             view.inference_time_ms,
         );
+    }
+}
+
+#[cfg(test)]
+mod inferred_paging_tests {
+    use super::page_inferred_json;
+    use serde_json::json;
+
+    const TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+    const AXIOM: &str = "https://narrativegoldmine.com/ns/v1#Axiom";
+
+    fn graph(n: usize) -> serde_json::Value {
+        let mut triples = Vec::new();
+        for i in 0..n {
+            let s = format!("urn:ngm:axiom:{i:03}");
+            triples.push(json!({"s": s, "p": TYPE, "o": AXIOM}));
+            triples.push(json!({"s": s, "p": "urn:p:subject", "o": format!("urn:c:{i}")}));
+        }
+        json!({"namedGraph": "g", "triples": triples})
+    }
+
+    #[test]
+    fn a_view_pages_whole_axioms_and_reports_its_own_total() {
+        let page = page_inferred_json(graph(7), 5, 3);
+        assert_eq!(page["total"], 7);
+        assert_eq!(
+            page["triples"].as_array().unwrap().len(),
+            4,
+            "2 records x 2 triples"
+        );
+        assert_eq!(page["truncated"], false);
+        let first = page_inferred_json(graph(7), 0, 3);
+        assert_eq!(first["triples"].as_array().unwrap().len(), 6);
+        assert_eq!(first["truncated"], true);
     }
 }
