@@ -77,17 +77,6 @@ function createBaseAgentLogger(namespace: string, options: LoggerOptions = {}) {
       trimTelemetryArray(agentTelemetry);
 
       baseLogger.debug(`[AGENT:${agentType}:${agentId}] ${action}`, { metadata, position });
-
-      try {
-        const storedTelemetry = JSON.parse(localStorage.getItem('agent-telemetry') || '[]');
-        storedTelemetry.push(telemetryData);
-        if (storedTelemetry.length > MAX_TELEMETRY_ENTRIES) {
-          storedTelemetry.splice(0, storedTelemetry.length - MAX_TELEMETRY_ENTRIES);
-        }
-        localStorage.setItem('agent-telemetry', JSON.stringify(storedTelemetry));
-      } catch (e) {
-        baseLogger.warn('Failed to store agent telemetry in localStorage:', e);
-      }
     },
 
     
@@ -138,7 +127,6 @@ function createBaseAgentLogger(namespace: string, options: LoggerOptions = {}) {
       agentTelemetry.length = 0;
       webSocketTelemetry.length = 0;
       threeJSTelemetry.length = 0;
-      localStorage.removeItem('agent-telemetry');
       baseLogger.info('Telemetry data cleared');
     }
   };

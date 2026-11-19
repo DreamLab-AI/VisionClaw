@@ -11,7 +11,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React, { useEffect } from 'react';
 import { createRoot, Root } from 'react-dom/client';
-import { useTelemetry, useThreeJSTelemetry, useWebSocketTelemetry } from '../useTelemetry';
+import { useTelemetry, useThreeJSTelemetry, setPerFrameTelemetryEnabled, useWebSocketTelemetry } from '../useTelemetry';
 import { agentTelemetry } from '../AgentTelemetry';
 
 // Mock the AgentTelemetry module
@@ -476,6 +476,7 @@ describe('useThreeJSTelemetry', () => {
     vi.clearAllMocks();
     threeJSResultRef = null;
     resolveRender = null;
+    setPerFrameTelemetryEnabled(true);
 
     container = document.createElement('div');
     document.body.appendChild(container);
@@ -937,5 +938,22 @@ describe('Integration scenarios', () => {
       'RerenderComponent',
       undefined
     );
+  });
+});
+
+describe('per-frame telemetry gate', () => {
+  it('logPositionUpdate and logAnimationFrame are no-ops unless enabled', async () => {
+    setPerFrameTelemetryEnabled(false);
+    const c = document.createElement('div');
+    document.body.appendChild(c);
+    const r = createRoot(c);
+    let res: UseThreeJSTelemetryResult | null = null;
+    const H = () => { res = useThreeJSTelemetry('obj'); return null; };
+    await new Promise<void>(ok => { r.render(React.createElement(H)); setTimeout(ok, 20); });
+    vi.clearAllMocks();
+    for (let i = 0; i < 100; i++) { res!.logPositionUpdate({ x: 0, y: 0, z: 0 }); res!.logAnimationFrame(); }
+    expect(agentTelemetry.logThreeJSOperation).not.toHaveBeenCalled();
+    r.unmount();
+    c.remove();
   });
 });

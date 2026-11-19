@@ -53,8 +53,16 @@ export function useTelemetry(componentName: string) {
 }
 
 
+let perFrameTelemetryEnabled = false;
+
+/** Per-frame hooks (position updates, animation frames) are no-ops until enabled. */
+export function setPerFrameTelemetryEnabled(enabled: boolean): void {
+  perFrameTelemetryEnabled = enabled;
+}
+
 export function useThreeJSTelemetry(objectId: string) {
   const logPositionUpdate = useCallback((position: { x: number; y: number; z: number }, metadata?: Record<string, any>) => {
+    if (!perFrameTelemetryEnabled) return;
     agentTelemetry.logThreeJSOperation('position_update', objectId, position, undefined, metadata);
   }, [objectId]);
 
@@ -63,6 +71,7 @@ export function useThreeJSTelemetry(objectId: string) {
   }, [objectId]);
 
   const logAnimationFrame = useCallback((position?: { x: number; y: number; z: number }, rotation?: { x: number; y: number; z: number }) => {
+    if (!perFrameTelemetryEnabled) return;
     agentTelemetry.logThreeJSOperation('animation_frame', objectId, position, rotation);
   }, [objectId]);
 
