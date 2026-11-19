@@ -7,6 +7,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import GraphManagerSrc from '../components/GraphManager.tsx?raw';
+import OverviewLayerSrc from '../overview/OverviewLayer.tsx?raw';
+import InferredEdgesSrc from '../components/InferredEdges.tsx?raw';
 
 /** JSX opening tag (props included) of the first `<Name ...>` in the source. */
 function openingTag(src: string, name: string): string {
@@ -23,11 +25,18 @@ function openingTag(src: string, name: string): string {
 }
 
 describe('GraphManager: no bulk arrays as component props', () => {
-  it('GlassEdges receives a ref + version, not the points array', () => {
+  it('no GlassEdges receives a points array', () => {
+    expect(GraphManagerSrc).not.toMatch(/\bpoints=\{/);
     const tag = openingTag(GraphManagerSrc, 'GlassEdges');
-    expect(tag).not.toMatch(/\bpoints=/);
     expect(tag).toMatch(/\bpointsRef=/);
     expect(tag).toMatch(/\bpointsVersion=/);
+  });
+
+  it('OverviewLayer receives the typed-array edge plan as ref + version', () => {
+    const tag = openingTag(GraphManagerSrc, 'OverviewLayer');
+    expect(tag).not.toMatch(/\bplan=/);
+    expect(tag).toMatch(/\bplanRef=/);
+    expect(tag).toMatch(/\bplanVersion=/);
   });
 
   it('GemNodes receives an edge count, not the edges array', () => {
@@ -38,5 +47,17 @@ describe('GraphManager: no bulk arrays as component props', () => {
 
   it('KnowledgeRings does not receive the edges array', () => {
     expect(openingTag(GraphManagerSrc, 'KnowledgeRings')).not.toMatch(/\bedges=/);
+  });
+});
+
+describe('overview edge components: no typed arrays as props', () => {
+  const layer = OverviewLayerSrc;
+  it('OverviewLayer and InferredEdges hand OverviewEdgeLines a ref + version', () => {
+    for (const src of [layer, InferredEdgesSrc]) {
+      const tag = openingTag(src, 'OverviewEdgeLines');
+      expect(tag).not.toMatch(/\bdata=/);
+      expect(tag).toMatch(/\bdataRef=/);
+      expect(tag).toMatch(/\bdataVersion=/);
+    }
   });
 });

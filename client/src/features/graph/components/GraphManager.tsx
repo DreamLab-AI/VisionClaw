@@ -1,4 +1,4 @@
-import { useEdgePointsHolder } from '../hooks/useEdgePointsHolder'
+import { useEdgePointsHolder, useRefVersion } from '../hooks/useEdgePointsHolder'
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import { useThree, useFrame, ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
@@ -524,6 +524,8 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
     tubeLod,
   })
 
+  const { ref: edgePlanRef, version: edgePlanVersion } = useRefVersion(edgePlan)
+
   // Proxy ref: useGraphEventHandlers expects RefObject<InstancedMesh>. The guard
   // only needs ANY live population mesh, so return the first that exists.
   const meshProxyRef = useMemo(() => ({
@@ -732,7 +734,8 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
           node source. Inferred-graph edges (urn:ngm:graph:ontology:inferred) ride
           the same path, dashed amber, gated by the InferencePanel toggle. */}
       <OverviewLayer
-        plan={edgePlan}
+        planRef={edgePlanRef}
+        planVersion={edgePlanVersion}
         nodePositionsRef={nodePositionsRef}
         nodeCount={graphData.nodes.length}
         spriteGemRef={spriteGemRef}

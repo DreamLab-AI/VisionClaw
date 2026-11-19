@@ -23,3 +23,21 @@ describe('useEdgePointsHolder', () => {
     expect(result.current.version).toBe(2);
   });
 });
+
+import { useRefVersion } from '../useEdgePointsHolder';
+
+describe('useRefVersion', () => {
+  it('keeps a stable ref and bumps the version only when the value changes', () => {
+    const a = { n: new Int32Array(10) };
+    const b = { n: new Int32Array(10) };
+    const { result, rerender } = renderHook(({ v }) => useRefVersion(v), { initialProps: { v: a } });
+    const ref = result.current.ref;
+    expect(result.current.version).toBe(0);
+    rerender({ v: a });
+    expect(result.current.version).toBe(0);
+    rerender({ v: b });
+    expect(result.current.ref).toBe(ref);
+    expect(ref.current).toBe(b);
+    expect(result.current.version).toBe(1);
+  });
+});

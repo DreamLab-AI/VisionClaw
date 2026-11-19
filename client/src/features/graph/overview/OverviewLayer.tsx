@@ -30,6 +30,7 @@ import { selectDrawnEdges, overviewEdgeOpacity } from './edgeStyle';
 import { publishOverviewEdgeReport, resetOverviewEdgeReport } from './overviewEdgeStore';
 import { OverviewEdgeLines, type OverviewEdgeData, type OverviewEdgeStyle } from './OverviewEdgeLines';
 import { OverviewNodes } from './OverviewNodes';
+import { useRefVersion } from '../hooks/useEdgePointsHolder';
 
 export const OverviewTextureContext = createContext<NodePositionTexture | null>(null);
 export const useOverviewPositionTexture = () => useContext(OverviewTextureContext);
@@ -47,7 +48,9 @@ export function resolveGraphView(gv: Partial<GraphViewSettings> | undefined): Gr
 }
 
 interface Props {
-  plan: EdgePlan | null;
+  /** The edge plan holds typed arrays (one entry per edge): ref + version, never the plan as a prop. */
+  planRef: React.RefObject<EdgePlan | null>;
+  planVersion: number;
   nodePositionsRef: React.MutableRefObject<Float32Array | null>;
   nodeCount: number;
   /** The population drawn as sprites: the largest at knowledge-graph size (gemLod.spritePopulation). */
@@ -55,7 +58,7 @@ interface Props {
   children?: React.ReactNode;
 }
 
-export const OverviewLayer: React.FC<Props> = ({ plan, nodePositionsRef, nodeCount, spriteGemRef, children }) => {
+export const OverviewLayer: React.FC<Props> = ({ planRef, planVersion, nodePositionsRef, nodeCount, spriteGemRef, children }) => {
   const stored = useSettingsStore((s) => s.get<GraphViewSettings>('visualisation.graphView'));
   const gv = useMemo(() => resolveGraphView(stored), [stored]);
   const nodeSize = useSettingsStore((s) => s.get<number>('visualisation.graphs.knowledge.nodes.nodeSize')) ?? 1.0;
@@ -76,18 +79,21 @@ export const OverviewLayer: React.FC<Props> = ({ plan, nodePositionsRef, nodeCou
 
   // ADR-2181 D4: capacity from the data, heaviest first when the budget is short.
   const oe = gv.overviewEdges;
+  const plan = planRef.current;
   const edgeData = useMemo<OverviewEdgeData | null>(() => {
     if (!plan || !oe.enabled) return null;
     const cap = resolveOverviewEdgeCapacity(oe.capacity, plan.count);
     const pick = cap.truncated ? selectDrawnEdges(plan.weights, plan.count, cap.capacity) : null;
     return { count: cap.drawn, src: plan.srcIdx, tgt: plan.tgtIdx, colors: plan.colors, weights: plan.weights, pick };
-  }, [plan, oe.enabled, oe.capacity]);
+  }, [planVersion, oe.enabled, oe.capacity]);
+
+  const { ref: edgeDataRef, version: edgeDataVersion } = useRefVersion(edgeData);
 
   useEffect(() => {
     if (!plan || !oe.enabled) { resetOverviewEdgeReport(); return; }
     const cap = resolveOverviewEdgeCapacity(oe.capacity, plan.count);
     publishOverviewEdgeReport({ capacity: cap.capacity, drawn: cap.drawn, total: plan.count, truncated: cap.truncated });
-  }, [plan, oe.enabled, oe.capacity]);
+  }, [planVersion, oe.enabled, oe.capacity]);
   useEffect(() => () => { resetOverviewEdgeReport(); clearOverviewFaults(); }, []);
 
   // ADR-2183 D3: the scene blends in linear space on both backends, so the
@@ -117,7 +123,7 @@ export const OverviewLayer: React.FC<Props> = ({ plan, nodePositionsRef, nodeCou
 
   return (
     <OverviewTextureContext.Provider value={positions}>
-      <OverviewEdgeLines positions={positions} data={edgeData} style={edgeStyle} visible={oe.enabled} publishLive />
+      <OverviewEdgeLines positions={positions} dataRef={edgeDataRef} dataVersion={edgeDataVersion} style={edgeStyle} visible={oe.enabled} publishLive />
       <OverviewNodes positions={positions} sourceRef={spriteGemRef} style={nodeStyle} />
       {children}
     </OverviewTextureContext.Provider>

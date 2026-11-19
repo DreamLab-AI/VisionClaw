@@ -52,7 +52,9 @@ export interface OverviewEdgeStyle {
 
 interface Props {
   positions: NodePositionTexture;
-  data: OverviewEdgeData | null;
+  /** Typed arrays, one entry per edge: ref + version, never the data as a prop. */
+  dataRef: React.RefObject<OverviewEdgeData | null>;
+  dataVersion: number;
   style: OverviewEdgeStyle;
   visible: boolean;
   renderOrder?: number;
@@ -61,8 +63,9 @@ interface Props {
   publishLive?: boolean;
 }
 
-export const OverviewEdgeLines: React.FC<Props> = ({ positions, data, style, visible, renderOrder = 1, name = 'overview-edges', publishLive = false }) => {
+export const OverviewEdgeLines: React.FC<Props> = ({ positions, dataRef, dataVersion, style, visible, renderOrder = 1, name = 'overview-edges', publishLive = false }) => {
   const { size, gl } = useThree();
+  const data = dataRef.current;
   const capacity = data ? Math.max(1, 2 ** Math.ceil(Math.log2(Math.max(1, data.count)))) : 1;
   const geometry = useMemo(() => createOverviewEdgeGeometry(capacity), [capacity]);
   useEffect(() => () => geometry.dispose(), [geometry]);
@@ -138,7 +141,7 @@ export const OverviewEdgeLines: React.FC<Props> = ({ positions, data, style, vis
     aColor.needsUpdate = true;
     aWidth.needsUpdate = true;
     geometry.instanceCount = n;
-  }, [data, geometry, style.widthPx, style.maxWidthPx]);
+  }, [dataVersion, geometry, style.widthPx, style.maxWidthPx]);
 
   useFrame(({ camera, clock }) => {
     uniforms.uTime.value = clock.elapsedTime;

@@ -21,3 +21,21 @@ export function useEdgePointsHolder() {
   }, [])
   return { ref, version, set }
 }
+
+/**
+ * The same idea for a value another hook already produces (a memoised edge
+ * plan, overview edge data: typed arrays with one entry per edge). The ref is
+ * stable; `version` changes exactly when `value`'s identity does, so a child
+ * that lists `version` in its dependency arrays re-runs when it should.
+ * React's dev props diff expands typed arrays index by index, so never hand
+ * one to a component as a prop.
+ */
+export function useRefVersion<T>(value: T) {
+  const ref = useRef<T>(value)
+  const version = useRef(0)
+  if (ref.current !== value) {
+    ref.current = value
+    version.current++
+  }
+  return { ref, version: version.current }
+}

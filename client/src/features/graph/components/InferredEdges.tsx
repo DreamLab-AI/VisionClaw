@@ -20,6 +20,7 @@ import { useInferredEdgesStore } from '../../ontology/store/useInferredEdgesStor
 import { useSettingsStore } from '../../../store/settingsStore';
 import type { GraphViewSettings } from '../../settings/config/settings';
 import { useOverviewPositionTexture, resolveGraphView } from '../overview/OverviewLayer';
+import { useRefVersion } from '../hooks/useEdgePointsHolder';
 import { OverviewEdgeLines, type OverviewEdgeData, type OverviewEdgeStyle } from '../overview/OverviewEdgeLines';
 
 /** Differentiated style — amber, dashed. Matches ADR-099 D4 convention. */
@@ -79,11 +80,13 @@ export const InferredEdges: React.FC<InferredEdgesProps> = ({ nodeIdToIndexMap }
     tint: INFERRED_COLOR,
   }), [gv.overviewEdges.widthPx, greyOpacity]);
 
+  const { ref: dataRef, version: dataVersion } = useRefVersion(data);
   if (!positions || !data) return null;
   return (
     <OverviewEdgeLines
       positions={positions}
-      data={data}
+      dataRef={dataRef}
+      dataVersion={dataVersion}
       style={style}
       visible={showInferred}
       renderOrder={4}
