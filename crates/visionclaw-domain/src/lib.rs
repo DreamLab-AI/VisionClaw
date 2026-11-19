@@ -26,6 +26,7 @@ pub mod types;
 pub mod uri;
 pub mod utils;
 pub mod vault;
+pub mod weighting;
 
 // Convenience re-exports — keep this list focused on the *shared kernel*
 // (types every other crate needs). Specialised types stay behind their
