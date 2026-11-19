@@ -7,6 +7,7 @@
 import * as THREE from 'three'
 import type { Node as GraphNode } from '../managers/graphDataManager'
 import type { GraphVisualMode } from './useGraphVisualState'
+import relationsProjection from '../relations.generated.json'
 
 export { DOMAIN_COLORS, DEFAULT_DOMAIN_COLOR, getDomainColor } from '../utils/domainColors'
 
@@ -24,39 +25,13 @@ export { DOMAIN_COLORS, DEFAULT_DOMAIN_COLOR, getDomainColor } from '../utils/do
 //   explicit_link  blue-grey #5A6470 (dim — dominant wikilinks recede)
 //   domain_member  taupe    #A1887F (domain-root spokes; muted)
 //   chain_payment  magenta  #E040FB (agent-to-agent sidechain payment, S5)
-export const EDGE_TYPE_COLORS: Record<string, THREE.Color> = {
-  'hierarchical':   new THREE.Color('#FFD700'),
-  'subclass':       new THREE.Color('#FFD700'),
-  'structural':     new THREE.Color('#4FC3F7'),
-  'has_part':       new THREE.Color('#4FC3F7'),
-  'is_part_of':     new THREE.Color('#4FC3F7'),
-  'dependency':     new THREE.Color('#81C784'),
-  'requires':       new THREE.Color('#81C784'),
-  'depends_on':     new THREE.Color('#81C784'),
-  'enables':        new THREE.Color('#81C784'),
-  'associative':    new THREE.Color('#CE93D8'),
-  'relates_to':     new THREE.Color('#CE93D8'),
-  'bridge':         new THREE.Color('#FF7043'),
-  'bridges_to':     new THREE.Color('#FF7043'),
-  'bridges_from':   new THREE.Color('#FF7043'),
-  // --- 5 previously-missing types (fell to grey DEFAULT_EDGE_COLOR) ---
-  'provenance':     new THREE.Color('#FFB300'), // amber — derivation/lineage
-  'utilisation':    new THREE.Color('#26C6DA'), // teal — usage/consumption
-  'co_citation':    new THREE.Color('#5C6BC0'), // indigo — co-reference
-  'standardisation':new THREE.Color('#7E8CE0'), // slate-blue — conformance
-  'implements':     new THREE.Color('#EC407A'), // rose — realisation
-  // --- recoloured: dominant wikilinks recede to a dim neutral blue-grey ---
-  'explicit_link':  new THREE.Color('#5A6470'),
-  'namespace':      new THREE.Color('#78909C'),
-  'inferred':       new THREE.Color('#B0BEC5'),
-  // Domain root → member spokes: grouping, not subsumption, so they no longer
-  // share the hierarchy gold; a muted taupe keeps them legible but recessive.
-  'domain_member':  new THREE.Color('#A1887F'),
-  // Agent-to-agent sidechain payment (S5): its own magenta, shared with the
-  // bots edge layer and the payments panel (CHAIN_PAYMENT_COLOR).
-  'chain_payment':  new THREE.Color('#E040FB'),
-}
-export const DEFAULT_EDGE_COLOR = new THREE.Color('#AAAAAA')
+// Generated from crates/visionclaw-domain/data/relations.yaml (ADR-2204 D1, E1): edit the schema, then
+// `cargo test -p visionclaw-domain --test relations_schema -- --ignored regenerate`.
+// A producer/consumer test pins the JSON to the YAML.
+export const EDGE_TYPE_COLORS: Record<string, THREE.Color> = Object.fromEntries(
+  Object.entries(relationsProjection.colours).map(([key, hex]) => [key, new THREE.Color(hex)]),
+)
+export const DEFAULT_EDGE_COLOR = new THREE.Color(relationsProjection.defaultColour)
 
 /** O(1) edge-type → pre-allocated THREE.Color. */
 export function getEdgeTypeColor(edgeType?: string): THREE.Color {

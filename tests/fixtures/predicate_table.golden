@@ -1,0 +1,48 @@
+http://www.w3.org/1999/02/22-rdf-syntax-ns#type |  | -
+http://www.w3.org/2000/01/rdf-schema#domain | structural | 3fb33333
+http://www.w3.org/2000/01/rdf-schema#range | structural | 3fb33333
+http://www.w3.org/2000/01/rdf-schema#subClassOf | hierarchical | 3fcccccd
+http://www.w3.org/2000/01/rdf-schema#subPropertyOf | hierarchical | 3fcccccd
+http://www.w3.org/2002/07/owl#disjointWith | bridge | 3f19999a
+http://www.w3.org/2002/07/owl#equivalentClass | hierarchical | 3fcccccd
+http://www.w3.org/2002/07/owl#inverseOf | associative | 3f4ccccd
+http://www.w3.org/2002/07/owl#sameAs | hierarchical | 3fcccccd
+http://www.w3.org/ns/prov#wasAttributedTo | provenance | 3f000000
+http://www.w3.org/ns/prov#wasDerivedFrom | provenance | 3f000000
+http://www.w3.org/ns/prov#wasGeneratedBy | provenance | 3f000000
+https://example.org/not-a-known-predicate#x |  | -
+https://narrativegoldmine.com/ns/v1#achievesObjective | goal | 3f800000
+https://narrativegoldmine.com/ns/v1#appliesTo | associative | 3f4ccccd
+https://narrativegoldmine.com/ns/v1#bridgesFrom | bridge | 3f19999a
+https://narrativegoldmine.com/ns/v1#bridgesTo | bridge | 3f19999a
+https://narrativegoldmine.com/ns/v1#contrastsWith | bridge | 3f19999a
+https://narrativegoldmine.com/ns/v1#definedIn | structural | 3fb33333
+https://narrativegoldmine.com/ns/v1#dependsOn | dependency | 3fb33333
+https://narrativegoldmine.com/ns/v1#enabledBy | dependency | 3fb33333
+https://narrativegoldmine.com/ns/v1#enables | dependency | 3fb33333
+https://narrativegoldmine.com/ns/v1#enhances | enhancement | 3f8ccccd
+https://narrativegoldmine.com/ns/v1#hasPart | structural | 3fb33333
+https://narrativegoldmine.com/ns/v1#implements | implements | 3fcccccd
+https://narrativegoldmine.com/ns/v1#instanceOf | hierarchical | 3fcccccd
+https://narrativegoldmine.com/ns/v1#isPartOf | structural | 3fb33333
+https://narrativegoldmine.com/ns/v1#optimizes | enhancement | 3f8ccccd
+https://narrativegoldmine.com/ns/v1#partOf | structural | 3fb33333
+https://narrativegoldmine.com/ns/v1#relatedTo | associative | 3f4ccccd
+https://narrativegoldmine.com/ns/v1#relatesTo | associative | 3f4ccccd
+https://narrativegoldmine.com/ns/v1#requires | dependency | 3fb33333
+https://narrativegoldmine.com/ns/v1#sameAs | hierarchical | 3fcccccd
+https://narrativegoldmine.com/ns/v1#secures | security | 3f99999a
+https://narrativegoldmine.com/ns/v1#similarTo | similarity | 3f4ccccd
+https://narrativegoldmine.com/ns/v1#simulatedIn | similarity | 3f4ccccd
+https://narrativegoldmine.com/ns/v1#standardizedBy | standardisation | 3f8ccccd
+https://narrativegoldmine.com/ns/v1#supports | utilisation | 3f666666
+https://narrativegoldmine.com/ns/v1#trackedOn | tracking | 3f333333
+https://narrativegoldmine.com/ns/v1#uses | utilisation | 3f666666
+https://narrativegoldmine.com/ns/v1#utilises | utilisation | 3f666666
+https://narrativegoldmine.com/ns/v1#validates | security | 3f99999a
+https://narrativegoldmine.com/ns/v1#wikilink | explicit_link | 3f800000
+domain_member spoke | 3fc00000
+inferred (hierarchical) | 3f800000
+wikilink | 3f800000
+elevated_from | 3f800000
+cocite per target | 3f000000

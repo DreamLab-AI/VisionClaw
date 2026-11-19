@@ -1,0 +1,179 @@
+{
+  "colours": {
+    "associative": "#CE93D8",
+    "bridge": "#FF7043",
+    "bridges_from": "#FF7043",
+    "bridges_to": "#FF7043",
+    "chain_payment": "#E040FB",
+    "co_citation": "#5C6BC0",
+    "dependency": "#81C784",
+    "depends_on": "#81C784",
+    "domain_member": "#A1887F",
+    "enables": "#81C784",
+    "explicit_link": "#5A6470",
+    "has_part": "#4FC3F7",
+    "hierarchical": "#FFD700",
+    "implements": "#EC407A",
+    "inferred": "#B0BEC5",
+    "is_part_of": "#4FC3F7",
+    "namespace": "#78909C",
+    "provenance": "#FFB300",
+    "relates_to": "#CE93D8",
+    "requires": "#81C784",
+    "standardisation": "#7E8CE0",
+    "structural": "#4FC3F7",
+    "subclass": "#FFD700",
+    "utilisation": "#26C6DA"
+  },
+  "defaultColour": "#AAAAAA",
+  "relations": [
+    {
+      "colour": "#FFD700",
+      "drawn": true,
+      "kind": "hierarchy",
+      "label": "hierarchical",
+      "physics": true
+    },
+    {
+      "colour": "#81C784",
+      "drawn": true,
+      "kind": "typed",
+      "label": "dependency",
+      "physics": true
+    },
+    {
+      "colour": "#4FC3F7",
+      "drawn": true,
+      "kind": "typed",
+      "label": "structural",
+      "physics": true
+    },
+    {
+      "colour": "#CE93D8",
+      "drawn": true,
+      "kind": "typed",
+      "label": "associative",
+      "physics": true
+    },
+    {
+      "colour": "#FF7043",
+      "drawn": true,
+      "kind": "typed",
+      "label": "bridge",
+      "physics": true
+    },
+    {
+      "colour": "#EC407A",
+      "drawn": true,
+      "kind": "typed",
+      "label": "implements",
+      "physics": true
+    },
+    {
+      "colour": null,
+      "drawn": true,
+      "kind": "typed",
+      "label": "enhancement",
+      "physics": true
+    },
+    {
+      "colour": null,
+      "drawn": true,
+      "kind": "typed",
+      "label": "security",
+      "physics": true
+    },
+    {
+      "colour": "#FFB300",
+      "drawn": true,
+      "kind": "typed",
+      "label": "provenance",
+      "physics": true
+    },
+    {
+      "colour": null,
+      "drawn": true,
+      "kind": "typed",
+      "label": "goal",
+      "physics": true
+    },
+    {
+      "colour": null,
+      "drawn": true,
+      "kind": "typed",
+      "label": "tracking",
+      "physics": true
+    },
+    {
+      "colour": null,
+      "drawn": true,
+      "kind": "typed",
+      "label": "similarity",
+      "physics": true
+    },
+    {
+      "colour": "#26C6DA",
+      "drawn": true,
+      "kind": "typed",
+      "label": "utilisation",
+      "physics": true
+    },
+    {
+      "colour": "#7E8CE0",
+      "drawn": true,
+      "kind": "typed",
+      "label": "standardisation",
+      "physics": true
+    },
+    {
+      "colour": "#5A6470",
+      "drawn": true,
+      "kind": "link",
+      "label": "explicit_link",
+      "physics": true
+    },
+    {
+      "colour": null,
+      "drawn": true,
+      "kind": "link",
+      "label": "elevated_from",
+      "physics": true
+    },
+    {
+      "colour": "#5C6BC0",
+      "drawn": true,
+      "kind": "derived",
+      "label": "co_citation",
+      "physics": true
+    },
+    {
+      "colour": "#A1887F",
+      "drawn": true,
+      "kind": "derived",
+      "label": "domain_member",
+      "physics": true
+    },
+    {
+      "colour": "#B0BEC5",
+      "drawn": true,
+      "kind": "derived",
+      "label": "inferred",
+      "physics": true
+    },
+    {
+      "colour": "#78909C",
+      "drawn": true,
+      "kind": "derived",
+      "label": "namespace",
+      "physics": true
+    },
+    {
+      "colour": "#E040FB",
+      "drawn": true,
+      "kind": "derived",
+      "label": "chain_payment",
+      "physics": true
+    }
+  ],
+  "schemaVersion": 1
+}

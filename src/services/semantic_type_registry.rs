@@ -884,4 +884,27 @@ mod tests {
         assert!(registry.get_id("new:auto-registered").is_some());
         assert_eq!(registry.get_id("new:auto-registered"), Some(new_id));
     }
+    /// ADR-2204 S2: the registry still feeds the dynamic-relationship kernel
+    /// until S4, so its label set and strengths must not drift from the schema
+    /// that now owns the labels and edge weights (`legacy_weight` = strength × 2).
+    #[test]
+    fn registry_agrees_with_the_relation_schema_for_predicate_labels() {
+        use visionclaw_domain::relations::RelationSchema;
+        let registry = SemanticTypeRegistry::new();
+        for rel in RelationSchema::builtin().relations() {
+            if rel.predicates.is_empty() {
+                continue; // wikilink-less producers (spokes, co-citation…) are not registry-typed
+            }
+            let id = registry
+                .get_id(&rel.label)
+                .unwrap_or_else(|| panic!("schema label `{}` is not registered", rel.label));
+            let strength = registry.get_config(id).unwrap().strength;
+            assert_eq!(
+                (strength * 2.0).to_bits(),
+                rel.legacy_weight.unwrap().to_bits(),
+                "`{}`: registry strength × 2 vs schema legacy_weight",
+                rel.label
+            );
+        }
+    }
 }

@@ -26,7 +26,6 @@ use crate::services::decision_elevation::{decision_page_quads_logged, DECISIONS_
 use crate::services::inferred_edge_materialiser as mat;
 use crate::services::page_parser::{parse_page, ParsedPage, ONTOLOGY_VAULT_PREFIX};
 use crate::services::parsers::KnowledgeGraphParser;
-use crate::services::semantic_type_registry::SEMANTIC_TYPE_REGISTRY;
 use futures::stream::{FuturesUnordered, StreamExt};
 use log::{debug, error, info, warn};
 use oxigraph::model::Quad;
@@ -38,6 +37,7 @@ use visionclaw_domain::models::canonical_entity::{CanonicalEntity, EntityKind};
 use visionclaw_domain::models::edge::{Edge, DOMAIN_MEMBER_EDGE_TYPE};
 use visionclaw_domain::ports::inference_engine::InferenceEngine;
 use visionclaw_domain::ports::ontology_repository::{AxiomType, OntologyRepository, OwlAxiom};
+use visionclaw_domain::relations::{PredicateClass, Producer, Quarantine, RelationSchema};
 
 /// Outcome of ADR-2071 inferred-edge selection on the post-sync Whelk path.
 ///
@@ -64,54 +64,9 @@ const BATCH_SIZE: usize = 50;
 /// source the current store was built from.
 const SOURCE_IDENTITY_KEY: &str = "corpus_source_identity";
 
-// Predicate IRI constants for edge-type routing.
-// Expanded forms (vc: prefix = https://narrativegoldmine.com/ns/v1#).
-const RDFS_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
-const IRI_REQUIRES: &str = "https://narrativegoldmine.com/ns/v1#requires";
-const IRI_ENABLES: &str = "https://narrativegoldmine.com/ns/v1#enables";
-const IRI_DEPENDS_ON: &str = "https://narrativegoldmine.com/ns/v1#dependsOn";
-const IRI_HAS_PART: &str = "https://narrativegoldmine.com/ns/v1#hasPart";
-const IRI_IS_PART_OF: &str = "https://narrativegoldmine.com/ns/v1#isPartOf";
-const IRI_RELATES_TO: &str = "https://narrativegoldmine.com/ns/v1#relatesTo";
-const IRI_BRIDGES_TO: &str = "https://narrativegoldmine.com/ns/v1#bridgesTo";
-const IRI_BRIDGES_FROM: &str = "https://narrativegoldmine.com/ns/v1#bridgesFrom";
-const IRI_IMPLEMENTS: &str = "https://narrativegoldmine.com/ns/v1#implements";
-const IRI_ENHANCES: &str = "https://narrativegoldmine.com/ns/v1#enhances";
-const IRI_OPTIMIZES: &str = "https://narrativegoldmine.com/ns/v1#optimizes";
-const IRI_SECURES: &str = "https://narrativegoldmine.com/ns/v1#secures";
-const IRI_VALIDATES: &str = "https://narrativegoldmine.com/ns/v1#validates";
-const IRI_WIKILINK: &str = "https://narrativegoldmine.com/ns/v1#wikilink";
-
-// OWL2 / RDFS / PROV predicates
-const OWL_EQUIVALENT_CLASS: &str = "http://www.w3.org/2002/07/owl#equivalentClass";
-const OWL_DISJOINT_WITH: &str = "http://www.w3.org/2002/07/owl#disjointWith";
-const OWL_INVERSE_OF: &str = "http://www.w3.org/2002/07/owl#inverseOf";
-const OWL_SAME_AS: &str = "http://www.w3.org/2002/07/owl#sameAs";
-const RDFS_DOMAIN: &str = "http://www.w3.org/2000/01/rdf-schema#domain";
-const RDFS_RANGE: &str = "http://www.w3.org/2000/01/rdf-schema#range";
-const RDFS_SUB_PROPERTY_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subPropertyOf";
-const PROV_WAS_DERIVED_FROM: &str = "http://www.w3.org/ns/prov#wasDerivedFrom";
-const PROV_WAS_ATTRIBUTED_TO: &str = "http://www.w3.org/ns/prov#wasAttributedTo";
-const PROV_WAS_GENERATED_BY: &str = "http://www.w3.org/ns/prov#wasGeneratedBy";
-const IRI_ACHIEVES_OBJECTIVE: &str = "https://narrativegoldmine.com/ns/v1#achievesObjective";
-const IRI_TRACKED_ON: &str = "https://narrativegoldmine.com/ns/v1#trackedOn";
-const IRI_SIMILAR_TO: &str = "https://narrativegoldmine.com/ns/v1#similarTo";
-const IRI_SIMULATED_IN: &str = "https://narrativegoldmine.com/ns/v1#simulatedIn";
-
-// New predicates in the NGM schema.
-const IRI_USES: &str = "https://narrativegoldmine.com/ns/v1#uses";
-const IRI_SUPPORTS: &str = "https://narrativegoldmine.com/ns/v1#supports";
-const IRI_CONTRASTS_WITH: &str = "https://narrativegoldmine.com/ns/v1#contrastsWith";
-const IRI_STANDARDIZED_BY: &str = "https://narrativegoldmine.com/ns/v1#standardizedBy";
-const IRI_APPLIES_TO: &str = "https://narrativegoldmine.com/ns/v1#appliesTo";
-const IRI_RELATED_TO: &str = "https://narrativegoldmine.com/ns/v1#relatedTo";
-const IRI_PART_OF: &str = "https://narrativegoldmine.com/ns/v1#partOf";
-const IRI_INSTANCE_OF: &str = "https://narrativegoldmine.com/ns/v1#instanceOf";
-const IRI_NGM_SAME_AS: &str = "https://narrativegoldmine.com/ns/v1#sameAs";
-const IRI_DEFINED_IN: &str = "https://narrativegoldmine.com/ns/v1#definedIn";
-const IRI_ENABLED_BY: &str = "https://narrativegoldmine.com/ns/v1#enabledBy";
-const IRI_UTILISES: &str = "https://narrativegoldmine.com/ns/v1#utilises";
-const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+// Predicate → relation routing, weights, the co-citation value and the
+// fan-out bound all live in `crates/visionclaw-domain/data/relations.yaml` (ADR-2204 D1), read through
+// `visionclaw_domain::relations`.
 
 #[derive(Debug, Clone)]
 pub struct SyncStatistics {
@@ -133,6 +88,10 @@ pub struct SyncStatistics {
     /// Why this sync recorded no corpus history (kill switch, no or bad panel
     /// identity); `None` when it was recorded or no rebuild ran.
     pub corpus_history_not_recorded: Option<String>,
+    /// Relation targets whose predicate is not in `crates/visionclaw-domain/data/relations.yaml`
+    /// (ADR-2204 D1): quarantined, with no edge. The raw predicates are in
+    /// `Quarantine::global()`.
+    pub quarantined_relation_targets: u64,
 }
 
 /// Build a graph node directly from a canonical entity.
@@ -371,7 +330,9 @@ impl GitHubSyncService {
             corpus_versions_closed: 0,
             assert_digest: None,
             corpus_history_not_recorded: None,
+            quarantined_relation_targets: 0,
         };
+        Quarantine::global().clear();
 
         let base_path_changed = self.detect_and_handle_base_path_change().await;
 
@@ -562,12 +523,9 @@ impl GitHubSyncService {
         // pairwise expansion can't explode on hub targets like [[AI]]).
         if !deferred_edges.is_empty() {
             const WEIGHT_PER_FOLDED_LINK: f32 = 0.1;
-            const COCITE_WEIGHT: f32 = 0.5;
-            let cocite_max_referrers: usize = std::env::var("FANOUT_NODE_THRESHOLD")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .filter(|&n| n >= 1)
-                .unwrap_or(3);
+            let relation_schema = RelationSchema::builtin();
+            let cocite_weight = relation_schema.producer_weight(Producer::CoCitation);
+            let cocite_max_referrers: usize = relation_schema.fanout_threshold();
 
             let graph_snapshot = match self.kg_repo.load_graph().await {
                 Ok(g) => Some(g),
@@ -639,7 +597,7 @@ impl GitHubSyncService {
                                 } else {
                                     (refs[j], refs[i])
                                 };
-                                *cocite.entry(key).or_insert(0.0) += COCITE_WEIGHT;
+                                *cocite.entry(key).or_insert(0.0) += cocite_weight;
                             }
                         }
                     }
@@ -797,6 +755,15 @@ impl GitHubSyncService {
             }
         }
 
+        stats.quarantined_relation_targets = Quarantine::global().total();
+        if stats.quarantined_relation_targets > 0 {
+            warn!(
+                "{} relation target(s) quarantined across {} unknown predicate(s): {:?}",
+                stats.quarantined_relation_targets,
+                Quarantine::global().snapshot().len(),
+                Quarantine::global().snapshot()
+            );
+        }
         stats.duration = start_time.elapsed();
         info!(
             "Sync complete: {} nodes, {} edges in {:?}",
@@ -833,13 +800,9 @@ impl GitHubSyncService {
     /// number of stub nodes folded out.
     async fn fold_low_fanout_stubs(&self, stats: &mut SyncStatistics) -> Result<usize, String> {
         const WEIGHT_PER_FOLDED_LINK: f32 = 0.1;
-        const COCITE_WEIGHT: f32 = 0.5;
-
-        let threshold: usize = std::env::var("FANOUT_NODE_THRESHOLD")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .filter(|&n| n >= 1)
-            .unwrap_or(3);
+        let relation_schema = RelationSchema::builtin();
+        let cocite_weight = relation_schema.producer_weight(Producer::CoCitation);
+        let threshold: usize = relation_schema.fanout_threshold();
 
         let graph = self
             .kg_repo
@@ -909,7 +872,7 @@ impl GitHubSyncService {
                     } else {
                         (refs[j], refs[i])
                     };
-                    *cocite.entry(key).or_insert(0.0) += COCITE_WEIGHT;
+                    *cocite.entry(key).or_insert(0.0) += cocite_weight;
                 }
             }
         }
@@ -2086,7 +2049,7 @@ impl GitHubSyncService {
                 id: edge_id,
                 source: source_id,
                 target: target_id,
-                weight: 1.0,
+                weight: RelationSchema::builtin().producer_weight(Producer::Wikilink),
                 edge_type: Some("explicit_link".to_string()),
                 metadata: None,
                 owl_property_iri: None,
@@ -2107,7 +2070,7 @@ impl GitHubSyncService {
                     id: edge_id,
                     source: source_id,
                     target: target_id,
-                    weight: 1.0,
+                    weight: RelationSchema::builtin().producer_weight(Producer::ElevatedFrom),
                     edge_type: Some("elevated_from".to_string()),
                     metadata: None,
                     owl_property_iri: None,
@@ -2135,9 +2098,10 @@ impl GitHubSyncService {
     }
 
     /// One typed edge per frontmatter relation target, for every relation key
-    /// the vocabulary declares. A relation whose property has no edge-type
-    /// mapping is skipped (and counted in the debug log): its targets are
-    /// still in the page's `links` list, so connectivity is not lost.
+    /// the vocabulary declares. A relation whose predicate the schema ignores
+    /// (`rdf:type`) is skipped; one it does not know is quarantined with a
+    /// counted warning. Either way its targets are still in the page's
+    /// `links` list, so connectivity is not lost.
     fn relation_edges(
         &self,
         parsed: &ParsedPage,
@@ -2147,24 +2111,37 @@ impl GitHubSyncService {
         scope: SyncScope<'_>,
     ) -> Vec<Edge> {
         let mut out = Vec::new();
-        let mut unmapped = 0usize;
+        let mut ignored = 0usize;
+        let schema = RelationSchema::builtin();
         for (key, def) in &vocab.relations {
             let targets = parsed.page.frontmatter.wikilinks(key);
             if targets.is_empty() {
                 continue;
             }
             let predicate = vocab.expand(&def.owl);
-            let edge_type = predicate_to_edge_type(&predicate);
-            if edge_type.is_empty() {
-                unmapped += targets.len();
-                continue;
-            }
-            let reg_id = SEMANTIC_TYPE_REGISTRY.get_or_register_id(edge_type);
-            // Normalise the registry's 0-1 strength to the 0-2 spring range.
-            let weight = SEMANTIC_TYPE_REGISTRY
-                .get_config(reg_id)
-                .map(|c| c.strength * 2.0)
-                .unwrap_or(1.0);
+            let relation = match schema.classify(&predicate) {
+                PredicateClass::Relation(relation) => relation,
+                PredicateClass::Ignored => {
+                    ignored += targets.len();
+                    continue;
+                }
+                PredicateClass::Unknown => {
+                    // Quarantine: no edge, no invented defaults (ADR-2204 D1).
+                    // Counted per predicate; the raw IRI is kept in the ledger.
+                    if Quarantine::global().record(&predicate, targets.len() as u64) {
+                        warn!(
+                            "{}: relation `{}` expands to predicate {} which is not in \
+                             crates/visionclaw-domain/data/relations.yaml; quarantined (no edge, not drawn, no physics)",
+                            parsed.entity.source_path, key, predicate
+                        );
+                    }
+                    continue;
+                }
+            };
+            let edge_type = relation.label.as_str();
+            let weight = relation
+                .legacy_weight
+                .unwrap_or_else(|| unreachable!("loader requires a weight on every producer"));
             for link in targets {
                 let resolved = scope.vault.resolve(&link.target, identity);
                 let target_id = self.kg_parser.page_name_to_id(resolved.target());
@@ -2185,10 +2162,10 @@ impl GitHubSyncService {
                 });
             }
         }
-        if unmapped > 0 {
+        if ignored > 0 {
             debug!(
-                "{}: {} relation target(s) under properties with no edge-type mapping",
-                parsed.entity.source_path, unmapped
+                "{}: {} relation target(s) under predicates the schema ignores",
+                parsed.entity.source_path, ignored
             );
         }
         out
@@ -2758,49 +2735,11 @@ pub(crate) fn domain_membership_edge(root_id: u32, member_id: u32) -> Edge {
         id: format!("domain_{}_{}", root_id, member_id),
         source: root_id,
         target: member_id,
-        weight: 1.5,
+        weight: RelationSchema::builtin().producer_weight(Producer::DomainSpoke),
         edge_type: Some(DOMAIN_MEMBER_EDGE_TYPE.to_string()),
         owl_property_iri: None,
         metadata: None,
         provenance: Some(visionclaw_domain::models::edge::EdgeProvenance::Derived),
-    }
-}
-
-/// Map a fully-expanded predicate IRI to a canonical edge-type label.
-/// Returns `""` for predicates that should not create graph edges.
-/// The label is looked up in `SEMANTIC_TYPE_REGISTRY` for force config;
-/// unknown IRIs auto-register with defaults via `get_or_register_id`.
-fn predicate_to_edge_type(iri: &str) -> &'static str {
-    match iri {
-        RDFS_SUBCLASS_OF => "hierarchical",
-        IRI_REQUIRES | IRI_ENABLES | IRI_DEPENDS_ON => "dependency",
-        IRI_HAS_PART | IRI_IS_PART_OF => "structural",
-        IRI_RELATES_TO => "associative",
-        IRI_BRIDGES_TO | IRI_BRIDGES_FROM => "bridge",
-        IRI_IMPLEMENTS => "implements",
-        IRI_ENHANCES | IRI_OPTIMIZES => "enhancement",
-        IRI_SECURES | IRI_VALIDATES => "security",
-        OWL_EQUIVALENT_CLASS | OWL_SAME_AS => "hierarchical",
-        OWL_DISJOINT_WITH => "bridge",
-        OWL_INVERSE_OF => "associative",
-        RDFS_DOMAIN | RDFS_RANGE => "structural",
-        RDFS_SUB_PROPERTY_OF => "hierarchical",
-        PROV_WAS_DERIVED_FROM | PROV_WAS_ATTRIBUTED_TO | PROV_WAS_GENERATED_BY => "provenance",
-        IRI_ACHIEVES_OBJECTIVE => "goal",
-        IRI_TRACKED_ON => "tracking",
-        IRI_SIMILAR_TO | IRI_SIMULATED_IN => "similarity",
-        IRI_WIKILINK => "explicit_link",
-        IRI_USES | IRI_SUPPORTS | IRI_UTILISES => "utilisation",
-        IRI_ENABLED_BY => "dependency",
-        IRI_CONTRASTS_WITH => "bridge",
-        IRI_STANDARDIZED_BY => "standardisation",
-        IRI_APPLIES_TO | IRI_RELATED_TO => "associative",
-        IRI_PART_OF => "structural",
-        IRI_INSTANCE_OF => "hierarchical",
-        IRI_NGM_SAME_AS => "hierarchical",
-        IRI_DEFINED_IN => "structural",
-        RDF_TYPE => "",
-        _ => "",
     }
 }
 
@@ -3949,6 +3888,53 @@ mod sync_switch_tests {
                 "urn:ngm:edge:3:4:i".to_string(),
                 "urn:ngm:edge:5:4:i".to_string()
             ]
+        );
+    }
+}
+
+/// ADR-2204 S2 — the two producers whose weight only the code that builds the
+/// edge can show. Rows come from `tests/fixtures/predicate_table.golden`,
+/// recorded before the schema existed.
+#[cfg(test)]
+mod adr_2204_s2_producer_weights {
+    use super::*;
+
+    fn golden_bits(prefix: &str) -> u32 {
+        let golden = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/predicate_table.golden"),
+        )
+        .expect("golden fixture");
+        let row = golden
+            .lines()
+            .find(|l| l.starts_with(prefix))
+            .unwrap_or_else(|| panic!("no golden row {prefix}"));
+        let hex = row.rsplit(" | ").next().unwrap().trim();
+        u32::from_str_radix(hex, 16).unwrap()
+    }
+
+    #[test]
+    fn domain_spoke_weight_is_unchanged() {
+        assert_eq!(
+            domain_membership_edge(1, 2).weight.to_bits(),
+            golden_bits("domain_member spoke")
+        );
+    }
+
+    #[test]
+    fn inferred_edge_weight_and_stamped_label_are_unchanged() {
+        let e = mat::build_inferred_edge(1, 2);
+        assert_eq!(e.weight.to_bits(), golden_bits("inferred (hierarchical)"));
+        assert_eq!(e.edge_type.as_deref(), Some("hierarchical"));
+        let schema = RelationSchema::builtin();
+        assert_eq!(
+            schema
+                .relation("inferred")
+                .unwrap()
+                .stamped_label
+                .as_deref(),
+            Some(mat::INFERRED_EDGE_TYPE),
+            "the schema records the label the materialiser stamps"
         );
     }
 }

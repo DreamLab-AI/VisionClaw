@@ -24,6 +24,7 @@
 
 use std::collections::{HashMap, HashSet};
 use visionclaw_domain::models::edge::{Edge, EdgeProvenance, RDFS_SUBCLASS_OF_IRI};
+use visionclaw_domain::relations::{Producer, RelationSchema};
 
 /// Edge-type of a materialised inferred subclass edge — the same class label the
 /// asserted hierarchy edges use, so inferred edges also fold under the L2 ladder.
@@ -68,7 +69,8 @@ pub fn edge_is_inferred(edge: &Edge) -> bool {
 
 /// Build the tagged GraphData edge for a materialised inferred child→parent pair.
 pub fn build_inferred_edge(child: u32, parent: u32) -> Edge {
-    Edge::new(child, parent, 1.0)
+    let weight = RelationSchema::builtin().producer_weight(Producer::Inferred);
+    Edge::new(child, parent, weight)
         .with_edge_type(INFERRED_EDGE_TYPE.to_string())
         .with_owl_property_iri(RDFS_SUBCLASS_OF_IRI.to_string())
         .with_provenance(EdgeProvenance::Inferred)

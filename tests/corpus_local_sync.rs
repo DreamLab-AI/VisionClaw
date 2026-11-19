@@ -472,6 +472,8 @@ async fn a_sync_replaces_a_legacy_root_and_its_hierarchical_spokes() {
             edge_type: Some("hierarchical".to_string()),
             owl_property_iri: None,
             metadata: None,
+            // A legacy spoke written before provenance existed.
+            provenance: None,
         })
         .collect();
     h.kg_repo.batch_add_edges(spokes).await.unwrap();

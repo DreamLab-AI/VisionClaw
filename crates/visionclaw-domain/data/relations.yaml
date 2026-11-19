@@ -1,0 +1,272 @@
+# The one definition of a relation (ADR-2204 D1, E1).
+#
+# Lives inside the domain crate, not under the repo's top-level data/ (the ADR's
+# named path): the dev compose mounts a named volume over /app/data, which would
+# shadow an include_str! source there, whereas crates/ is bind-mounted.
+#
+# Every consumer reads this file or the JSON projection generated from it
+# (client/src/features/graph/relations.generated.json): the sync's predicate →
+# label map, the edge weights, the co-citation value, the fan-out threshold,
+# and the desktop client's edge colours.
+#
+# SLICE S2 IS VALUE-PRESERVING. `legacy_weight` records the weight each
+# producer gave an edge BEFORE ADR-2204 S3 (typed relations: the registry
+# strength × 2; the rest literals), so no produced edge changes. S3 replaces
+# `legacy_weight` with `affinity` and the single weighting stage; do not tune
+# these values — that is a reviewed policy change with a measurement.
+
+version: 1
+
+prefixes:
+  rdf: "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+  rdfs: "http://www.w3.org/2000/01/rdf-schema#"
+  owl: "http://www.w3.org/2002/07/owl#"
+  prov: "http://www.w3.org/ns/prov#"
+  vc: "https://narrativegoldmine.com/ns/v1#"
+
+# Colour for a label with no colour of its own (the desktop client's fallback).
+default_colour: "#AAAAAA"
+
+# Co-citation is bounded by how many pages may refer to one missing target
+# (a hub like [[AI]] would otherwise expand pairwise). `FANOUT_NODE_THRESHOLD`
+# overrides `default`; a value below `min` or unparsable falls back to it.
+# Two sync sites read this with different boundaries (`<=` at the deferred
+# pass, `<` at the stub fold) — recorded for S3, preserved here.
+fanout_threshold:
+  env: FANOUT_NODE_THRESHOLD
+  default: 3
+  min: 1
+
+# Predicates that are known and deliberately make no edge. Anything that is
+# neither listed under a relation nor here is UNKNOWN and is quarantined.
+ignored_predicates:
+  - rdf:type          # `instance-of`: typing, not a relation between pages
+
+relations:
+  - label: hierarchical
+    kind: hierarchy
+    predicates:
+      - rdfs:subClassOf
+      - owl:equivalentClass
+      - owl:sameAs
+      - rdfs:subPropertyOf
+      - vc:instanceOf
+      - vc:sameAs
+    frontmatter_keys: [is-a, same-as]
+    aliases: [subclass]
+    legacy_weight: 1.6
+    legacy_weight_note: "pre-ADR-2204 S3: registry `hierarchical` strength 0.8 × 2"
+    physics: true
+    drawn: true
+    colour: "#FFD700"
+
+  - label: dependency
+    kind: typed
+    predicates:
+      - vc:requires
+      - vc:enables
+      - vc:dependsOn
+      - vc:enabledBy
+    frontmatter_keys: [requires, enables, depends-on]
+    aliases: [requires, depends_on, enables]
+    legacy_weight: 1.4
+    legacy_weight_note: "pre-ADR-2204 S3: registry `dependency` strength 0.7 × 2 (the registry also holds a first, shadowed row at 0.6)"
+    physics: true
+    drawn: true
+    colour: "#81C784"
+
+  - label: structural
+    kind: typed
+    predicates:
+      - vc:hasPart
+      - vc:isPartOf
+      - vc:partOf
+      - vc:definedIn
+      - rdfs:domain
+      - rdfs:range
+    frontmatter_keys: [has-part, part-of]
+    aliases: [has_part, is_part_of]
+    inverse_predicates:
+      vc:hasPart: vc:isPartOf
+      vc:isPartOf: vc:hasPart
+    legacy_weight: 1.4
+    legacy_weight_note: "pre-ADR-2204 S3: registry `structural` strength 0.7 × 2"
+    physics: true
+    drawn: true
+    colour: "#4FC3F7"
+
+  - label: associative
+    kind: typed
+    predicates:
+      - vc:relatesTo
+      - vc:relatedTo
+      - vc:appliesTo
+      - owl:inverseOf
+    frontmatter_keys: [related-to, applies-to]
+    aliases: [relates_to]
+    legacy_weight: 0.8
+    legacy_weight_note: "pre-ADR-2204 S3: registry `associative` strength 0.4 × 2"
+    physics: true
+    drawn: true
+    colour: "#CE93D8"
+
+  - label: bridge
+    kind: typed
+    predicates:
+      - vc:bridgesTo
+      - vc:bridgesFrom
+      - vc:contrastsWith
+      - owl:disjointWith
+    frontmatter_keys: [bridges-to, contrasts-with]
+    aliases: [bridges_to, bridges_from]
+    legacy_weight: 0.6
+    legacy_weight_note: "pre-ADR-2204 S3: registry `bridge` strength 0.3 × 2"
+    physics: true
+    drawn: true
+    colour: "#FF7043"
+
+  - label: implements
+    kind: typed
+    predicates: [vc:implements]
+    frontmatter_keys: [implements]
+    legacy_weight: 1.6
+    legacy_weight_note: "pre-ADR-2204 S3: registry `implements` strength 0.8 × 2"
+    physics: true
+    drawn: true
+    colour: "#EC407A"
+
+  - label: enhancement
+    kind: typed
+    predicates: [vc:enhances, vc:optimizes]
+    legacy_weight: 1.1
+    legacy_weight_note: "pre-ADR-2204 S3: registry `enhancement` strength 0.55 × 2"
+    physics: true
+    drawn: true
+
+  - label: security
+    kind: typed
+    predicates: [vc:secures, vc:validates]
+    legacy_weight: 1.2
+    legacy_weight_note: "pre-ADR-2204 S3: registry `security` strength 0.6 × 2"
+    physics: true
+    drawn: true
+
+  - label: provenance
+    kind: typed
+    predicates:
+      - prov:wasDerivedFrom
+      - prov:wasAttributedTo
+      - prov:wasGeneratedBy
+    legacy_weight: 0.5
+    legacy_weight_note: "pre-ADR-2204 S3: registry `provenance` strength 0.25 × 2"
+    physics: true
+    drawn: true
+    colour: "#FFB300"
+
+  - label: goal
+    kind: typed
+    predicates: [vc:achievesObjective]
+    legacy_weight: 1.0
+    legacy_weight_note: "pre-ADR-2204 S3: registry `goal` strength 0.5 × 2"
+    physics: true
+    drawn: true
+
+  - label: tracking
+    kind: typed
+    predicates: [vc:trackedOn]
+    legacy_weight: 0.7
+    legacy_weight_note: "pre-ADR-2204 S3: registry `tracking` strength 0.35 × 2"
+    physics: true
+    drawn: true
+
+  - label: similarity
+    kind: typed
+    predicates: [vc:similarTo, vc:simulatedIn]
+    legacy_weight: 0.8
+    legacy_weight_note: "pre-ADR-2204 S3: registry `similarity` strength 0.4 × 2"
+    physics: true
+    drawn: true
+
+  - label: utilisation
+    kind: typed
+    predicates: [vc:uses, vc:supports, vc:utilises]
+    frontmatter_keys: [uses, supports]
+    legacy_weight: 0.9
+    legacy_weight_note: "pre-ADR-2204 S3: registry `utilisation` strength 0.45 × 2"
+    physics: true
+    drawn: true
+    colour: "#26C6DA"
+
+  - label: standardisation
+    kind: typed
+    predicates: [vc:standardizedBy]
+    frontmatter_keys: [standardized-by]
+    legacy_weight: 1.1
+    legacy_weight_note: "pre-ADR-2204 S3: registry `standardisation` strength 0.55 × 2"
+    physics: true
+    drawn: true
+    colour: "#7E8CE0"
+
+  # The authored `[[wikilink]]`. Also the label of the `vc:wikilink` predicate.
+  - label: explicit_link
+    kind: link
+    predicates: [vc:wikilink]
+    legacy_weight: 1.0
+    legacy_weight_note: "pre-ADR-2204 S3: literal 1.0 for a wikilink (registry strength 0.5 × 2 for the vc:wikilink predicate — the same value)"
+    physics: true
+    drawn: true
+    colour: "#5A6470"
+
+  # `elevatedFrom: "[[X]]"` — class node to its working-graph origin page.
+  - label: elevated_from
+    kind: link
+    frontmatter_keys: [elevatedFrom, elevated-from]
+    legacy_weight: 1.0
+    legacy_weight_note: "pre-ADR-2204 S3: literal 1.0"
+    physics: true
+    drawn: true
+
+  # Pages that share a dangling wikilink target. The weight is per shared
+  # target; shared targets for one pair are summed, uncapped (S3 replaces this).
+  - label: co_citation
+    kind: derived
+    legacy_weight: 0.5
+    legacy_weight_note: "pre-ADR-2204 S3: 0.5 per shared target, summed per pair"
+    physics: true
+    drawn: true
+    colour: "#5C6BC0"
+
+  # Synthetic domain root → member page spoke.
+  - label: domain_member
+    kind: derived
+    legacy_weight: 1.5
+    legacy_weight_note: "pre-ADR-2204 S3: literal 1.5 (the registry row says 0.8 but was never used for the weight)"
+    physics: true
+    drawn: true
+    colour: "#A1887F"
+
+  # Reasoner-entailed subclass edge. The materialiser still stamps the label
+  # `hierarchical` on it (ADR-2204 D2 calls that a mislabel; S3/S5 correct it),
+  # so `stamped_label` records what the store holds today.
+  - label: inferred
+    kind: derived
+    stamped_label: hierarchical
+    legacy_weight: 1.0
+    legacy_weight_note: "pre-ADR-2204 S3: literal 1.0 in the inferred-edge materialiser"
+    physics: true
+    drawn: true
+    colour: "#B0BEC5"
+
+  # Not produced by the sync; carried because the desktop client colours them.
+  - label: namespace
+    kind: derived
+    physics: true
+    drawn: true
+    colour: "#78909C"
+
+  # Agent-to-agent sidechain payment (shared with the bots edge layer).
+  - label: chain_payment
+    kind: derived
+    physics: true
+    drawn: true
+    colour: "#E040FB"
