@@ -27,8 +27,12 @@ export interface InsightPlan {
   answer: string;
   writes: SettingWrite[];
   requests: InsightRequest[];
-  /** Bridges only: the two domains the user named (no highlight mechanism exists for them). */
+  /** Bridges only: the two domains the user named. */
   domains?: [string, string];
+  /** Hierarchy only: the concept the user named, when they named one. */
+  concept?: string;
+  /** Client-side analysis `insightRunner` performs once the requests return; it refines `answer`. */
+  followUp?: 'bridges' | 'hubs' | 'gaps' | 'hierarchy' | 'anomalies';
 }
 
 /**
@@ -86,6 +90,15 @@ const BRIDGE_PAIR = new RegExp(
 const TRAILING = /\s+(?:domains?|areas?|fields?|concepts?|together|here)$/;
 const clean = (s: string) => s.replace(TRAILING, '').trim();
 
+const NO_CONCEPT = /^(?:the\s+)?(?:ontology|graph|knowledge graph|everything|this|it|data|whole graph)$/;
+/** The concept in "how is X organised" / "backbone of X", or undefined when none is named. */
+function hierarchyConcept(lower: string): string | undefined {
+  const m = lower.match(/\bhow (?:is|are)\s+(?:the\s+)?(.+?)\s+(?:organi[sz]ed|structured)\b/) ??
+    lower.match(/\b(?:hierarchy|backbone|taxonomy|subclasses?|class tree)\s+(?:of|for|under)\s+(.+?)\s*\??$/);
+  const c = m?.[1]?.trim();
+  return c && !NO_CONCEPT.test(c) ? c : undefined;
+}
+
 const communityRequest = (): InsightRequest => ({
   method: 'POST',
   endpoint: '/api/analytics/community/detect',
@@ -103,9 +116,8 @@ export function planInsightIntent(cmd: string): InsightPlan | null {
   if (/\boutliers?\b|\banomal|(?:doesn'?t|does not|don'?t|do not|didn'?t)\s+fit|\bmisfits?\b|\bodd one/.test(lower)) {
     return {
       id: 'anomalies',
-      answer:
-        'Running structural anomaly detection (LOF). Anomalous nodes are drawn in red, brighter the stranger they are: ' +
-        'concepts whose links look unlike their neighbours, often mis-filed or missing relations.',
+      answer: 'Running structural anomaly detection (LOF) on concepts whose links look unlike their neighbours.',
+      followUp: 'anomalies',
       writes: [{ path: ANOMALY_OVERLAY, value: true }],
       requests: [{ method: 'POST', endpoint: '/api/analytics/anomaly/detect', body: { method: 'lof', kNeighbors: 10 } }],
     };
@@ -118,10 +130,8 @@ export function planInsightIntent(cmd: string): InsightPlan | null {
     const b = clean(pair[2]);
     return {
       id: 'bridges',
-      answer:
-        `Coloured by community with hulls on. Concepts linking ${a} and ${b} are the nodes sitting inside the other ` +
-        `domain's colour, or on a hull boundary with edges crossing it. The two domains are ` +
-        'lit with a search-hit halo.',
+      answer: `Looking for edges that cross between ${a} and ${b}; the concepts at their ends are the bridges and get a halo.`,
+      followUp: 'bridges',
       writes: [...COMMUNITY_VIEW],
       requests: [communityRequest()],
       domains: [a, b],
@@ -132,7 +142,7 @@ export function planInsightIntent(cmd: string): InsightPlan | null {
       id: 'bridges',
       answer:
         'Coloured by community with hulls on. Cross-domain bridges are nodes inside another community\'s colour, ' +
-        'or sitting on a hull boundary with edges crossing it.',
+        'or sitting on a hull boundary with edges crossing it. Name two domains ("what connects X and Y") to list them.',
       writes: [...COMMUNITY_VIEW],
       requests: [communityRequest()],
     };
@@ -140,13 +150,18 @@ export function planInsightIntent(cmd: string): InsightPlan | null {
 
   // 3. Hierarchy / backbone.
   if (/\bhierarch|\bbackbone\b|\btaxonom|\bsubclass|\bis\b.*\borgani[sz]ed\b|\bhow\b.*\borgani[sz]ed\b|\bclass tree\b/.test(lower)) {
+    const concept = hierarchyConcept(lower);
     return {
       id: 'hierarchy',
-      answer:
-        'Switched to the hierarchical layout: rdfs:subClassOf edges run top-down, so broad parent classes sit above ' +
-        'their children. Depth is distance from the root; a wide row is a family of siblings.',
-      writes: [{ path: LAYOUT_MODE, value: 'hierarchical' }],
+      answer: concept
+        ? `Highlighting the parents and children of ${concept} over subClassOf / hierarchical edges. The layout keeps its physics: ` +
+          'the hierarchical layout mode does not show hierarchy, so the structure is lit rather than rearranged.'
+        : 'Name a concept ("how is machine-learning organised?") or select one, and its parents and children are highlighted. ' +
+          'The layout keeps its physics; the hierarchical layout mode does not show hierarchy.',
+      writes: [],
       requests: [],
+      followUp: 'hierarchy',
+      ...(concept ? { concept } : {}),
     };
   }
 
@@ -155,16 +170,11 @@ export function planInsightIntent(cmd: string): InsightPlan | null {
     return {
       id: 'immature',
       answer:
-        'Node filter on: nodes below "established" maturity or under 0.6 quality are greyed out, nothing is removed. ' +
-        'The greyed nodes are your gaps; coloured nodes are the settled core. Pages with no maturity field are unaffected.',
-      writes: [
-        { path: 'nodeFilter.enabled', value: true },
-        { path: 'nodeFilter.filterByQuality', value: true },
-        { path: 'nodeFilter.qualityThreshold', value: 0.6 },
-        { path: 'nodeFilter.filterMode', value: 'and' },
-        { path: 'nodeFilter.minMaturity', value: 'established' },
-      ],
+        'Looking for concepts that are important but immature: top-decile centrality and draft or emerging maturity. ' +
+        'They get a halo; the node filter is untouched.',
+      writes: [],
       requests: [],
+      followUp: 'gaps',
     };
   }
 
@@ -173,8 +183,9 @@ export function planInsightIntent(cmd: string): InsightPlan | null {
     return {
       id: 'hubs',
       answer:
-        'Running PageRank and colouring by centrality: warmer nodes are more central. Labels are ranked by ' +
-        'centrality once it arrives, so the hubs are the names you can read first.',
+        'Running PageRank and colouring by centrality: warmer nodes are more central. Authored concepts only are ranked ' +
+        'and haloed; system-made domain roots are left out.',
+      followUp: 'hubs',
       writes: [
         { path: COLOR_SCHEME, value: 'centrality' },
         { path: ANOMALY_OVERLAY, value: false },
@@ -193,7 +204,7 @@ export function planInsightIntent(cmd: string): InsightPlan | null {
       id: 'communities',
       answer:
         'Coloured by community with hulls on: each colour is a theme found by Leiden community detection, ' +
-        'and a hull outlines its extent. Dense, same-coloured groups are the main topics; thin links between hulls are the seams.',
+        'and a hull outlines its extent. Dense, same-coloured groups are the main topics; thin links between hulls are the seams. A hull whose members span several domain colours is a cross-domain theme.',
       writes: [...COMMUNITY_VIEW],
       requests: [communityRequest()],
     };

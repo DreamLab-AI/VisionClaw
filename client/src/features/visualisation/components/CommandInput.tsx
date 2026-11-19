@@ -8,6 +8,7 @@ import { commandRegistry } from '../../command-palette/CommandRegistry';
 import { planJevCommand, type JevReview } from '../../../services/jev/commandFlow';
 import { applySettingWrites, physicsWrites, type SettingWrite } from '../../control-center/state/settingWrites';
 import { planInsightIntent } from './insightIntents';
+import { runInsightFollowUp } from './insightRunner';
 import { MACROS_BY_ID } from '../../control-center/registry/macros';
 import { DEFAULT_EDGES_SETTINGS, DEFAULT_PHYSICS_SETTINGS } from '../../../api/settings/defaults';
 
@@ -56,7 +57,9 @@ interface SettingsAction {
   endpoint?: string;
   method?: string;
   body?: Record<string, unknown>;
-  localAction?: () => void | Promise<void>;
+  localAction?: () => void | string | undefined | Promise<void | string | undefined>;
+  /** Runs with the endpoint's response body; a returned string becomes a status line. */
+  afterRequest?: (response: unknown) => Promise<string | undefined>;
   /** When set, processCommand routes the raw command to the settings-aware LLM
    *  in agentbox instead of running a deterministic local action. */
   isLlmFallback?: boolean;
@@ -185,17 +188,20 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
   if (insight) {
     // The answer line rides on the settings write; analytics runs follow it.
     actions.push({ description: insight.answer, writes: insight.writes });
+    const needsResponse = insight.followUp === 'anomalies' || insight.followUp === 'hubs';
     for (const r of insight.requests) {
-      actions.push({ description: `Running ${r.endpoint.split('/').slice(-2).join(' ')}`, endpoint: r.endpoint, method: r.method, body: r.body });
-    }
-    if (insight.domains) {
-      const domains = insight.domains;
       actions.push({
-        description: `Highlighting ${domains.join(' and ')}`,
-        localAction: async () => {
-          const { highlightDomains } = await import('./insightDomainHighlight');
-          await highlightDomains(domains);
-        },
+        description: `Running ${r.endpoint.split('/').slice(-2).join(' ')}`,
+        endpoint: r.endpoint,
+        method: r.method,
+        body: r.body,
+        afterRequest: needsResponse ? (res) => runInsightFollowUp(insight, res) : undefined,
+      });
+    }
+    if (insight.followUp && !needsResponse) {
+      actions.push({
+        description: 'Analysing the graph',
+        localAction: () => runInsightFollowUp(insight),
       });
     }
     return actions;
@@ -580,20 +586,24 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
   return actions;
 }
 
-async function executeAction(action: SettingsAction): Promise<void> {
+async function executeAction(action: SettingsAction): Promise<string | undefined> {
   if (action.writes?.length) {
     applySettingWrites(action.writes);
   }
+  let answer: string | undefined;
   if (action.localAction) {
-    await action.localAction();
+    const out = await action.localAction();
+    if (typeof out === 'string') answer = out;
   }
   if (action.endpoint) {
     // Route through unifiedApiClient so the auth interceptor injects credentials
     // (dev token / NIP-98). A raw fetch sends no auth and gets 401.
     // unifiedApiClient's baseURL is already '/api', so strip the leading '/api'.
     const path = action.endpoint.replace(/^\/api(?=\/)/, '');
-    await unifiedApiClient.request(action.method || 'GET', path, action.body);
+    const res = await unifiedApiClient.request(action.method || 'GET', path, action.body);
+    if (action.afterRequest) answer = await action.afterRequest(res);
   }
+  return answer;
 }
 
 // ---------------------------------------------------------------------------
@@ -709,7 +719,8 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isCollapsed }) => {
             await dispatchToSettingsLLM(cmd, addStatus);
           }
         } else {
-          await executeAction(action);
+          const answer = await executeAction(action);
+          if (answer) addStatus(answer);
         }
         await new Promise(r => setTimeout(r, 300));
       }

@@ -64,26 +64,41 @@ describe('planInsightIntent', () => {
       .toContainEqual({ path: 'visualisation.clusterHulls.communityFallback', value: true });
   });
 
-  it('hierarchy switches layout mode, no request', () => {
+  it('hierarchy never switches layout mode; it names the concept and keeps physics', () => {
     const plan = planInsightIntent('how is robotics organised')!;
     expect(plan.requests).toEqual([]);
-    expect(plan.writes).toContainEqual({ path: 'visualisation.graphs.knowledge.physics.layoutMode', value: 'hierarchical' });
+    expect(plan.writes.map((w) => w.path)).not.toContain('visualisation.graphs.knowledge.physics.layoutMode');
+    expect(plan.concept).toBe('robotics');
+    expect(plan.answer).toMatch(/physics/i);
   });
 
-  it('immature greys the nodes below the maturity and quality bar', () => {
+  it('hierarchy without a named concept asks for one', () => {
+    const plan = planInsightIntent('show the backbone of the ontology')!;
+    expect(plan.concept).toBeUndefined();
+    expect(plan.answer).toMatch(/name a concept|select a concept/i);
+    expect(plan.writes).toEqual([]);
+  });
+
+  it('gaps focus on important-but-immature concepts and leave the node filter untouched', () => {
     const plan = planInsightIntent('where are the gaps')!;
-    const byPath = Object.fromEntries(plan.writes.map((w) => [w.path, w.value]));
-    expect(byPath['nodeFilter.enabled']).toBe(true);
-    expect(byPath['nodeFilter.minMaturity']).toBe('established');
-    expect(byPath['nodeFilter.filterMode']).toBe('and');
-    expect(byPath['nodeFilter.serverRemove']).toBeUndefined(); // never remove nodes
-    expect(plan.answer).toMatch(/grey/i);
+    expect(plan.id).toBe('immature');
+    expect(plan.writes.filter((w) => w.path.startsWith('nodeFilter.'))).toEqual([]);
+    expect(plan.followUp).toBe('gaps');
+    expect(plan.answer).not.toMatch(/grey/i);
   });
 
-  it('anomalies run LOF and turn the overlay on', () => {
+  it('anomalies do not promise red nodes before the result is known', () => {
     const plan = planInsightIntent('find the outliers')!;
     expect(plan.requests[0]).toMatchObject({ endpoint: '/api/analytics/anomaly/detect', body: { method: 'lof' } });
     expect(plan.writes).toContainEqual({ path: 'qualityGates.showAnomalies', value: true });
+    expect(plan.followUp).toBe('anomalies');
+    expect(plan.answer).not.toMatch(/red/i);
+  });
+
+  it('bridges and hubs carry a follow-up and communities mention cross-domain hulls', () => {
+    expect(planInsightIntent('what connects blockchain and robotics?')!.followUp).toBe('bridges');
+    expect(planInsightIntent('show the hubs')!.followUp).toBe('hubs');
+    expect(planInsightIntent('main themes')!.answer).toMatch(/cross-domain theme/i);
   });
 
   it('hubs compute PageRank and colour by centrality', () => {

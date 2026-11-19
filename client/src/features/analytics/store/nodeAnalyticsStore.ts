@@ -82,6 +82,13 @@ class NodeAnalyticsStore {
     this.version++;
   }
 
+  /** Wire centrality for a node id as the graph holds it (0 when unknown or no PageRank has run). */
+  centralityOf(id: string | number): number {
+    const numeric = typeof id === 'number' ? id : parseInt(id, 10);
+    if (Number.isNaN(numeric)) return 0;
+    return this.byMaskedId.get(getActualNodeId(numeric))?.centrality ?? 0;
+  }
+
   hasData(): boolean {
     return this.hasAnalytics;
   }
