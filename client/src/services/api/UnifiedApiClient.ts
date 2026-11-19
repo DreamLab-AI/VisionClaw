@@ -178,8 +178,20 @@ export class UnifiedApiClient {
   }
 
   
+  /**
+   * Join the base URL and a request path. A path that repeats the base prefix
+   * (`/api/x` against base `/api`) is joined once, never as `/api/api/x`.
+   */
+  private buildUrl(url: string): string {
+    if (url.startsWith('http')) return url;
+    if (this.baseURL && (url === this.baseURL || url.startsWith(`${this.baseURL}/`))) {
+      return url;
+    }
+    return `${this.baseURL}${url}`;
+  }
+
   private async executeRequest<T>(url: string, config: RequestConfig): Promise<ApiResponse<T>> {
-    const fullUrl = url.startsWith('http') ? url : `${this.baseURL}${url}`;
+    const fullUrl = this.buildUrl(url);
 
     
     let finalConfig = { ...config };

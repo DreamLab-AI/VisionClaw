@@ -300,7 +300,7 @@ async function sendErrorTelemetry(errorData: Record<string, any>) {
     
     if (process.env.NODE_ENV !== 'production') return;
     
-    await unifiedApiClient.post('/api/telemetry/errors', errorData);
+    await unifiedApiClient.post('/telemetry/errors', errorData);
   } catch (error) {
     
     logger.debug('Failed to send error telemetry:', error);

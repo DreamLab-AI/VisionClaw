@@ -13,7 +13,7 @@ describe('fetchPowerUserStatus', () => {
   it('reads the flag from the verified whoami endpoint', async () => {
     get.mockResolvedValue({ data: { pubkey: KEY, role: 'admin', is_power_user: true } });
     await expect(fetchPowerUserStatus(KEY)).resolves.toBe(true);
-    expect(get).toHaveBeenCalledWith('/api/admin/rbac/whoami');
+    expect(get).toHaveBeenCalledWith('/admin/rbac/whoami');
   });
 
   it('reports false for an ordinary user', async () => {

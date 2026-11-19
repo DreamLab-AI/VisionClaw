@@ -389,7 +389,7 @@ describe('server SSSP route (POST /api/analytics/pathfinding/sssp)', () => {
 
     const result = await useAnalyticsStore.getState().computeSSSP(numericNodes, numericEdges, '0')
 
-    expect(post).toHaveBeenCalledWith('/api/analytics/pathfinding/sssp', { sourceIdx: 0 })
+    expect(post).toHaveBeenCalledWith('/analytics/pathfinding/sssp', { sourceIdx: 0 })
     expect(result.distances['1']).toBe(1)
     expect(result.distances['3']).toBe(Infinity)
     expect(result.unreachableCount).toBe(2)

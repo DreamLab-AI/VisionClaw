@@ -90,7 +90,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
         url: window.location.href
       };
 
-      await unifiedApiClient.post('/api/errors/log', errorData);
+      await unifiedApiClient.post('/errors/log', errorData);
     } catch (logError) {
       
       logger.warn('Failed to log error to server:', logError);

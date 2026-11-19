@@ -97,7 +97,7 @@ export function useSemanticService(options: UseSemanticServiceOptions = {}) {
 
     const fetchStatistics = async () => {
       try {
-        const response = await unifiedApiClient.get<SemanticStatistics>('/api/semantic/statistics');
+        const response = await unifiedApiClient.get<SemanticStatistics>('/semantic/statistics');
         if (isMountedRef.current) {
           setStatistics(response.data);
         }
@@ -133,7 +133,7 @@ export function useSemanticService(options: UseSemanticServiceOptions = {}) {
       setError(null);
       try {
         const response = await unifiedApiClient.post<CommunitiesResponse>(
-          '/api/semantic/communities',
+          '/semantic/communities',
           request
         );
 
@@ -165,7 +165,7 @@ export function useSemanticService(options: UseSemanticServiceOptions = {}) {
       setError(null);
       try {
         const response = await unifiedApiClient.post<CentralityResponse>(
-          '/api/semantic/centrality',
+          '/semantic/centrality',
           request
         );
 
@@ -197,7 +197,7 @@ export function useSemanticService(options: UseSemanticServiceOptions = {}) {
       setError(null);
       try {
         const response = await unifiedApiClient.post<ShortestPathResponse>(
-          '/api/semantic/shortest-path',
+          '/semantic/shortest-path',
           request
         );
 
@@ -229,7 +229,7 @@ export function useSemanticService(options: UseSemanticServiceOptions = {}) {
       setError(null);
       try {
         const response = await unifiedApiClient.post<{ constraint_count: number; status: string }>(
-          '/api/semantic/constraints/generate',
+          '/semantic/constraints/generate',
           request
         );
 
@@ -259,7 +259,7 @@ export function useSemanticService(options: UseSemanticServiceOptions = {}) {
     setLoading(true);
     setError(null);
     try {
-      await unifiedApiClient.post('/api/semantic/cache/invalidate', {});
+      await unifiedApiClient.post('/semantic/cache/invalidate', {});
 
       if (isMountedRef.current) {
         setLoading(false);
@@ -281,7 +281,7 @@ export function useSemanticService(options: UseSemanticServiceOptions = {}) {
    */
   const refreshStatistics = useCallback(async () => {
     try {
-      const response = await unifiedApiClient.get<SemanticStatistics>('/api/semantic/statistics');
+      const response = await unifiedApiClient.get<SemanticStatistics>('/semantic/statistics');
       if (isMountedRef.current) {
         setStatistics(response.data);
       }

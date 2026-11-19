@@ -353,7 +353,7 @@ export const useAnalyticsStore = create<AnalyticsState>()(
             if (!/^\d+$/.test(sourceNodeId)) {
               throw new Error(`source id ${sourceNodeId} is not a numeric wire id`)
             }
-            const response = await unifiedApiClient.post('/api/analytics/pathfinding/sssp', {
+            const response = await unifiedApiClient.post('/analytics/pathfinding/sssp', {
               sourceIdx: Number(sourceNodeId),
             })
 
