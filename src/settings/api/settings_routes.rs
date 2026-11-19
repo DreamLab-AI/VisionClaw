@@ -792,7 +792,7 @@ pub(crate) async fn apply_physics_patch(
             }
 
             // Community-detector params (algorithm/resolution/iterations) cannot ride
-            // in the 172-byte repr-C SimParams, so dispatch them separately and
+            // in the 212-byte repr-C SimParams, so dispatch them separately and
             // directly to the ForceComputeActor. This is what makes the Physics-tab
             // "Community Resolution" / "Community Method" controls live: the GPU
             // re-runs Leiden/Louvain with the new params on the next cohesion pass.

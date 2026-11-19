@@ -17,7 +17,7 @@ The ADR pack for any domain = its living governing document in `docs/` (BASELINE
 
 ## Code conventions
 
-- **Rust**: `actix-web` for the API, `neo4rs` for the graph DB, `whelk-rs` for ontology reasoning. `OntologyQueryService` and `OntologyMutationService` are the agent-facing ontology API layer.
+- **Rust**: `actix-web` for the API, the embedded Oxigraph store for the graph (Neo4j was removed; see `src/repositories/mod.rs`), `whelk-rs` for ontology reasoning. `OntologyQueryService` and `OntologyMutationService` are the agent-facing ontology API layer.
 - **Ontology agent tools** (discover, read, query, traverse, propose, validate, status): types in `crates/visionclaw-ontology/src/types/ontology_tools.rs`, REST handler in `src/handlers/ontology_agent_handler.rs`; integration tests in `tests/ontology_agent_integration_test.rs`.
 - **TypeScript**: `client/src/features/` feature-sliced layout; generated types in `client/src/types/`.
 
