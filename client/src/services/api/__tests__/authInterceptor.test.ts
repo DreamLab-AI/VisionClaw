@@ -153,6 +153,8 @@ describe('authInterceptor', () => {
       expect(mockClient.setInterceptors).toHaveBeenCalledWith({
         onRequest: authRequestInterceptor,
         onResponse: authResponseInterceptor,
+        // ADR-2205: re-bind hook for the distinct session_key_expired 401.
+        onSessionKeyExpired: expect.any(Function),
       });
     });
   });

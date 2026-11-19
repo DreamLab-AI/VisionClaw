@@ -199,6 +199,21 @@ pub fn get_authenticated_user(req: &actix_web::HttpRequest) -> Option<Authentica
     req.extensions().get::<AuthenticatedUser>().cloned()
 }
 
+/// Request-extension marker: the request authenticated through a bound browser
+/// session key (ADR-2205), not the principal's own signer. Inserted by
+/// `verify_access`, so a layered re-check sees it too.
+#[derive(Clone, Debug)]
+pub struct SessionKeyIdentity {
+    /// The ephemeral key that signed.
+    pub session_pubkey: String,
+}
+
+/// Whether the request authenticated through a bound browser session key
+/// (ADR-2205) rather than the principal's own signer.
+pub fn via_session_key(req: &actix_web::HttpRequest) -> bool {
+    req.extensions().get::<SessionKeyIdentity>().is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

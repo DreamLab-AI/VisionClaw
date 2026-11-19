@@ -3,7 +3,7 @@ use crate::config::feature_access::FeatureAccess;
 use crate::middleware::{get_authenticated_user, RequireAuth};
 use crate::models::protected_settings::ApiKeys;
 use crate::services::nostr_service::{AuthEvent, NostrError, NostrService};
-use crate::{bad_request, error_json, not_found, ok_json};
+use crate::{error_json, not_found, ok_json};
 use actix_web::{web, HttpRequest, HttpResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -62,25 +62,94 @@ pub fn config(cfg: &mut web::ServiceConfig) {
                     .route(web::post().to(update_api_keys))
                     .route(web::get().to(get_api_keys)),
             )
+            // ADR-2205: public under `/api/auth` (it must be reachable to
+            // create a session) but self-verifying, with the body bound.
+            .route("/session-key", web::post().to(bind_session_key))
             .route("/power-user-status", web::get().to(check_power_user_status))
             .route("/features", web::get().to(get_available_features))
             .route("/features/{feature}", web::get().to(check_feature_access)),
     );
 }
 
-async fn check_power_user_status(
+/// Bind a browser session key (ADR-2205). The NIP-98 token must be signed by the
+/// user's real signer and carry the body's `payload` hash, so a captured token
+/// cannot bind a different key; a session key cannot bind another.
+async fn bind_session_key(
     req: HttpRequest,
-    feature_access: web::Data<FeatureAccess>,
+    body: web::Bytes,
+    nostr_service: web::Data<NostrService>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let pubkey = req
+    let Some(auth) = req
+        .headers()
+        .get("Authorization")
+        .and_then(|h| h.to_str().ok())
+        .filter(|h| h.starts_with("Nostr "))
+    else {
+        return Ok(HttpResponse::Unauthorized().body("NIP-98 authorization required"));
+    };
+    let Ok(body) = std::str::from_utf8(&body) else {
+        return Ok(HttpResponse::BadRequest().body("body must be UTF-8 JSON"));
+    };
+    let url = crate::utils::auth::nip98_request_url(&req);
+    match nostr_service.bind_session_key(auth, &url, body).await {
+        // Flat body (no StandardResponse envelope): `{sessionPubkey, principal, expiresAt}`.
+        Ok(grant) => Ok(HttpResponse::Ok().json(grant)),
+        Err(NostrError::SessionKeyScope(_)) => Ok(crate::utils::auth::session_key_scope_response()),
+        Err(NostrError::SessionKeyBind(message)) => {
+            Ok(HttpResponse::BadRequest().json(json!({ "error": message })))
+        }
+        Err(e) => Ok(HttpResponse::Unauthorized().body(format!("NIP-98 auth failed: {e}"))),
+    }
+}
+
+/// The identity a public `/api/auth/nostr` read acts for. With a NIP-98 token it
+/// is the verified principal (a session key resolves to its owner, ADR-2205);
+/// without one it falls back to the unauthenticated `X-Nostr-Pubkey` header,
+/// which these informational reads have always accepted.
+#[allow(clippy::result_large_err)] // same shape as `caller_pubkey` below
+async fn request_identity(
+    req: &HttpRequest,
+    nostr_service: &NostrService,
+) -> Result<String, HttpResponse> {
+    if let Some(auth) = req
+        .headers()
+        .get("Authorization")
+        .and_then(|h| h.to_str().ok())
+        .filter(|h| h.starts_with("Nostr "))
+    {
+        let url = crate::utils::auth::nip98_request_url(req);
+        return match nostr_service
+            .verify_nip98_auth(auth, &url, req.method().as_str(), None)
+            .await
+        {
+            Ok(user) => Ok(user.pubkey),
+            Err(NostrError::SessionKeyExpired) => {
+                Err(crate::utils::auth::session_key_expired_response())
+            }
+            Err(e) => Err(HttpResponse::Unauthorized().body(format!("NIP-98 auth failed: {e}"))),
+        };
+    }
+    match req
         .headers()
         .get("X-Nostr-Pubkey")
         .and_then(|h| h.to_str().ok())
-        .unwrap_or("");
-
-    if pubkey.is_empty() {
-        return bad_request!("Missing Nostr pubkey");
+        .filter(|p| !p.is_empty())
+    {
+        Some(pubkey) => Ok(pubkey.to_string()),
+        None => Err(HttpResponse::BadRequest().body("Missing Nostr pubkey")),
     }
+}
+
+async fn check_power_user_status(
+    req: HttpRequest,
+    nostr_service: web::Data<NostrService>,
+    feature_access: web::Data<FeatureAccess>,
+) -> Result<HttpResponse, actix_web::Error> {
+    let pubkey = match request_identity(&req, &nostr_service).await {
+        Ok(pubkey) => pubkey,
+        Err(response) => return Ok(response),
+    };
+    let pubkey = pubkey.as_str();
 
     ok_json!(json!({
         "is_power_user": feature_access.is_power_user(pubkey)
@@ -89,17 +158,14 @@ async fn check_power_user_status(
 
 async fn get_available_features(
     req: HttpRequest,
+    nostr_service: web::Data<NostrService>,
     feature_access: web::Data<FeatureAccess>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let pubkey = req
-        .headers()
-        .get("X-Nostr-Pubkey")
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or("");
-
-    if pubkey.is_empty() {
-        return bad_request!("Missing Nostr pubkey");
-    }
+    let pubkey = match request_identity(&req, &nostr_service).await {
+        Ok(pubkey) => pubkey,
+        Err(response) => return Ok(response),
+    };
+    let pubkey = pubkey.as_str();
 
     let features = feature_access.get_available_features(pubkey);
     ok_json!(json!({
@@ -109,18 +175,15 @@ async fn get_available_features(
 
 async fn check_feature_access(
     req: HttpRequest,
+    nostr_service: web::Data<NostrService>,
     feature_access: web::Data<FeatureAccess>,
     feature: web::Path<String>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let pubkey = req
-        .headers()
-        .get("X-Nostr-Pubkey")
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or("");
-
-    if pubkey.is_empty() {
-        return bad_request!("Missing Nostr pubkey");
-    }
+    let pubkey = match request_identity(&req, &nostr_service).await {
+        Ok(pubkey) => pubkey,
+        Err(response) => return Ok(response),
+    };
+    let pubkey = pubkey.as_str();
 
     ok_json!(json!({
         "has_access": feature_access.has_feature_access(pubkey, &feature)

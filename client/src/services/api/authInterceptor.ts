@@ -132,6 +132,8 @@ export function initializeAuthInterceptor(apiClient: any): void {
   apiClient.setInterceptors({
     onRequest: authRequestInterceptor,
     onResponse: authResponseInterceptor,
+    // ADR-2205: the server dropped our session key (expiry or restart).
+    onSessionKeyExpired: () => nostrAuth.rebindSessionKey(),
   });
 
   // Coalesced GETs must never cross identities (or dev/NIP-98 modes).

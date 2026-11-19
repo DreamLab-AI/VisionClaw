@@ -18,6 +18,7 @@ pub mod mcp_relay_manager;
 pub mod multi_mcp_agent_discovery;
 pub mod natural_language_query_service;
 pub mod nostr_service;
+pub mod session_keys;
 #[cfg(test)]
 mod temporal_contract_tests;
 // ADR-2064: wired into `src/bin/load_ontology.rs` so the real corpus ingest

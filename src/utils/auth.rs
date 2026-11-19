@@ -1,5 +1,5 @@
 use crate::services::nostr_service::NostrService;
-use actix_web::{HttpRequest, HttpResponse};
+use actix_web::{HttpMessage, HttpRequest, HttpResponse};
 use log::warn;
 use tracing::{debug, info};
 use uuid::Uuid;
@@ -181,6 +181,50 @@ pub fn dev_bypass_permitted(req: &HttpRequest) -> bool {
     true
 }
 
+/// Whether a request signed by a bound browser session key (ADR-2205) is
+/// refused on this route, whatever the principal's own level. Segment-aware over
+/// the router-decoded path, like `RbacGate`.
+///
+/// Denied: binding another session key, API-key management, and RBAC role
+/// administration (every non-GET under `/api/admin/rbac`; `whoami` and the user
+/// listing reads stay open to the principal's own level). Mirrored client-side
+/// by `requiresRealSigner` in `nostrAuthService.ts`.
+pub fn session_key_denied(method: &actix_web::http::Method, routed_path: &str) -> bool {
+    let segs: Vec<&str> = routed_path.split('/').filter(|s| !s.is_empty()).collect();
+    let starts = |prefix: &[&str]| segs.len() >= prefix.len() && segs[..prefix.len()] == *prefix;
+    starts(&["api", "auth", "nostr", "session-key"])
+        || starts(&["api", "auth", "nostr", "api-keys"])
+        || (starts(&["api", "admin", "rbac"]) && method != actix_web::http::Method::GET)
+}
+
+/// `401` with the machine-readable `session_key_expired` code the client keys
+/// its single re-bind on (ADR-2205).
+pub fn session_key_expired_response() -> HttpResponse {
+    HttpResponse::Unauthorized().json(serde_json::json!({
+        "error": "session_key_expired",
+        "code": "session_key_expired",
+    }))
+}
+
+/// `403` for a session key on a route outside its scope (ADR-2205).
+pub fn session_key_scope_response() -> HttpResponse {
+    HttpResponse::Forbidden().json(serde_json::json!({
+        "error": "this operation requires the account's own signer",
+        "code": "session_key_scope",
+    }))
+}
+
+/// The path the router matched (percent-decoded), falling back to the raw path
+/// outside a routed request.
+fn routed_path_of(req: &HttpRequest) -> String {
+    let matched = req.match_info().as_str();
+    if matched.is_empty() {
+        req.path().to_string()
+    } else {
+        matched.to_string()
+    }
+}
+
 /// The absolute URL a NIP-98 `u` tag must name for `req`.
 ///
 /// Behind a proxy, `connection_info` would report the internal scheme and host,
@@ -295,6 +339,11 @@ pub async fn verify_access(
             // Verifying the same header again would be rejected as a replay,
             // so reuse that identity and check only the level required here.
             if let Some(identity) = crate::middleware::auth::get_authenticated_user(req) {
+                if crate::middleware::auth::via_session_key(req)
+                    && session_key_denied(req.method(), &routed_path_of(req))
+                {
+                    return Err(session_key_scope_response());
+                }
                 let user_level = effective_access_level(&identity.pubkey, nostr_service).await;
                 if user_level.has_permission(&required_level) {
                     debug!(
@@ -317,15 +366,26 @@ pub async fn verify_access(
             let method = req.method().as_str();
 
             match nostr_service
-                .verify_nip98_auth(auth_value, &url, method, None)
+                .verify_nip98_identity(auth_value, &url, method, None)
                 .await
             {
-                Ok(user) => {
+                Ok(verified) => {
+                    let user = verified.user;
                     info!(
                         request_id = %request_id,
                         pubkey = %user.pubkey,
+                        via_session_key = verified.via_session_key.is_some(),
                         "NIP-98 auth successful"
                     );
+                    // ADR-2205: the principal is the identity; the marker lets
+                    // layered checks and handlers know a session key signed.
+                    if let Some(session_pubkey) = verified.via_session_key {
+                        req.extensions_mut()
+                            .insert(crate::middleware::auth::SessionKeyIdentity { session_pubkey });
+                        if session_key_denied(req.method(), &routed_path_of(req)) {
+                            return Err(session_key_scope_response());
+                        }
+                    }
                     // Determine the user's effective access level from their
                     // persisted RBAC role (ADR-142), falling back to the legacy
                     // power-user mapping when the store is absent.
@@ -340,6 +400,10 @@ pub async fn verify_access(
                         return Err(HttpResponse::Forbidden()
                             .body("Insufficient permissions for this operation"));
                     }
+                }
+                Err(crate::services::nostr_service::NostrError::SessionKeyExpired) => {
+                    warn!("[{}] NIP-98 session key expired or unbound", request_id);
+                    return Err(session_key_expired_response());
                 }
                 Err(e) => {
                     warn!("[{}] NIP-98 validation failed: {}", request_id, e);

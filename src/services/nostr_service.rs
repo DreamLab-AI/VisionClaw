@@ -1,9 +1,15 @@
 use crate::config::feature_access::FeatureAccess;
 use crate::models::protected_settings::{ApiKeys, NostrUser};
+use crate::services::session_keys::{
+    BindError, SessionKeyStore, SessionLookup, SESSION_KEY_DEFAULT_MAX_TTL_SECS,
+};
 #[cfg(feature = "redis")]
 use crate::utils::json::from_json;
 use crate::utils::json::to_json;
-use crate::utils::nip98::{parse_auth_header, validate_nip98_token, Nip98ValidationResult};
+use crate::utils::nip98::{
+    parse_auth_header, validate_nip98_token, validate_nip98_token_bound, BodyBinding,
+    Nip98ValidationResult,
+};
 use crate::utils::time;
 use log::{debug, error, info, warn};
 use nostr_sdk::{event::Error as EventError, prelude::*};
@@ -37,6 +43,16 @@ pub enum NostrError {
     JsonError(#[from] serde_json::Error),
     #[error("NIP-98 validation error: {0}")]
     Nip98Error(String),
+    /// ADR-2205: a request signed as a session key whose binding is gone
+    /// (expired, or lost to a restart). The client re-binds once and retries.
+    #[error("session_key_expired")]
+    SessionKeyExpired,
+    /// ADR-2205: a session key attempted something it is never allowed to do.
+    #[error("session_key_scope: {0}")]
+    SessionKeyScope(String),
+    /// ADR-2205: a bind request was malformed or refused.
+    #[error("session key bind refused: {0}")]
+    SessionKeyBind(String),
 }
 
 impl Serialize for NostrError {
@@ -83,6 +99,18 @@ impl Serialize for NostrError {
                 state.serialize_field("type", "Nip98Error")?;
                 state.serialize_field("message", msg)?;
             }
+            NostrError::SessionKeyExpired => {
+                state.serialize_field("type", "SessionKeyExpired")?;
+                state.serialize_field("message", "session_key_expired")?;
+            }
+            NostrError::SessionKeyScope(msg) => {
+                state.serialize_field("type", "SessionKeyScope")?;
+                state.serialize_field("message", msg)?;
+            }
+            NostrError::SessionKeyBind(msg) => {
+                state.serialize_field("type", "SessionKeyBind")?;
+                state.serialize_field("message", msg)?;
+            }
         }
         state.end()
     }
@@ -116,6 +144,29 @@ fn legacy_sessions_enabled(value: Option<&str>) -> bool {
     value.is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true"))
 }
 
+/// A NIP-98 verification result (ADR-2205): the authenticated user, which for a
+/// session-key request is the key's **principal**, and the signing session key
+/// when one was used.
+#[derive(Debug, Clone)]
+pub struct VerifiedNip98 {
+    /// The identity every downstream check (RBAC, owner stamping) must use.
+    pub user: NostrUser,
+    /// The ephemeral key that signed, when the request came through a binding.
+    pub via_session_key: Option<String>,
+}
+
+/// What a successful bind granted.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionKeyGrant {
+    /// The bound session pubkey (lower-case hex).
+    pub session_pubkey: String,
+    /// The principal it acts for.
+    pub principal: String,
+    /// Absolute expiry, Unix seconds.
+    pub expires_at: i64,
+}
+
 #[derive(Clone)]
 pub struct NostrService {
     /// In-memory user cache (always maintained for fast access)
@@ -123,6 +174,8 @@ pub struct NostrService {
     power_user_pubkeys: Vec<String>,
     token_expiry: i64,
     legacy_sessions_enabled: bool,
+    /// ADR-2205 bound browser session keys (in memory: a restart forces a re-bind).
+    session_keys: Arc<SessionKeyStore>,
     feature_access: Arc<RwLock<FeatureAccess>>,
     /// Redis client for persistent session storage (optional)
     #[cfg(feature = "redis")]
@@ -171,6 +224,12 @@ impl NostrService {
             power_user_pubkeys: power_users,
             feature_access,
             token_expiry,
+            session_keys: Arc::new(SessionKeyStore::new(
+                std::env::var("SESSION_KEY_MAX_TTL_SECS")
+                    .ok()
+                    .and_then(|v| v.trim().parse().ok())
+                    .unwrap_or(SESSION_KEY_DEFAULT_MAX_TTL_SECS),
+            )),
             legacy_sessions_enabled: legacy_sessions_enabled(
                 std::env::var("VISIONCLAW_LEGACY_SESSIONS").ok().as_deref(),
             ),
@@ -638,6 +697,10 @@ impl NostrService {
     /// Validate NIP-98 HTTP authentication from Authorization header
     /// This validates tokens for Solid server requests per NIP-98 spec.
     /// Tokens must be signed, unexpired (60s max), and match the request URL/method.
+    /// A token signed by a bound browser session key (ADR-2205) authenticates
+    /// as the key's principal, so every caller of this method receives the
+    /// principal's [`NostrUser`] (power-user flag included); use
+    /// [`Self::verify_nip98_identity`] when the caller must know which.
     /// # Arguments
     /// * `auth_header` - Full Authorization header (e.g., "Nostr <base64>")
     /// * `request_url` - The URL the request was made to
@@ -652,12 +715,32 @@ impl NostrService {
         request_method: &str,
         request_body: Option<&str>,
     ) -> Result<NostrUser, NostrError> {
-        // Parse the Authorization header
+        self.verify_nip98_identity(auth_header, request_url, request_method, request_body)
+            .await
+            .map(|verified| verified.user)
+    }
+
+    /// [`Self::verify_nip98_auth`] that also reports whether a bound session
+    /// key signed the request (ADR-2205).
+    ///
+    /// | token | binding | result |
+    /// |---|---|---|
+    /// | `session` tag naming P | live, principal P | the user P, `via_session_key` set |
+    /// | `session` tag | none live (expired, restart, never bound) | [`NostrError::SessionKeyExpired`] |
+    /// | `session` tag naming P | live, principal other than P | `Nip98Error` |
+    /// | no tag | live | `Nip98Error`: a bound key only acts as its principal |
+    /// | no tag | none | the signer as itself (XR client, agents, plain browsers) |
+    pub async fn verify_nip98_identity(
+        &self,
+        auth_header: &str,
+        request_url: &str,
+        request_method: &str,
+        request_body: Option<&str>,
+    ) -> Result<VerifiedNip98, NostrError> {
         let token = parse_auth_header(auth_header).ok_or_else(|| {
             NostrError::Nip98Error("Invalid Authorization header format".to_string())
         })?;
 
-        // Validate the NIP-98 token
         let validation = validate_nip98_token(token, request_url, request_method, request_body)
             .map_err(|e| NostrError::Nip98Error(e.to_string()))?;
 
@@ -668,17 +751,136 @@ impl NostrService {
             validation.method
         );
 
+        // Resolve the principal BEFORE creating any user, so an ephemeral
+        // session key is never registered as a user in its own right.
+        let lookup = self
+            .session_keys
+            .lookup(&validation.pubkey, time::timestamp_seconds());
+        let (principal, via_session_key) = match (validation.session_principal.as_deref(), lookup) {
+            (Some(claimed), SessionLookup::Live(binding))
+                if binding.principal.eq_ignore_ascii_case(claimed) =>
+            {
+                (binding.principal, Some(validation.pubkey.clone()))
+            }
+            (Some(_), SessionLookup::Live(_)) => {
+                return Err(NostrError::Nip98Error(
+                    "session key is bound to a different principal".to_string(),
+                ))
+            }
+            (Some(_), SessionLookup::Unbound) => return Err(NostrError::SessionKeyExpired),
+            (None, SessionLookup::Live(_)) => {
+                return Err(NostrError::Nip98Error(
+                    "a bound session key must carry the session tag".to_string(),
+                ))
+            }
+            (None, SessionLookup::Unbound) => (validation.pubkey.clone(), None),
+        };
+
         // Get or create the user
-        let user = self
-            .get_or_create_user_from_pubkey(&validation.pubkey)
+        let user = self.get_or_create_user_from_pubkey(&principal).await?;
+
+        info!(
+            "NIP-98 auth successful for pubkey: {}, is_power_user: {}, via_session_key: {}",
+            user.pubkey,
+            user.is_power_user,
+            via_session_key.is_some()
+        );
+
+        Ok(VerifiedNip98 {
+            user,
+            via_session_key,
+        })
+    }
+
+    /// Bind a browser session key to the signer of this request (ADR-2205).
+    ///
+    /// `auth_header` must be a NIP-98 token over `POST request_url` whose
+    /// `payload` tag is the hash of exactly `body`
+    /// ([`BodyBinding::Required`]), so a captured token cannot bind a different
+    /// key. `body` is `{"sessionPubkey": "<64 hex>", "expiresIn": <secs>}`.
+    /// A session key can never bind another session key.
+    pub async fn bind_session_key(
+        &self,
+        auth_header: &str,
+        request_url: &str,
+        body: &str,
+    ) -> Result<SessionKeyGrant, NostrError> {
+        let token = parse_auth_header(auth_header).ok_or_else(|| {
+            NostrError::Nip98Error("Invalid Authorization header format".to_string())
+        })?;
+        let validation = validate_nip98_token_bound(
+            token,
+            request_url,
+            "POST",
+            Some(body),
+            BodyBinding::Required,
+        )
+        .map_err(|e| NostrError::Nip98Error(e.to_string()))?;
+
+        let now = time::timestamp_seconds();
+        if validation.session_principal.is_some()
+            || matches!(
+                self.session_keys.lookup(&validation.pubkey, now),
+                SessionLookup::Live(_)
+            )
+        {
+            return Err(NostrError::SessionKeyScope(
+                "a session key cannot bind another session key".to_string(),
+            ));
+        }
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct BindRequest {
+            session_pubkey: String,
+            expires_in: Option<u64>,
+        }
+        let request: BindRequest = serde_json::from_str(body)
+            .map_err(|e| NostrError::SessionKeyBind(format!("invalid body: {e}")))?;
+
+        let binding = self
+            .session_keys
+            .bind(
+                &request.session_pubkey,
+                &validation.pubkey,
+                request
+                    .expires_in
+                    .unwrap_or_else(|| self.session_keys.max_ttl_secs()),
+                now,
+            )
+            .map_err(|e| {
+                NostrError::SessionKeyBind(
+                    match e {
+                        BindError::InvalidSessionPubkey => {
+                            "sessionPubkey must be 64 hex characters"
+                        }
+                        BindError::SessionKeyIsPrincipal => {
+                            "sessionPubkey must differ from the signing key"
+                        }
+                        BindError::BoundToAnotherPrincipal => {
+                            "sessionPubkey is already bound to another principal"
+                        }
+                        BindError::TableFull => "session key table is full",
+                    }
+                    .to_string(),
+                )
+            })?;
+
+        // The principal exists as a user from now on (power-user flag etc.).
+        self.get_or_create_user_from_pubkey(&validation.pubkey)
             .await?;
 
         info!(
-            "NIP-98 auth successful for pubkey: {}, is_power_user: {}",
-            user.pubkey, user.is_power_user
+            "Bound session key {}... to principal {}... until {}",
+            &request.session_pubkey[..16],
+            &validation.pubkey[..16.min(validation.pubkey.len())],
+            binding.expires_at
         );
-
-        Ok(user)
+        Ok(SessionKeyGrant {
+            session_pubkey: request.session_pubkey.to_ascii_lowercase(),
+            principal: binding.principal,
+            expires_at: binding.expires_at,
+        })
     }
 
     /// Get existing user or create a new one from pubkey

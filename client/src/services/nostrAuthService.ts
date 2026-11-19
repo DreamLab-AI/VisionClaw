@@ -2,7 +2,7 @@ import { createLogger } from '../utils/loggerConfig';
 import { recordSignature } from './signStats';
 import { createErrorMetadata } from '../utils/loggerConfig';
 import { nip19 } from 'nostr-tools';
-import { getPublicKey, finalizeEvent } from 'nostr-tools/pure';
+import { getPublicKey, finalizeEvent, generateSecretKey } from 'nostr-tools/pure';
 import type {} from '../types/nip07';
 
 const logger = createLogger('NostrAuthService');
@@ -195,6 +195,36 @@ type AuthStateListener = (state: AuthState) => void;
 
 // --- Service Implementation ---
 
+/** Lifetime requested for a bound session key; the server may grant less. */
+const SESSION_KEY_REQUESTED_TTL_SECS = 3600;
+/** Re-bind this long before expiry: wider than the server's 60 s NIP-98 freshness window. */
+const SESSION_KEY_MARGIN_MS = 90_000;
+
+/**
+ * Requests the server refuses a session key for (ADR-2205 deny list): binding
+ * another key, API-key management and RBAC administration (reads of
+ * `/api/admin/rbac/*` excepted), plus the Solid proxy (`/solid`, `/api/solid`;
+ * it forwards the token upstream). Mirrors `session_key_denied` in
+ * `src/utils/auth.rs`; these always use the real signer.
+ */
+export function requiresRealSigner(url: string, method: string): boolean {
+  let path: string;
+  try {
+    path = new URL(url, 'http://placeholder.invalid').pathname;
+  } catch {
+    return true; // unparseable: take the safe, per-request path
+  }
+  const segs = path.split('/').filter(Boolean);
+  const starts = (prefix: string[]) => prefix.every((p, i) => segs[i] === p);
+  if (starts(['api', 'auth', 'nostr', 'session-key'])) return true;
+  if (starts(['api', 'auth', 'nostr', 'api-keys'])) return true;
+  if (starts(['api', 'admin', 'rbac']) && method.toUpperCase() !== 'GET') return true;
+  // The Solid proxy forwards the token upstream, where it is verified as the
+  // signer: a session key would act as an ephemeral stranger there.
+  if (starts(['solid']) || starts(['api', 'solid'])) return true;
+  return false;
+}
+
 /** The one place the dev bearer literal lives (see `NostrAuthService.isDevMode`). */
 const DEV_SESSION_TOKEN = 'dev-session-token';
 
@@ -207,6 +237,14 @@ class NostrAuthService {
   private static instance: NostrAuthService;
   private currentUser: SimpleNostrUser | null = null;
   private localPrivateKey: Uint8Array | null = null;
+  /**
+   * ADR-2205 bound session key: an ephemeral secp256k1 key held in memory only
+   * (never storage), bound server-side to the signed-in principal by one real
+   * signature. Every later request is signed with it, so a NIP-07 extension is
+   * asked once per session instead of once per request.
+   */
+  private sessionKey: { secret: Uint8Array; pubkey: string; principal: string; expiresAt: number } | null = null;
+  private bindInFlight: Promise<boolean> | null = null;
   private authStateListeners: AuthStateListener[] = [];
   private initialized = false;
 
@@ -276,6 +314,97 @@ class NostrAuthService {
       throw new Error('No signing method available (no passkey session or NIP-07 provider)');
     }
 
+    // ADR-2205: requests the server refuses a session key stay on the real
+    // signer; everything else rides the bound session key.
+    if (!requiresRealSigner(url, method) && !this.isDevMode()) {
+      if (await this.ensureSessionKey()) {
+        return this.signWithSessionKey(url, method, body);
+      }
+      // Bind refused or unavailable: degrade to a per-request signature.
+    }
+
+    return this.signWithNip07(url, method, body);
+  }
+
+  /** Whether a live, unexpired session key is held (ADR-2205). */
+  public hasSessionKey(): boolean {
+    return this.sessionKey !== null && this.sessionKey.expiresAt - SESSION_KEY_MARGIN_MS > Date.now();
+  }
+
+  /**
+   * Bind a session key if none is live. Concurrent callers share one bind.
+   * Resolves `true` when a live key is held afterwards.
+   */
+  public ensureSessionKey(): Promise<boolean> {
+    if (this.hasSessionKey()) return Promise.resolve(true);
+    return this.bindSessionKey();
+  }
+
+  /**
+   * Discard the held key and bind a fresh one (the one re-bind after a
+   * `session_key_expired` 401). Concurrent callers share one bind.
+   */
+  public rebindSessionKey(): Promise<boolean> {
+    if (this.bindInFlight) return this.bindInFlight;
+    this.discardSessionKey();
+    return this.bindSessionKey();
+  }
+
+  private bindSessionKey(): Promise<boolean> {
+    if (this.bindInFlight) return this.bindInFlight;
+    const principal = this.currentUser?.pubkey;
+    if (!principal || this.localPrivateKey || !this.hasNip07Provider() || this.isDevMode()) {
+      return Promise.resolve(false);
+    }
+    this.bindInFlight = (async () => {
+      let secret: Uint8Array | null = null;
+      try {
+        secret = generateSecretKey();
+        const sessionPubkey = getPublicKey(secret);
+        const url = new URL('/api/auth/nostr/session-key', window.location.origin).href;
+        const body = JSON.stringify({ sessionPubkey, expiresIn: SESSION_KEY_REQUESTED_TTL_SECS });
+        // Raw fetch with the real signer: the bind must not recurse into
+        // signRequest's session branch or the UnifiedApiClient interceptors.
+        const token = await this.signWithNip07(url, 'POST', body);
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Nostr ${token}` },
+          body,
+        });
+        if (!response.ok) {
+          logger.warn(`Session key bind refused (HTTP ${response.status}); signing per request`);
+          secret.fill(0);
+          return false;
+        }
+        const granted = await response.json().catch(() => ({} as { expiresAt?: number }));
+        const expiresAtMs = typeof granted.expiresAt === 'number' ? granted.expiresAt * 1000 : 0;
+        if (!(expiresAtMs > Date.now())) {
+          secret.fill(0);
+          return false;
+        }
+        this.discardSessionKey();
+        this.sessionKey = { secret, pubkey: sessionPubkey, principal, expiresAt: expiresAtMs };
+        return true;
+      } catch (error) {
+        secret?.fill(0);
+        logger.warn('Session key bind failed; signing per request', createErrorMetadata(error));
+        return false;
+      }
+    })().finally(() => {
+      this.bindInFlight = null;
+    });
+    return this.bindInFlight;
+  }
+
+  private discardSessionKey(): void {
+    if (this.sessionKey) {
+      this.sessionKey.secret.fill(0);
+    }
+    this.sessionKey = null;
+  }
+
+  /** Build the NIP-98 tags shared by every signer. */
+  private async nip98Tags(url: string, method: string, body?: string): Promise<string[][]> {
     const tags: string[][] = [
       ['u', url],
       ['method', method.toUpperCase()],
@@ -290,7 +419,25 @@ class NostrAuthService {
       const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
       tags.push(['payload', hashHex]);
     }
+    return tags;
+  }
 
+  /** Sign with the bound session key; the `session` tag names the principal. */
+  private async signWithSessionKey(url: string, method: string, body?: string): Promise<string> {
+    const key = this.sessionKey;
+    if (!key) throw new Error('No session key available');
+    const tags = await this.nip98Tags(url, method, body);
+    tags.push(['session', key.principal]);
+    const signedEvent = finalizeEvent(
+      { created_at: Math.floor(Date.now() / 1000), kind: 27235, tags, content: '' },
+      key.secret,
+    );
+    return btoa(JSON.stringify(signedEvent));
+  }
+
+  /** Sign with the user's real NIP-07 signer (one extension round trip). */
+  private async signWithNip07(url: string, method: string, body?: string): Promise<string> {
+    const tags = await this.nip98Tags(url, method, body);
     const unsignedEvent = {
       created_at: Math.floor(Date.now() / 1000),
       kind: 27235,
@@ -435,6 +582,8 @@ class NostrAuthService {
       };
 
       this.storeCurrentUser();
+      // ADR-2205: one real signature now, none per request afterwards.
+      await this.ensureSessionKey();
       const newState = this.getCurrentAuthState();
       this.notifyListeners(newState);
       return newState;
@@ -472,6 +621,7 @@ class NostrAuthService {
 
   private clearSession(): void {
     this.currentUser = null;
+    this.discardSessionKey();
     if (this.localPrivateKey) {
       this.localPrivateKey.fill(0);
     }

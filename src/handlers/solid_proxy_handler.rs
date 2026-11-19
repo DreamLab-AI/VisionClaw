@@ -223,6 +223,14 @@ impl SolidPodState {
         let expected_method = req.method().as_str();
 
         match validate_nip98_token(token, &expected_url, expected_method, None) {
+            // ADR-2205: the pod owner is the signer, and the token is forwarded
+            // upstream where the Solid server verifies it as that signer. A
+            // session key would resolve to an ephemeral identity there, so it
+            // fails closed here; the browser signs these requests for real.
+            Ok(validation) if validation.session_principal.is_some() => {
+                warn!("Solid proxy refuses a session-key NIP-98 token (needs the account's own signer)");
+                None
+            }
             Ok(validation) => {
                 debug!(
                     "Verified NIP-98 user identity: pubkey={}...",

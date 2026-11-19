@@ -27,12 +27,19 @@ export interface RequestConfig extends RequestInit {
   retryDelay?: number;
   skipAuth?: boolean;
   skipInterceptors?: boolean;
+  /** Internal: set on the single retry that follows a session-key re-bind. */
+  sessionKeyRetried?: boolean;
 }
 
 export interface InterceptorConfig {
   onRequest?: (config: RequestConfig, url: string) => Promise<RequestConfig> | RequestConfig;
   onResponse?: <T>(response: ApiResponse<T>) => Promise<ApiResponse<T>> | ApiResponse<T>;
   onError?: (error: ApiError) => Promise<ApiError> | ApiError | never;
+  /**
+   * Called on a 401 whose body carries `code: 'session_key_expired'` (ADR-2205).
+   * Resolves `true` after re-binding; the request is then retried exactly once.
+   */
+  onSessionKeyExpired?: () => Promise<boolean>;
 }
 
 export interface RetryConfig {
@@ -305,6 +312,18 @@ export class UnifiedApiClient {
     };
 
     
+    if (
+      response.status === 401 &&
+      responseData?.code === 'session_key_expired' &&
+      !config.sessionKeyRetried &&
+      this.interceptors.onSessionKeyExpired &&
+      !config.skipInterceptors
+    ) {
+      if (await this.interceptors.onSessionKeyExpired()) {
+        return this.executeRequest<T>(url, { ...config, sessionKeyRetried: true });
+      }
+    }
+
     if (!response.ok) {
       const errorMessage = responseData?.error ||
                           responseData?.message ||

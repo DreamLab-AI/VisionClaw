@@ -335,6 +335,9 @@ pub struct Nip98ValidationResult {
     pub method: String,
     pub created_at: i64,
     pub payload_hash: Option<String>,
+    /// Principal named by a signed `session` tag (ADR-2205): present when the
+    /// event was signed by a bound browser session key on that user's behalf.
+    pub session_principal: Option<String>,
 }
 
 /// Errors specific to token validation
@@ -487,6 +490,7 @@ fn validate_nip98_token_inner(
     let mut url: Option<String> = None;
     let mut method: Option<String> = None;
     let mut payload_hash: Option<String> = None;
+    let mut session_principal: Option<String> = None;
 
     for tag in &nip98_event.tags {
         if tag.len() >= 2 {
@@ -494,6 +498,7 @@ fn validate_nip98_token_inner(
                 "u" => url = Some(tag[1].clone()),
                 "method" => method = Some(tag[1].clone()),
                 "payload" => payload_hash = Some(tag[1].clone()),
+                "session" => session_principal = Some(tag[1].to_ascii_lowercase()),
                 _ => {}
             }
         }
@@ -585,6 +590,7 @@ fn validate_nip98_token_inner(
         method,
         created_at: nip98_event.created_at,
         payload_hash,
+        session_principal,
     })
 }
 
