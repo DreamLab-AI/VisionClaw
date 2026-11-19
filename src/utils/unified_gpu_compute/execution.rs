@@ -4294,3 +4294,174 @@ mod layout_balance_gpu_tests {
         );
     }
 }
+
+/// ADR-2204 D5/D7: re-uploading edge weights for a new weighting profile writes the weights and
+/// nothing else. On a real device, after the layout has run (so velocities are non-zero), the
+/// CSR topology, positions, velocities and degree buffers are bit-identical across the upload
+/// and only the weights differ. Without CUDA these tests print `SKIPPED`.
+#[cfg(test)]
+mod adr_2204_reweight_gpu_tests {
+    use super::*;
+    use crate::actors::gpu::edge_csr::build_csr;
+    use cust::memory::CopyDestination;
+    use std::collections::HashMap;
+    use visionclaw_domain::models::edge::{Edge, EdgeProvenance};
+    use visionclaw_domain::models::node::Node;
+    use visionclaw_domain::weighting::{physics_edge_weights, WeightingProfile};
+
+    const N: usize = 90;
+
+    fn bits(v: &[f32]) -> Vec<u32> {
+        v.iter().map(|x| x.to_bits()).collect()
+    }
+
+    /// 9 classes under a root, each with 8 children, plus a ring of plain links.
+    fn graph() -> (Vec<Node>, Vec<Edge>) {
+        let nodes: Vec<Node> = (0..N as u32)
+            .map(|i| Node::new_with_id(format!("page-{i}"), Some(i)))
+            .collect();
+        let mut edges = Vec::new();
+        let sub = |c: u32, p: u32| {
+            let mut e = Edge::new(c, p, 1.6)
+                .with_edge_type("hierarchical".into())
+                .with_provenance(EdgeProvenance::Asserted);
+            e.owl_property_iri = Some("http://www.w3.org/2000/01/rdf-schema#subClassOf".into());
+            e
+        };
+        for c in 1..=9u32 {
+            edges.push(sub(c, 0));
+            for k in 0..8u32 {
+                edges.push(sub(10 + (c - 1) * 8 + k, c));
+            }
+        }
+        for i in 10..N as u32 {
+            edges.push(Edge::new(i, 10 + (i - 9) % (N as u32 - 10), 0.9));
+        }
+        (nodes, edges)
+    }
+
+    #[test]
+    fn a_weight_reupload_leaves_topology_positions_velocities_and_degree_buffers_alone() {
+        let Ok(_ctx) = cust::quick_init() else {
+            eprintln!("[adr_2204_reweight_gpu_tests] SKIPPED, CUDA init failed");
+            return;
+        };
+        let Ok(ptx) = crate::utils::ptx::load_ptx_sync() else {
+            eprintln!("[adr_2204_reweight_gpu_tests] SKIPPED, no PTX");
+            return;
+        };
+        let (nodes, edges) = graph();
+        let Ok(mut g) = UnifiedGPUCompute::new(N, edges.len() * 2, &ptx) else {
+            eprintln!("[adr_2204_reweight_gpu_tests] SKIPPED, no CUDA device");
+            return;
+        };
+        let index: HashMap<u32, usize> = nodes.iter().enumerate().map(|(i, n)| (n.id, i)).collect();
+        let csr_for = |a: f32| {
+            let w = physics_edge_weights(
+                &nodes,
+                &edges,
+                &WeightingProfile {
+                    hierarchy_affinity: a,
+                    experiment: None,
+                },
+            );
+            build_csr(N, &index, &edges, &w)
+        };
+        let upload = |g: &mut UnifiedGPUCompute, c: &crate::actors::gpu::edge_csr::Csr| {
+            let ro: Vec<i32> = c.row_offsets.iter().map(|&x| x as i32).collect();
+            let ci: Vec<i32> = c.col_indices.iter().map(|&x| x as i32).collect();
+            g.upload_edges_csr(&ro, &ci, &c.weights)
+                .expect("upload csr");
+        };
+
+        // A deterministic start, a first upload under the off profile, then real steps.
+        let (mut x, mut y, mut z) = (vec![0f32; N], vec![0f32; N], vec![0f32; N]);
+        let mut s = 99u64;
+        for i in 0..N {
+            for v in [&mut x, &mut y, &mut z] {
+                s = s
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                v[i] = ((s >> 33) as f32 / (u32::MAX >> 1) as f32 - 0.5) * 400.0;
+            }
+        }
+        g.upload_positions(&x, &y, &z).expect("positions");
+        let off = csr_for(0.0);
+        upload(&mut g, &off);
+        let degrees: Vec<f32> = (0..N).map(|i| 1.0 + (i % 5) as f32).collect();
+        g.upload_degree_weights(&degrees).expect("degree weights");
+        let mut p = crate::models::simulation_params::SimulationParams::new();
+        p.dt = 0.016;
+        p.damping = 0.9;
+        p.repel_k = 343.98535;
+        p.spring_k = 12.0;
+        p.center_gravity_k = 0.2;
+        for _ in 0..20 {
+            g.execute_physics_step_with_bypass(&p, true).expect("step");
+        }
+
+        let snapshot = |g: &mut UnifiedGPUCompute| {
+            let (px, py, pz) = g.get_node_positions().expect("positions");
+            let (vx, vy, vz) = g.get_node_velocities().expect("velocities");
+            let mut dw = vec![0f32; g.degree_weight.len()];
+            g.degree_weight.copy_to(&mut dw).expect("degree weight");
+            // The buffers are over-allocated, so read them whole and keep the live prefix
+            // (`download_csr` insists on an exact length).
+            let mut ro = vec![0i32; g.edge_row_offsets.len()];
+            g.edge_row_offsets.copy_to(&mut ro).expect("row offsets");
+            let mut ci = vec![0i32; g.edge_col_indices.len()];
+            g.edge_col_indices.copy_to(&mut ci).expect("col indices");
+            let mut w = vec![0f32; g.edge_weights.len()];
+            g.edge_weights.copy_to(&mut w).expect("edge weights");
+            let live = ro[N] as usize;
+            ro.truncate(N + 1);
+            ci.truncate(live);
+            w.truncate(live);
+            let w = bits(&w);
+            (
+                [bits(&px), bits(&py), bits(&pz)],
+                [bits(&vx), bits(&vy), bits(&vz)],
+                bits(&dw),
+                g.degree_weights_available,
+                ro,
+                ci,
+                w,
+            )
+        };
+        let before = snapshot(&mut g);
+        assert!(
+            before
+                .1
+                .iter()
+                .any(|v| v.iter().any(|&b| f32::from_bits(b) != 0.0)),
+            "the layout must have run: non-zero velocities make a vacuous pass impossible"
+        );
+        assert_eq!(
+            bits(&off.weights),
+            before.6.clone(),
+            "off weights are on the device"
+        );
+
+        let on = csr_for(3.0);
+        assert_ne!(
+            bits(&off.weights),
+            bits(&on.weights),
+            "the profile must change weights"
+        );
+        upload(&mut g, &on);
+        let after = snapshot(&mut g);
+
+        assert_eq!(before.0, after.0, "positions");
+        assert_eq!(before.1, after.1, "velocities");
+        assert_eq!(before.2, after.2, "degree_weight buffer");
+        assert_eq!(before.3, after.3, "degree_weights_available");
+        assert_eq!(before.4, after.4, "row_offsets");
+        assert_eq!(before.5, after.5, "col_indices");
+        assert_eq!(
+            bits(&on.weights),
+            after.6,
+            "the new weights are on the device"
+        );
+        assert_ne!(before.6, after.6);
+    }
+}

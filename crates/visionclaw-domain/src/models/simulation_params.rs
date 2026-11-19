@@ -720,6 +720,21 @@ mod layout_mode_resolution_tests {
 
 #[cfg(test)]
 mod tests {
+    /// ADR-2204 D5: the stored `hierarchyAffinity` reaches the host-side parameters the force
+    /// actor receives on a physics write (and only there: `SimParams` has no such field).
+    #[test]
+    fn the_stored_hierarchy_affinity_reaches_the_simulation_params() {
+        let physics = PhysicsSettings {
+            hierarchy_affinity: 2.0,
+            ..PhysicsSettings::default()
+        };
+        assert_eq!(SimulationParams::from(&physics).hierarchy_affinity, 2.0);
+        assert_eq!(
+            SimulationParams::from(&PhysicsSettings::default()).hierarchy_affinity,
+            0.0
+        );
+    }
+
     use super::*;
 
     #[test]

@@ -125,6 +125,8 @@ pub use physics_messages::{
     UploadConstraintsToGPU,
     UploadPositions,
 };
+#[cfg(any(debug_assertions, feature = "dev-auth"))]
+pub use physics_messages::{GetLayoutExperiment, LayoutExperimentReport, SetLayoutExperiment};
 
 // --- settings_messages ---
 pub use settings_messages::{

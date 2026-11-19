@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
 
+use super::edge_csr::{build_csr, Csr};
 use super::hold_registry::{HoldRegistry, Release};
 use super::shared::{GPUOperation, GPUState, SharedGPUContext};
 use crate::actors::messages::*;
@@ -17,6 +18,7 @@ use crate::utils::socket_flow_messages::{glam_to_vec3data, BinaryNodeDataClient}
 use crate::utils::unified_gpu_compute::ComputeMode;
 use crate::utils::unified_gpu_compute::SimParams;
 use glam::Vec3;
+use visionclaw_domain::weighting::{physics_edge_weights, LayoutExperiment, WeightingProfile};
 
 use cudarc::driver::CudaDevice;
 
@@ -173,6 +175,8 @@ pub struct ForceComputeActor {
     semantic_engine: crate::gpu::semantic_forces::SemanticForcesEngine,
     /// The graph the semantic metadata was derived from (for RecalculateHierarchy).
     semantic_graph: Option<Arc<visionclaw_domain::models::graph::GraphData>>,
+    /// Dev-only layout experiment (ADR-2204 D5); `None` outside an experiment.
+    layout_experiment: Option<LayoutExperiment>,
 
     /// Back-channel to PhysicsOrchestratorActor for the sequential pipeline.
     /// When set, a PhysicsStepCompleted message is sent after each ComputeForces
@@ -280,6 +284,7 @@ impl ForceComputeActor {
             pending_impulse: 0.0,
             semantic_engine: crate::gpu::semantic_forces::SemanticForcesEngine::new(),
             semantic_graph: None,
+            layout_experiment: None,
             pinned_mask_dirty: false,
             pending_graph_data: None,
             physics_orchestrator_addr: None,
@@ -949,18 +954,26 @@ impl ForceComputeActor {
         let mut positions_y: Vec<f32> = graph_data.nodes.iter().map(|n| n.data.y).collect();
         let mut positions_z: Vec<f32> = graph_data.nodes.iter().map(|n| n.data.z).collect();
 
-        let mut adjacency_lists: Vec<Vec<(u32, f32)>> = vec![Vec::new(); num_nodes];
-        for edge in &graph_data.edges {
-            if let (Some(&src), Some(&tgt)) = (
-                node_indices.get(&edge.source),
-                node_indices.get(&edge.target),
-            ) {
-                adjacency_lists[src].push((tgt as u32, edge.weight));
-                if src != tgt {
-                    adjacency_lists[tgt].push((src as u32, edge.weight));
-                }
-            }
-        }
+        // ADR-2204 D3: the per-edge weights come from the one pure weighting function under the
+        // current profile (stored `hierarchyAffinity`, optional dev experiment); the CSR is built
+        // from them by the same function a live re-weight uses, so the topology is identical.
+        let edge_weights_by_edge = physics_edge_weights(
+            &graph_data.nodes,
+            &graph_data.edges,
+            &self.weighting_profile(),
+        );
+        let Csr {
+            row_offsets,
+            col_indices,
+            weights: edge_weights,
+            adjacency: adjacency_lists,
+        } = build_csr(
+            num_nodes,
+            &node_indices,
+            &graph_data.edges,
+            &edge_weights_by_edge,
+        );
+        let edge_count = col_indices.len() as u32;
 
         // ADR-141 P3: retain the undirected neighbour indices for the
         // RadialMode::Ego BFS hop-distance (weightless projection of adjacency_lists).
@@ -968,20 +981,6 @@ impl ForceComputeActor {
             .iter()
             .map(|adj| adj.iter().map(|&(t, _w)| t).collect())
             .collect();
-
-        let mut row_offsets = vec![0u32; num_nodes + 1];
-        let mut col_indices = Vec::new();
-        let mut edge_weights = Vec::new();
-        let mut edge_count = 0u32;
-        for (i, adj) in adjacency_lists.iter().enumerate() {
-            row_offsets[i] = edge_count;
-            for &(target, weight) in adj {
-                col_indices.push(target);
-                edge_weights.push(weight);
-                edge_count += 1;
-            }
-        }
-        row_offsets[num_nodes] = edge_count;
 
         // Place isolated nodes (degree 0) on a spherical shell so they don't
         // clump in the center and obscure community structure of connected nodes.
@@ -1406,6 +1405,53 @@ impl ForceComputeActor {
 
     fn iteration_count(&self) -> u32 {
         self.gpu_state.iteration_count
+    }
+
+    /// Re-derive the per-edge physics weights for the uploaded graph under `profile` and
+    /// upload them (ADR-2204 D3/D7).
+    ///
+    /// Only the CSR arrays go to the device (`upload_edges_csr`), built over the same edge
+    /// iteration as the first upload, so `row_offsets` and `col_indices` are identical and only
+    /// the weights differ. Positions, velocities, warmup, the constraint state and the degree
+    /// buffers are not written. Before any graph is uploaded there is nothing to do: the first
+    /// upload reads the stored profile. A device failure is returned and nothing is recorded.
+    fn reweight_edges(&mut self, profile: &WeightingProfile) -> Result<(), String> {
+        let (Some(graph), Some(ctx)) = (self.semantic_graph.clone(), self.shared_context.clone())
+        else {
+            return Ok(());
+        };
+        let node_indices: std::collections::HashMap<u32, usize> = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.id, i))
+            .collect();
+        let by_edge = physics_edge_weights(&graph.nodes, &graph.edges, profile);
+        let csr = build_csr(graph.nodes.len(), &node_indices, &graph.edges, &by_edge);
+        let row_offsets: Vec<i32> = csr.row_offsets.iter().map(|&x| x as i32).collect();
+        let col_indices: Vec<i32> = csr.col_indices.iter().map(|&x| x as i32).collect();
+        let mut compute = match ctx.unified_compute.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        compute
+            .upload_edges_csr(&row_offsets, &col_indices, &csr.weights)
+            .map_err(|e| format!("edge weight upload failed: {e}"))?;
+        info!(
+            "ForceComputeActor: re-weighted {} CSR edges (hierarchyAffinity {}, experiment {})",
+            csr.weights.len(),
+            profile.hierarchy_affinity,
+            profile.experiment.is_some()
+        );
+        Ok(())
+    }
+
+    /// The weighting profile the stored settings and the dev experiment describe.
+    fn weighting_profile(&self) -> WeightingProfile {
+        WeightingProfile {
+            hierarchy_affinity: self.simulation_params.hierarchy_affinity,
+            experiment: self.layout_experiment,
+        }
     }
 
     fn update_simulation_parameters(&mut self, params: SimulationParams) {
@@ -2746,6 +2792,19 @@ impl Handler<UpdateSimulationParams> for ForceComputeActor {
             ));
         }
 
+        // ADR-2204 D5: `hierarchyAffinity` is a weight input, not a kernel parameter, so it is
+        // outside `same_gpu_inputs` and would be skipped as "unchanged" below. A change
+        // re-uploads the edge weights only; the topology and every other buffer stay as they are.
+        if (msg.params.hierarchy_affinity - self.simulation_params.hierarchy_affinity).abs() >= 1e-6
+        {
+            let profile = WeightingProfile {
+                hierarchy_affinity: msg.params.hierarchy_affinity,
+                experiment: self.layout_experiment,
+            };
+            self.reweight_edges(&profile)?;
+            self.simulation_params.hierarchy_affinity = msg.params.hierarchy_affinity;
+        }
+
         // Idempotency: skip reset if ALL GPU-relevant params haven't changed.
         // The client autoSaveManager may fire redundant updates (GET-merge-PUT with same values).
         // Compare the full set of GPU-relevant fields, not just the original 6.
@@ -2908,6 +2967,67 @@ impl Handler<UpdateSimulationParams> for ForceComputeActor {
         );
 
         Ok(())
+    }
+}
+
+#[cfg(any(debug_assertions, feature = "dev-auth"))]
+impl Handler<SetLayoutExperiment> for ForceComputeActor {
+    type Result = Result<(), String>;
+
+    fn handle(&mut self, msg: SetLayoutExperiment, _ctx: &mut Self::Context) -> Self::Result {
+        if let Some(x) = msg.experiment {
+            if !x.is_valid() {
+                return Err("holdoutFraction must be a finite number in 0..=1".into());
+            }
+        }
+        let profile = WeightingProfile {
+            hierarchy_affinity: self.simulation_params.hierarchy_affinity,
+            experiment: msg.experiment,
+        };
+        self.reweight_edges(&profile)?;
+        self.layout_experiment = msg.experiment;
+        Ok(())
+    }
+}
+
+#[cfg(any(debug_assertions, feature = "dev-auth"))]
+impl Handler<GetLayoutExperiment> for ForceComputeActor {
+    type Result = Result<LayoutExperimentReport, String>;
+
+    fn handle(&mut self, _msg: GetLayoutExperiment, _ctx: &mut Self::Context) -> Self::Result {
+        let Some(graph) = self.semantic_graph.as_ref() else {
+            return Ok(LayoutExperimentReport {
+                experiment: self.layout_experiment,
+                hierarchy_affinity: self.simulation_params.hierarchy_affinity,
+                hierarchy_edge_count: 0,
+                withheld: Vec::new(),
+                withheld_count: 0,
+            });
+        };
+        // Compact id = GPU index = position in `graph.nodes` (the id REST and the wire use).
+        let compact: std::collections::HashMap<u32, u32> = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.id, i as u32))
+            .collect();
+        let withheld: Vec<[u32; 2]> = match self.layout_experiment {
+            Some(x) => visionclaw_domain::weighting::withheld_pairs(&graph.nodes, &graph.edges, &x)
+                .iter()
+                .filter_map(|p| Some([*compact.get(&p.source)?, *compact.get(&p.target)?]))
+                .collect(),
+            None => Vec::new(),
+        };
+        Ok(LayoutExperimentReport {
+            experiment: self.layout_experiment,
+            hierarchy_affinity: self.simulation_params.hierarchy_affinity,
+            hierarchy_edge_count: visionclaw_domain::weighting::asserted_hierarchy_edge_count(
+                &graph.nodes,
+                &graph.edges,
+            ),
+            withheld_count: withheld.len(),
+            withheld,
+        })
     }
 }
 

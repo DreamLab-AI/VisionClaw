@@ -715,6 +715,39 @@ pub struct SetPhysicsOrchestratorAddr {
 #[rtype(result = "Result<(), String>")]
 pub struct ResetPositions;
 
+/// Set or clear the dev-only layout experiment (ADR-2204 D5) and re-weight the uploaded graph.
+/// Weights only: positions, velocities and every other device buffer are untouched.
+#[cfg(any(debug_assertions, feature = "dev-auth"))]
+#[derive(Message, Debug, Clone)]
+#[rtype(result = "Result<(), String>")]
+pub struct SetLayoutExperiment {
+    /// The experiment to run, or `None` to clear it.
+    pub experiment: Option<visionclaw_domain::weighting::LayoutExperiment>,
+}
+
+/// Read the dev-only layout experiment and the hierarchy pairs it withholds.
+#[cfg(any(debug_assertions, feature = "dev-auth"))]
+#[derive(Message, Debug, Clone)]
+#[rtype(result = "Result<LayoutExperimentReport, String>")]
+pub struct GetLayoutExperiment;
+
+/// The current experiment and its withheld pairs, as compact ids (the ids REST and the wire use).
+#[cfg(any(debug_assertions, feature = "dev-auth"))]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LayoutExperimentReport {
+    /// The active experiment, if any.
+    pub experiment: Option<visionclaw_domain::weighting::LayoutExperiment>,
+    /// The `hierarchyAffinity` the force actor holds (and weighted the device with).
+    pub hierarchy_affinity: f32,
+    /// Asserted hierarchy edges in the uploaded graph.
+    pub hierarchy_edge_count: usize,
+    /// Withheld pairs as `[child, parent]` compact ids.
+    pub withheld: Vec<[u32; 2]>,
+    /// `withheld.len()`.
+    pub withheld_count: usize,
+}
+
 // ---------------------------------------------------------------------------
 // Phase 5 (ADR-01 D9): event emission only
 // ---------------------------------------------------------------------------

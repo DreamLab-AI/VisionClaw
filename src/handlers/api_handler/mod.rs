@@ -1,5 +1,8 @@
 pub mod analytics;
 pub mod bots;
+/// Dev-only layout experiment control (ADR-2204 D5); absent from release builds.
+#[cfg(any(debug_assertions, feature = "dev-auth"))]
+pub mod dev_layout_experiment;
 pub mod files;
 pub mod graph;
 pub mod ontology;
@@ -130,4 +133,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .configure(semantic_forces::config)
         // Shared agents demo (ADR-2142)
         .configure(agents_demo::config);
+    // ADR-2204 D5: dev-only layout experiment control, compiled out of release builds.
+    #[cfg(any(debug_assertions, feature = "dev-auth"))]
+    cfg.configure(dev_layout_experiment::config);
 }

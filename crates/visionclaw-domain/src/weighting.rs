@@ -37,9 +37,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use crate::models::edge::{Edge, EdgeProvenance, RDFS_SUBCLASS_OF_IRI};
 use crate::models::node::Node;
 use crate::relations::{RelationKind, RelationSchema};
+use serde::{Deserialize, Serialize};
 
 /// Development-only layout experiment (ADR-2204 D5 pre-registration).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LayoutExperiment {
     /// Seed of the deterministic holdout and null-arm selections.
     pub holdout_seed: u64,
@@ -47,7 +49,15 @@ pub struct LayoutExperiment {
     pub holdout_fraction: f32,
     /// Apply the hierarchy multipliers to a random sample of non-hierarchy
     /// edges instead of to the hierarchy.
+    #[serde(default)]
     pub null_arm: bool,
+}
+
+impl LayoutExperiment {
+    /// Whether the experiment is well formed: a finite fraction in `0..=1`.
+    pub fn is_valid(&self) -> bool {
+        self.holdout_fraction.is_finite() && (0.0..=1.0).contains(&self.holdout_fraction)
+    }
 }
 
 /// What shapes the physics weights.
@@ -140,6 +150,11 @@ pub fn withheld_pairs(
         .collect()
 }
 
+/// How many asserted parent/child hierarchy edges `edges` holds.
+pub fn asserted_hierarchy_edge_count(nodes: &[Node], edges: &[Edge]) -> usize {
+    Context::new(nodes, edges).asserted.len()
+}
+
 fn effective_affinity(a: f32) -> f32 {
     if a.is_finite() && a > 0.0 {
         a
@@ -196,12 +211,11 @@ impl<'a> Context<'a> {
                 continue;
             }
             hierarchy_kind.insert(i);
-            // `owl:sameAs`, `equivalentClass` and the like share the label but
-            // are not parent/child.
-            let parent_child = e
-                .owl_property_iri
-                .as_deref()
-                .map_or(true, |iri| iri == RDFS_SUBCLASS_OF_IRI);
+            // The label `hierarchical` also carries `owl:sameAs`, `equivalentClass` and
+            // `instanceOf`; only an edge whose own predicate is `rdfs:subClassOf` is
+            // parent/child (the rule of `Edge::asserts_subsumption`). An edge with no
+            // predicate (a spoke, a wikilink) is never one.
+            let parent_child = e.owl_property_iri.as_deref() == Some(RDFS_SUBCLASS_OF_IRI);
             if e.provenance == Some(EdgeProvenance::Asserted)
                 && parent_child
                 && e.source != e.target
@@ -449,6 +463,14 @@ mod tests {
     fn same_as_style_hierarchical_edges_are_not_parent_child() {
         let (n, mut e) = tree();
         e[1].owl_property_iri = Some("http://www.w3.org/2002/07/owl#sameAs".into());
+        let w = physics_edge_weights(&n, &e, &on(2.0));
+        assert_eq!(w[1], 1.6);
+    }
+
+    #[test]
+    fn a_hierarchical_edge_with_no_predicate_is_not_parent_child() {
+        let (n, mut e) = tree();
+        e[1].owl_property_iri = None;
         let w = physics_edge_weights(&n, &e, &on(2.0));
         assert_eq!(w[1], 1.6);
     }
