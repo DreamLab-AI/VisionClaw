@@ -1,3 +1,4 @@
+import './devMeasureGuard'; // dev only, and first: must wrap performance.measure before React loads
 import '../rendering/troikaConfig';
 import { extend } from '@react-three/fiber';
 import { GeodesicPolyhedronGeometry } from '../utils/three-geometries';
