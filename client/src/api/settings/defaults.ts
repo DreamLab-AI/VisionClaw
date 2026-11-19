@@ -83,6 +83,7 @@ export const DEFAULT_PHYSICS_SETTINGS: Partial<PhysicsSettings> = {
   ontologyConstraintStrength: 0.6,
   hierarchyAffinity: 0.0,
   weightingMode: 'legacy',
+  repulsionMode: 'uniform',
   hubDamping: 0.0,
   weightMin: 0.25,
   weightMax: 4.0,

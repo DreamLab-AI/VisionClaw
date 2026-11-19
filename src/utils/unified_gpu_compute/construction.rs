@@ -12,6 +12,7 @@ use cust::memory::DeviceBuffer;
 use cust::module::Module;
 use cust::stream::{Stream, StreamFlags};
 use log::{error, info};
+use visionclaw_domain::weighting::{RepulsionMode, StrengthError};
 
 /// Frames between community-label refreshes (Leiden/Louvain) for force cohesion.
 /// Detection is topology-driven (modularity over CSR adjacency) with host-side
@@ -212,7 +213,7 @@ pub struct UnifiedGPUCompute {
     pub labels_next: DeviceBuffer<i32>,
     pub label_counts: DeviceBuffer<i32>,
     pub convergence_flag: DeviceBuffer<i32>,
-    pub node_degrees: DeviceBuffer<f32>,
+    pub community_degrees: DeviceBuffer<f32>,
     pub community_sizes: DeviceBuffer<i32>,
     pub label_mapping: DeviceBuffer<i32>,
     pub rand_states: DeviceBuffer<curandState>,
@@ -244,6 +245,20 @@ pub struct UnifiedGPUCompute {
     pub degree_weight: DeviceBuffer<f32>,
     /// Whether degree weights have been uploaded (graph data available).
     pub(crate) degree_weights_available: bool,
+
+    /// FA2 repulsion factor minus one, per node (ADR-2204 D4). Written only by
+    /// [`UnifiedGPUCompute::upload_repulsion`] and the CSR upload that keeps it matched to the
+    /// weights; community detection writes `community_degrees`.
+    pub repulsion_strength: DeviceBuffer<f32>,
+    /// The stored `repulsionMode` the buffer was last filled for.
+    pub(crate) repulsion_mode: RepulsionMode,
+    /// Whether the weighting path has filled `repulsion_strength`. Until it has, the kernel gets
+    /// a null pointer and runs classic repulsion; the setting then picks the buffer contents.
+    pub(crate) repulsion_uploaded: bool,
+    /// Host copy of `Σ_j w_ij^δ` per node for the uploaded CSR, so a mode switch re-uploads this
+    /// one buffer without a CSR round trip. An `Err` records weights that cannot give a valid
+    /// strength; it only matters while `repulsionMode` is `strength`.
+    pub(crate) repulsion_sums: Result<Vec<f32>, StrengthError>,
 
     /// Semantic forces (DAG / type / physicality / role clustering, collision, attribute
     /// springs, maturity, cross-domain). `None` until a graph's derived metadata is uploaded
@@ -390,6 +405,7 @@ impl UnifiedGPUCompute {
             node_rank,
             node_plane,
             degree_weight,
+            repulsion_strength,
             node_constraint_force,
             compute_mask,
             edge_row_offsets,
@@ -410,7 +426,7 @@ impl UnifiedGPUCompute {
             community_centroids_z,
             community_sizes,
             min_distances,
-            node_degrees,
+            community_degrees,
             labels_current,
             labels_next,
             label_counts,
@@ -559,7 +575,7 @@ impl UnifiedGPUCompute {
             labels_next,
             label_counts,
             convergence_flag,
-            node_degrees,
+            community_degrees,
             community_sizes,
             label_mapping,
             rand_states,
@@ -610,7 +626,11 @@ impl UnifiedGPUCompute {
             aabb_block_results,
 
             degree_weight,
+            repulsion_strength,
             degree_weights_available: false,
+            repulsion_mode: RepulsionMode::default(),
+            repulsion_uploaded: false,
+            repulsion_sums: Ok(vec![0.0; num_nodes]),
             semantic: None,
             semantic_active: false,
 

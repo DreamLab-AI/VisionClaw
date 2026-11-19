@@ -86,6 +86,8 @@ export interface PhysicsSettings {
   hierarchyAffinity: number;
   /** Edge weighting (ADR-2204 D3): 'legacy' keeps stored weights, 'evidence' collapses each pair's evidence into one normalised edge. */
   weightingMode: 'legacy' | 'evidence';
+  /** FA2 repulsion weighting (ADR-2204 D4): 'uniform' repels every node alike (default), 'strength' weights by node strength 1 + sum of edge weights. */
+  repulsionMode: 'uniform' | 'strength';
   /** Evidence-mode hub damping exponent, 0-2 (default 0 = off). */
   hubDamping: number;
   /** Evidence-mode lower weight bound, 0.01-1 (default 0.25). */

@@ -92,6 +92,87 @@ pub enum WeightingMode {
     Evidence,
 }
 
+/// How the force kernel's FA2 repulsion weights each node (ADR-2204 D4, stored
+/// `physics.repulsionMode`).
+///
+/// The kernel multiplies the pairwise repulsion by `(b_i + 1)(b_j + 1)` for a per-node buffer
+/// `b`. The weighting/upload path is that buffer's only producer; no analytics pass writes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "lowercase")]
+pub enum RepulsionMode {
+    /// Every node repels alike: the buffer is all zeros, so each factor is 1. This is what the
+    /// live engine runs after a restart, and the default.
+    #[default]
+    Uniform,
+    /// Node strength `s_i = 1 + Σ_j w_ij^δ` over the uploaded physics weights: the buffer holds
+    /// `s_i - 1`, so the kernel's `+ 1` yields `s_i` and repulsion matches attraction's weights.
+    Strength,
+}
+
+/// Why [`strength_minus_one`] refused its input.
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum StrengthError {
+    /// `row_offsets` is not a non-decreasing run from 0 that fits `weights`.
+    #[error("malformed CSR: row offsets do not describe {weights} weights")]
+    MalformedCsr {
+        /// Number of weights supplied.
+        weights: usize,
+    },
+    /// A node's summed weight is not finite or is negative, so `s_i >= 1` would not hold.
+    #[error("node {node} has strength sum {sum}: strength must be finite and at least 1")]
+    BadSum {
+        /// The offending node's row.
+        node: usize,
+        /// Its `Σ w^δ`.
+        sum: f32,
+    },
+}
+
+/// The repulsion buffer for [`RepulsionMode::Strength`]: `s_i - 1 = Σ_j w_ij^δ` per CSR row, so
+/// the kernel's `(b_i + 1)` yields the node strength `s_i = 1 + Σ_j w_ij^δ`.
+///
+/// `δ` is the edge-weight influence (`1.0` today; ADR-2204 S4b makes it a stored setting).
+/// Sums accumulate in `f64`. Fails if a row sum is not finite or is negative, so every `s_i` is
+/// at least 1.
+///
+/// ```
+/// use visionclaw_domain::weighting::strength_minus_one;
+/// // A path 0 - 1 - 2 with weights 2 and 0.5: s = [3, 3.5, 1.5].
+/// let b = strength_minus_one(&[0, 1, 3, 4], &[2.0, 2.0, 0.5, 0.5], 1.0).unwrap();
+/// assert_eq!(b, vec![2.0, 2.5, 0.5]);
+/// ```
+pub fn strength_minus_one(
+    row_offsets: &[i32],
+    weights: &[f32],
+    delta: f32,
+) -> Result<Vec<f32>, StrengthError> {
+    let malformed = || StrengthError::MalformedCsr {
+        weights: weights.len(),
+    };
+    if row_offsets.first() != Some(&0)
+        || row_offsets.windows(2).any(|w| w[0] > w[1])
+        || row_offsets.last().map(|&e| e as usize) > Some(weights.len())
+    {
+        return Err(malformed());
+    }
+    row_offsets
+        .windows(2)
+        .enumerate()
+        .map(|(node, w)| {
+            let sum: f64 = weights[w[0] as usize..w[1] as usize]
+                .iter()
+                .map(|&x| f64::from(x).powf(f64::from(delta)))
+                .sum();
+            let sum = sum as f32;
+            if sum.is_finite() && sum >= 0.0 {
+                Ok(sum)
+            } else {
+                Err(StrengthError::BadSum { node, sum })
+            }
+        })
+        .collect()
+}
+
 /// Default `wMin` of the evidence normalisation.
 pub const WEIGHT_MIN_DEFAULT: f32 = 0.25;
 /// Default `wMax` of the evidence normalisation.
@@ -1533,5 +1614,66 @@ mod evidence_tests {
             assert!(p.iter().all(|x| x.weight.is_finite() && x.weight > 0.0));
             assert!((p.iter().map(|x| x.weight).sum::<f32>() - 3.0).abs() < 1e-4);
         }
+    }
+}
+
+#[cfg(test)]
+mod repulsion_strength_tests {
+    use super::*;
+
+    /// Hand-computed: triangle 0-1-2 with w01 = 2, w02 = 0.5, w12 = 1, plus isolated node 3.
+    /// Σ w per node = [2.5, 3, 1.5, 0], so s = 1 + Σ = [3.5, 4, 2.5, 1].
+    #[test]
+    fn strength_minus_one_is_the_row_sum_and_gives_s_at_delta_one() {
+        let ro = [0, 2, 4, 6, 6];
+        let w = [2.0, 0.5, 2.0, 1.0, 0.5, 1.0];
+        let b = strength_minus_one(&ro, &w, 1.0).unwrap();
+        assert_eq!(b, vec![2.5, 3.0, 1.5, 0.0]);
+        let s: Vec<f32> = b.iter().map(|x| x + 1.0).collect();
+        assert_eq!(s, vec![3.5, 4.0, 2.5, 1.0]);
+        assert!(s.iter().all(|&x| x >= 1.0));
+    }
+
+    #[test]
+    fn delta_zero_counts_neighbours_and_fractional_delta_flattens() {
+        let ro = [0, 2, 3, 4];
+        let w = [4.0, 9.0, 4.0, 9.0];
+        assert_eq!(
+            strength_minus_one(&ro, &w, 0.0).unwrap(),
+            vec![2.0, 1.0, 1.0]
+        );
+        assert_eq!(
+            strength_minus_one(&ro, &w, 0.5).unwrap(),
+            vec![5.0, 2.0, 3.0]
+        );
+    }
+
+    #[test]
+    fn non_finite_negative_or_malformed_input_is_refused() {
+        assert!(matches!(
+            strength_minus_one(&[0, 1], &[f32::NAN], 1.0),
+            Err(StrengthError::BadSum { node: 0, .. })
+        ));
+        assert!(matches!(
+            strength_minus_one(&[0, 2], &[1.0, -3.0], 1.0),
+            Err(StrengthError::BadSum { node: 0, .. })
+        ));
+        assert!(matches!(
+            strength_minus_one(&[0, 3], &[1.0], 1.0),
+            Err(StrengthError::MalformedCsr { .. })
+        ));
+        assert!(matches!(
+            strength_minus_one(&[1, 1], &[1.0], 1.0),
+            Err(StrengthError::MalformedCsr { .. })
+        ));
+    }
+
+    #[test]
+    fn repulsion_mode_defaults_to_uniform_and_serialises_lowercase() {
+        assert_eq!(RepulsionMode::default(), RepulsionMode::Uniform);
+        assert_eq!(
+            serde_json::to_string(&RepulsionMode::Strength).unwrap(),
+            "\"strength\""
+        );
     }
 }

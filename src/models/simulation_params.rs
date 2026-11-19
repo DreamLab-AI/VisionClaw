@@ -176,6 +176,7 @@ impl SimParams {
             // carries no affinity.
             hierarchy_affinity: 0.0,
             weighting_mode: visionclaw_domain::weighting::WeightingMode::Legacy,
+            repulsion_mode: visionclaw_domain::weighting::RepulsionMode::Uniform,
             hub_damping: 0.0,
             weight_min: visionclaw_domain::weighting::WEIGHT_MIN_DEFAULT,
             weight_max: visionclaw_domain::weighting::WEIGHT_MAX_DEFAULT,

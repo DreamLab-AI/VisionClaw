@@ -84,7 +84,7 @@ impl UnifiedGPUCompute {
             "labels_next",
             "label_counts",
             "label_mapping",
-            "node_degrees",
+            "community_degrees",
             "community_sizes",
             "edge_row_offsets",
             "edge_col_indices",
@@ -134,7 +134,7 @@ impl UnifiedGPUCompute {
 
         // SAFETY: Node degree computation kernel is safe because:
         // 1. edge_row_offsets and edge_weights are valid CSR graph data
-        // 2. node_degrees is an output buffer with capacity >= num_nodes
+        // 2. community_degrees is an output buffer with capacity >= num_nodes
         // 3. The kernel reads CSR offsets to compute weighted degree per node
         let compute_degrees_kernel = unified_mod.get_function("compute_node_degrees_kernel")?;
         unsafe {
@@ -142,14 +142,14 @@ impl UnifiedGPUCompute {
                 compute_degrees_kernel<<<grid_size as u32, block_size as u32, 0, stream>>>(
                     self.edge_row_offsets.as_device_ptr(),
                     self.edge_weights.as_device_ptr(),
-                    self.node_degrees.as_device_ptr(),
+                    self.community_degrees.as_device_ptr(),
                     self.num_nodes as i32
                 )
             )?;
         }
 
         self.stream.synchronize()?;
-        let node_degrees_host = safe_download(&self.node_degrees, self.num_nodes)?;
+        let node_degrees_host = safe_download(&self.community_degrees, self.num_nodes)?;
         let total_weight: f32 = node_degrees_host.iter().sum::<f32>() / 2.0;
 
         let mut iterations = 0;
@@ -353,24 +353,24 @@ impl UnifiedGPUCompute {
         let aggregate_kernel = clust_mod.get_function("louvain_aggregate_edges_kernel")?;
         let compute_degrees_kernel = unified_mod.get_function("compute_node_degrees_kernel")?;
 
-        // 1. Weighted node degrees (k_i) of the ORIGINAL graph -> self.node_degrees.
+        // 1. Weighted node degrees (k_i) of the ORIGINAL graph -> self.community_degrees.
         //    total_weight (m) is invariant across contraction levels, so it is
         //    computed once and reused for every level's gain + modularity.
-        // SAFETY: edge_row_offsets/edge_weights are valid CSR buffers; node_degrees
+        // SAFETY: edge_row_offsets/edge_weights are valid CSR buffers; community_degrees
         // is an output buffer with capacity >= num_nodes.
         unsafe {
             launch!(
                 compute_degrees_kernel<<<grid_size, block_size, 0, stream>>>(
                     self.edge_row_offsets.as_device_ptr(),
                     self.edge_weights.as_device_ptr(),
-                    self.node_degrees.as_device_ptr(),
+                    self.community_degrees.as_device_ptr(),
                     self.num_nodes as i32
                 )
             )?;
         }
         self.stream.synchronize()?;
 
-        let degrees_host0 = safe_download(&self.node_degrees, self.num_nodes)?;
+        let degrees_host0 = safe_download(&self.community_degrees, self.num_nodes)?;
         let total_weight: f32 = degrees_host0.iter().sum::<f32>() / 2.0;
 
         // No edges: every node is its own singleton community.

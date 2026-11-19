@@ -151,6 +151,10 @@ graph_sized_buffers! {
     node_rank: f32, Nodes, fill(-1.0);
     node_plane: f32, Nodes, fill(f32::NAN);
     degree_weight: f32, Nodes, fill(1.0);
+    // ADR-2204 D4: the FA2 repulsion factor minus one, per node. Its ONE producer is
+    // `upload_repulsion` (zeros for `uniform`, node strength minus one for `strength`); no
+    // analytics pass writes it. Community detection owns `community_degrees` instead.
+    repulsion_strength: f32, Nodes, zero;
     node_constraint_force: f32, Nodes, zero;
     compute_mask: i32, Nodes, zero;
 
@@ -179,7 +183,7 @@ graph_sized_buffers! {
     community_centroids_z: f32, Nodes, zero;
     community_sizes: i32, Nodes, zero;
     min_distances: f32, Nodes, zero;
-    node_degrees: f32, Nodes, zero;
+    community_degrees: f32, Nodes, zero;
 
     // Label propagation (missed by resize before S1a).
     labels_current: i32, Nodes, zero;
@@ -284,6 +288,7 @@ impl UnifiedGPUCompute {
     /// - the sparse compute mask (all nodes computed until `set_compute_mask`);
     /// - community labels and their count (the next cohesion step re-runs detection);
     /// - degree weights (unweighted until `upload_degree_weights`);
+    /// - the FA2 repulsion buffer (classic repulsion until `upload_repulsion`);
     /// - the hold overlay's per-slot rest lengths (the next hold captures fresh ones);
     /// - semantic metadata (`SemanticGpu`, off until `enable_semantic`).
     ///
@@ -295,6 +300,7 @@ impl UnifiedGPUCompute {
         self.community_count_active = 0;
         self.last_cohesion_refresh_iter = 0;
         self.degree_weights_available = false;
+        self.repulsion_uploaded = false;
         self.hold_overlay.invalidate();
         self.semantic = None;
     }

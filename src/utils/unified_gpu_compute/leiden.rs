@@ -223,14 +223,14 @@ impl UnifiedGPUCompute {
                 compute_degrees_kernel<<<grid0, block_size, 0, stream>>>(
                     self.edge_row_offsets.as_device_ptr(),
                     self.edge_weights.as_device_ptr(),
-                    self.node_degrees.as_device_ptr(),
+                    self.community_degrees.as_device_ptr(),
                     self.num_nodes as i32
                 )
             )?;
         }
         self.stream.synchronize()?;
 
-        let degrees_host0 = safe_download(&self.node_degrees, self.num_nodes)?;
+        let degrees_host0 = safe_download(&self.community_degrees, self.num_nodes)?;
         let total_weight: f32 = degrees_host0.iter().sum::<f32>() / 2.0;
 
         if total_weight <= 0.0 {

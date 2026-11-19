@@ -9,7 +9,7 @@ use validator::Validate;
 
 use super::layout::LayoutMode;
 use super::semantic_config::SemanticForces;
-use crate::weighting::{WeightingMode, WEIGHT_MAX_DEFAULT, WEIGHT_MIN_DEFAULT};
+use crate::weighting::{RepulsionMode, WeightingMode, WEIGHT_MAX_DEFAULT, WEIGHT_MIN_DEFAULT};
 
 /// Canonical maximum velocity (from `src/config/mod.rs`).
 pub const CANONICAL_MAX_VELOCITY: f32 = 200.0;
@@ -142,6 +142,11 @@ pub const HIERARCHY_AFFINITY_DEFAULT: f32 = 0.0;
 
 fn default_hierarchy_affinity() -> f32 {
     HIERARCHY_AFFINITY_DEFAULT
+}
+
+/// Default `repulsionMode`: uniform, what the live engine runs after a restart (ADR-2204 D4).
+fn default_repulsion_mode() -> RepulsionMode {
+    RepulsionMode::Uniform
 }
 
 /// Default `weightingMode`: legacy, the layout then uses each edge's stored weight (ADR-2204 D3).
@@ -479,6 +484,11 @@ pub struct PhysicsSettings {
     /// only: it shapes the weights the host uploads, not the kernel parameters.
     #[serde(alias = "weighting_mode", default = "default_weighting_mode")]
     pub weighting_mode: WeightingMode,
+    /// FA2 repulsion weighting (ADR-2204 D4): `uniform` (default) repels every node alike;
+    /// `strength` weights by node strength `1 + Σ w`. Host-side only: the weighting/upload path
+    /// fills the one device buffer the kernel reads, no analytics pass does.
+    #[serde(alias = "repulsion_mode", default = "default_repulsion_mode")]
+    pub repulsion_mode: RepulsionMode,
     /// Hub damping exponent `α` of evidence mode, `0..=2`; weights scale by
     /// `(deg_u·deg_v)^(−α/2)`. Default 0 (off).
     #[serde(alias = "hub_damping", default = "default_hub_damping")]
@@ -680,6 +690,7 @@ impl Default for PhysicsSettings {
             ontology_constraint_strength: default_ontology_constraint_strength(),
             hierarchy_affinity: default_hierarchy_affinity(),
             weighting_mode: default_weighting_mode(),
+            repulsion_mode: default_repulsion_mode(),
             hub_damping: default_hub_damping(),
             weight_min: default_weight_min(),
             weight_max: default_weight_max(),
@@ -874,6 +885,7 @@ mod tests {
     fn weighting_settings_default_to_legacy_and_round_trip() {
         let d = PhysicsSettings::default();
         assert_eq!(d.weighting_mode, WeightingMode::Legacy);
+        assert_eq!(d.repulsion_mode, RepulsionMode::Uniform);
         assert_eq!(
             (d.hub_damping, d.weight_min, d.weight_max),
             (0.0, 0.25, 4.0)
@@ -881,9 +893,12 @@ mod tests {
         let mut doc = serde_json::to_value(&d).unwrap();
         assert_eq!(doc["weightingMode"], serde_json::json!("legacy"));
         doc["weightingMode"] = serde_json::json!("evidence");
+        assert_eq!(doc["repulsionMode"], serde_json::json!("uniform"));
+        doc["repulsionMode"] = serde_json::json!("strength");
         doc["hubDamping"] = serde_json::json!(0.5);
         let back: PhysicsSettings = serde_json::from_value(doc.clone()).unwrap();
         assert_eq!(back.weighting_mode, WeightingMode::Evidence);
+        assert_eq!(back.repulsion_mode, RepulsionMode::Strength);
         assert_eq!(back.hub_damping, 0.5);
         for k in ["weightingMode", "hubDamping", "weightMin", "weightMax"] {
             doc.as_object_mut().unwrap().remove(k);

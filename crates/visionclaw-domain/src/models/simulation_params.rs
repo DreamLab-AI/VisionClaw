@@ -189,6 +189,9 @@ pub struct SimulationParams {
     /// Edge weighting (ADR-2204 D3). Host-side only, like `hierarchy_affinity`.
     #[serde(default)]
     pub weighting_mode: crate::weighting::WeightingMode,
+    /// FA2 repulsion weighting (ADR-2204 D4); host-side only, uploaded to its own device buffer.
+    #[serde(default)]
+    pub repulsion_mode: crate::weighting::RepulsionMode,
     /// Evidence-mode hub damping exponent `α` (host-side only).
     #[serde(default)]
     pub hub_damping: f32,
@@ -578,6 +581,7 @@ impl SimulationParams {
             constraint_max_force_per_node: physics.constraint_max_force_per_node,
             hierarchy_affinity: physics.hierarchy_affinity,
             weighting_mode: physics.weighting_mode,
+            repulsion_mode: physics.repulsion_mode,
             hub_damping: physics.hub_damping,
             weight_min: physics.weight_min,
             weight_max: physics.weight_max,

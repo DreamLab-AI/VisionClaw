@@ -8,6 +8,11 @@ use crate::models::simulation_params::SimParams;
 use anyhow::{anyhow, Result};
 use cust::memory::{CopyDestination, DeviceBuffer};
 use log::{debug, error, info, warn};
+use visionclaw_domain::weighting::{strength_minus_one, RepulsionMode};
+
+/// Edge-weight influence `δ` in node strength `s_i = 1 + Σ_j w_ij^δ` (ADR-2204 D4). Fixed at 1
+/// until S4b stores it as a setting, where attraction and this strength take it together.
+pub(crate) const EDGE_WEIGHT_INFLUENCE: f32 = 1.0;
 
 /// Safe wrapper for DeviceBuffer::copy_from that returns Err instead of
 /// panicking on size mismatch (the underlying cust assert! poisons the mutex
@@ -285,6 +290,44 @@ impl UnifiedGPUCompute {
                 Some(range.map_or((w, w), |(lo, hi)| (lo.min(w), hi.max(w))))
             })
             .unwrap_or((0.0, 0.0));
+        // The repulsion factor follows the weights it matches (ADR-2204 D4): the sums are
+        // recomputed with every CSR upload, and the device buffer is rewritten at once when
+        // the strength mode is live, so attraction and repulsion never see different weights.
+        self.repulsion_sums = strength_minus_one(row_offsets, weights, EDGE_WEIGHT_INFLUENCE);
+        if self.repulsion_uploaded && self.repulsion_mode == RepulsionMode::Strength {
+            self.upload_repulsion(RepulsionMode::Strength)?;
+        }
+        Ok(())
+    }
+
+    /// Fill the FA2 repulsion buffer for `mode` (ADR-2204 D4). This is the buffer's only
+    /// producer; analytics passes write `community_degrees`, never this.
+    ///
+    /// The kernel multiplies each pair's repulsion by `(b_i + 1)(b_j + 1)`. `Uniform` writes
+    /// zeros, so every factor is 1. `Strength` writes `s_i - 1` with `s_i = 1 + Σ_j w_ij^δ`
+    /// from the last uploaded CSR, so the factor is the node strength `s_i >= 1`; weights that
+    /// cannot give that (non-finite or negative sums) are an error and the buffer is left as
+    /// it was. Only this one buffer is written: positions, velocities and every other buffer
+    /// are untouched, so switching modes at runtime does not reset the layout.
+    pub fn upload_repulsion(&mut self, mode: RepulsionMode) -> Result<()> {
+        let mut values = match mode {
+            RepulsionMode::Uniform => vec![0.0f32; self.num_nodes],
+            RepulsionMode::Strength => match &self.repulsion_sums {
+                Ok(sums) if sums.len() == self.num_nodes => sums.clone(),
+                Ok(sums) => {
+                    return Err(anyhow!(
+                        "repulsion strength has {} entries for {} nodes: upload the CSR first",
+                        sums.len(),
+                        self.num_nodes
+                    ))
+                }
+                Err(e) => return Err(anyhow!("repulsion strength unavailable: {e}")),
+            },
+        };
+        values.resize(self.repulsion_strength.len().max(values.len()), 0.0);
+        checked_copy_from(&mut self.repulsion_strength, &values, "repulsion_strength")?;
+        self.repulsion_mode = mode;
+        self.repulsion_uploaded = true;
         Ok(())
     }
 

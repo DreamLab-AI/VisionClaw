@@ -183,6 +183,7 @@ visualisation:
         constraintMaxForcePerNode: 50.0
         hierarchyAffinity: 0.0
         weightingMode: legacy
+        repulsionMode: uniform
         hubDamping: 0.0
         weightMin: 0.25
         weightMax: 4.0
@@ -301,6 +302,7 @@ visualisation:
         constraintMaxForcePerNode: 50.0
         hierarchyAffinity: 0.0
         weightingMode: legacy
+        repulsionMode: uniform
         hubDamping: 0.0
         weightMin: 0.25
         weightMax: 4.0

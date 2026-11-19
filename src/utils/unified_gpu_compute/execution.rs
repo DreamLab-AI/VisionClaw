@@ -190,13 +190,13 @@ impl UnifiedGPUCompute {
                  pos_in_x={}, vel_in_x={}, force_x={}, mass={}, \
                  active_node_count={}, should_skip_physics={}, \
                  aabb_num_blocks={}, aabb_block_results={}, partial_ke={}, \
-                 node_degrees={}, degree_weight={}, edge_row_offsets={}, edge_col_indices={}",
+                 repulsion_strength={}, degree_weight={}, edge_row_offsets={}, edge_col_indices={}",
                 self.num_nodes, self.allocated_nodes, self.num_edges, self.allocated_edges,
                 self.max_grid_cells, self.zero_buffer.len(), self.cell_start.len(), self.cell_end.len(),
                 self.pos_in_x.len(), self.vel_in_x.len(), self.force_x.len(), self.mass.len(),
                 self.active_node_count.len(), self.should_skip_physics.len(),
                 self.aabb_num_blocks, self.aabb_block_results.len(), self.partial_kinetic_energy.len(),
-                self.node_degrees.len(), self.degree_weight.len(),
+                self.repulsion_strength.len(), self.degree_weight.len(),
                 self.edge_row_offsets.len(), self.edge_col_indices.len(),
             );
         }
@@ -685,9 +685,11 @@ impl UnifiedGPUCompute {
         // 5. constraint_data has capacity for num_constraints ConstraintData elements
         // 6. should_skip_physics is a valid single-element DeviceBuffer for stability gating
         // 7. grid_size and block_size are validated via validate_kernel_launch()
-        // FA2: pass node_degrees when available, otherwise null (falls back to classic repulsion)
-        let d_node_degrees = if self.degree_weights_available {
-            self.node_degrees.as_device_ptr()
+        // FA2 repulsion (ADR-2204 D4): pass the repulsion buffer once the weighting path has
+        // filled it for the stored `repulsionMode`, otherwise null (classic repulsion). Which
+        // factor each node gets is that mode's doing, not whichever pass last wrote a buffer.
+        let d_node_degrees = if self.repulsion_uploaded {
+            self.repulsion_strength.as_device_ptr()
         } else {
             DevicePointer::<f32>::null()
         };
@@ -4186,40 +4188,16 @@ mod layout_balance_gpu_tests {
         g.upload_edges_csr(&offsets, &cols, &vec![1.0; cols.len()])
             .expect("edges");
 
-        // The live engine has the degree weights uploaded (that is what hands the kernel its
-        // `node_degrees` pointer) and the degrees filled in on device; FA2 repulsion is
-        // `scaling_ratio * (deg_i + 1) * (deg_j + 1) / d`, so without them the force law differs.
+        // The live engine has the degree weights uploaded and the repulsion buffer filled by its
+        // single producer under the stored default `repulsionMode` (uniform): FA2 repulsion is
+        // `scaling_ratio * (deg_i + 1) * (deg_j + 1) / d` with every factor 1. Before ADR-2204 S4a
+        // this test filled the buffer with weighted degrees on the belief that live did the same;
+        // live only had them after a community-detection run.
         let degree_weights: Vec<f32> = adj.iter().map(|r| (1.0 + r.len() as f32).ln()).collect();
         g.upload_degree_weights(&degree_weights)
             .expect("degree weights");
-        let degrees_kernel = g
-            ._module
-            .get_function("compute_node_degrees_kernel")
-            .expect("degrees kernel");
-        let stream = &g.stream;
-        unsafe {
-            cust::launch!(degrees_kernel<<<((N as u32) + 255) / 256, 256, 0, stream>>>(
-                g.edge_row_offsets.as_device_ptr(),
-                g.edge_weights.as_device_ptr(),
-                g.node_degrees.as_device_ptr(),
-                N as i32
-            ))
-            .expect("launch degrees");
-        }
-        g.stream.synchronize().expect("sync");
-        let mut deg = vec![0f32; N];
-        g.node_degrees
-            .index(0..N)
-            .copy_to(&mut deg[..])
-            .expect("read degrees");
-        let mut sorted = deg.clone();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        println!(
-            "DEGREES p50 {} p99 {} max {}",
-            sorted[N / 2],
-            sorted[N * 99 / 100],
-            sorted[N - 1]
-        );
+        g.upload_repulsion(visionclaw_domain::weighting::RepulsionMode::default())
+            .expect("repulsion");
 
         // Random start in a cloud like the live one.
         let mut seed = 11u64;
@@ -4464,5 +4442,333 @@ mod adr_2204_reweight_gpu_tests {
             "the new weights are on the device"
         );
         assert_ne!(before.6, after.6);
+    }
+}
+
+/// ADR-2204 D4 / S4a: repulsion has one owner. The degree buffer the force kernel reads for
+/// FA2 repulsion is written by the weighting/upload path alone, so running an analytics pass
+/// (community detection) never changes the physics. On a real device; without CUDA these
+/// tests print `SKIPPED`.
+#[cfg(test)]
+mod adr_2204_repulsion_gpu_tests {
+    use super::*;
+    use cust::memory::CopyDestination;
+    use visionclaw_domain::weighting::RepulsionMode;
+
+    const N: usize = 90;
+
+    fn bits(v: &[f32]) -> Vec<u32> {
+        v.iter().map(|x| x.to_bits()).collect()
+    }
+
+    /// FNV-1a over the position words: a stable fingerprint to pin the pre-change behaviour.
+    fn fnv(words: &[u32]) -> u64 {
+        words.iter().fold(0xcbf29ce484222325u64, |h, w| {
+            (h ^ u64::from(*w)).wrapping_mul(0x100000001b3)
+        })
+    }
+
+    /// The community-detection writer to run between upload and stepping.
+    #[derive(Clone, Copy, Debug)]
+    enum Detect {
+        LabelPropagation,
+        Louvain,
+        Leiden,
+    }
+
+    /// 9 classes under a root with 8 children each, plus a ring of links. Symmetric CSR with
+    /// weights 0.5 + (slot % 4) / 2 so row sums differ across nodes.
+    fn csr() -> (Vec<i32>, Vec<i32>, Vec<f32>) {
+        let mut adj = vec![Vec::<usize>::new(); N];
+        let mut link = |a: usize, b: usize| {
+            adj[a].push(b);
+            adj[b].push(a);
+        };
+        for c in 1..=9usize {
+            link(c, 0);
+            for k in 0..8usize {
+                link(10 + (c - 1) * 8 + k, c);
+            }
+        }
+        for i in 10..N {
+            link(i, 10 + (i - 9) % (N - 10));
+        }
+        let (mut ro, mut ci, mut w) = (vec![0i32], Vec::new(), Vec::new());
+        for row in &adj {
+            for &t in row {
+                ci.push(t as i32);
+                w.push(0.5 + (w.len() % 4) as f32 / 2.0);
+            }
+            ro.push(ci.len() as i32);
+        }
+        (ro, ci, w)
+    }
+
+    /// An engine configured as the live one is: CSR and degree weights uploaded, then the
+    /// repulsion buffer set up by its single producer.
+    fn live_engine(ptx: &str) -> Option<UnifiedGPUCompute> {
+        let (ro, ci, w) = csr();
+        // Louvain and Leiden launch kernels from the clustering module, as the live engine has it.
+        let clustering = visionclaw_gpu::ptx_loader::load_ptx_module_sync(
+            visionclaw_gpu::ptx_loader::PTXModule::GpuClusteringKernels,
+        )
+        .ok()?;
+        let mut g =
+            UnifiedGPUCompute::new_with_modules(N, ci.len(), ptx, Some(&clustering), None).ok()?;
+        g.upload_edges_csr(&ro, &ci, &w).expect("csr");
+        let degrees: Vec<f32> = (0..N)
+            .map(|i| (1.0 + (ro[i + 1] - ro[i]) as f32).ln())
+            .collect();
+        g.upload_degree_weights(&degrees).expect("degree weights");
+        g.upload_repulsion(RepulsionMode::Uniform)
+            .expect("repulsion");
+        let (mut x, mut y, mut z) = (vec![0f32; N], vec![0f32; N], vec![0f32; N]);
+        let mut s = 99u64;
+        for i in 0..N {
+            for v in [&mut x, &mut y, &mut z] {
+                s = s
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                v[i] = ((s >> 33) as f32 / (u32::MAX >> 1) as f32 - 0.5) * 400.0;
+            }
+        }
+        g.upload_positions(&x, &y, &z).expect("positions");
+        Some(g)
+    }
+
+    fn params() -> crate::models::simulation_params::SimulationParams {
+        let mut p = crate::models::simulation_params::SimulationParams::new();
+        p.dt = 0.016;
+        p.damping = 0.9;
+        p.repel_k = 343.98535;
+        p.spring_k = 12.0;
+        p.center_gravity_k = 0.2;
+        p.lin_log_mode = true;
+        p
+    }
+
+    fn step_and_read(g: &mut UnifiedGPUCompute, steps: usize) -> [Vec<u32>; 3] {
+        let p = params();
+        for _ in 0..steps {
+            g.execute_physics_step_with_bypass(&p, true).expect("step");
+        }
+        let (x, y, z) = g.get_node_positions().expect("positions");
+        [bits(&x), bits(&y), bits(&z)]
+    }
+
+    fn run(ptx: &str, detect: Option<Detect>) -> Option<[Vec<u32>; 3]> {
+        let mut g = live_engine(ptx)?;
+        match detect {
+            Some(Detect::LabelPropagation) => {
+                g.run_community_detection(10, 7).expect("label propagation");
+            }
+            Some(Detect::Louvain) => {
+                g.run_louvain_community_detection(10, 1.0, 0)
+                    .expect("louvain");
+            }
+            Some(Detect::Leiden) => {
+                g.run_leiden_community_detection(10, 1.0, 0)
+                    .expect("leiden");
+            }
+            None => {}
+        }
+        Some(step_and_read(&mut g, 40))
+    }
+
+    macro_rules! gpu_or_skip {
+        () => {{
+            let Ok(ctx) = cust::quick_init() else {
+                eprintln!("[adr_2204_repulsion_gpu_tests] SKIPPED, CUDA init failed");
+                return;
+            };
+            let Ok(ptx) = crate::utils::ptx::load_ptx_sync() else {
+                eprintln!("[adr_2204_repulsion_gpu_tests] SKIPPED, no PTX");
+                return;
+            };
+            (ctx, ptx)
+        }};
+    }
+
+    /// Fingerprint of 40 steps on this graph before S4a, with community detection never run
+    /// (captured on `main` a47379053, GPU 1). Uniform repulsion must reproduce it exactly.
+    const GOLDEN_UNIFORM_40_STEPS: u64 = 0x664b_cba8_8bfb_8671;
+
+    #[test]
+    fn the_control_run_is_deterministic() {
+        let (_ctx, ptx) = gpu_or_skip!();
+        let (Some(a), Some(b)) = (run(&ptx, None), run(&ptx, None)) else {
+            eprintln!("[adr_2204_repulsion_gpu_tests] SKIPPED, no CUDA device");
+            return;
+        };
+        assert_eq!(a, b, "two identical runs must be bit-identical");
+        assert!(
+            a[0].iter().any(|&w| w != 0),
+            "the layout must have produced positions"
+        );
+    }
+
+    /// (a) Uniform repulsion: no community-detection writer may change subsequent positions.
+    #[test]
+    fn community_detection_does_not_change_uniform_repulsion() {
+        let (_ctx, ptx) = gpu_or_skip!();
+        let Some(control) = run(&ptx, None) else {
+            eprintln!("[adr_2204_repulsion_gpu_tests] SKIPPED, no CUDA device");
+            return;
+        };
+        for d in [Detect::LabelPropagation, Detect::Louvain, Detect::Leiden] {
+            let after = run(&ptx, Some(d)).expect("device");
+            assert_eq!(
+                control, after,
+                "{d:?} changed the layout under uniform repulsion"
+            );
+        }
+    }
+
+    /// (b) Uniform repulsion over 40 steps reproduces the pre-change behaviour bit for bit.
+    #[test]
+    fn uniform_repulsion_matches_the_pre_change_golden() {
+        let (_ctx, ptx) = gpu_or_skip!();
+        let Some(p) = run(&ptx, None) else {
+            eprintln!("[adr_2204_repulsion_gpu_tests] SKIPPED, no CUDA device");
+            return;
+        };
+        let all: Vec<u32> = p.iter().flatten().copied().collect();
+        println!("GOLDEN_FINGERPRINT {:#018x}", fnv(&all));
+        assert_eq!(fnv(&all), GOLDEN_UNIFORM_40_STEPS);
+    }
+
+    fn read_repulsion(g: &UnifiedGPUCompute) -> Vec<f32> {
+        let mut v = vec![0f32; g.repulsion_strength.len()];
+        g.repulsion_strength.copy_to(&mut v).expect("repulsion");
+        v.truncate(N);
+        v
+    }
+
+    /// (c) Strength mode puts `s_i - 1` on the device, where the kernel's `+ 1` gives
+    /// `s_i = 1 + Σ w`; the uniform buffer is all zeros.
+    #[test]
+    fn strength_buffer_holds_node_strength_minus_one() {
+        let (_ctx, ptx) = gpu_or_skip!();
+        let Some(mut g) = live_engine(&ptx) else {
+            eprintln!("[adr_2204_repulsion_gpu_tests] SKIPPED, no CUDA device");
+            return;
+        };
+        assert!(
+            read_repulsion(&g).iter().all(|&b| b == 0.0),
+            "uniform is all zeros"
+        );
+        g.upload_repulsion(RepulsionMode::Strength)
+            .expect("strength");
+        let (ro, _, w) = csr();
+        let got = read_repulsion(&g);
+        for i in 0..N {
+            let want: f32 = w[ro[i] as usize..ro[i + 1] as usize].iter().sum();
+            assert!(
+                (got[i] - want).abs() <= 1e-5 * want.max(1.0),
+                "node {i}: {} vs {want}",
+                got[i]
+            );
+            assert!(got[i] + 1.0 >= 1.0, "s_i >= 1");
+        }
+        assert!(got.iter().any(|&b| b > 1.0), "weights must matter");
+    }
+
+    /// Strength follows the weights it matches: a CSR re-upload under strength mode rewrites
+    /// the buffer in the same call, and under uniform mode leaves it zero.
+    #[test]
+    fn a_weight_upload_keeps_strength_matched() {
+        let (_ctx, ptx) = gpu_or_skip!();
+        let Some(mut g) = live_engine(&ptx) else {
+            eprintln!("[adr_2204_repulsion_gpu_tests] SKIPPED, no CUDA device");
+            return;
+        };
+        let (ro, ci, w) = csr();
+        let doubled: Vec<f32> = w.iter().map(|x| x * 2.0).collect();
+        g.upload_edges_csr(&ro, &ci, &doubled).expect("csr");
+        assert!(
+            read_repulsion(&g).iter().all(|&b| b == 0.0),
+            "uniform stays zero"
+        );
+        g.upload_repulsion(RepulsionMode::Strength)
+            .expect("strength");
+        let before = read_repulsion(&g);
+        g.upload_edges_csr(&ro, &ci, &w).expect("csr");
+        let after = read_repulsion(&g);
+        for i in 0..N {
+            assert!(
+                (before[i] - 2.0 * after[i]).abs() <= 1e-4 * before[i].max(1.0),
+                "node {i}"
+            );
+        }
+    }
+
+    /// Weights that cannot give a valid strength are refused and the buffer is left alone.
+    #[test]
+    fn invalid_weights_refuse_strength_and_leave_the_buffer() {
+        let (_ctx, ptx) = gpu_or_skip!();
+        let Some(mut g) = live_engine(&ptx) else {
+            eprintln!("[adr_2204_repulsion_gpu_tests] SKIPPED, no CUDA device");
+            return;
+        };
+        let (ro, ci, mut w) = csr();
+        w[0] = f32::NAN;
+        g.upload_edges_csr(&ro, &ci, &w)
+            .expect("uniform accepts any weights");
+        assert!(g.upload_repulsion(RepulsionMode::Strength).is_err());
+        assert!(read_repulsion(&g).iter().all(|&b| b == 0.0));
+        assert_eq!(g.repulsion_mode, RepulsionMode::Uniform);
+    }
+
+    /// (d) Switching modes writes the repulsion buffer and nothing else: positions and
+    /// velocities are bit-identical across the switch, in both directions.
+    #[test]
+    fn switching_modes_leaves_positions_and_velocities_untouched() {
+        let (_ctx, ptx) = gpu_or_skip!();
+        let Some(mut g) = live_engine(&ptx) else {
+            eprintln!("[adr_2204_repulsion_gpu_tests] SKIPPED, no CUDA device");
+            return;
+        };
+        step_and_read(&mut g, 20);
+        let snap = |g: &mut UnifiedGPUCompute| {
+            let (px, py, pz) = g.get_node_positions().expect("positions");
+            let (vx, vy, vz) = g.get_node_velocities().expect("velocities");
+            (
+                [bits(&px), bits(&py), bits(&pz)],
+                [bits(&vx), bits(&vy), bits(&vz)],
+            )
+        };
+        let before = snap(&mut g);
+        assert!(
+            before
+                .1
+                .iter()
+                .any(|v| v.iter().any(|&b| f32::from_bits(b) != 0.0)),
+            "the layout must have run: zero velocities would make a pass vacuous"
+        );
+        for mode in [RepulsionMode::Strength, RepulsionMode::Uniform] {
+            g.upload_repulsion(mode).expect("switch");
+            assert_eq!(before, snap(&mut g), "switch to {mode:?}");
+        }
+    }
+
+    /// The setting, not a buffer's history, decides repulsion: strength mode changes the
+    /// layout, and uniform returns to the uniform golden.
+    #[test]
+    fn strength_mode_changes_the_layout_and_uniform_matches_the_golden_after_it() {
+        let (_ctx, ptx) = gpu_or_skip!();
+        let (Some(mut a), Some(mut b)) = (live_engine(&ptx), live_engine(&ptx)) else {
+            eprintln!("[adr_2204_repulsion_gpu_tests] SKIPPED, no CUDA device");
+            return;
+        };
+        b.upload_repulsion(RepulsionMode::Strength)
+            .expect("strength");
+        assert_ne!(step_and_read(&mut a, 40), step_and_read(&mut b, 40));
+        let mut c = live_engine(&ptx).expect("device");
+        c.upload_repulsion(RepulsionMode::Strength)
+            .expect("strength");
+        c.upload_repulsion(RepulsionMode::Uniform).expect("uniform");
+        let p = step_and_read(&mut c, 40);
+        let all: Vec<u32> = p.iter().flatten().copied().collect();
+        assert_eq!(fnv(&all), GOLDEN_UNIFORM_40_STEPS);
     }
 }

@@ -18,7 +18,9 @@ use crate::utils::socket_flow_messages::{glam_to_vec3data, BinaryNodeDataClient}
 use crate::utils::unified_gpu_compute::ComputeMode;
 use crate::utils::unified_gpu_compute::SimParams;
 use glam::Vec3;
-use visionclaw_domain::weighting::{physics_pairs, LayoutExperiment, WeightingProfile};
+use visionclaw_domain::weighting::{
+    physics_pairs, LayoutExperiment, RepulsionMode, WeightingProfile,
+};
 
 use cudarc::driver::CudaDevice;
 
@@ -1246,6 +1248,20 @@ impl ForceComputeActor {
                         warn!("ForceComputeActor: Failed to upload degree weights: {}", e);
                     }
 
+                    // ADR-2204 D4: the FA2 repulsion buffer has one producer, this upload,
+                    // filled for the stored `repulsionMode` from the CSR just uploaded. Weights
+                    // that cannot give a valid strength fall back to uniform, loudly.
+                    let mode = self.simulation_params.repulsion_mode;
+                    if let Err(e) = compute.upload_repulsion(mode) {
+                        error!(
+                            "ForceComputeActor: repulsionMode {:?} not applied ({e:#}); using uniform",
+                            mode
+                        );
+                        if let Err(e) = compute.upload_repulsion(RepulsionMode::Uniform) {
+                            warn!("ForceComputeActor: uniform repulsion upload failed: {e:#}");
+                        }
+                    }
+
                     // Also set class_mass = degree_weight so high-degree hubs have
                     // more inertia — they resist sudden position changes during layout
                     // transitions and settle more smoothly. Mass range: 0.5 (isolated)
@@ -1450,6 +1466,25 @@ impl ForceComputeActor {
             profile.hub_damping,
             profile.experiment.is_some()
         );
+        Ok(())
+    }
+
+    /// Fill the device's repulsion buffer for `mode` (ADR-2204 D4); nothing else on the device
+    /// is written. Before any graph is uploaded there is nothing to do: the first upload reads
+    /// the stored mode. A device failure (including weights that cannot give a valid strength)
+    /// is returned and the stored mode is not changed.
+    fn apply_repulsion_mode(&mut self, mode: RepulsionMode) -> Result<(), String> {
+        let Some(ctx) = self.shared_context.clone() else {
+            return Ok(());
+        };
+        let mut compute = match ctx.unified_compute.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        compute
+            .upload_repulsion(mode)
+            .map_err(|e| format!("repulsion upload failed: {e:#}"))?;
+        info!("ForceComputeActor: repulsionMode {:?} applied", mode);
         Ok(())
     }
 
@@ -2810,6 +2845,14 @@ impl Handler<UpdateSimulationParams> for ForceComputeActor {
             self.simulation_params.hub_damping = msg.params.hub_damping;
             self.simulation_params.weight_min = msg.params.weight_min;
             self.simulation_params.weight_max = msg.params.weight_max;
+        }
+
+        // ADR-2204 D4: `repulsionMode` is a weight input too. A switch re-uploads the one
+        // repulsion buffer and nothing else; positions and velocities are not touched and the
+        // layout is not reset or reheated, like the re-weight above.
+        if msg.params.repulsion_mode != self.simulation_params.repulsion_mode {
+            self.apply_repulsion_mode(msg.params.repulsion_mode)?;
+            self.simulation_params.repulsion_mode = msg.params.repulsion_mode;
         }
 
         // Idempotency: skip reset if ALL GPU-relevant params haven't changed.

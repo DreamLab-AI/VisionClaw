@@ -101,6 +101,7 @@ fn normalize_physics_keys(
             "layout_mode" => "layoutMode",
             "hierarchy_affinity" => "hierarchyAffinity",
             "weighting_mode" => "weightingMode",
+            "repulsion_mode" => "repulsionMode",
             "hub_damping" => "hubDamping",
             "weight_min" => "weightMin",
             "weight_max" => "weightMax",
@@ -2351,11 +2352,23 @@ mod tests {
             assert!(err.contains(name), "{err}");
         }
         let mut patch = serde_json::Map::new();
-        for k in ["weighting_mode", "hub_damping", "weight_min", "weight_max"] {
+        for k in [
+            "weighting_mode",
+            "repulsion_mode",
+            "hub_damping",
+            "weight_min",
+            "weight_max",
+        ] {
             patch.insert(k.into(), serde_json::json!(1.0));
         }
         let n = normalize_physics_keys(patch);
-        for k in ["weightingMode", "hubDamping", "weightMin", "weightMax"] {
+        for k in [
+            "weightingMode",
+            "repulsionMode",
+            "hubDamping",
+            "weightMin",
+            "weightMax",
+        ] {
             assert!(n.contains_key(k), "{k}");
         }
     }
