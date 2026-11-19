@@ -96,6 +96,10 @@ async fn bind_session_key(
         // Flat body (no StandardResponse envelope): `{sessionPubkey, principal, expiresAt}`.
         Ok(grant) => Ok(HttpResponse::Ok().json(grant)),
         Err(NostrError::SessionKeyScope(_)) => Ok(crate::utils::auth::session_key_scope_response()),
+        Err(NostrError::SessionKeyNotAdmitted) => Ok(HttpResponse::Forbidden().json(json!({
+            "error": "this account may not bind a session key",
+            "code": "session_key_not_admitted",
+        }))),
         Err(NostrError::SessionKeyRateLimited) => Ok(HttpResponse::TooManyRequests()
             .insert_header(("Retry-After", "60"))
             .json(json!({ "error": "too many session key binds" }))),

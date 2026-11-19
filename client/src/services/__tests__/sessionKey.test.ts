@@ -315,6 +315,22 @@ describe('bound session key (ADR-2205)', () => {
     expect(first.every((b) => b === 0)).toBe(true);
   });
 
+  it('treats "not admitted" as final for the session: per-request signing, never a second bind', async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      url === BIND_URL
+        ? json({ error: 'x', code: 'session_key_not_admitted' }, 403)
+        : json({ ok: true }));
+    await nostrAuth.login();
+    signEvent.mockClear();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 3600_000); // far beyond the ordinary retry cooldown
+    const h = await computeAuthHeaders(`${ORIGIN}/api/x`, 'GET');
+    vi.useRealTimers();
+    expect(decode(h.Authorization).pubkey).toBe(realPub);
+    expect(signEvent).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls.filter((c) => c[0] === BIND_URL).length).toBe(1);
+  });
+
   it('leaves the loopback dev-token path alone', async () => {
     vi.stubEnv('DEV', true);
     vi.stubEnv('VITE_DEV_MODE_AUTH', 'true');

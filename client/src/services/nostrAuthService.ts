@@ -416,8 +416,10 @@ class NostrAuthService {
         if (!response.ok) {
           logger.warn(`Session key bind refused (HTTP ${response.status}); signing per request`);
           secret.fill(0);
+          // "Not admitted" and "no endpoint" do not change within a session.
+          const code = (await response.json().catch(() => ({} as { code?: string }))).code;
           this.bindSuspendedUntil =
-            response.status === 404 || response.status === 405
+            response.status === 404 || response.status === 405 || code === 'session_key_not_admitted'
               ? Infinity
               : Date.now() + SESSION_KEY_RETRY_COOLDOWN_MS;
           return false;

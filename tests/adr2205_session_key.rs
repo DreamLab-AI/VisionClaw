@@ -22,11 +22,30 @@ use visionclaw_server::services::nostr_service::NostrService;
 const BIND_PATH: &str = "/api/auth/nostr/session-key";
 const HOST: &str = "http://localhost:8080";
 
+/// Admitted principals (ADR-2205): only configured power users or RBAC-role
+/// holders may bind. A pool of power users stands in for ordinary members so
+/// tests never share a principal.
+const POOL: usize = 32;
+
+fn pool() -> &'static Vec<Keys> {
+    static POOL_KEYS: OnceLock<Vec<Keys>> = OnceLock::new();
+    POOL_KEYS.get_or_init(|| (0..POOL).map(|_| Keys::generate()).collect())
+}
+
+fn admitted() -> &'static Keys {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let _ = power_keys();
+    &pool()[NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst) % POOL]
+}
+
 fn power_keys() -> &'static Keys {
     static POWER: OnceLock<Keys> = OnceLock::new();
     POWER.get_or_init(|| {
         let keys = Keys::generate();
-        std::env::set_var("POWER_USER_PUBKEYS", keys.public_key().to_hex());
+        let all: Vec<String> = std::iter::once(keys.public_key().to_hex())
+            .chain(pool().iter().map(|k| k.public_key().to_hex()))
+            .collect();
+        std::env::set_var("POWER_USER_PUBKEYS", all.join(","));
         std::env::remove_var("RBAC_PUBLIC_READS");
         std::env::remove_var("RBAC_GATE_MODE");
         std::env::remove_var("VISIONCLAW_DEV_MODE");
@@ -150,9 +169,14 @@ async fn probe(req: HttpRequest) -> HttpResponse {
 macro_rules! app {
     () => {{
         let _ = power_keys();
+        let svc = web::Data::new(NostrService::new());
+        app!(svc)
+    }};
+    ($svc:expr) => {{
+        let _ = power_keys();
         test::init_service(
             App::new()
-                .app_data(web::Data::new(NostrService::new()))
+                .app_data($svc.clone())
                 .app_data(web::Data::new(FeatureAccess::from_env()))
                 .service(
                     web::scope("/api")
@@ -384,9 +408,9 @@ async fn an_unbound_key_never_becomes_a_power_user() {
 async fn a_bound_key_cannot_claim_a_different_principal() {
     let app = app!();
     let p = power_keys();
-    let user = Keys::generate();
+    let user = admitted();
     let s = Keys::generate();
-    assert_eq!(bind!(app, &user, &s, 600).status(), StatusCode::OK);
+    assert_eq!(bind!(app, user, &s, 600).status(), StatusCode::OK);
     let auth = token(
         &s,
         "GET",
@@ -481,10 +505,10 @@ async fn power_user_status_reports_the_principal_for_a_session_key() {
 #[actix_web::test]
 async fn binding_a_victims_long_term_key_fails_and_the_victim_keeps_authenticating() {
     let app = app!();
-    let attacker = Keys::generate();
-    let victim = Keys::generate();
+    let attacker = admitted(); // an insider: admitted, but cannot hold the victim's key
+    let victim = admitted();
     // The victim is a known user: it has authenticated as itself.
-    let auth = token(&victim, "GET", "/api/probe/any", None, None);
+    let auth = token(victim, "GET", "/api/probe/any", None, None);
     let r = test::call_service(&app, get_req!("/api/probe/any", auth)).await;
     assert_ne!(r.status(), StatusCode::UNAUTHORIZED);
 
@@ -494,10 +518,10 @@ async fn binding_a_victims_long_term_key_fails_and_the_victim_keeps_authenticati
     let body = json!({
         "sessionPubkey": victim.public_key().to_hex(),
         "expiresIn": 600,
-        "proof": proof_event(&attacker, &a, 600, None),
+        "proof": proof_event(attacker, &a, 600, None),
     })
     .to_string();
-    let r = post_bind!(app, &attacker, body);
+    let r = post_bind!(app, attacker, body);
     assert_eq!(
         r.status(),
         StatusCode::BAD_REQUEST,
@@ -505,11 +529,11 @@ async fn binding_a_victims_long_term_key_fails_and_the_victim_keeps_authenticati
     );
 
     // The victim is unaffected and can still bind its own session key.
-    let auth = token(&victim, "GET", "/api/probe/any", None, None);
+    let auth = token(victim, "GET", "/api/probe/any", None, None);
     let r = test::call_service(&app, get_req!("/api/probe/any", auth)).await;
     assert_ne!(r.status(), StatusCode::UNAUTHORIZED, "victim locked out");
     let s = Keys::generate();
-    assert_eq!(bind!(app, &victim, &s, 600).status(), StatusCode::OK);
+    assert_eq!(bind!(app, victim, &s, 600).status(), StatusCode::OK);
 }
 
 #[actix_web::test]
@@ -528,8 +552,8 @@ async fn a_key_that_has_authenticated_as_itself_cannot_be_bound_even_with_its_ow
         .unwrap()
         .contains("existing account"));
     // So is a configured power user's key.
-    let someone = Keys::generate();
-    let r = bind!(app, &someone, p, 600);
+    let someone = admitted();
+    let r = bind!(app, someone, p, 600);
     assert_eq!(r.status(), StatusCode::BAD_REQUEST);
     assert!(json_of(r).await["error"]
         .as_str()
@@ -597,10 +621,10 @@ async fn a_proof_for_other_terms_or_a_stale_proof_is_refused() {
 #[actix_web::test]
 async fn a_principal_is_rate_limited_on_binds() {
     let app = app!();
-    let user = Keys::generate();
+    let user = admitted();
     let mut limited = None;
     for i in 0..40 {
-        let r = bind!(app, &user, &Keys::generate(), 600);
+        let r = bind!(app, user, &Keys::generate(), 600);
         if r.status() == StatusCode::TOO_MANY_REQUESTS {
             limited = Some(i);
             break;
@@ -609,8 +633,8 @@ async fn a_principal_is_rate_limited_on_binds() {
     }
     assert!(limited.is_some(), "40 binds in a burst were never limited");
     // Another principal is unaffected.
-    let (other, session) = (Keys::generate(), Keys::generate());
-    assert_eq!(bind!(app, &other, &session, 600).status(), StatusCode::OK);
+    let (other, session) = (admitted(), Keys::generate());
+    assert_eq!(bind!(app, other, &session, 600).status(), StatusCode::OK);
 }
 
 #[actix_web::test]
@@ -631,13 +655,13 @@ async fn the_session_key_itself_can_revoke_its_binding() {
 #[actix_web::test]
 async fn the_principal_can_revoke_all_its_bindings_and_only_its_own() {
     let app = app!();
-    let user = Keys::generate();
-    let bystander = Keys::generate();
+    let user = admitted();
+    let bystander = admitted();
     let (s1, s2, sb) = (Keys::generate(), Keys::generate(), Keys::generate());
-    assert_eq!(bind!(app, &user, &s1, 600).status(), StatusCode::OK);
-    assert_eq!(bind!(app, &user, &s2, 600).status(), StatusCode::OK);
-    assert_eq!(bind!(app, &bystander, &sb, 600).status(), StatusCode::OK);
-    let r = delete_session_key!(app, &user, None);
+    assert_eq!(bind!(app, user, &s1, 600).status(), StatusCode::OK);
+    assert_eq!(bind!(app, user, &s2, 600).status(), StatusCode::OK);
+    assert_eq!(bind!(app, bystander, &sb, 600).status(), StatusCode::OK);
+    let r = delete_session_key!(app, user, None);
     assert_eq!(r.status(), StatusCode::OK);
     let u = user.public_key().to_hex();
     for s in [&s1, &s2] {
@@ -662,4 +686,64 @@ async fn an_unauthenticated_revoke_is_refused() {
         test::call_service(&app, req).await.status(),
         StatusCode::UNAUTHORIZED
     );
+}
+
+// ---- admission (closure review): only established principals may bind ----
+
+#[actix_web::test]
+async fn a_fresh_never_seen_keypair_cannot_bind() {
+    let _ = power_keys(); // env first: the service reads it at construction
+    let svc = web::Data::new(NostrService::new());
+    let app = app!(svc);
+    let stranger = Keys::generate();
+    let s = Keys::generate();
+    let r = bind!(app, &stranger, &s, 600);
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+    assert_eq!(json_of(r).await["code"], "session_key_not_admitted");
+    // Nothing was created or stored.
+    assert!(svc
+        .get_user(&stranger.public_key().to_hex())
+        .await
+        .is_none());
+    assert_eq!(svc.session_key_count(), 0);
+    // And the key is not usable.
+    let auth = token(
+        &s,
+        "GET",
+        "/api/probe/any",
+        None,
+        Some(&stranger.public_key().to_hex()),
+    );
+    let r = test::call_service(&app, get_req!("/api/probe/any", auth)).await;
+    assert_eq!(json_of(r).await["code"], "session_key_expired");
+}
+
+#[actix_web::test]
+async fn a_power_user_can_bind_and_exists_as_a_user_once_bound() {
+    let _ = power_keys(); // env first: the service reads it at construction
+    let svc = web::Data::new(NostrService::new());
+    let app = app!(svc);
+    let member = admitted();
+    assert!(svc.get_user(&member.public_key().to_hex()).await.is_none());
+    assert_eq!(
+        bind!(app, member, &Keys::generate(), 600).status(),
+        StatusCode::OK
+    );
+    // The user exists by the time the binding does (created before the insert).
+    assert!(svc.get_user(&member.public_key().to_hex()).await.is_some());
+    assert_eq!(svc.session_key_count(), 1);
+}
+
+#[actix_web::test]
+async fn many_fresh_principals_cannot_fill_the_table() {
+    let _ = power_keys(); // env first: the service reads it at construction
+    let svc = web::Data::new(NostrService::new());
+    let app = app!(svc);
+    for _ in 0..20 {
+        let stranger = Keys::generate();
+        let session = Keys::generate();
+        let r = bind!(app, &stranger, &session, 600);
+        assert_eq!(r.status(), StatusCode::FORBIDDEN);
+    }
+    assert_eq!(svc.session_key_count(), 0);
 }

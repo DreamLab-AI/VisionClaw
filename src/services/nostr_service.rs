@@ -53,6 +53,10 @@ pub enum NostrError {
     /// ADR-2205: a bind request was malformed or refused.
     #[error("session key bind refused: {0}")]
     SessionKeyBind(String),
+    /// ADR-2205: only established principals (configured power users, or
+    /// holders of an explicit RBAC role) may bind a session key.
+    #[error("session_key_not_admitted")]
+    SessionKeyNotAdmitted,
     /// ADR-2205: too many binds from one principal.
     #[error("session key bind rate limit exceeded")]
     SessionKeyRateLimited,
@@ -113,6 +117,10 @@ impl Serialize for NostrError {
             NostrError::SessionKeyBind(msg) => {
                 state.serialize_field("type", "SessionKeyBind")?;
                 state.serialize_field("message", msg)?;
+            }
+            NostrError::SessionKeyNotAdmitted => {
+                state.serialize_field("type", "SessionKeyNotAdmitted")?;
+                state.serialize_field("message", "session_key_not_admitted")?;
             }
             NostrError::SessionKeyRateLimited => {
                 state.serialize_field("type", "SessionKeyRateLimited")?;
@@ -885,6 +893,15 @@ impl NostrService {
             ));
         }
 
+        // Admission: a bind creates server state, so only established
+        // principals may bind. Otherwise unlimited fresh keypairs could each
+        // become a principal and fill the table. (`approved_pubkeys` is no
+        // signal: every authenticating key is added to it.) Checked before any
+        // user is created.
+        if !self.is_admitted_principal(&validation.pubkey).await {
+            return Err(NostrError::SessionKeyNotAdmitted);
+        }
+
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct BindRequest {
@@ -923,6 +940,11 @@ impl NostrService {
             ));
         }
 
+        // The principal's user exists before the binding does, so a failure
+        // here can never leave an orphan binding behind.
+        self.get_or_create_user_from_pubkey(&validation.pubkey)
+            .await?;
+
         let binding = self
             .session_keys
             .bind(
@@ -944,15 +966,13 @@ impl NostrService {
                             "sessionPubkey is already bound to another principal"
                         }
                         BindError::TableFull => "session key table is full",
-                        BindError::RateLimited => return NostrError::SessionKeyRateLimited,
+                        BindError::RateLimited | BindError::GlobalRateLimited => {
+                            return NostrError::SessionKeyRateLimited
+                        }
                     }
                     .to_string(),
                 )
             })?;
-
-        // The principal exists as a user from now on (power-user flag etc.).
-        self.get_or_create_user_from_pubkey(&validation.pubkey)
-            .await?;
 
         info!(
             "Bound session key {}... to principal {}... until {}",
@@ -965,6 +985,27 @@ impl NostrService {
             principal: binding.principal,
             expires_at: binding.expires_at,
         })
+    }
+
+    /// Whether `pubkey` is an established principal that may bind a session
+    /// key: a configured power user, or the holder of an explicit RBAC role.
+    async fn is_admitted_principal(&self, pubkey: &str) -> bool {
+        if self
+            .power_user_pubkeys
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case(pubkey))
+        {
+            return true;
+        }
+        match crate::services::role_store::global_role_store() {
+            Some(store) => matches!(store.get(pubkey).await, Ok(Some(_))),
+            None => false,
+        }
+    }
+
+    /// Number of session-key bindings held (live or not yet swept).
+    pub fn session_key_count(&self) -> usize {
+        self.session_keys.len()
     }
 
     /// Revoke session-key bindings (ADR-2205). A request signed by a session

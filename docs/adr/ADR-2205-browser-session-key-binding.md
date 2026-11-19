@@ -45,9 +45,18 @@ signature per session instead of one per request", without reviving bearers.
    the requested `expires` and a `nonce`, created within 60 s. The server
    verifies it before binding, so nobody can bind a key they do not hold (a
    victim's long-term key would otherwise be locked out of its own account).
-   A key that is already an account (has authenticated as itself, or is a
+   **Admission:** only established principals may bind, meaning a configured
+   power user (`POWER_USER_PUBKEYS`) or the holder of an explicit RBAC role
+   row; anyone else gets `403 {"code":"session_key_not_admitted"}`, no user is
+   created and nothing is stored, and the client signs per request for the
+   rest of that session. (`APPROVED_PUBKEYS` is no signal: every
+   authenticating key is added to it.) Without this, unlimited fresh keypairs
+   could each become a principal and fill the table. The principal's user is
+   created before the binding is inserted, so a creation failure cannot leave
+   an orphan binding. A key that is already an account (has authenticated as itself, or is a
    configured power user) is refused as a session key. Per principal: at most 8
-   live keys (oldest evicted) and 10 binds a minute (`429`). Expired entries
+   live keys (oldest evicted), 10 binds a minute, and 120 successful binds a
+   minute across all principals (`429`). Expired entries
    are removed on the bind path (the principal's own, and the table once a
    minute); the auth lookup takes a read lock and never scans.
 2. **Use.** Later requests are NIP-98-signed by the session key and carry a
@@ -91,6 +100,8 @@ signature per session instead of one per request", without reviving bearers.
   calls on logout.
 - The binding table is per process and in memory: restarts and multiple
   instances without sticky routing force re-binds (a distinct 401, handled).
+- Members without a role row or power-user status keep per-request signing
+  (one prompt each) until an admin assigns a role.
 - A binding otherwise ends at its TTL or a restart. The maximum TTL is read from `SESSION_KEY_MAX_TTL_SECS`, not a stored setting.
 - Redis is not used: production builds with `--features gpu` only.
 - `ragflow_handler` still authenticates by `X-Nostr-Pubkey` plus a legacy
@@ -98,9 +109,9 @@ signature per session instead of one per request", without reviving bearers.
 
 ## Verification
 
-Route-level tests in `tests/adr2205_session_key.rs` (20, including proof of
+Route-level tests in `tests/adr2205_session_key.rs` (23, plus `adr2205_admission_role.rs`, including admission, proof of
 possession, the victim-lockout case, caps, rate limit and revocation) and store unit tests in
 `src/services/session_keys.rs`; client tests in
-`client/src/services/__tests__/sessionKey.test.ts` (17), including zero
+`client/src/services/__tests__/sessionKey.test.ts` (18), including zero
 `signEvent` calls after the bind. `implementation_status` stays `partial` and
 `activation_status` `inactive` until a deployed build is observed.

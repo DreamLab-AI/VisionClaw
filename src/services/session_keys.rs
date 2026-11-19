@@ -27,6 +27,9 @@ pub const MAX_BINDINGS_PER_PRINCIPAL: usize = 8;
 /// Binds one principal may make per [`BIND_RATE_WINDOW_SECS`].
 pub const BIND_RATE_MAX: usize = 10;
 
+/// Successful binds allowed across all principals per [`BIND_RATE_WINDOW_SECS`].
+pub const GLOBAL_BIND_RATE_MAX: usize = 120;
+
 /// Length of the per-principal bind rate-limit window.
 pub const BIND_RATE_WINDOW_SECS: i64 = 60;
 
@@ -74,6 +77,8 @@ pub enum BindError {
     TableFull,
     /// Too many binds from this principal in the current window.
     RateLimited,
+    /// Too many binds across all principals in the current window.
+    GlobalRateLimited,
 }
 
 #[derive(Debug, Default)]
@@ -83,6 +88,8 @@ struct Table {
     by_principal: HashMap<String, Vec<String>>,
     /// Bind times per principal inside the rate window.
     recent_binds: HashMap<String, VecDeque<i64>>,
+    /// Successful bind times across all principals inside the rate window.
+    global_binds: VecDeque<i64>,
     last_sweep: i64,
 }
 
@@ -205,6 +212,16 @@ impl SessionKeyStore {
         if times.len() >= BIND_RATE_MAX {
             return Err(BindError::RateLimited);
         }
+        while table
+            .global_binds
+            .front()
+            .is_some_and(|t| now - t >= BIND_RATE_WINDOW_SECS)
+        {
+            table.global_binds.pop_front();
+        }
+        if table.global_binds.len() >= GLOBAL_BIND_RATE_MAX {
+            return Err(BindError::GlobalRateLimited);
+        }
 
         if let Some(existing) = table.bindings.get(&session_pubkey) {
             if existing.expires_at > now && existing.principal != principal {
@@ -240,6 +257,7 @@ impl SessionKeyStore {
             .entry(principal.to_string())
             .or_default()
             .push_back(now);
+        table.global_binds.push_back(now);
         Ok(binding)
     }
 
@@ -423,5 +441,22 @@ mod tests {
         assert_eq!(store.revoke_principal(P), 1);
         assert_eq!(store.lookup(&key(1), NOW), SessionLookup::Unbound);
         assert!(matches!(store.lookup(&key(2), NOW), SessionLookup::Live(_)));
+    }
+
+    #[test]
+    fn binds_are_rate_limited_across_all_principals() {
+        let store = SessionKeyStore::new(600);
+        for i in 0..GLOBAL_BIND_RATE_MAX as u32 {
+            let principal = format!("{:064x}", 0xA000_0000u32 + i);
+            store.bind(&key(i + 1), &principal, 500, NOW).unwrap();
+        }
+        let late = format!("{:064x}", 0xB000_0000u32);
+        assert_eq!(
+            store.bind(&key(9999), &late, 500, NOW + 1),
+            Err(BindError::GlobalRateLimited)
+        );
+        assert!(store
+            .bind(&key(9999), &late, 500, NOW + BIND_RATE_WINDOW_SECS)
+            .is_ok());
     }
 }
