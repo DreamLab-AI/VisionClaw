@@ -370,13 +370,16 @@ impl SemanticTypeRegistry {
         );
 
         // ── Canonical edge-type strings ─────────────────────────────
-        // These are the labels that predicate_to_edge_type() emits and
-        // that Edge.edge_type carries at runtime. Force configs align
+        // These are the labels the relation schema declares
+        // (crates/visionclaw-domain/data/relations.yaml) and that
+        // Edge.edge_type carries at runtime. Force configs align
         // with SemanticEdgeType::spring_multiplier() values, normalised
         // to the registry's 0.0–1.0 strength scale.
         //
-        // Any IRI not in this list auto-registers via get_or_register_id()
-        // with default config — the system is domain-agnostic.
+        // The sync no longer auto-registers: a predicate the schema does not
+        // know is quarantined, never given a default config (ADR-2204 D1).
+        // `registry_agrees_with_the_relation_schema_for_predicate_labels`
+        // pins this list's strengths to the schema's legacy weights.
 
         registry.register_internal(
             "explicit_link",
@@ -766,31 +769,8 @@ mod tests {
         assert!(registry.get_id("ngm:bridges-to").is_some());
         assert!(registry.get_id("rdfs:subClassOf").is_some());
 
-        // Canonical edge-type labels (from predicate_to_edge_type)
-        for label in &[
-            "explicit_link",
-            "hierarchical",
-            "structural",
-            "dependency",
-            "associative",
-            "bridge",
-            "namespace",
-            "inferred",
-            "implements",
-            "enhancement",
-            "security",
-            "goal",
-            "tracking",
-            "similarity",
-            "provenance",
-            "chain_payment",
-        ] {
-            assert!(
-                registry.get_id(label).is_some(),
-                "missing canonical type: {}",
-                label
-            );
-        }
+        // The canonical edge-type labels are the schema's; the agreement test
+        // below checks each one resolves here.
     }
 
     #[test]
@@ -905,6 +885,16 @@ mod tests {
                 "`{}`: registry strength × 2 vs schema legacy_weight",
                 rel.label
             );
+        }
+        // Derived labels the GPU kernel types by registry id. `co_citation`
+        // and `elevated_from` are deliberately absent today (they fall to the
+        // generic type); S4 removes the registry from the edge path.
+        for label in ["namespace", "inferred", "chain_payment", "domain_member"] {
+            assert!(
+                RelationSchema::builtin().relation(label).is_some(),
+                "{label}"
+            );
+            assert!(registry.get_id(label).is_some(), "registry lacks `{label}`");
         }
     }
 }

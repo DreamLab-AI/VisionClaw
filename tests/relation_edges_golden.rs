@@ -78,15 +78,16 @@ fn write_vault(root: &std::path::Path) {
     }
     write("knowledge/Source.md", class_page("Source", &rels));
 
-    // Authored wikilink between two authored pages; one `elevatedFrom`.
+    // `elevatedFrom` is read only on the typed (Class) ingest path, so Linker
+    // is a class page; its edge to the plain page Origin is the provenance bridge.
     write(
         "knowledge/Linker.md",
-        "---\npublic: true\nelevatedFrom: \"[[Origin]]\"\n---\n\n# Linker\n\nSee [[Target]].\n"
-            .to_string(),
+        class_page("Linker", "elevatedFrom: \"[[Origin]]\"\n"),
     );
+    // An authored wikilink between two authored plain pages.
     write(
         "knowledge/Origin.md",
-        "---\npublic: true\n---\n\n# Origin\n\nPlain page.\n".to_string(),
+        "---\npublic: true\n---\n\n# Origin\n\nPlain page, links to [[P1]].\n".to_string(),
     );
 
     // Dangling-target co-citation. Referrers per missing target:

@@ -12,19 +12,10 @@ import relationsProjection from '../relations.generated.json'
 export { DOMAIN_COLORS, DEFAULT_DOMAIN_COLOR, getDomainColor } from '../utils/domainColors'
 
 // === Edge-type colours ===
-// Palette is a hue wheel chosen so the 11 emitted edge types occupy distinct,
-// well-separated hues at high saturation, while the dominant `explicit_link`
-// wikilinks (45% of edges) are deliberately desaturated to a dim blue-grey so
-// they recede and let the semantic edge types read clearly.
-//
-//   hierarchical   gold     #FFD700   structural   cyan      #4FC3F7
-//   dependency     green    #81C784   associative  magenta   #CE93D8
-//   bridge         orange   #FF7043   provenance   amber     #FFB300
-//   utilisation    teal     #26C6DA   co_citation  indigo    #5C6BC0
-//   standardisation slate-blue #7E8CE0 implements   rose      #EC407A
-//   explicit_link  blue-grey #5A6470 (dim — dominant wikilinks recede)
-//   domain_member  taupe    #A1887F (domain-root spokes; muted)
-//   chain_payment  magenta  #E040FB (agent-to-agent sidechain payment, S5)
+// The palette (and which relation owns which hue) is defined in
+// crates/visionclaw-domain/data/relations.yaml: a hue wheel of well-separated,
+// saturated hues, with the dominant `explicit_link` wikilinks deliberately
+// desaturated to a dim blue-grey so they recede.
 // Generated from crates/visionclaw-domain/data/relations.yaml (ADR-2204 D1, E1): edit the schema, then
 // `cargo test -p visionclaw-domain --test relations_schema -- --ignored regenerate`.
 // A producer/consumer test pins the JSON to the YAML.

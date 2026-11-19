@@ -1,5 +1,5 @@
-Linker -> Origin | explicit_link | 3f800000 (1) | Some(Asserted) | - | -
-Linker -> Target | explicit_link | 3f800000 (1) | Some(Asserted) | - | -
+Linker -> Origin | elevated_from | 3f800000 (1) | Some(Asserted) | - | -
+Origin -> P1 | explicit_link | 3f800000 (1) | Some(Asserted) | - | -
 P1 -> P2 | co_citation | 3fc00000 (1.5) | Some(Derived) | - | -
 P1 -> P3 | co_citation | 3f000000 (0.5) | Some(Derived) | - | -
 P3 -> P2 | co_citation | 3f000000 (0.5) | Some(Derived) | - | -
@@ -22,7 +22,6 @@ Source -> Target | structural | 3fb33333 (1.4) | Some(Asserted) | https://narrat
 Source -> Target | structural | 3fb33333 (1.4) | Some(Asserted) | https://narrativegoldmine.com/ns/v1#isPartOf | -
 Source -> Target | utilisation | 3f666666 (0.9) | Some(Asserted) | https://narrativegoldmine.com/ns/v1#supports | -
 Source -> Target | utilisation | 3f666666 (0.9) | Some(Asserted) | https://narrativegoldmine.com/ns/v1#uses | -
-domain-root-infrastructure -> Linker | domain_member | 3fc00000 (1.5) | Some(Derived) | - | -
 domain-root-infrastructure -> Origin | domain_member | 3fc00000 (1.5) | Some(Derived) | - | -
 domain-root-infrastructure -> P1 | domain_member | 3fc00000 (1.5) | Some(Derived) | - | -
 domain-root-infrastructure -> P2 | domain_member | 3fc00000 (1.5) | Some(Derived) | - | -
