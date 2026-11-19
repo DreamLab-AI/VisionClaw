@@ -16,6 +16,8 @@ vi.mock('../../../../store/settingsStore', () => ({
 }));
 vi.mock('../../../control-center/registry/commandInputCompat', () => ({ UNIFIED_SETTINGS_CONFIG: {} }));
 vi.mock('../../../control-center/registry/settingsRegistry', () => ({ ALL_PATHS: [], ALL_FIELDS: [] }));
+const followUp = vi.fn(async () => 'CLIENT-SIDE ANSWER');
+vi.mock('../insightRunner', () => ({ runInsightFollowUp: (...a: unknown[]) => followUp(...a) }));
 
 import { CommandInput } from '../CommandInput';
 
@@ -43,6 +45,13 @@ describe('CommandInput insight intents', () => {
     submit('find the outliers');
     await waitFor(() => expect(request).toHaveBeenCalledWith('POST', '/analytics/anomaly/detect', expect.objectContaining({ method: 'lof' })));
     expect(seen).toHaveLength(0);
+  });
+
+  it('a failed analytics request does not block the client-side answer (unsigned viewer, 401)', async () => {
+    request.mockRejectedValue(new Error('HTTP 401: Unauthorized'));
+    submit('what connects blockchain and robotics?');
+    expect(await screen.findByText(/CLIENT-SIDE ANSWER/)).toBeTruthy();
+    expect(await screen.findByText(/401/)).toBeTruthy();
   });
 
   it('view commands still work: show hulls', async () => {

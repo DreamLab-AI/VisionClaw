@@ -60,6 +60,10 @@ interface SettingsAction {
   localAction?: () => void | string | undefined | Promise<void | string | undefined>;
   /** Runs with the endpoint's response body; a returned string becomes a status line. */
   afterRequest?: (response: unknown) => Promise<string | undefined>;
+  /** A failure is reported as a status line and the remaining actions still run.
+   *  Insight analytics requests are optional: a viewer who cannot sign the request
+   *  (401) still gets every answer the client can compute from the graph it holds. */
+  optional?: boolean;
   /** When set, processCommand routes the raw command to the settings-aware LLM
    *  in agentbox instead of running a deterministic local action. */
   isLlmFallback?: boolean;
@@ -196,6 +200,7 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
         method: r.method,
         body: r.body,
         afterRequest: needsResponse ? (res) => runInsightFollowUp(insight, res) : undefined,
+        optional: true,
       });
     }
     if (insight.followUp && !needsResponse) {
@@ -717,6 +722,13 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isCollapsed }) => {
             heldForReview = true;
           } else {
             await dispatchToSettingsLLM(cmd, addStatus);
+          }
+        } else if (action.optional) {
+          try {
+            const answer = await executeAction(action);
+            if (answer) addStatus(answer);
+          } catch (error) {
+            addStatus(`Skipped: ${error instanceof Error ? error.message : 'request failed'}`);
           }
         } else {
           const answer = await executeAction(action);
