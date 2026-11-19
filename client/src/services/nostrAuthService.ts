@@ -194,6 +194,14 @@ type AuthStateListener = (state: AuthState) => void;
 
 // --- Service Implementation ---
 
+/** The one place the dev bearer literal lives (see `NostrAuthService.isDevMode`). */
+const DEV_SESSION_TOKEN = 'dev-session-token';
+
+/** True for the loopback hostnames the server treats as loopback. */
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1';
+}
+
 class NostrAuthService {
   private static instance: NostrAuthService;
   private currentUser: SimpleNostrUser | null = null;
@@ -231,9 +239,24 @@ class NostrAuthService {
     return this._nip07Promise;
   }
 
-  /** Check if running in dev mode with auth bypass */
+  /**
+   * Dev-token mode: a dev build with VITE_DEV_MODE_AUTH=true AND a loopback
+   * page origin. The server honours the dev bearer only from true loopback, so
+   * off loopback (e.g. the LAN) a dev build behaves like production: no
+   * auto-login, NIP-07/passkey sign-in and NIP-98 request signing.
+   * This is the single decision point; every dev-token path goes through it.
+   */
   public isDevMode(): boolean {
-    return import.meta.env.DEV && import.meta.env.VITE_DEV_MODE_AUTH === 'true';
+    return (
+      import.meta.env.DEV &&
+      import.meta.env.VITE_DEV_MODE_AUTH === 'true' &&
+      isLoopbackHostname(window.location.hostname)
+    );
+  }
+
+  /** The dev bearer token value; only ever sent when `isDevMode()` is true. */
+  public getDevSessionToken(): string {
+    return DEV_SESSION_TOKEN;
   }
 
   /**
@@ -648,22 +671,8 @@ class NostrAuthService {
       throw new Error('Dev login is only available in development mode');
     }
 
-    const hostname = window.location.hostname;
-    const isLocalNetwork =
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
-      hostname.startsWith('192.168.') ||
-      hostname.startsWith('10.') ||
-      hostname.startsWith('172.16.') ||
-      hostname.startsWith('172.17.') ||
-      hostname.startsWith('172.18.') ||
-      hostname.startsWith('172.19.') ||
-      hostname.startsWith('172.2') ||
-      hostname.startsWith('172.30.') ||
-      hostname.startsWith('172.31.');
-
-    if (!isLocalNetwork) {
-      throw new Error('Dev login is only available on local network');
+    if (!isLoopbackHostname(window.location.hostname)) {
+      throw new Error('Dev login is only available on a loopback origin');
     }
 
     logger.info('[DEV MODE] Manual dev login triggered');
@@ -684,15 +693,7 @@ class NostrAuthService {
   }
 
   public isDevLoginAvailable(): boolean {
-    if (!import.meta.env.DEV) return false;
-    const hostname = window.location.hostname;
-    return (
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
-      hostname.startsWith('192.168.') ||
-      hostname.startsWith('10.') ||
-      hostname.startsWith('172.')
-    );
+    return !!import.meta.env.DEV && isLoopbackHostname(window.location.hostname);
   }
 }
 

@@ -331,7 +331,7 @@ export function sendAuthOnConnect(socket: WebSocket, url: string) {
       const isEphemeral = !!sessionStorage.getItem('ephemeral_session_pubkey');
       socket.send(JSON.stringify({
         type: 'authenticate',
-        token: 'dev-session-token',
+        token: nostrAuth.getDevSessionToken(),
         pubkey: user.pubkey,
         ephemeral: isEphemeral,
       }));

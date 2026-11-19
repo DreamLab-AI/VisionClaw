@@ -12,7 +12,7 @@ export function generateRequestId(): string {
 /**
  * ADR-06 §D1 + resolution T2: skipAuth is INFORMATIONAL on the client side.
  *
- * The server decides whether to honour `Bearer dev-session-token`. In a release
+ * The server decides whether to honour the dev bearer. In a release
  * build (compiled without `--features dev-auth`) the token-acceptance branch
  * is physically absent from the binary, so any request carrying the dev token
  * will receive a `401 Unauthorized`. We surface that mismatch via console.warn
@@ -29,7 +29,7 @@ function warnIfServerInReleaseMode(status: number, sentDevToken: boolean): void 
   if (status === 401 && sentDevToken) {
     releaseModeWarned = true;
     console.warn(
-      '[AuthInterceptor] Server returned 401 on Bearer dev-session-token. ' +
+      '[AuthInterceptor] Server returned 401 on the dev bearer. ' +
       'The server is likely a release build compiled WITHOUT `--features dev-auth` ' +
       '(ADR-06 §D1). `?skipAuth=true` has no effect against a release build. ' +
       'Rebuild the server with `./scripts/launch.sh up dev` to enable the dev-auth gate.'
@@ -41,7 +41,7 @@ function warnIfServerInReleaseMode(status: number, sentDevToken: boolean): void 
  * Single source of truth for the dev-mode-vs-NIP-98 auth header branch.
  *
  * Returns `{}` when not authenticated. When authenticated in dev mode,
- * returns the `Bearer dev-session-token` header (see the release-mode note
+ * returns the dev bearer header (see the release-mode note
  * above `warnIfServerInReleaseMode`) plus `X-Nostr-Pubkey` when a pubkey is
  * known. Otherwise signs the request per NIP-98 and returns an
  * `Authorization: Nostr <token>` header. NIP-07 extensions like Podkey may
@@ -61,7 +61,7 @@ export async function computeAuthHeaders(
 
   if (nostrAuth.isDevMode()) {
     const headers: Record<string, string> = {
-      Authorization: 'Bearer dev-session-token',
+      Authorization: `Bearer ${nostrAuth.getDevSessionToken()}`,
     };
     if (user?.pubkey) {
       headers['X-Nostr-Pubkey'] = user.pubkey;
@@ -123,7 +123,7 @@ export async function authResponseInterceptor<T>(
   config?: RequestConfig,
 ): Promise<typeof response> {
   const headers = (config?.headers || {}) as Record<string, string>;
-  const sentDevToken = headers['Authorization'] === 'Bearer dev-session-token';
+  const sentDevToken = headers['Authorization'] === `Bearer ${nostrAuth.getDevSessionToken()}`;
   warnIfServerInReleaseMode(response.status, sentDevToken);
   return response;
 }

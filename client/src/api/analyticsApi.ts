@@ -473,7 +473,7 @@ export class AnalyticsAPI {
       const user = nostrAuth.getCurrentUser();
       if (user?.pubkey) {
         if (nostrAuth.isDevMode()) {
-          this.websocket?.send(JSON.stringify({ type: 'auth', token: 'dev-session-token' }));
+          this.websocket?.send(JSON.stringify({ type: 'auth', token: nostrAuth.getDevSessionToken() }));
         } else {
           (async () => {
             try {

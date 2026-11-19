@@ -142,7 +142,7 @@ export class VoiceWebSocketService {
         this.send(
           JSON.stringify({
             type: 'authenticate',
-            token: 'dev-session-token',
+            token: nostrAuth.getDevSessionToken(),
             pubkey: user?.pubkey,
           })
         );

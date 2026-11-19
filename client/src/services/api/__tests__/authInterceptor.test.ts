@@ -7,6 +7,7 @@ const { mockNostrAuth } = vi.hoisted(() => ({
     isAuthenticated: vi.fn(() => false),
     getCurrentUser: vi.fn(() => null),
     isDevMode: vi.fn(() => false),
+    getDevSessionToken: vi.fn(() => 'dev-session-token'),
     signRequest: vi.fn(),
     onAuthStateChanged: vi.fn(() => () => {}),
   },

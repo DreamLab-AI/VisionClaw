@@ -218,7 +218,7 @@ function normaliseAssertion(raw: Record<string, unknown>): StateAtAssertion {
  *
  * Read-authed under the same gate as `/ontology/query` — auth headers are
  * injected by the shared api-client interceptor (dev bypass:
- * `Bearer dev-session-token` + `X-Nostr-Pubkey`), so no per-call header setup.
+ * the dev bearer + `X-Nostr-Pubkey`), so no per-call header setup.
  *
  * Fails gracefully: any error (network, non-2xx, malformed body) resolves to an
  * empty array rather than throwing, so the timeline overlay degrades to "no
