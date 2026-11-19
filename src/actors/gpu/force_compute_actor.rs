@@ -1425,7 +1425,9 @@ impl ForceComputeActor {
     /// first upload. Within one weighting mode `row_offsets` and `col_indices` are identical and
     /// only the weights differ; a mode switch changes the topology (one edge per pair), which
     /// `upload_edges_csr` accepts while the edge count fits the allocation. Positions, velocities, warmup, the constraint state and the degree
-    /// buffers are not written. Before any graph is uploaded there is nothing to do: the first
+    /// buffers are not written; the one exception is the repulsion buffer under `repulsionMode`
+    /// `strength`, which the CSR upload rewrites from the same weights (an unusable weight set is
+    /// refused before anything reaches the device). Before any graph is uploaded there is nothing to do: the first
     /// upload reads the stored profile. A device failure is returned and nothing is recorded.
     fn reweight_edges(&mut self, profile: &WeightingProfile) -> Result<(), String> {
         let (Some(graph), Some(ctx)) = (self.semantic_graph.clone(), self.shared_context.clone())

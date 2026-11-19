@@ -2051,6 +2051,8 @@ mod grid_gpu_tests {
         let norm = 1.0 / sorted[sorted.len() / 2];
         let dw: Vec<f32> = dw.iter().map(|&x| x * norm).collect();
         gpu.upload_degree_weights(&dw).expect("degree weights");
+        gpu.upload_repulsion(visionclaw_domain::weighting::RepulsionMode::Uniform)
+            .expect("repulsion");
         gpu
     }
 
@@ -4369,6 +4371,8 @@ mod adr_2204_reweight_gpu_tests {
         upload(&mut g, &off);
         let degrees: Vec<f32> = (0..N).map(|i| 1.0 + (i % 5) as f32).collect();
         g.upload_degree_weights(&degrees).expect("degree weights");
+        g.upload_repulsion(visionclaw_domain::weighting::RepulsionMode::Uniform)
+            .expect("repulsion");
         let mut p = crate::models::simulation_params::SimulationParams::new();
         p.dt = 0.016;
         p.damping = 0.9;
@@ -4770,5 +4774,42 @@ mod adr_2204_repulsion_gpu_tests {
         let p = step_and_read(&mut c, 40);
         let all: Vec<u32> = p.iter().flatten().copied().collect();
         assert_eq!(fnv(&all), GOLDEN_UNIFORM_40_STEPS);
+    }
+
+    /// Under live strength mode a CSR the strength cannot be derived from is refused before
+    /// anything is written, so attraction and repulsion never see different weights.
+    #[test]
+    fn strength_mode_refuses_unusable_weights_before_writing_any_buffer() {
+        let (_ctx, ptx) = gpu_or_skip!();
+        let Some(mut g) = live_engine(&ptx) else {
+            eprintln!("[adr_2204_repulsion_gpu_tests] SKIPPED, no CUDA device");
+            return;
+        };
+        g.upload_repulsion(RepulsionMode::Strength)
+            .expect("strength");
+        let read = |g: &UnifiedGPUCompute| {
+            let mut w = vec![0f32; g.edge_weights.len()];
+            g.edge_weights.copy_to(&mut w).expect("weights");
+            (bits(&w), bits(&read_repulsion(g)))
+        };
+        let before = read(&g);
+        let (ro, ci, mut w) = csr();
+        w[3] = f32::NAN;
+        assert!(g.upload_edges_csr(&ro, &ci, &w).is_err());
+        assert_eq!(before, read(&g), "nothing on the device changed");
+    }
+
+    /// A graph change discards the repulsion buffer's state like the other node-indexed state:
+    /// until the weighting path fills it again the kernel runs classic repulsion, never stale.
+    #[test]
+    fn a_graph_change_discards_the_repulsion_state() {
+        let (_ctx, ptx) = gpu_or_skip!();
+        let Some(mut g) = live_engine(&ptx) else {
+            eprintln!("[adr_2204_repulsion_gpu_tests] SKIPPED, no CUDA device");
+            return;
+        };
+        assert!(g.repulsion_uploaded);
+        g.resize_buffers(N, g.num_edges).expect("resize");
+        assert!(!g.repulsion_uploaded);
     }
 }

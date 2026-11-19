@@ -249,6 +249,19 @@ impl UnifiedGPUCompute {
             ));
         }
 
+        // Under a live strength mode the repulsion factor must come from the weights being
+        // uploaded, so weights it cannot be derived from are refused before the device is
+        // touched (attraction and repulsion never see different weights). Under uniform any
+        // weights are accepted; the error is kept and only surfaces if strength is asked for.
+        let sums = strength_minus_one(row_offsets, weights, EDGE_WEIGHT_INFLUENCE);
+        let strength_live =
+            self.repulsion_uploaded && self.repulsion_mode == RepulsionMode::Strength;
+        if let (true, Err(e)) = (strength_live, &sums) {
+            return Err(anyhow!(
+                "repulsion strength unavailable for these weights: {e}"
+            ));
+        }
+
         if row_offsets.len() <= self.allocated_nodes + 1 {
             let mut padded_row_offsets = row_offsets.to_vec();
             let last_val = *padded_row_offsets.last().unwrap_or(&0);
@@ -291,10 +304,9 @@ impl UnifiedGPUCompute {
             })
             .unwrap_or((0.0, 0.0));
         // The repulsion factor follows the weights it matches (ADR-2204 D4): the sums are
-        // recomputed with every CSR upload, and the device buffer is rewritten at once when
-        // the strength mode is live, so attraction and repulsion never see different weights.
-        self.repulsion_sums = strength_minus_one(row_offsets, weights, EDGE_WEIGHT_INFLUENCE);
-        if self.repulsion_uploaded && self.repulsion_mode == RepulsionMode::Strength {
+        // recomputed with every CSR upload and the device buffer rewritten with them.
+        self.repulsion_sums = sums;
+        if strength_live {
             self.upload_repulsion(RepulsionMode::Strength)?;
         }
         Ok(())

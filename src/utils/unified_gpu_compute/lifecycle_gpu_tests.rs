@@ -900,6 +900,9 @@ fn graph_changes_discard_node_indexed_state() {
         engine
             .upload_degree_weights(&vec![2.0; engine.num_nodes])
             .expect("degree weights");
+        engine
+            .upload_repulsion(visionclaw_domain::weighting::RepulsionMode::Uniform)
+            .expect("repulsion");
         engine.set_compute_mask(&[0, 1, 2]).expect("mask");
         engine.run_sssp(0, None).expect("SSSP");
         engine.community_count_active = 3;
