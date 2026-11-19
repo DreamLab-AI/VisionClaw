@@ -2585,6 +2585,12 @@ fn domain_root_node(slug: &str, label: &str) -> visionclaw_domain::models::node:
     root.owl_class_iri = Some(crate::uri::ngm::domain_iri(slug));
     root.metadata
         .insert("type".to_string(), "domain_root".to_string());
+    // System-derived navigation, not user content: it names only a domain
+    // already on every member's metadata. Without this ADR-050 hides the root
+    // from every non-owner, which gates whole-graph analytics onto the CPU view
+    // path and leaves the wire's community/centrality fields at zero.
+    root.metadata
+        .insert("public".to_string(), "true".to_string());
     root
 }
 
@@ -2669,7 +2675,8 @@ pub(crate) fn plan_domain_roots(
                 if have.label == want.label
                     && have.group == want.group
                     && have.metadata_id == want.metadata_id
-                    && have.owl_class_iri == want.owl_class_iri => {}
+                    && have.owl_class_iri == want.owl_class_iri
+                    && have.metadata.get("public") == want.metadata.get("public") => {}
             Some(_) => {
                 plan.nodes_to_remove.push(want.id);
                 plan.roots_to_write.push(want.clone());
@@ -2995,6 +3002,58 @@ mod domain_root_plan_tests {
         );
         assert!(plan_domain_roots(&g, false).is_noop(), "off is stable");
         assert_eq!(g.nodes.len(), 2, "members untouched");
+    }
+
+    /// A domain root is system-derived navigation, not user content: it must
+    /// be public so a caller who sees every user page also sees every node, and
+    /// the whole-graph GPU analytics writer is chosen for them (ADR-060).
+    #[test]
+    fn domain_roots_are_public_and_do_not_gate_a_caller_who_sees_all_content() {
+        use crate::handlers::graph_access::node_gate_for_graph_with;
+        use std::sync::Arc;
+        let public_page = |id| {
+            let mut n = page(id);
+            n.metadata.insert("public".to_string(), "true".to_string());
+            n
+        };
+        let mut g = GraphData::new();
+        g.nodes.extend([public_page(1), public_page(2)]);
+        let g = apply(g.clone(), &plan_domain_roots(&g, true));
+        let root_id = domain_root_node(SLUG, "Infrastructure").id;
+        let root = g.nodes.iter().find(|n| n.id == root_id).expect("root");
+        assert_eq!(
+            root.metadata.get("public").map(String::as_str),
+            Some("true")
+        );
+        assert!(
+            node_gate_for_graph_with(&Arc::new(g.clone()), Some("someone"), true).is_none(),
+            "roots alone must not hide a node from anyone"
+        );
+
+        // A genuinely private user page still gates.
+        let mut g = g;
+        g.nodes[0].metadata.remove("public");
+        g.nodes[0]
+            .metadata
+            .insert("owner_pubkey".to_string(), "owner".to_string());
+        let g = Arc::new(g);
+        assert!(node_gate_for_graph_with(&g, Some("someone"), true).is_some());
+        assert!(node_gate_for_graph_with(&g, Some("owner"), true).is_none());
+    }
+
+    /// A root stored before roots were public is rewritten in place.
+    #[test]
+    fn a_stored_non_public_root_is_rewritten_public() {
+        let mut g = GraphData::new();
+        let mut root = domain_root_node(SLUG, "Infrastructure");
+        root.metadata.remove("public");
+        g.nodes.extend([page(1), root]);
+        let plan = plan_domain_roots(&g, true);
+        let want = domain_root_node(SLUG, "Infrastructure").id;
+        assert_eq!(plan.nodes_to_remove, vec![want]);
+        assert_eq!(plan.roots_to_write.len(), 1);
+        let g = apply(g, &plan);
+        assert!(plan_domain_roots(&g, true).roots_to_write.is_empty());
     }
 
     /// ADR-2021: minting goes through `uri::ngm`, and the persisted bytes are

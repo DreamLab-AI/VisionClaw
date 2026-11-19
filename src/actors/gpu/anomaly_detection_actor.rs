@@ -212,6 +212,7 @@ impl Handler<RunAnomalyDetection> for AnomalyDetectionActor {
         // Capture all values needed for the async + actor future
         let internal_params_method = internal_params.method.clone();
         let internal_params_threshold = internal_params.threshold;
+        let wire_threshold = params.threshold;
 
         let future = async move {
             // Move blocking GPU operations to dedicated blocking thread pool
@@ -401,7 +402,7 @@ impl Handler<RunAnomalyDetection> for AnomalyDetectionActor {
             }
         };
 
-        Box::pin(future.into_actor(self).map(|result, actor, _ctx| {
+        Box::pin(future.into_actor(self).map(move |result, actor, _ctx| {
             // ADR-014 DL4 / ADR-031 D3-D4: AnomalyDetectionActor is the single writer
             // of node_analytics.anomaly so the V3 binary broadcast carries real scores.
             // Keys MUST be the masked graph node id (the encoder does
@@ -421,13 +422,15 @@ impl Handler<RunAnomalyDetection> for AnomalyDetectionActor {
                         if let Some(ref lof_scores) = anomaly_result.lof_scores {
                             for (gpu_idx, &score) in lof_scores.iter().enumerate() {
                                 let node_id = actor.translate_masked(gpu_idx);
-                                map.entry(node_id).or_default().anomaly = score;
+                                map.entry(node_id).or_default().anomaly =
+                                    wire_anomaly_score(score, wire_threshold);
                             }
                         }
                         if let Some(ref zscore_values) = anomaly_result.zscore_values {
                             for (gpu_idx, &score) in zscore_values.iter().enumerate() {
                                 let node_id = actor.translate_masked(gpu_idx);
-                                map.entry(node_id).or_default().anomaly = score.abs();
+                                map.entry(node_id).or_default().anomaly =
+                                    wire_anomaly_score(score.abs(), wire_threshold);
                             }
                         }
                         // Methods without a full per-node score vector: key the
@@ -437,7 +440,8 @@ impl Handler<RunAnomalyDetection> for AnomalyDetectionActor {
                         {
                             for anomaly in &anomaly_result.anomalies {
                                 let node_id = actor.translate_masked(anomaly.node_id as usize);
-                                map.entry(node_id).or_default().anomaly = anomaly.anomaly_score;
+                                map.entry(node_id).or_default().anomaly =
+                                    wire_anomaly_score(anomaly.anomaly_score, wire_threshold);
                             }
                         }
                         info!(
@@ -470,6 +474,48 @@ impl Handler<SetNodeAnalytics> for AnomalyDetectionActor {
     fn handle(&mut self, msg: SetNodeAnalytics, _ctx: &mut Self::Context) {
         info!("AnomalyDetectionActor: Received shared node_analytics map");
         self.node_analytics = Some(msg.node_analytics);
+    }
+}
+
+/// The anomaly value the V3 wire carries for a raw detector score: `0.0` for a node the run
+/// does not flag (`score <= threshold`), else a severity ramp in `(0, 1]` reaching 1.0 at three
+/// times the threshold (the "high" severity cut). Raw LOF scores sit near 1.0 for inliers, and
+/// the client paints any wire anomaly above 0.01 red, so writing them unchanged turned every node
+/// red.
+fn wire_anomaly_score(score: f32, threshold: f32) -> f32 {
+    if !score.is_finite() || score <= threshold {
+        return 0.0;
+    }
+    if threshold <= 0.0 {
+        return score.clamp(0.05, 1.0);
+    }
+    ((score - threshold) / (2.0 * threshold)).clamp(0.05, 1.0)
+}
+
+#[cfg(test)]
+mod wire_score_tests {
+    use super::wire_anomaly_score;
+
+    #[test]
+    fn inliers_and_threshold_hits_read_zero() {
+        assert_eq!(wire_anomaly_score(1.0, 1.5), 0.0);
+        assert_eq!(wire_anomaly_score(1.5, 1.5), 0.0);
+        assert_eq!(wire_anomaly_score(f32::NAN, 1.5), 0.0);
+    }
+
+    #[test]
+    fn outliers_ramp_above_the_client_cut_to_one() {
+        let just_over = wire_anomaly_score(1.51, 1.5);
+        assert!(just_over > 0.01, "must clear the client's 0.01 overlay cut");
+        assert!(wire_anomaly_score(3.0, 1.5) > just_over);
+        assert_eq!(wire_anomaly_score(4.5, 1.5), 1.0);
+        assert_eq!(wire_anomaly_score(40.0, 1.5), 1.0);
+    }
+
+    #[test]
+    fn a_non_positive_threshold_still_bounds_the_score() {
+        assert_eq!(wire_anomaly_score(7.0, 0.0), 1.0);
+        assert_eq!(wire_anomaly_score(0.0, 0.0), 0.0);
     }
 }
 
