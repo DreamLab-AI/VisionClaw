@@ -53,11 +53,9 @@ const NODE_SAFETY_CEILING: int = 20000
 # metres centred nowhere near the user. A flat client frames its camera to the
 # graph AABB; XR cannot move the user's physical floor, so instead we scale and
 # recentre the whole graph (GraphRoot) into a room-sized volume anchored in
-# front of the standing user. Recomputed while the layout is still settling,
-# then latched so it does not jitter once stable.
+# front of the standing user (the fit itself lives in spatial_volume.gd, ADR-2158).
 const GRAPH_TARGET_SPAN: float = 2.4          # metres — longest AABB axis maps to this
 const GRAPH_ANCHOR := Vector3(0.0, 1.3, -1.6) # in front of XROrigin, ~chest height
-const GRAPH_REFIT_SETTLE_SEC: float = 6.0     # keep refitting for this long after first nodes
 
 # GraphRoot's fit-scale shrinks node/edge geometry along with positions, so a
 # raw 0.5 m node sphere becomes sub-pixel. Nodes and edges compensate by the
