@@ -10,6 +10,7 @@ import App from './App';
 import { initializeDebugSystem } from '../utils/debugConfig';
 import { unifiedApiClient } from '../services/api/UnifiedApiClient';
 import { initializeAuthInterceptor, setupAuthStateListener } from '../services/api/authInterceptor';
+import { getSignStats } from '../services/signStats';
 import { useSettingsStore } from '../store/settingsStore';
 import { useWebSocketStore } from '../store/websocketStore';
 import '../styles/index.css';
@@ -24,6 +25,8 @@ if (import.meta.env.DEV) {
   devWindow.useSettingsStore = useSettingsStore;
   devWindow.useWebSocketStore = useWebSocketStore;
   // Console: __apiRequestStats() -> { issued, coalesced } for UnifiedApiClient (issued ~ NIP-98 signatures).
+  // Console: __signStats(true) resets; read it 30 s later for the signature count by path.
+  devWindow.__signStats = getSignStats;
   devWindow.__apiRequestStats = () => unifiedApiClient.getRequestStats();
 }
 

@@ -1,4 +1,5 @@
 import { createLogger } from '../utils/loggerConfig';
+import { recordSignature } from './signStats';
 import { createErrorMetadata } from '../utils/loggerConfig';
 import { nip19 } from 'nostr-tools';
 import { getPublicKey, finalizeEvent } from 'nostr-tools/pure';
@@ -265,6 +266,7 @@ class NostrAuthService {
    * Prefers local passkey-derived key, falls back to NIP-07 extension.
    */
   public async signRequest(url: string, method: string, body?: string): Promise<string> {
+    recordSignature(method, url);
     // Prefer local key (passkey-derived) over NIP-07 extension
     if (this.localPrivateKey) {
       return this.signWithLocalKey(url, method, body);
