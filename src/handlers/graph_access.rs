@@ -167,6 +167,35 @@ pub async fn caller_gate(
     Ok(gate_for_graph(&graph, pubkey))
 }
 
+/// The gate for the routes that choose between the whole-graph GPU run and the CPU view path.
+///
+/// Those routes ask one question, "is any node hidden from this caller", because the GPU run is
+/// the only writer of `node_analytics`. [`gate_for_graph`] also answers `Some` when the graph holds
+/// a metadata row no node names (a deleted page's leftover), which hides no node; routing on it
+/// sent every caller to the CPU path and left the wire's analytics at zero. This returns `None`
+/// unless a node is actually hidden. Routes that return page metadata keep [`gate_for_graph`].
+pub fn node_gate_for_graph_with(
+    graph: &Arc<GraphData>,
+    pubkey: Option<&str>,
+    filter_on: bool,
+) -> Option<CallerGate> {
+    gate_for_graph_with(graph, pubkey, filter_on)
+        .filter(|gate| gate.view().nodes.len() != gate.graph().nodes.len())
+}
+
+/// [`node_gate_for_graph_with`] over the current graph, under the visibility flag. `Err` fails
+/// closed exactly as [`caller_gate`] does.
+pub async fn caller_node_gate(
+    supervisor: &Addr<GraphServiceSupervisor>,
+    pubkey: Option<&str>,
+) -> Result<Option<CallerGate>, String> {
+    if !visionclaw_domain::utils::visibility_filter::filter_enabled() {
+        return Ok(None);
+    }
+    let graph = current_graph(supervisor).await?;
+    Ok(node_gate_for_graph_with(&graph, pubkey, true))
+}
+
 /// The ontology class IRIs this caller may not see: the `owl_class_iri` of every node in the
 /// whole graph that is not in the caller's view. The Oxigraph store still holds a formal class
 /// whose page is private, so every ontology read surface drops these IRIs (and every edge and
@@ -307,6 +336,45 @@ mod gate_keying_tests {
             ..GraphData::default()
         });
         assert!(gate_for_graph_with(&all_public, None, true).is_none());
+    }
+}
+
+#[cfg(test)]
+mod routing_tests {
+    use super::*;
+    use visionclaw_domain::models::metadata::Metadata;
+    use visionclaw_domain::models::node::Node;
+
+    /// Every node public, plus one metadata row no node names (a deleted page's leftover).
+    fn all_public_with_orphan_metadata() -> Arc<GraphData> {
+        let mut g = GraphData::default();
+        for id in 0..3u32 {
+            let mut n = Node::new_with_id(format!("p{id}.md"), None);
+            n.id = id;
+            n.metadata.insert("public".into(), "true".into());
+            g.metadata.insert(format!("p{id}.md"), Metadata::default());
+            g.nodes.push(n);
+        }
+        g.metadata.insert("orphan.md".into(), Metadata::default());
+        Arc::new(g)
+    }
+
+    #[test]
+    fn orphan_metadata_alone_does_not_gate_a_caller_who_sees_every_node() {
+        // No node is hidden, so the whole-graph GPU route (the only writer of
+        // node_analytics) must be taken, not the CPU visible-subgraph route.
+        let g = all_public_with_orphan_metadata();
+        assert!(
+            node_gate_for_graph_with(&g, Some("anyone"), true).is_none(),
+            "a caller who sees every node must not be routed to the CPU view path"
+        );
+    }
+
+    #[test]
+    fn a_genuinely_hidden_node_still_gates() {
+        let mut g = (*all_public_with_orphan_metadata()).clone();
+        g.nodes[2].metadata.insert("public".into(), "false".into());
+        assert!(node_gate_for_graph_with(&Arc::new(g), Some("anyone"), true).is_some());
     }
 }
 

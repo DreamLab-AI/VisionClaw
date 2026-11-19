@@ -135,7 +135,7 @@ pub async fn compute_pagerank(
 
     // ADR-060: a caller whose view hides nodes is answered over that view on the CPU, keyed by
     // visible node id; the shared actor (and its cache) only ever serves whole-graph callers.
-    match crate::handlers::graph_access::caller_gate(
+    match crate::handlers::graph_access::caller_node_gate(
         &data.graph_service_addr,
         crate::handlers::graph_access::caller_pubkey(&caller),
     )
@@ -197,7 +197,7 @@ pub async fn get_pagerank_result(
     // ADR-060: the cache holds a whole-graph run. A caller whose view hides nodes has no cached
     // result of their own (POST /compute answers them over their view), so they get exactly the
     // "nothing cached" reply; an unreadable graph fails closed.
-    match crate::handlers::graph_access::caller_gate(
+    match crate::handlers::graph_access::caller_node_gate(
         &data.graph_service_addr,
         crate::handlers::graph_access::caller_pubkey(&caller),
     )

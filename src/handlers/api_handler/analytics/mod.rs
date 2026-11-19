@@ -75,7 +75,7 @@ pub async fn run_community_detection(
 ) -> Result<actix_web::HttpResponse, actix_web::Error> {
     debug!("Community detection request: {:?}", request);
 
-    let gate = crate::handlers::graph_access::caller_gate(
+    let gate = crate::handlers::graph_access::caller_node_gate(
         &app_state.graph_service_addr,
         Some(auth.pubkey.as_str()),
     )
@@ -112,7 +112,7 @@ pub async fn run_anomaly_detection(
 ) -> Result<actix_web::HttpResponse, actix_web::Error> {
     debug!("Structural anomaly detection request: {:?}", request);
 
-    let gate = crate::handlers::graph_access::caller_gate(
+    let gate = crate::handlers::graph_access::caller_node_gate(
         &app_state.graph_service_addr,
         Some(auth.pubkey.as_str()),
     )

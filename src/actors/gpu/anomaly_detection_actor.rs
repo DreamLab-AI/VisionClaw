@@ -95,6 +95,31 @@ impl AnomalyDetectionActor {
     }
 }
 
+/// The node count to analyse: the actor's own `gpu_state` count when set, else the GPU context's.
+///
+/// Nothing in this actor ever writes `gpu_state.num_nodes` (ClusteringActor and PageRankActor
+/// backfill it from the context; this one did not), so every run failed "No nodes available"
+/// while the context held the whole uploaded graph.
+fn resolve_node_count(state_nodes: u32, context_nodes: usize) -> u32 {
+    if state_nodes > 0 {
+        state_nodes
+    } else {
+        u32::try_from(context_nodes).unwrap_or(u32::MAX)
+    }
+}
+
+impl AnomalyDetectionActor {
+    /// Backfill `gpu_state.num_nodes` from the shared GPU context when it was never set.
+    fn sync_node_count(&mut self) {
+        let Some(ref ctx) = self.shared_context else {
+            return;
+        };
+        if let Ok(uc) = ctx.unified_compute.lock() {
+            self.gpu_state.num_nodes = resolve_node_count(self.gpu_state.num_nodes, uc.num_nodes);
+        }
+    }
+}
+
 impl Default for AnomalyDetectionActor {
     fn default() -> Self {
         Self::new()
@@ -131,6 +156,7 @@ impl Handler<RunAnomalyDetection> for AnomalyDetectionActor {
             );
         }
 
+        self.sync_node_count();
         if self.gpu_state.num_nodes == 0 {
             error!("AnomalyDetectionActor: No nodes available for anomaly detection");
             return Box::pin(
@@ -444,5 +470,25 @@ impl Handler<SetNodeAnalytics> for AnomalyDetectionActor {
     fn handle(&mut self, msg: SetNodeAnalytics, _ctx: &mut Self::Context) {
         info!("AnomalyDetectionActor: Received shared node_analytics map");
         self.node_analytics = Some(msg.node_analytics);
+    }
+}
+
+#[cfg(test)]
+mod node_count_tests {
+    use super::resolve_node_count;
+
+    #[test]
+    fn unset_state_takes_the_context_count() {
+        assert_eq!(resolve_node_count(0, 9_688), 9_688);
+    }
+
+    #[test]
+    fn a_set_state_count_is_kept() {
+        assert_eq!(resolve_node_count(120, 9_688), 120);
+    }
+
+    #[test]
+    fn an_empty_context_stays_empty() {
+        assert_eq!(resolve_node_count(0, 0), 0);
     }
 }
