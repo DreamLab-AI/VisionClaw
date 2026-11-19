@@ -1966,6 +1966,7 @@ mod tests {
             edge_type: None,
             metadata: None,
             owl_property_iri: None,
+            provenance: None,
         }
     }
 

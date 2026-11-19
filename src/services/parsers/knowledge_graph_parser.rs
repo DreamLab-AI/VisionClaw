@@ -331,6 +331,7 @@ impl KnowledgeGraphParser {
                     edge_type: Some("explicit_link".to_string()),
                     metadata: None,
                     owl_property_iri: None,
+                    provenance: Some(visionclaw_domain::models::edge::EdgeProvenance::Asserted),
                 });
             }
         }

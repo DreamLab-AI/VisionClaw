@@ -23,7 +23,7 @@
 //!   is opt-in via [`InferredMaterialisationConfig::enabled`] (default OFF).
 
 use std::collections::{HashMap, HashSet};
-use visionclaw_domain::models::edge::{Edge, RDFS_SUBCLASS_OF_IRI};
+use visionclaw_domain::models::edge::{Edge, EdgeProvenance, RDFS_SUBCLASS_OF_IRI};
 
 /// Edge-type of a materialised inferred subclass edge — the same class label the
 /// asserted hierarchy edges use, so inferred edges also fold under the L2 ladder.
@@ -57,11 +57,13 @@ impl Default for InferredMaterialisationConfig {
 
 /// Whether an edge is a materialised inferred edge (reads the provenance tag).
 pub fn edge_is_inferred(edge: &Edge) -> bool {
-    edge.metadata
-        .as_ref()
-        .and_then(|m| m.get(INFERRED_META_KEY))
-        .map(|v| v == "true")
-        .unwrap_or(false)
+    edge.provenance == Some(EdgeProvenance::Inferred)
+        || edge
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get(INFERRED_META_KEY))
+            .map(|v| v == "true")
+            .unwrap_or(false)
 }
 
 /// Build the tagged GraphData edge for a materialised inferred child→parent pair.
@@ -69,6 +71,7 @@ pub fn build_inferred_edge(child: u32, parent: u32) -> Edge {
     Edge::new(child, parent, 1.0)
         .with_edge_type(INFERRED_EDGE_TYPE.to_string())
         .with_owl_property_iri(RDFS_SUBCLASS_OF_IRI.to_string())
+        .with_provenance(EdgeProvenance::Inferred)
         .add_metadata(INFERRED_META_KEY.to_string(), "true".to_string())
 }
 
@@ -259,6 +262,19 @@ mod tests {
         let b = select_inferred_edges(&[(2, 5), (3, 1), (1, 2)], &asserted, 8);
         assert_eq!(a, b, "output independent of candidate order");
         assert_eq!(a, vec![(1, 2), (2, 5), (3, 1)]);
+    }
+
+    #[test]
+    fn inferred_edge_provenance_differs_from_asserted_subclass() {
+        let inferred = build_inferred_edge(1, 2);
+        let asserted = Edge::new(1, 2, 1.0)
+            .with_edge_type("hierarchical".to_string())
+            .with_owl_property_iri(RDFS_SUBCLASS_OF_IRI.to_string())
+            .with_provenance(EdgeProvenance::Asserted);
+        assert_eq!(inferred.provenance, Some(EdgeProvenance::Inferred));
+        assert_ne!(inferred.provenance, asserted.provenance);
+        assert!(edge_is_inferred(&inferred));
+        assert!(!edge_is_inferred(&asserted));
     }
 
     #[test]

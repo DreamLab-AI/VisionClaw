@@ -504,6 +504,7 @@ pub fn edges_for(
                 edge_type: Some(CHAIN_PAYMENT_EDGE_TYPE.to_string()),
                 owl_property_iri: None,
                 metadata: Some(metadata),
+                provenance: Some(visionclaw_domain::models::edge::EdgeProvenance::Asserted),
             })
         })
         .collect()

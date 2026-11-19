@@ -48,7 +48,7 @@ use crate::ports::graph_repository::{
 };
 use crate::utils::socket_flow_messages::BinaryNodeData as RtBinaryNodeData;
 use visionclaw_domain::models::constraints::ConstraintSet;
-use visionclaw_domain::models::edge::Edge;
+use visionclaw_domain::models::edge::{Edge, EdgeProvenance, UNTYPED_EDGE_LABEL};
 use visionclaw_domain::models::graph::GraphData;
 use visionclaw_domain::models::node::Node;
 
@@ -530,7 +530,7 @@ impl GraphRepository for OxigraphGraphRepository {
             let iri = edge_iri(edge);
             let src = node_iri(edge.source);
             let tgt = node_iri(edge.target);
-            let etype = escape_literal(edge.edge_type.as_deref().unwrap_or("default"));
+            let etype = escape_literal(edge.edge_type.as_deref().unwrap_or(UNTYPED_EDGE_LABEL));
 
             update.push_str("  GRAPH <");
             update.push_str(graph);
@@ -552,6 +552,12 @@ impl GraphRepository for OxigraphGraphRepository {
                     owl = owl
                 ));
             }
+            if let Some(p) = edge.provenance {
+                update.push_str(&format!(
+                    "    <{iri}> vc:provenance \"{p}\" .\n",
+                    p = p.as_str()
+                ));
+            }
             update.push_str("  }\n");
         }
 
@@ -560,7 +566,7 @@ impl GraphRepository for OxigraphGraphRepository {
             let iri = edge_iri(edge);
             let src = node_iri(edge.source);
             let tgt = node_iri(edge.target);
-            let etype = escape_literal(edge.edge_type.as_deref().unwrap_or("bridge_to"));
+            let etype = escape_literal(edge.edge_type.as_deref().unwrap_or(UNTYPED_EDGE_LABEL));
             update.push_str(&format!("  <{iri}> a vc:BridgeEdge .\n"));
             update.push_str(&format!("  <{iri}> vc:source <{src}> .\n"));
             update.push_str(&format!("  <{iri}> vc:target <{tgt}> .\n"));
@@ -572,6 +578,15 @@ impl GraphRepository for OxigraphGraphRepository {
                 "  <{iri}> vc:relationshipType \"{etype}\" .\n",
                 etype = etype
             ));
+            if let Some(owl) = &edge.owl_property_iri {
+                update.push_str(&format!("  <{iri}> vc:owlProperty <{owl}> .\n"));
+            }
+            if let Some(p) = edge.provenance {
+                update.push_str(&format!(
+                    "  <{iri}> vc:provenance \"{p}\" .\n",
+                    p = p.as_str()
+                ));
+            }
         }
 
         update.push_str("}\n");
@@ -1456,14 +1471,15 @@ fn load_nodes_in_graph(store: &Store, graph_iri: &str) -> RepoResult<Vec<Node>> 
 fn load_edges_in_graph(store: &Store, graph_iri: &str) -> RepoResult<Vec<Edge>> {
     let prologue = OxigraphGraphRepository::PROLOGUE;
     let q = format!(
-        "{p}SELECT ?edge ?src ?tgt ?weight ?etype ?owl WHERE {{\n  \
+        "{p}SELECT ?edge ?src ?tgt ?weight ?etype ?owl ?prov WHERE {{\n  \
          GRAPH <{graph}> {{\n    \
          ?edge a vc:KGEdge .\n    \
          ?edge vc:source ?src .\n    \
          ?edge vc:target ?tgt .\n    \
          OPTIONAL {{ ?edge vc:weight ?weight }} .\n    \
          OPTIONAL {{ ?edge vc:relationshipType ?etype }} .\n    \
-         OPTIONAL {{ ?edge vc:owlProperty ?owl }} .\n  \
+         OPTIONAL {{ ?edge vc:owlProperty ?owl }} .\n    \
+         OPTIONAL {{ ?edge vc:provenance ?prov }} .\n  \
          }}\n}}",
         p = prologue,
         graph = graph_iri,
@@ -1496,8 +1512,9 @@ fn load_edges_in_graph(store: &Store, graph_iri: &str) -> RepoResult<Vec<Edge>> 
         };
         let source = iri_to_node_id(&src).unwrap_or(0);
         let target = iri_to_node_id(&tgt).unwrap_or(0);
-        let weight = sol.get("weight").and_then(term_to_f32).unwrap_or(1.0);
+        let weight = reload_weight(&sol, &edge_iri);
         let etype = sol.get("etype").and_then(term_to_string);
+        let provenance = reload_provenance(&sol);
         // The typed predicate the edge was written with (`vc:owlProperty`),
         // so the assert-graph rebuild can re-emit `rdfs:subClassOf`,
         // `vc:requires`, … rather than collapsing every edge to one predicate.
@@ -1513,7 +1530,8 @@ fn load_edges_in_graph(store: &Store, graph_iri: &str) -> RepoResult<Vec<Edge>> 
             weight,
             edge_type: etype,
             owl_property_iri,
-            metadata: None,
+            metadata: provenance_metadata(provenance),
+            provenance,
         });
     }
 
@@ -1526,12 +1544,14 @@ fn load_edges_in_graph(store: &Store, graph_iri: &str) -> RepoResult<Vec<Edge>> 
 fn load_bridge_edges(store: &Store) -> RepoResult<Vec<Edge>> {
     let prologue = OxigraphGraphRepository::PROLOGUE;
     let q = format!(
-        "{p}SELECT ?edge ?src ?tgt ?weight ?etype WHERE {{\n  \
+        "{p}SELECT ?edge ?src ?tgt ?weight ?etype ?owl ?prov WHERE {{\n  \
          ?edge a vc:BridgeEdge .\n  \
          ?edge vc:source ?src .\n  \
          ?edge vc:target ?tgt .\n  \
          OPTIONAL {{ ?edge vc:weight ?weight }} .\n  \
-         OPTIONAL {{ ?edge vc:relationshipType ?etype }} .\n}}",
+         OPTIONAL {{ ?edge vc:relationshipType ?etype }} .\n  \
+         OPTIONAL {{ ?edge vc:owlProperty ?owl }} .\n  \
+         OPTIONAL {{ ?edge vc:provenance ?prov }} .\n}}",
         p = prologue,
     );
 
@@ -1562,11 +1582,13 @@ fn load_bridge_edges(store: &Store) -> RepoResult<Vec<Edge>> {
         };
         let source = iri_to_node_id(&src).unwrap_or(0);
         let target = iri_to_node_id(&tgt).unwrap_or(0);
-        let weight = sol.get("weight").and_then(term_to_f32).unwrap_or(1.0);
-        let etype = sol
-            .get("etype")
-            .and_then(term_to_string)
-            .or_else(|| Some("bridge_to".to_string()));
+        let weight = reload_weight(&sol, &edge_iri);
+        let etype = sol.get("etype").and_then(term_to_string);
+        let owl_property_iri = match sol.get("owl") {
+            Some(oxigraph::model::Term::NamedNode(n)) => Some(n.as_str().to_string()),
+            _ => None,
+        };
+        let provenance = reload_provenance(&sol);
 
         out.push(Edge {
             id: edge_iri,
@@ -1574,12 +1596,46 @@ fn load_bridge_edges(store: &Store) -> RepoResult<Vec<Edge>> {
             target,
             weight,
             edge_type: etype,
-            owl_property_iri: None,
-            metadata: None,
+            owl_property_iri,
+            metadata: provenance_metadata(provenance),
+            provenance,
         });
     }
 
     Ok(out)
+}
+
+/// Reload the stored weight exactly. A row with no `vc:weight` has no weight to
+/// give: it is counted and logged, and falls back to 1.0 only so the edge is
+/// not dropped (ADR-2204 E3: never a silent default).
+fn reload_weight(sol: &oxigraph::sparql::QuerySolution, edge_iri: &str) -> f32 {
+    match sol.get("weight").and_then(term_to_f32) {
+        Some(w) => w,
+        None => {
+            let n = MISSING_WEIGHT_EDGES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            log::warn!("edge {edge_iri} stored without vc:weight (count {n}); reloading as 1.0");
+            1.0
+        }
+    }
+}
+
+/// Stored provenance token, if any. Unknown or absent tokens give `None`.
+fn reload_provenance(sol: &oxigraph::sparql::QuerySolution) -> Option<EdgeProvenance> {
+    sol.get("prov")
+        .and_then(term_to_string)
+        .and_then(|t| EdgeProvenance::parse(&t))
+}
+
+/// Keep the legacy `metadata["inferred"]` flag readable for consumers of
+/// `edge_is_inferred` after a reload.
+fn provenance_metadata(
+    p: Option<EdgeProvenance>,
+) -> Option<std::collections::HashMap<String, String>> {
+    (p == Some(EdgeProvenance::Inferred)).then(|| {
+        [("inferred".to_string(), "true".to_string())]
+            .into_iter()
+            .collect()
+    })
 }
 
 /// Parse a node IRI back into its full `u32` id (class bits + sequence).
@@ -1588,10 +1644,15 @@ fn iri_to_node_id(iri: &str) -> Option<u32> {
         .and_then(|tail| tail.parse::<u32>().ok())
 }
 
+/// Edges reloaded without a stored `vc:weight` (counted, never silent).
+pub static MISSING_WEIGHT_EDGES: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 #[cfg(test)]
 mod upsert_tests {
     use super::*;
     use crate::ports::knowledge_graph_repository::KnowledgeGraphRepository;
+    use visionclaw_domain::models::edge::{EdgeProvenance, RDFS_SUBCLASS_OF_IRI};
 
     fn test_node(id: u32, type_value: &str) -> Node {
         let mut node = Node {
@@ -1696,5 +1757,190 @@ mod upsert_tests {
             "stub must not replace the authored node"
         );
         assert!(graph.nodes.iter().any(|n| n.id == 8), "new stub written");
+    }
+
+    // ---- ADR-2204 S1 / E3: relation instances survive store and reload ----
+
+    fn rel_edge(s: u32, t: u32, w: f32, label: &str, iri: Option<&str>, p: EdgeProvenance) -> Edge {
+        let mut e = Edge::new(s, t, w)
+            .with_edge_type(label.to_string())
+            .with_provenance(p);
+        e.owl_property_iri = iri.map(str::to_string);
+        e
+    }
+
+    async fn seeded() -> OxigraphGraphRepository {
+        let repo = repo();
+        KnowledgeGraphRepository::batch_add_nodes(
+            &repo,
+            vec![
+                test_node(1, "page"),
+                test_node(2, "page"),
+                test_node(3, "page"),
+            ],
+        )
+        .await
+        .expect("nodes");
+        repo
+    }
+
+    async fn reload(repo: &OxigraphGraphRepository) -> Vec<Edge> {
+        let mut e = repo.load_graph().await.expect("load").edges.to_vec();
+        e.sort_by_key(|e| (e.source, e.target));
+        e
+    }
+
+    #[tokio::test]
+    async fn asserted_inferred_derived_edges_round_trip_exactly() {
+        let repo = seeded().await;
+        let sub = RDFS_SUBCLASS_OF_IRI;
+        let input = vec![
+            rel_edge(
+                1,
+                2,
+                0.37,
+                "requires",
+                Some("https://narrativegoldmine.com/ns/v1#requires"),
+                EdgeProvenance::Asserted,
+            ),
+            rel_edge(
+                2,
+                3,
+                0.8,
+                "hierarchical",
+                Some(sub),
+                EdgeProvenance::Inferred,
+            ),
+            rel_edge(3, 1, 1.5, "domain_member", None, EdgeProvenance::Derived),
+        ];
+        KnowledgeGraphRepository::batch_add_edges(&repo, input.clone())
+            .await
+            .expect("add");
+        let got = reload(&repo).await;
+        assert_eq!(got.len(), 3);
+        for (want, got) in input.iter().zip(&got) {
+            assert_eq!(
+                (got.source, got.target),
+                (want.source, want.target),
+                "direction"
+            );
+            assert_eq!(got.weight, want.weight, "weight exact");
+            assert_eq!(got.edge_type, want.edge_type, "label");
+            assert_eq!(got.owl_property_iri, want.owl_property_iri, "predicate");
+            assert_eq!(got.provenance, want.provenance, "provenance");
+        }
+        assert!(
+            edge_flag_inferred(&got[1]),
+            "reloaded inferred edge keeps the legacy metadata flag"
+        );
+        assert!(!edge_flag_inferred(&got[0]));
+    }
+
+    fn edge_flag_inferred(e: &Edge) -> bool {
+        e.metadata
+            .as_ref()
+            .and_then(|m| m.get("inferred"))
+            .is_some_and(|v| v == "true")
+    }
+
+    /// Bridge (cross-graph) edges carry the same fields.
+    #[tokio::test]
+    async fn bridge_edge_round_trips_label_provenance_and_predicate() {
+        let repo = repo();
+        let agent = 0x8000_0001u32;
+        KnowledgeGraphRepository::batch_add_nodes(&repo, vec![test_node(1, "page")])
+            .await
+            .expect("kg node");
+        repo.batch_add_nodes_if_absent(vec![test_node(agent, "agent")])
+            .await
+            .ok();
+        let e = rel_edge(
+            1,
+            agent,
+            0.25,
+            "tracks",
+            Some("urn:x:tracks"),
+            EdgeProvenance::Asserted,
+        );
+        KnowledgeGraphRepository::batch_add_edges(&repo, vec![e.clone()])
+            .await
+            .expect("add");
+        let got = reload(&repo).await;
+        let got = got.iter().find(|g| g.source == 1 && g.target == agent);
+        let got = got.expect("bridge edge reloaded (agent graph must differ)");
+        assert_eq!(got.weight, 0.25);
+        assert_eq!(got.edge_type.as_deref(), Some("tracks"));
+        assert_eq!(got.owl_property_iri.as_deref(), Some("urn:x:tracks"));
+        assert_eq!(got.provenance, Some(EdgeProvenance::Asserted));
+    }
+
+    #[tokio::test]
+    async fn rewriting_an_edge_leaves_one_weight_literal() {
+        let repo = seeded().await;
+        let mut e = rel_edge(1, 2, 0.5, "requires", None, EdgeProvenance::Asserted);
+        KnowledgeGraphRepository::batch_add_edges(&repo, vec![e.clone()])
+            .await
+            .expect("1");
+        e.weight = 0.9;
+        KnowledgeGraphRepository::batch_add_edges(&repo, vec![e.clone()])
+            .await
+            .expect("2");
+        let q = format!(
+            "{p}SELECT (COUNT(?w) AS ?n) WHERE {{ GRAPH ?g {{ <{iri}> vc:weight ?w }} }}",
+            p = OxigraphGraphRepository::PROLOGUE,
+            iri = edge_iri(&e),
+        );
+        let n = match repo.store().query(q.as_str()).expect("q") {
+            QueryResults::Solutions(mut s) => s
+                .next()
+                .and_then(|r| r.ok())
+                .and_then(|r| r.get("n").cloned())
+                .and_then(|t| match t {
+                    oxigraph::model::Term::Literal(l) => l.value().parse::<usize>().ok(),
+                    _ => None,
+                })
+                .unwrap_or(0),
+            _ => 0,
+        };
+        assert_eq!(n, 1, "one weight literal after re-write");
+        assert_eq!(reload(&repo).await[0].weight, 0.9);
+    }
+
+    #[tokio::test]
+    async fn untyped_edge_default_is_the_same_in_both_graph_classes() {
+        let repo = seeded().await;
+        let agent = 0x8000_0002u32;
+        repo.batch_add_nodes_if_absent(vec![test_node(agent, "agent")])
+            .await
+            .ok();
+        let same = Edge::new(1, 2, 1.0);
+        let bridge = Edge::new(1, agent, 1.0);
+        KnowledgeGraphRepository::batch_add_edges(&repo, vec![same, bridge])
+            .await
+            .expect("add");
+        let got = reload(&repo).await;
+        let labels: Vec<_> = got.iter().map(|e| e.edge_type.clone()).collect();
+        assert_eq!(labels.len(), 2, "both edges reloaded");
+        assert_eq!(labels[0], labels[1], "one untyped default, got {labels:?}");
+    }
+
+    #[test]
+    fn edge_without_stored_weight_is_counted_not_silent() {
+        let before = MISSING_WEIGHT_EDGES.load(std::sync::atomic::Ordering::Relaxed);
+        let repo = repo();
+        let iri = "urn:ngm:edge:1:2:1-2";
+        repo.store()
+            .update(format!(
+                "{p}INSERT DATA {{ GRAPH <{g}> {{ <{iri}> a vc:KGEdge ; vc:source <{s}> ; vc:target <{t}> . }} }}",
+                p = OxigraphGraphRepository::PROLOGUE,
+                g = graph_for_node_id(1),
+                s = node_iri(1),
+                t = node_iri(2),
+            ).as_str())
+            .expect("raw insert");
+        let edges = load_edges_in_graph(repo.store(), graph_for_node_id(1)).expect("load");
+        assert_eq!(edges.len(), 1);
+        let after = MISSING_WEIGHT_EDGES.load(std::sync::atomic::Ordering::Relaxed);
+        assert!(after > before, "missing weight must be counted");
     }
 }

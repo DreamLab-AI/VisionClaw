@@ -656,6 +656,9 @@ impl GitHubSyncService {
                             edge_type: Some("co_citation".to_string()),
                             owl_property_iri: None,
                             metadata: None,
+                            provenance: Some(
+                                visionclaw_domain::models::edge::EdgeProvenance::Derived,
+                            ),
                         })
                         .collect();
                     let n_cocite = cocite_edges.len();
@@ -944,6 +947,7 @@ impl GitHubSyncService {
                     edge_type: Some("co_citation".to_string()),
                     owl_property_iri: None,
                     metadata: None,
+                    provenance: Some(visionclaw_domain::models::edge::EdgeProvenance::Derived),
                 })
                 .collect();
             match self.kg_repo.batch_add_edges(cocite_edges).await {
@@ -2086,6 +2090,7 @@ impl GitHubSyncService {
                 edge_type: Some("explicit_link".to_string()),
                 metadata: None,
                 owl_property_iri: None,
+                provenance: Some(visionclaw_domain::models::edge::EdgeProvenance::Asserted),
             });
         }
 
@@ -2106,6 +2111,7 @@ impl GitHubSyncService {
                     edge_type: Some("elevated_from".to_string()),
                     metadata: None,
                     owl_property_iri: None,
+                    provenance: Some(visionclaw_domain::models::edge::EdgeProvenance::Asserted),
                 });
             }
         }
@@ -2175,6 +2181,7 @@ impl GitHubSyncService {
                     edge_type: Some(edge_type.to_string()),
                     owl_property_iri: Some(predicate.clone()),
                     metadata: Some(metadata),
+                    provenance: Some(visionclaw_domain::models::edge::EdgeProvenance::Asserted),
                 });
             }
         }
@@ -2748,6 +2755,7 @@ pub(crate) fn domain_membership_edge(root_id: u32, member_id: u32) -> Edge {
         edge_type: Some(DOMAIN_MEMBER_EDGE_TYPE.to_string()),
         owl_property_iri: None,
         metadata: None,
+        provenance: Some(visionclaw_domain::models::edge::EdgeProvenance::Derived),
     }
 }
 
@@ -2941,6 +2949,7 @@ mod domain_root_plan_tests {
             edge_type: Some(label.to_string()),
             owl_property_iri: None,
             metadata: None,
+            provenance: None,
         }
     }
 
@@ -2990,6 +2999,15 @@ mod domain_root_plan_tests {
 
     /// ADR-2021: minting goes through `uri::ngm`, and the persisted bytes are
     /// exactly what the pre-typed `format!` sites wrote.
+    #[test]
+    fn domain_spoke_is_derived_provenance() {
+        use visionclaw_domain::models::edge::EdgeProvenance;
+        assert_eq!(
+            domain_membership_edge(1, 2).provenance,
+            Some(EdgeProvenance::Derived)
+        );
+    }
+
     #[test]
     fn domain_root_and_edge_iris_are_byte_identical_to_the_legacy_literals() {
         let root = domain_root_node(SLUG, "Infrastructure");
@@ -3222,6 +3240,7 @@ mod adr_2071_inferred_edge_tests {
                         edge_type: Some("inferred".to_string()),
                         owl_property_iri: None,
                         metadata: Some(edge_meta),
+                        provenance: None,
                     });
                 }
             }

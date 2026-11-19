@@ -170,6 +170,44 @@ impl std::fmt::Display for SemanticEdgeType {
     }
 }
 
+/// Where a relation instance came from (ADR-2204 D2). Stored and reloaded
+/// verbatim; never inferred from the label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EdgeProvenance {
+    /// Written by an author: frontmatter, wikilink, OWL assertion.
+    Asserted,
+    /// Entailed by the reasoner.
+    Inferred,
+    /// Synthesised by the pipeline (domain-root spokes, co-citation).
+    Derived,
+}
+
+impl EdgeProvenance {
+    /// Stable storage/wire token.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Asserted => "asserted",
+            Self::Inferred => "inferred",
+            Self::Derived => "derived",
+        }
+    }
+
+    /// Parse a stored token; unknown tokens yield `None` (no default).
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "asserted" => Some(Self::Asserted),
+            "inferred" => Some(Self::Inferred),
+            "derived" => Some(Self::Derived),
+            _ => None,
+        }
+    }
+}
+
+/// Label stored for an edge that carries no `edge_type`, in every graph
+/// (same-graph and bridge alike). Reload maps it back to `None`.
+pub const UNTYPED_EDGE_LABEL: &str = "default";
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Edge {
@@ -185,6 +223,11 @@ pub struct Edge {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, String>>,
+
+    /// Provenance of this relation instance; `None` = not recorded (legacy rows).
+    /// Direction is `source` → `target` as asserted; it is never normalised.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<EdgeProvenance>,
 }
 
 impl Edge {
@@ -198,7 +241,14 @@ impl Edge {
             edge_type: None,
             owl_property_iri: None,
             metadata: None,
+            provenance: None,
         }
+    }
+
+    /// Record the provenance of this relation instance.
+    pub fn with_provenance(mut self, provenance: EdgeProvenance) -> Self {
+        self.provenance = Some(provenance);
+        self
     }
 
     pub fn with_owl_property_iri(mut self, iri: String) -> Self {
@@ -503,5 +553,30 @@ mod tests {
         assert!(!json.contains("edgeType"));
         assert!(!json.contains("owlPropertyIri"));
         assert!(!json.contains("metadata"));
+    }
+
+    // --- ADR-2204 S1: provenance is additive and serde-compatible ---
+
+    #[test]
+    fn legacy_payload_without_provenance_deserialises() {
+        let e: Edge =
+            serde_json::from_str(r#"{"id":"1-2","source":1,"target":2,"weight":0.5}"#).unwrap();
+        assert_eq!(e.provenance, None);
+        assert!(!serde_json::to_string(&e).unwrap().contains("provenance"));
+    }
+
+    #[test]
+    fn provenance_round_trips_through_json_and_tokens() {
+        let e = Edge::new(1, 2, 0.5).with_provenance(EdgeProvenance::Derived);
+        let back: Edge = serde_json::from_str(&serde_json::to_string(&e).unwrap()).unwrap();
+        assert_eq!(back.provenance, Some(EdgeProvenance::Derived));
+        for p in [
+            EdgeProvenance::Asserted,
+            EdgeProvenance::Inferred,
+            EdgeProvenance::Derived,
+        ] {
+            assert_eq!(EdgeProvenance::parse(p.as_str()), Some(p));
+        }
+        assert_eq!(EdgeProvenance::parse("bogus"), None);
     }
 }
