@@ -54,7 +54,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::models::edge::{Edge, EdgeProvenance, RDFS_SUBCLASS_OF_IRI};
 use crate::models::node::Node;
-use crate::relations::{RelationKind, RelationSchema};
+use crate::relations::{Producer, RelationKind, RelationSchema};
 use serde::{Deserialize, Serialize};
 
 /// Development-only layout experiment (ADR-2204 D5 pre-registration).
@@ -263,6 +263,11 @@ fn evidence_pairs(nodes: &[Node], edges: &[Edge], profile: &WeightingProfile) ->
             continue;
         }
 
+        // The materialiser's own label (once it stops stamping `hierarchical`) is the reasoner's
+        // closure: never evidence.
+        if rel.label == Producer::Inferred.label() {
+            continue;
+        }
         let inferred_edge = e.provenance == Some(EdgeProvenance::Inferred);
         // Hierarchy is the asserted direct parents only: an inferred or unprovenanced hierarchy
         // edge may be the reasoner's closure, which adds nothing.
@@ -1190,6 +1195,13 @@ mod evidence_tests {
             ),
             link(12, 20),
             link(21, 22),
+            typed(
+                22,
+                23,
+                "dependency",
+                Some("enables"),
+                EdgeProvenance::Asserted,
+            ),
         ];
         if prefix_inverse {
             // the same part-of fact, said from the other side
@@ -1208,10 +1220,28 @@ mod evidence_tests {
                 Some("hasPart"),
                 EdgeProvenance::Inferred,
             ));
+            // `partOf` is a spelling of the same inverse; so is `enabledBy` of `enables`.
+            e.push(typed(
+                21,
+                20,
+                "structural",
+                Some("partOf"),
+                EdgeProvenance::Asserted,
+            ));
+            e.push(typed(
+                23,
+                22,
+                "dependency",
+                Some("enabledBy"),
+                EdgeProvenance::Asserted,
+            ));
         }
         if closure {
             e.push(sub(10, 12, EdgeProvenance::Inferred)); // transitive closure
             e.push(sub(10, 11, EdgeProvenance::Inferred)); // inferred copy of a direct parent
+                                                           // The same closure once the materialiser labels it `inferred` (D2 mislabel fixed).
+            e.push(typed(10, 12, "inferred", None, EdgeProvenance::Inferred));
+            e.push(typed(10, 11, "inferred", None, EdgeProvenance::Inferred));
         }
         e
     }
@@ -1220,11 +1250,11 @@ mod evidence_tests {
     /// gives identical weights, bit for bit.
     #[test]
     fn three_encodings_of_the_same_knowledge_give_identical_weights() {
-        let n = nodes(22);
+        let n = nodes(23);
         let once = as_map(&weights(&n, &knowledge(false, false), &ev()));
         let inv = as_map(&weights(&n, &knowledge(true, false), &ev()));
         let clo = as_map(&weights(&n, &knowledge(true, true), &ev()));
-        assert_eq!(once.len(), 5);
+        assert_eq!(once.len(), 6);
         assert_eq!(once, inv, "inverse + inferred duplicate must add nothing");
         assert_eq!(once, clo, "the transitive closure must add nothing");
         assert!(
@@ -1235,7 +1265,7 @@ mod evidence_tests {
 
     #[test]
     fn the_result_is_invariant_to_edge_order() {
-        let n = nodes(22);
+        let n = nodes(23);
         let e = knowledge(true, true);
         let base = weights(&n, &e, &ev());
         for k in 0..e.len() {

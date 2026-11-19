@@ -1,10 +1,11 @@
 //! CSR construction for the physics graph (ADR-2204 D7: drawing is separate from physics).
 //!
-//! One pure function turns a graph's edges and a per-edge weight slice into the symmetric
-//! CSR the force kernels read. The weights come from
-//! `visionclaw_domain::weighting::physics_edge_weights`; the topology depends only on the
-//! edges and the node index, never on the weights. That is what lets a profile change re-upload
-//! weights alone, with `row_offsets` and `col_indices` identical.
+//! One pure function turns the weighting stage's physics pairs into the symmetric CSR the force
+//! kernels read. The pairs come from `visionclaw_domain::weighting::physics_pairs`. Within one
+//! weighting mode the topology depends only on the edges and the node index, never on the
+//! weights, so a profile change re-uploads weights alone with `row_offsets` and `col_indices`
+//! identical; switching mode changes the pair list (Evidence emits one pair per connected
+//! pair), hence the topology.
 
 use std::collections::HashMap;
 

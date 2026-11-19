@@ -1405,9 +1405,10 @@ impl ForceComputeActor {
     /// Re-derive the per-edge physics weights for the uploaded graph under `profile` and
     /// upload them (ADR-2204 D3/D7).
     ///
-    /// Only the CSR arrays go to the device (`upload_edges_csr`), built over the same edge
-    /// iteration as the first upload, so `row_offsets` and `col_indices` are identical and only
-    /// the weights differ. Positions, velocities, warmup, the constraint state and the degree
+    /// Only the CSR arrays go to the device (`upload_edges_csr`), built by the same stage as the
+    /// first upload. Within one weighting mode `row_offsets` and `col_indices` are identical and
+    /// only the weights differ; a mode switch changes the topology (one edge per pair), which
+    /// `upload_edges_csr` accepts while the edge count fits the allocation. Positions, velocities, warmup, the constraint state and the degree
     /// buffers are not written. Before any graph is uploaded there is nothing to do: the first
     /// upload reads the stored profile. A device failure is returned and nothing is recorded.
     fn reweight_edges(&mut self, profile: &WeightingProfile) -> Result<(), String> {

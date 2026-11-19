@@ -78,6 +78,9 @@ relations:
       - vc:enabledBy
     frontmatter_keys: [requires, enables, depends-on]
     aliases: [requires, depends_on, enables]
+    inverse_predicates:
+      vc:enables: vc:enabledBy
+      vc:enabledBy: vc:enables
     legacy_weight: 1.4
     legacy_weight_note: "pre-ADR-2204 S3: registry `dependency` strength 0.7 × 2 (the registry also holds a first, shadowed row at 0.6)"
     affinity: 0.7
@@ -99,6 +102,7 @@ relations:
     inverse_predicates:
       vc:hasPart: vc:isPartOf
       vc:isPartOf: vc:hasPart
+      vc:partOf: vc:hasPart       # same direction as isPartOf: a spelling of the inverse
     legacy_weight: 1.4
     legacy_weight_note: "pre-ADR-2204 S3: registry `structural` strength 0.7 × 2"
     affinity: 0.7
@@ -131,6 +135,9 @@ relations:
       - owl:disjointWith
     frontmatter_keys: [bridges-to, contrasts-with]
     aliases: [bridges_to, bridges_from]
+    inverse_predicates:
+      vc:bridgesTo: vc:bridgesFrom
+      vc:bridgesFrom: vc:bridgesTo
     legacy_weight: 0.6
     legacy_weight_note: "pre-ADR-2204 S3: registry `bridge` strength 0.3 × 2"
     affinity: 0.3
