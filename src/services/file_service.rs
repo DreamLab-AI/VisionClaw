@@ -22,6 +22,7 @@ use visionclaw_domain::models::edge::Edge as AppEdge;
 use visionclaw_domain::models::graph::GraphData;
 use visionclaw_domain::models::metadata::{Metadata, MetadataOps, MetadataStore};
 use visionclaw_domain::models::node::Node as AppNode; // Use an alias to avoid confusion
+use visionclaw_domain::relations::{Producer, RelationSchema};
 use visionclaw_domain::vault;
 
 // Constants
@@ -1192,9 +1193,14 @@ impl FileService {
                     if let Some(&target_id) = term_to_id.get(&target) {
                         let edge_key = (*source_id, target_id);
                         if target_id != *source_id && seen_edges.insert(edge_key) {
-                            graph_data
-                                .edges
-                                .push(AppEdge::new(*source_id, target_id, 1.0));
+                            graph_data.edges.push(
+                                AppEdge::new(
+                                    *source_id,
+                                    target_id,
+                                    RelationSchema::builtin().producer_weight(Producer::Wikilink),
+                                )
+                                .with_edge_type(Producer::Wikilink.label().to_string()),
+                            );
                         }
                     }
                 }

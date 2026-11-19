@@ -186,6 +186,19 @@ pub struct SimulationParams {
     #[serde(default)]
     pub hierarchy_affinity: f32,
 
+    /// Edge weighting (ADR-2204 D3). Host-side only, like `hierarchy_affinity`.
+    #[serde(default)]
+    pub weighting_mode: crate::weighting::WeightingMode,
+    /// Evidence-mode hub damping exponent `α` (host-side only).
+    #[serde(default)]
+    pub hub_damping: f32,
+    /// Evidence-mode lower weight bound (host-side only).
+    #[serde(default = "default_weight_min")]
+    pub weight_min: f32,
+    /// Evidence-mode upper weight bound (host-side only).
+    #[serde(default = "default_weight_max")]
+    pub weight_max: f32,
+
     pub phase: SimulationPhase,
     pub mode: SimulationMode,
 
@@ -452,6 +465,24 @@ impl SimulationParams {
 
 // Conversion from PhysicsSettings to SimulationParams — no dev_config refs,
 // safe to live in the domain crate.
+impl SimulationParams {
+    /// The edge-weighting profile these parameters and an optional dev `experiment` describe
+    /// (ADR-2204 D3): the one place the stored settings become a [`WeightingProfile`].
+    pub fn weighting_profile(
+        &self,
+        experiment: Option<crate::weighting::LayoutExperiment>,
+    ) -> crate::weighting::WeightingProfile {
+        crate::weighting::WeightingProfile {
+            hierarchy_affinity: self.hierarchy_affinity,
+            experiment,
+            mode: self.weighting_mode,
+            hub_damping: self.hub_damping,
+            weight_min: self.weight_min,
+            weight_max: self.weight_max,
+        }
+    }
+}
+
 impl From<&PhysicsSettings> for SimulationParams {
     fn from(physics: &PhysicsSettings) -> Self {
         let mut params = Self::from_stored(physics);
@@ -546,6 +577,10 @@ impl SimulationParams {
             constraint_ramp_frames: physics.constraint_ramp_frames,
             constraint_max_force_per_node: physics.constraint_max_force_per_node,
             hierarchy_affinity: physics.hierarchy_affinity,
+            weighting_mode: physics.weighting_mode,
+            hub_damping: physics.hub_damping,
+            weight_min: physics.weight_min,
+            weight_max: physics.weight_max,
             repulsion_softening_epsilon: physics.repulsion_softening_epsilon,
             grid_cell_size: physics.grid_cell_size,
             gravity: physics.gravity,
@@ -573,6 +608,14 @@ impl SimulationParams {
             radial_center: default_radial_center(),
         }
     }
+}
+
+fn default_weight_min() -> f32 {
+    crate::weighting::WEIGHT_MIN_DEFAULT
+}
+
+fn default_weight_max() -> f32 {
+    crate::weighting::WEIGHT_MAX_DEFAULT
 }
 
 #[cfg(test)]
@@ -720,6 +763,27 @@ mod layout_mode_resolution_tests {
 
 #[cfg(test)]
 mod tests {
+    /// ADR-2204 D3: the stored weighting settings reach the host-side parameters and the profile.
+    #[test]
+    fn the_stored_weighting_settings_reach_the_weighting_profile() {
+        use crate::weighting::WeightingMode;
+        let physics = PhysicsSettings {
+            weighting_mode: WeightingMode::Evidence,
+            hub_damping: 0.5,
+            weight_min: 0.5,
+            weight_max: 2.0,
+            ..PhysicsSettings::default()
+        };
+        let profile = SimulationParams::from(&physics).weighting_profile(None);
+        assert_eq!(profile.mode, WeightingMode::Evidence);
+        assert_eq!(
+            (profile.hub_damping, profile.weight_min, profile.weight_max),
+            (0.5, 0.5, 2.0)
+        );
+        let default = SimulationParams::from(&PhysicsSettings::default()).weighting_profile(None);
+        assert_eq!(default, crate::weighting::WeightingProfile::default());
+    }
+
     /// ADR-2204 D5: the stored `hierarchyAffinity` reaches the host-side parameters the force
     /// actor receives on a physics write (and only there: `SimParams` has no such field).
     #[test]

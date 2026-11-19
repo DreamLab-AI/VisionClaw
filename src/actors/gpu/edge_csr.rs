@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 
 use visionclaw_domain::models::edge::Edge;
+use visionclaw_domain::weighting::PhysicsPair;
 
 /// The symmetric adjacency of a graph in CSR form, plus the per-node lists it came from.
 #[derive(Debug, Clone, PartialEq)]
@@ -25,9 +26,8 @@ pub struct Csr {
 
 /// Build the CSR for `edges`, where `weights[i]` is the weight of `edges[i]`.
 ///
-/// An edge whose endpoint is not in `node_indices` is skipped. Every other edge adds an entry
-/// to its source row and, unless it is a self-loop, to its target row, both with the edge's
-/// weight. Rows keep edge order.
+/// The Legacy path: one [`PhysicsPair`] per stored edge, in edge order, through
+/// [`build_csr_from_pairs`].
 ///
 /// # Panics
 ///
@@ -43,15 +43,37 @@ pub fn build_csr(
         edges.len(),
         "one weight per edge, aligned to the edge order"
     );
+    let pairs: Vec<PhysicsPair> = edges
+        .iter()
+        .zip(weights)
+        .map(|(e, &weight)| PhysicsPair {
+            source: e.source,
+            target: e.target,
+            weight,
+        })
+        .collect();
+    build_csr_from_pairs(num_nodes, node_indices, &pairs)
+}
+
+/// Build the CSR for a physics pair list (ADR-2204 D3: the weighting stage's output).
+///
+/// A pair whose endpoint is not in `node_indices` is skipped. Every other pair adds an entry to
+/// its source row and, unless it is a self-loop, to its target row, both with the pair's
+/// weight. Rows keep pair order.
+pub fn build_csr_from_pairs(
+    num_nodes: usize,
+    node_indices: &HashMap<u32, usize>,
+    pairs: &[PhysicsPair],
+) -> Csr {
     let mut adjacency: Vec<Vec<(u32, f32)>> = vec![Vec::new(); num_nodes];
-    for (edge, &weight) in edges.iter().zip(weights) {
+    for pair in pairs {
         if let (Some(&src), Some(&tgt)) = (
-            node_indices.get(&edge.source),
-            node_indices.get(&edge.target),
+            node_indices.get(&pair.source),
+            node_indices.get(&pair.target),
         ) {
-            adjacency[src].push((tgt as u32, weight));
+            adjacency[src].push((tgt as u32, pair.weight));
             if src != tgt {
-                adjacency[tgt].push((src as u32, weight));
+                adjacency[tgt].push((src as u32, pair.weight));
             }
         }
     }
@@ -159,6 +181,7 @@ mod tests {
             &WeightingProfile {
                 hierarchy_affinity: 3.0,
                 experiment: None,
+                ..Default::default()
             },
         );
         let a = build_csr(nodes.len(), &idx, &edges, &off);
@@ -167,6 +190,55 @@ mod tests {
         assert_eq!(a.col_indices, b.col_indices);
         assert_ne!(a.weights, b.weights, "the boost must change some weight");
         assert_eq!(a.weights.len(), b.weights.len());
+    }
+
+    /// The Legacy pair path is the old per-edge build, slot for slot, and the golden above
+    /// holds through it.
+    #[test]
+    fn legacy_pairs_build_the_same_csr_as_the_edge_path() {
+        use visionclaw_domain::weighting::physics_pairs;
+        let (nodes, edges) = fixture();
+        let idx = index(&nodes);
+        let profile = WeightingProfile::default();
+        let w = physics_edge_weights(&nodes, &edges, &profile);
+        let by_edge = build_csr(nodes.len(), &idx, &edges, &w);
+        let by_pair =
+            build_csr_from_pairs(nodes.len(), &idx, &physics_pairs(&nodes, &edges, &profile));
+        assert_eq!(by_edge, by_pair);
+    }
+
+    /// Evidence mode gives the GPU one entry per direction per pair, and the CSR itself (not
+    /// only the weights) does not depend on the order edges were stored in.
+    #[test]
+    fn evidence_csr_is_collapsed_and_invariant_to_edge_order() {
+        use visionclaw_domain::weighting::{physics_pairs, WeightingMode};
+        let nodes: Vec<Node> = (1..=4u32)
+            .map(|i| Node::new_with_id(format!("p{i}"), Some(i)))
+            .collect();
+        let l = |a, b, t: &str| {
+            Edge::new(a, b, 7.0)
+                .with_edge_type(t.into())
+                .with_provenance(EdgeProvenance::Asserted)
+        };
+        let edges = vec![
+            l(1, 2, "explicit_link"),
+            l(2, 1, "explicit_link"), // a second encoding of the same pair
+            l(2, 3, "explicit_link"),
+            l(3, 4, "associative"),
+        ];
+        let idx = index(&nodes);
+        let profile = WeightingProfile {
+            mode: WeightingMode::Evidence,
+            ..Default::default()
+        };
+        let a = build_csr_from_pairs(4, &idx, &physics_pairs(&nodes, &edges, &profile));
+        let rev: Vec<Edge> = edges.iter().rev().cloned().collect();
+        let b = build_csr_from_pairs(4, &idx, &physics_pairs(&nodes, &rev, &profile));
+        assert_eq!(a, b);
+        // 3 pairs → 6 directed entries; the legacy build would hold 8.
+        assert_eq!(a.col_indices.len(), 6);
+        let legacy = physics_edge_weights(&nodes, &edges, &WeightingProfile::default());
+        assert_eq!(build_csr(4, &idx, &edges, &legacy).col_indices.len(), 8);
     }
 
     #[test]

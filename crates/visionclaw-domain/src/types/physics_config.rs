@@ -9,6 +9,7 @@ use validator::Validate;
 
 use super::layout::LayoutMode;
 use super::semantic_config::SemanticForces;
+use crate::weighting::{WeightingMode, WEIGHT_MAX_DEFAULT, WEIGHT_MIN_DEFAULT};
 
 /// Canonical maximum velocity (from `src/config/mod.rs`).
 pub const CANONICAL_MAX_VELOCITY: f32 = 200.0;
@@ -141,6 +142,26 @@ pub const HIERARCHY_AFFINITY_DEFAULT: f32 = 0.0;
 
 fn default_hierarchy_affinity() -> f32 {
     HIERARCHY_AFFINITY_DEFAULT
+}
+
+/// Default `weightingMode`: legacy, the layout then uses each edge's stored weight (ADR-2204 D3).
+fn default_weighting_mode() -> WeightingMode {
+    WeightingMode::Legacy
+}
+
+/// Default `hubDamping` (`α`): 0, off (ADR-2204 D3; enabled only on measured evidence).
+pub const HUB_DAMPING_DEFAULT: f32 = 0.0;
+
+fn default_hub_damping() -> f32 {
+    HUB_DAMPING_DEFAULT
+}
+
+fn default_weight_min() -> f32 {
+    WEIGHT_MIN_DEFAULT
+}
+
+fn default_weight_max() -> f32 {
+    WEIGHT_MAX_DEFAULT
 }
 
 fn default_bounds_size() -> f32 {
@@ -453,6 +474,22 @@ pub struct PhysicsSettings {
     #[serde(alias = "hierarchy_affinity", default = "default_hierarchy_affinity")]
     pub hierarchy_affinity: f32,
 
+    /// Edge weighting (ADR-2204 D3): `legacy` (default) keeps every stored edge and weight;
+    /// `evidence` collapses each pair's evidence into one normalised physics edge. Host-side
+    /// only: it shapes the weights the host uploads, not the kernel parameters.
+    #[serde(alias = "weighting_mode", default = "default_weighting_mode")]
+    pub weighting_mode: WeightingMode,
+    /// Hub damping exponent `α` of evidence mode, `0..=2`; weights scale by
+    /// `(deg_u·deg_v)^(−α/2)`. Default 0 (off).
+    #[serde(alias = "hub_damping", default = "default_hub_damping")]
+    pub hub_damping: f32,
+    /// Lower weight bound of evidence mode, `0.01..=1`. Default 0.25.
+    #[serde(alias = "weight_min", default = "default_weight_min")]
+    pub weight_min: f32,
+    /// Upper weight bound of evidence mode, `1..=100`. Default 4.
+    #[serde(alias = "weight_max", default = "default_weight_max")]
+    pub weight_max: f32,
+
     #[serde(alias = "clustering_algorithm")]
     pub clustering_algorithm: String,
     #[serde(alias = "cluster_count")]
@@ -642,6 +679,10 @@ impl Default for PhysicsSettings {
             ontology_constraints_enabled: default_ontology_constraints_enabled(),
             ontology_constraint_strength: default_ontology_constraint_strength(),
             hierarchy_affinity: default_hierarchy_affinity(),
+            weighting_mode: default_weighting_mode(),
+            hub_damping: default_hub_damping(),
+            weight_min: default_weight_min(),
+            weight_max: default_weight_max(),
 
             clustering_algorithm: "leiden".to_string(),
             cluster_count: 5,
@@ -824,6 +865,38 @@ mod tests {
                 ONTOLOGY_CONSTRAINTS_ENABLED_DEFAULT,
                 ONTOLOGY_CONSTRAINT_STRENGTH_DEFAULT
             )
+        );
+    }
+
+    /// ADR-2204 D3: the weighting settings default to the live behaviour, round-trip under their
+    /// camelCase names, accept the snake spellings, and an old document without them loads.
+    #[test]
+    fn weighting_settings_default_to_legacy_and_round_trip() {
+        let d = PhysicsSettings::default();
+        assert_eq!(d.weighting_mode, WeightingMode::Legacy);
+        assert_eq!(
+            (d.hub_damping, d.weight_min, d.weight_max),
+            (0.0, 0.25, 4.0)
+        );
+        let mut doc = serde_json::to_value(&d).unwrap();
+        assert_eq!(doc["weightingMode"], serde_json::json!("legacy"));
+        doc["weightingMode"] = serde_json::json!("evidence");
+        doc["hubDamping"] = serde_json::json!(0.5);
+        let back: PhysicsSettings = serde_json::from_value(doc.clone()).unwrap();
+        assert_eq!(back.weighting_mode, WeightingMode::Evidence);
+        assert_eq!(back.hub_damping, 0.5);
+        for k in ["weightingMode", "hubDamping", "weightMin", "weightMax"] {
+            doc.as_object_mut().unwrap().remove(k);
+        }
+        let old: PhysicsSettings = serde_json::from_value(doc.clone()).unwrap();
+        assert_eq!(old.weighting_mode, WeightingMode::Legacy);
+        let obj = doc.as_object_mut().unwrap();
+        obj.insert("weighting_mode".into(), serde_json::json!("evidence"));
+        obj.insert("weight_max".into(), serde_json::json!(3.0));
+        let snake: PhysicsSettings = serde_json::from_value(doc).unwrap();
+        assert_eq!(
+            (snake.weighting_mode, snake.weight_max),
+            (WeightingMode::Evidence, 3.0)
         );
     }
 

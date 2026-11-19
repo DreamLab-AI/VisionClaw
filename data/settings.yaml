@@ -182,6 +182,10 @@ visualisation:
         constraintRampFrames: 60
         constraintMaxForcePerNode: 50.0
         hierarchyAffinity: 0.0
+        weightingMode: legacy
+        hubDamping: 0.0
+        weightMin: 0.25
+        weightMax: 4.0
         clusteringAlgorithm: leiden
         clusterCount: 5
         clusteringResolution: 1.0
@@ -296,6 +300,10 @@ visualisation:
         constraintRampFrames: 60
         constraintMaxForcePerNode: 50.0
         hierarchyAffinity: 0.0
+        weightingMode: legacy
+        hubDamping: 0.0
+        weightMin: 0.25
+        weightMax: 4.0
         clusteringAlgorithm: leiden
         clusterCount: 5
         clusteringResolution: 1.0

@@ -26,6 +26,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use visionclaw_domain::models::edge::{Edge, CHAIN_PAYMENT_EDGE_TYPE};
 use visionclaw_domain::models::graph::GraphData;
+use visionclaw_domain::relations::{Producer, RelationSchema};
 
 /// Management API route for sidechain payments between agents.
 pub const CHAIN_PAYMENTS_PATH: &str = "/v1/chain/payments";
@@ -500,7 +501,7 @@ pub fn edges_for(
                 id: edge_id(&p.txid),
                 source,
                 target,
-                weight: 1.0,
+                weight: RelationSchema::builtin().producer_weight(Producer::ChainPayment),
                 edge_type: Some(CHAIN_PAYMENT_EDGE_TYPE.to_string()),
                 owl_property_iri: None,
                 metadata: Some(metadata),

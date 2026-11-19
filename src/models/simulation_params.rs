@@ -175,6 +175,10 @@ impl SimParams {
             // Host-side only (ADR-2204 D5): the device has no such field, so a device round trip
             // carries no affinity.
             hierarchy_affinity: 0.0,
+            weighting_mode: visionclaw_domain::weighting::WeightingMode::Legacy,
+            hub_damping: 0.0,
+            weight_min: visionclaw_domain::weighting::WEIGHT_MIN_DEFAULT,
+            weight_max: visionclaw_domain::weighting::WEIGHT_MAX_DEFAULT,
             repulsion_softening_epsilon: self.repulsion_softening_epsilon,
             grid_cell_size: self.grid_cell_size,
             // Carry the authoritative GPU value rather than a hardcoded 0.0001.

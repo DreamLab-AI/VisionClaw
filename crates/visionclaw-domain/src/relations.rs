@@ -83,6 +83,12 @@ pub struct Relation {
     /// The weight a producer gave this relation's edges before ADR-2204 S3.
     #[serde(default)]
     pub legacy_weight: Option<f32>,
+    /// Evidence-mode affinity `a ∈ (0,1)`: a versioned policy value (the pre-S3 registry
+    /// strength), not a calibrated probability and not tuned (ADR-2204 D1/D3). Required for a
+    /// relation that takes part in physics in the builtin schema; absent means the relation
+    /// contributes no evidence.
+    #[serde(default)]
+    pub affinity: Option<f32>,
     /// Why `legacy_weight` has that value.
     #[serde(default)]
     pub legacy_weight_note: Option<String>,
@@ -152,6 +158,14 @@ pub enum SchemaError {
     /// A relation that produces edges has no weight.
     #[error("relation `{0}` is a producer but declares no legacy_weight")]
     MissingWeight(String),
+    /// An affinity is not strictly inside `(0, 1)`.
+    #[error("relation `{label}` has an affinity {affinity} outside (0, 1)")]
+    AffinityOutOfRange {
+        /// The relation.
+        label: String,
+        /// The offending value.
+        affinity: f32,
+    },
     /// A colour is not `#RRGGBB`.
     #[error("`{0}` is not a #RRGGBB colour")]
     BadColour(String),
@@ -206,6 +220,8 @@ pub enum Producer {
     Inferred,
     /// One shared dangling target between two pages.
     CoCitation,
+    /// An agent-to-agent sidechain payment edge.
+    ChainPayment,
 }
 
 impl Producer {
@@ -217,15 +233,17 @@ impl Producer {
             Producer::DomainSpoke => "domain_member",
             Producer::Inferred => "inferred",
             Producer::CoCitation => "co_citation",
+            Producer::ChainPayment => "chain_payment",
         }
     }
 
-    const ALL: [Producer; 5] = [
+    const ALL: [Producer; 6] = [
         Producer::Wikilink,
         Producer::ElevatedFrom,
         Producer::DomainSpoke,
         Producer::Inferred,
         Producer::CoCitation,
+        Producer::ChainPayment,
     ];
 }
 
@@ -326,6 +344,14 @@ impl RelationSchema {
             } else if !rel.predicates.is_empty() {
                 return Err(SchemaError::MissingWeight(rel.label.clone()));
             }
+            if let Some(a) = rel.affinity {
+                if !(a.is_finite() && a > 0.0 && a < 1.0) {
+                    return Err(SchemaError::AffinityOutOfRange {
+                        label: rel.label.clone(),
+                        affinity: a,
+                    });
+                }
+            }
             if let Some(c) = &rel.colour {
                 check_colour(c)?;
                 for key in std::iter::once(&rel.label).chain(rel.aliases.iter()) {
@@ -406,6 +432,23 @@ impl RelationSchema {
     /// override when it parses and is at least the declared minimum.
     pub fn fanout_threshold(&self) -> usize {
         self.fanout_from(std::env::var(&self.fanout.env).ok().as_deref())
+    }
+
+    /// Whether a shared target with `referrers` referring pages makes co-citation: at most
+    /// the threshold does, more makes none (ADR-2204 D3). The one boundary every site uses.
+    pub fn admits_cocitation(&self, referrers: usize) -> bool {
+        self.admits_cocitation_at(referrers, self.fanout_threshold())
+    }
+
+    /// [`Self::admits_cocitation`] against an explicit `threshold`, for tests and callers that
+    /// resolved it once.
+    pub fn admits_cocitation_at(&self, referrers: usize, threshold: usize) -> bool {
+        referrers <= threshold
+    }
+
+    /// The evidence-mode affinity of `label` (a label or alias), if it has one.
+    pub fn affinity(&self, label: &str) -> Option<f32> {
+        self.relation(label).and_then(|r| r.affinity)
     }
 
     /// [`Self::fanout_threshold`] with the override passed in, for tests.
@@ -541,6 +584,7 @@ mod tests {
             ("domain_member", "1.5"),
             ("inferred", "1.0"),
             ("co_citation", "0.5"),
+            ("chain_payment", "1.0"),
         ] {
             s.push_str(&format!(
                 "  - {{ label: {label}, kind: derived, legacy_weight: {w}, physics: true, drawn: true }}\n"
@@ -659,6 +703,52 @@ mod tests {
             RelationSchema::from_yaml(&text).unwrap_err(),
             SchemaError::MissingProducer("domain_member".into())
         );
+    }
+
+    #[test]
+    fn every_physics_relation_has_an_affinity_inside_the_open_unit_interval() {
+        for r in RelationSchema::builtin().relations() {
+            if r.physics {
+                let a = r
+                    .affinity
+                    .unwrap_or_else(|| panic!("{} has no affinity", r.label));
+                assert!(a > 0.0 && a < 1.0, "{}: {a}", r.label);
+            }
+        }
+        // Policy: the affinity is the pre-S3 registry strength, legacy_weight / 2.
+        for r in RelationSchema::builtin().relations() {
+            if let (Some(a), Some(w)) = (r.affinity, r.legacy_weight) {
+                assert_eq!(a, w / 2.0, "{}", r.label);
+            }
+        }
+    }
+
+    #[test]
+    fn affinity_outside_the_open_unit_interval_is_rejected() {
+        for a in ["0.0", "1.0", "-0.2", "1.5", ".nan", ".inf"] {
+            let extra = format!(
+                "  - {{ label: a, kind: typed, predicates: [\"vc:p\"], legacy_weight: 1.0, affinity: {a}, physics: true, drawn: true }}\n"
+            );
+            assert!(
+                matches!(
+                    RelationSchema::from_yaml(&doc(&extra)),
+                    Err(SchemaError::AffinityOutOfRange { .. })
+                ),
+                "{a} must be rejected"
+            );
+        }
+    }
+
+    /// ADR-2204 D3 / S2 leftover: one fan-out boundary. A target with exactly the threshold's
+    /// referrers makes co-citation; one more makes none.
+    #[test]
+    fn the_fanout_boundary_is_inclusive_at_the_threshold() {
+        let s = RelationSchema::builtin();
+        let t = s.fanout_from(None);
+        assert_eq!(t, 3);
+        assert!(s.admits_cocitation_at(t - 1, t));
+        assert!(s.admits_cocitation_at(t, t));
+        assert!(!s.admits_cocitation_at(t + 1, t));
     }
 
     #[test]

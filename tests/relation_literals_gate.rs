@@ -137,3 +137,28 @@ fn the_gate_detects_what_it_guards() {
     ));
     assert!(!has_weight_literal("weight: w,"));
 }
+
+/// ADR-2204 D3 (S3): the co-citation fan-out boundary is the schema's one definition. Both sync
+/// sites ask `admits_cocitation_at`; neither compares a referrer count to the threshold itself.
+#[test]
+fn both_sync_sites_use_the_one_fanout_boundary() {
+    let lines = production_lines("src/services/github_sync_service.rs");
+    let uses = lines
+        .iter()
+        .filter(|(_, l)| l.contains("admits_cocitation_at("))
+        .count();
+    assert_eq!(uses, 2, "the deferred pass and the stub fold");
+    let hand_rolled: Vec<String> = lines
+        .iter()
+        .filter(|(_, l)| {
+            (l.contains("cocite_threshold") || l.contains("threshold"))
+                && (l.contains(" < ") || l.contains(" <= ") || l.contains(" > "))
+                && !l.contains("admits_cocitation_at")
+        })
+        .map(|(n, l)| format!("{n}: {}", l.trim()))
+        .collect();
+    assert!(
+        hand_rolled.is_empty(),
+        "hand-rolled boundary: {hand_rolled:?}"
+    );
+}

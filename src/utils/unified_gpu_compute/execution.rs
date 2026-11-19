@@ -4363,6 +4363,7 @@ mod adr_2204_reweight_gpu_tests {
                 &WeightingProfile {
                     hierarchy_affinity: a,
                     experiment: None,
+                    ..Default::default()
                 },
             );
             build_csr(N, &index, &edges, &w)

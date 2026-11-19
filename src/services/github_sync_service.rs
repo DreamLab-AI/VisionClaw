@@ -525,7 +525,7 @@ impl GitHubSyncService {
             const WEIGHT_PER_FOLDED_LINK: f32 = 0.1;
             let relation_schema = RelationSchema::builtin();
             let cocite_weight = relation_schema.producer_weight(Producer::CoCitation);
-            let cocite_max_referrers: usize = relation_schema.fanout_threshold();
+            let cocite_threshold: usize = relation_schema.fanout_threshold();
 
             let graph_snapshot = match self.kg_repo.load_graph().await {
                 Ok(g) => Some(g),
@@ -580,13 +580,12 @@ impl GitHubSyncService {
 
                 let mut weight_bonus: std::collections::HashMap<u32, f32> =
                     std::collections::HashMap::new();
-                let mut cocite: std::collections::HashMap<(u32, u32), f32> =
-                    std::collections::HashMap::new();
-                for refs in referrers.values() {
+                let mut cocite: CociteSprings = std::collections::HashMap::new();
+                for (&target, refs) in &referrers {
                     for &n in refs {
                         *weight_bonus.entry(n).or_insert(0.0) += WEIGHT_PER_FOLDED_LINK;
                     }
-                    if refs.len() <= cocite_max_referrers {
+                    if relation_schema.admits_cocitation_at(refs.len(), cocite_threshold) {
                         for i in 0..refs.len() {
                             for j in (i + 1)..refs.len() {
                                 if refs[i] == refs[j] {
@@ -597,7 +596,9 @@ impl GitHubSyncService {
                                 } else {
                                     (refs[j], refs[i])
                                 };
-                                *cocite.entry(key).or_insert(0.0) += cocite_weight;
+                                let slot = cocite.entry(key).or_insert((0.0, Vec::new()));
+                                slot.0 += cocite_weight;
+                                slot.1.push((target, refs.len()));
                             }
                         }
                     }
@@ -606,14 +607,14 @@ impl GitHubSyncService {
                 if !cocite.is_empty() {
                     let cocite_edges: Vec<Edge> = cocite
                         .into_iter()
-                        .map(|((a, b), w)| Edge {
+                        .map(|((a, b), (w, targets))| Edge {
                             id: format!("{}_{}_cocite", a, b),
                             source: a,
                             target: b,
                             weight: w,
                             edge_type: Some("co_citation".to_string()),
                             owl_property_iri: None,
-                            metadata: None,
+                            metadata: Some(cocite_metadata(targets)),
                             provenance: Some(
                                 visionclaw_domain::models::edge::EdgeProvenance::Derived,
                             ),
@@ -822,7 +823,10 @@ impl GitHubSyncService {
             .nodes
             .iter()
             .filter(|n| n.node_type.as_deref() == Some("linked_page"))
-            .filter(|n| degree.get(&n.id).copied().unwrap_or(0) < threshold)
+            .filter(|n| {
+                relation_schema
+                    .admits_cocitation_at(degree.get(&n.id).copied().unwrap_or(0), threshold)
+            })
             .map(|n| n.id)
             .collect();
 
@@ -852,13 +856,12 @@ impl GitHubSyncService {
         }
 
         // (a) Mass nuance per referring page; (b) co-citation springs between
-        // pages that shared a folded target. `refs` is tiny (< threshold), so
+        // pages that shared a folded target. `refs` is tiny (≤ threshold), so
         // the pairwise expansion is bounded.
         let mut weight_bonus: std::collections::HashMap<u32, f32> =
             std::collections::HashMap::new();
-        let mut cocite: std::collections::HashMap<(u32, u32), f32> =
-            std::collections::HashMap::new();
-        for refs in referrers.values() {
+        let mut cocite: CociteSprings = std::collections::HashMap::new();
+        for (&stub, refs) in &referrers {
             for &n in refs {
                 *weight_bonus.entry(n).or_insert(0.0) += WEIGHT_PER_FOLDED_LINK;
             }
@@ -872,7 +875,9 @@ impl GitHubSyncService {
                     } else {
                         (refs[j], refs[i])
                     };
-                    *cocite.entry(key).or_insert(0.0) += cocite_weight;
+                    let slot = cocite.entry(key).or_insert((0.0, Vec::new()));
+                    slot.0 += cocite_weight;
+                    slot.1.push((stub, refs.len()));
                 }
             }
         }
@@ -902,14 +907,14 @@ impl GitHubSyncService {
         if !cocite.is_empty() {
             let cocite_edges: Vec<Edge> = cocite
                 .into_iter()
-                .map(|((a, b), w)| Edge {
+                .map(|((a, b), (w, targets))| Edge {
                     id: format!("{}_{}_cocite", a, b),
                     source: a,
                     target: b,
                     weight: w,
                     edge_type: Some("co_citation".to_string()),
                     owl_property_iri: None,
-                    metadata: None,
+                    metadata: Some(cocite_metadata(targets)),
                     provenance: Some(visionclaw_domain::models::edge::EdgeProvenance::Derived),
                 })
                 .collect();
@@ -2432,6 +2437,21 @@ impl GitHubSyncService {
 ///
 /// Delegates to `visionclaw_domain::vault`, the single parsing entry point.
 /// Only frontmatter counts; a `public:: true` line is body text.
+/// Co-citation springs by page pair: the summed legacy weight and the shared targets with their
+/// referrer counts.
+type CociteSprings = std::collections::HashMap<(u32, u32), (f32, Vec<(u32, usize)>)>;
+
+/// Edge metadata of a co-citation spring: the shared targets and their referrer counts, which
+/// the evidence weighting stage reads (ADR-2204 D3). The edge `weight` is unchanged.
+fn cocite_metadata(mut targets: Vec<(u32, usize)>) -> std::collections::HashMap<String, String> {
+    targets.sort_unstable();
+    targets.dedup();
+    std::collections::HashMap::from([(
+        visionclaw_domain::weighting::COCITE_TARGETS_KEY.to_string(),
+        visionclaw_domain::weighting::format_cocite_targets(&targets),
+    )])
+}
+
 fn page_is_kg_included(content: &str) -> bool {
     visionclaw_domain::vault::parse(content).is_kg_included()
 }

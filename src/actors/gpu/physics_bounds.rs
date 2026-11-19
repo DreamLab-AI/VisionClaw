@@ -99,6 +99,15 @@ pub const ONTOLOGY_CONSTRAINT_STRENGTH: Bound = (0.0, 1.0);
 /// quintuples the weight of the most specific parent's edges.
 pub const HIERARCHY_AFFINITY: Bound = (0.0, 4.0);
 
+// --- Edge weighting (ADR-2204 D3) --------------------------------------------
+
+/// Hub damping exponent `α` of evidence mode (`hub_damping`). Default 0 (off).
+pub const HUB_DAMPING: Bound = (0.0, 2.0);
+/// Lower weight bound of evidence mode (`weight_min`); never above 1, so a mean of 1 exists.
+pub const WEIGHT_MIN: Bound = (0.01, 1.0);
+/// Upper weight bound of evidence mode (`weight_max`); never below 1.
+pub const WEIGHT_MAX: Bound = (1.0, 100.0);
+
 // --- Iterations (integer-valued, expressed as f32 for path-pattern reuse) -
 
 /// Physics solver iterations (`iterations`). Canonical default 50.

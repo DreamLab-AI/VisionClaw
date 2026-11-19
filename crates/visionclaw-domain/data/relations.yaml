@@ -9,6 +9,13 @@
 # label map, the edge weights, the co-citation value, the fan-out threshold,
 # and the desktop client's edge colours.
 #
+# AFFINITY (ADR-2204 D1/D3, slice S3). `affinity` a ∈ (0,1) is a versioned POLICY
+# value, not a calibrated probability and NOT tuned: it is the pre-S3 registry
+# strength (= legacy_weight / 2) carried over, so the relative ordering of the
+# relations is the one the project already had. It feeds the evidence-mode
+# weighting stage only (q = 1 − Π(1 − a_i)); the default Legacy mode ignores it.
+# Changing a value is a reviewed policy change with a measurement (S6).
+#
 # SLICE S2 IS VALUE-PRESERVING. `legacy_weight` records the weight each
 # producer gave an edge BEFORE ADR-2204 S3 (typed relations: the registry
 # strength × 2; the rest literals), so no produced edge changes. S3 replaces
@@ -30,8 +37,9 @@ default_colour: "#AAAAAA"
 # Co-citation is bounded by how many pages may refer to one missing target
 # (a hub like [[AI]] would otherwise expand pairwise). `FANOUT_NODE_THRESHOLD`
 # overrides `default`; a value below `min` or unparsable falls back to it.
-# Two sync sites read this with different boundaries (`<=` at the deferred
-# pass, `<` at the stub fold) — recorded for S3, preserved here.
+# One boundary, `RelationSchema::admits_cocitation`: a target with at most
+# `threshold` referrers makes co-citation items; one with more makes none
+# (ADR-2204 D3). Both sync sites use it.
 fanout_threshold:
   env: FANOUT_NODE_THRESHOLD
   default: 3
@@ -56,6 +64,7 @@ relations:
     aliases: [subclass]
     legacy_weight: 1.6
     legacy_weight_note: "pre-ADR-2204 S3: registry `hierarchical` strength 0.8 × 2"
+    affinity: 0.8
     physics: true
     drawn: true
     colour: "#FFD700"
@@ -71,6 +80,7 @@ relations:
     aliases: [requires, depends_on, enables]
     legacy_weight: 1.4
     legacy_weight_note: "pre-ADR-2204 S3: registry `dependency` strength 0.7 × 2 (the registry also holds a first, shadowed row at 0.6)"
+    affinity: 0.7
     physics: true
     drawn: true
     colour: "#81C784"
@@ -91,6 +101,7 @@ relations:
       vc:isPartOf: vc:hasPart
     legacy_weight: 1.4
     legacy_weight_note: "pre-ADR-2204 S3: registry `structural` strength 0.7 × 2"
+    affinity: 0.7
     physics: true
     drawn: true
     colour: "#4FC3F7"
@@ -106,6 +117,7 @@ relations:
     aliases: [relates_to]
     legacy_weight: 0.8
     legacy_weight_note: "pre-ADR-2204 S3: registry `associative` strength 0.4 × 2"
+    affinity: 0.4
     physics: true
     drawn: true
     colour: "#CE93D8"
@@ -121,6 +133,7 @@ relations:
     aliases: [bridges_to, bridges_from]
     legacy_weight: 0.6
     legacy_weight_note: "pre-ADR-2204 S3: registry `bridge` strength 0.3 × 2"
+    affinity: 0.3
     physics: true
     drawn: true
     colour: "#FF7043"
@@ -131,6 +144,7 @@ relations:
     frontmatter_keys: [implements]
     legacy_weight: 1.6
     legacy_weight_note: "pre-ADR-2204 S3: registry `implements` strength 0.8 × 2"
+    affinity: 0.8
     physics: true
     drawn: true
     colour: "#EC407A"
@@ -140,6 +154,7 @@ relations:
     predicates: [vc:enhances, vc:optimizes]
     legacy_weight: 1.1
     legacy_weight_note: "pre-ADR-2204 S3: registry `enhancement` strength 0.55 × 2"
+    affinity: 0.55
     physics: true
     drawn: true
 
@@ -148,6 +163,7 @@ relations:
     predicates: [vc:secures, vc:validates]
     legacy_weight: 1.2
     legacy_weight_note: "pre-ADR-2204 S3: registry `security` strength 0.6 × 2"
+    affinity: 0.6
     physics: true
     drawn: true
 
@@ -159,6 +175,7 @@ relations:
       - prov:wasGeneratedBy
     legacy_weight: 0.5
     legacy_weight_note: "pre-ADR-2204 S3: registry `provenance` strength 0.25 × 2"
+    affinity: 0.25
     physics: true
     drawn: true
     colour: "#FFB300"
@@ -168,6 +185,7 @@ relations:
     predicates: [vc:achievesObjective]
     legacy_weight: 1.0
     legacy_weight_note: "pre-ADR-2204 S3: registry `goal` strength 0.5 × 2"
+    affinity: 0.5
     physics: true
     drawn: true
 
@@ -176,6 +194,7 @@ relations:
     predicates: [vc:trackedOn]
     legacy_weight: 0.7
     legacy_weight_note: "pre-ADR-2204 S3: registry `tracking` strength 0.35 × 2"
+    affinity: 0.35
     physics: true
     drawn: true
 
@@ -184,6 +203,7 @@ relations:
     predicates: [vc:similarTo, vc:simulatedIn]
     legacy_weight: 0.8
     legacy_weight_note: "pre-ADR-2204 S3: registry `similarity` strength 0.4 × 2"
+    affinity: 0.4
     physics: true
     drawn: true
 
@@ -193,6 +213,7 @@ relations:
     frontmatter_keys: [uses, supports]
     legacy_weight: 0.9
     legacy_weight_note: "pre-ADR-2204 S3: registry `utilisation` strength 0.45 × 2"
+    affinity: 0.45
     physics: true
     drawn: true
     colour: "#26C6DA"
@@ -203,6 +224,7 @@ relations:
     frontmatter_keys: [standardized-by]
     legacy_weight: 1.1
     legacy_weight_note: "pre-ADR-2204 S3: registry `standardisation` strength 0.55 × 2"
+    affinity: 0.55
     physics: true
     drawn: true
     colour: "#7E8CE0"
@@ -213,6 +235,7 @@ relations:
     predicates: [vc:wikilink]
     legacy_weight: 1.0
     legacy_weight_note: "pre-ADR-2204 S3: literal 1.0 for a wikilink (registry strength 0.5 × 2 for the vc:wikilink predicate — the same value)"
+    affinity: 0.5
     physics: true
     drawn: true
     colour: "#5A6470"
@@ -223,6 +246,7 @@ relations:
     frontmatter_keys: [elevatedFrom, elevated-from]
     legacy_weight: 1.0
     legacy_weight_note: "pre-ADR-2204 S3: literal 1.0"
+    affinity: 0.5
     physics: true
     drawn: true
 
@@ -232,6 +256,7 @@ relations:
     kind: derived
     legacy_weight: 0.5
     legacy_weight_note: "pre-ADR-2204 S3: 0.5 per shared target, summed per pair"
+    affinity: 0.25
     physics: true
     drawn: true
     colour: "#5C6BC0"
@@ -241,6 +266,7 @@ relations:
     kind: derived
     legacy_weight: 1.5
     legacy_weight_note: "pre-ADR-2204 S3: literal 1.5 (the registry row says 0.8 but was never used for the weight)"
+    affinity: 0.75
     physics: true
     drawn: true
     colour: "#A1887F"
@@ -253,6 +279,7 @@ relations:
     stamped_label: hierarchical
     legacy_weight: 1.0
     legacy_weight_note: "pre-ADR-2204 S3: literal 1.0 in the inferred-edge materialiser"
+    affinity: 0.5
     physics: true
     drawn: true
     colour: "#B0BEC5"
@@ -260,6 +287,7 @@ relations:
   # Not produced by the sync; carried because the desktop client colours them.
   - label: namespace
     kind: derived
+    affinity: 0.5
     physics: true
     drawn: true
     colour: "#78909C"
@@ -267,6 +295,9 @@ relations:
   # Agent-to-agent sidechain payment (shared with the bots edge layer).
   - label: chain_payment
     kind: derived
+    legacy_weight: 1.0
+    legacy_weight_note: "pre-ADR-2204 S3: literal 1.0 in the payment edge builder (chain_payments.rs)"
+    affinity: 0.5
     physics: true
     drawn: true
     colour: "#E040FB"

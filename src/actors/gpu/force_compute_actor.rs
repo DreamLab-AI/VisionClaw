@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
 
-use super::edge_csr::{build_csr, Csr};
+use super::edge_csr::{build_csr_from_pairs, Csr};
 use super::hold_registry::{HoldRegistry, Release};
 use super::shared::{GPUOperation, GPUState, SharedGPUContext};
 use crate::actors::messages::*;
@@ -18,7 +18,7 @@ use crate::utils::socket_flow_messages::{glam_to_vec3data, BinaryNodeDataClient}
 use crate::utils::unified_gpu_compute::ComputeMode;
 use crate::utils::unified_gpu_compute::SimParams;
 use glam::Vec3;
-use visionclaw_domain::weighting::{physics_edge_weights, LayoutExperiment, WeightingProfile};
+use visionclaw_domain::weighting::{physics_pairs, LayoutExperiment, WeightingProfile};
 
 use cudarc::driver::CudaDevice;
 
@@ -957,7 +957,7 @@ impl ForceComputeActor {
         // ADR-2204 D3: the per-edge weights come from the one pure weighting function under the
         // current profile (stored `hierarchyAffinity`, optional dev experiment); the CSR is built
         // from them by the same function a live re-weight uses, so the topology is identical.
-        let edge_weights_by_edge = physics_edge_weights(
+        let physics_edges = physics_pairs(
             &graph_data.nodes,
             &graph_data.edges,
             &self.weighting_profile(),
@@ -967,12 +967,7 @@ impl ForceComputeActor {
             col_indices,
             weights: edge_weights,
             adjacency: adjacency_lists,
-        } = build_csr(
-            num_nodes,
-            &node_indices,
-            &graph_data.edges,
-            &edge_weights_by_edge,
-        );
+        } = build_csr_from_pairs(num_nodes, &node_indices, &physics_edges);
         let edge_count = col_indices.len() as u32;
 
         // ADR-141 P3: retain the undirected neighbour indices for the
@@ -1426,8 +1421,8 @@ impl ForceComputeActor {
             .enumerate()
             .map(|(i, n)| (n.id, i))
             .collect();
-        let by_edge = physics_edge_weights(&graph.nodes, &graph.edges, profile);
-        let csr = build_csr(graph.nodes.len(), &node_indices, &graph.edges, &by_edge);
+        let pairs = physics_pairs(&graph.nodes, &graph.edges, profile);
+        let csr = build_csr_from_pairs(graph.nodes.len(), &node_indices, &pairs);
         let row_offsets: Vec<i32> = csr.row_offsets.iter().map(|&x| x as i32).collect();
         let col_indices: Vec<i32> = csr.col_indices.iter().map(|&x| x as i32).collect();
         let mut compute = match ctx.unified_compute.lock() {
@@ -1437,10 +1432,21 @@ impl ForceComputeActor {
         compute
             .upload_edges_csr(&row_offsets, &col_indices, &csr.weights)
             .map_err(|e| format!("edge weight upload failed: {e}"))?;
+        drop(compute);
+        // Evidence mode changes the topology (one edge per pair), so everything derived from the
+        // uploaded CSR follows it.
+        self.gpu_state.num_edges = csr.col_indices.len() as u32;
+        self.graph_adjacency = csr
+            .adjacency
+            .iter()
+            .map(|adj| adj.iter().map(|&(t, _w)| t).collect())
+            .collect();
         info!(
-            "ForceComputeActor: re-weighted {} CSR edges (hierarchyAffinity {}, experiment {})",
+            "ForceComputeActor: re-weighted {} CSR edges (mode {:?}, hierarchyAffinity {}, hubDamping {}, experiment {})",
             csr.weights.len(),
+            profile.mode,
             profile.hierarchy_affinity,
+            profile.hub_damping,
             profile.experiment.is_some()
         );
         Ok(())
@@ -1448,10 +1454,8 @@ impl ForceComputeActor {
 
     /// The weighting profile the stored settings and the dev experiment describe.
     fn weighting_profile(&self) -> WeightingProfile {
-        WeightingProfile {
-            hierarchy_affinity: self.simulation_params.hierarchy_affinity,
-            experiment: self.layout_experiment,
-        }
+        self.simulation_params
+            .weighting_profile(self.layout_experiment)
     }
 
     fn update_simulation_parameters(&mut self, params: SimulationParams) {
@@ -2792,17 +2796,19 @@ impl Handler<UpdateSimulationParams> for ForceComputeActor {
             ));
         }
 
-        // ADR-2204 D5: `hierarchyAffinity` is a weight input, not a kernel parameter, so it is
-        // outside `same_gpu_inputs` and would be skipped as "unchanged" below. A change
-        // re-uploads the edge weights only; the topology and every other buffer stay as they are.
-        if (msg.params.hierarchy_affinity - self.simulation_params.hierarchy_affinity).abs() >= 1e-6
-        {
-            let profile = WeightingProfile {
-                hierarchy_affinity: msg.params.hierarchy_affinity,
-                experiment: self.layout_experiment,
-            };
-            self.reweight_edges(&profile)?;
+        // ADR-2204 D3/D5: the weighting profile (`hierarchyAffinity`, `weightingMode`,
+        // `hubDamping`, `weightMin`, `weightMax`) is a weight input, not a kernel parameter, so
+        // it is outside `same_gpu_inputs` and would be skipped as "unchanged" below. A change
+        // re-uploads the CSR only (the topology too, when the mode changes); positions and
+        // every other buffer stay as they are.
+        let new_profile = msg.params.weighting_profile(self.layout_experiment);
+        if new_profile != self.weighting_profile() {
+            self.reweight_edges(&new_profile)?;
             self.simulation_params.hierarchy_affinity = msg.params.hierarchy_affinity;
+            self.simulation_params.weighting_mode = msg.params.weighting_mode;
+            self.simulation_params.hub_damping = msg.params.hub_damping;
+            self.simulation_params.weight_min = msg.params.weight_min;
+            self.simulation_params.weight_max = msg.params.weight_max;
         }
 
         // Idempotency: skip reset if ALL GPU-relevant params haven't changed.
@@ -2980,10 +2986,7 @@ impl Handler<SetLayoutExperiment> for ForceComputeActor {
                 return Err("holdoutFraction must be a finite number in 0..=1".into());
             }
         }
-        let profile = WeightingProfile {
-            hierarchy_affinity: self.simulation_params.hierarchy_affinity,
-            experiment: msg.experiment,
-        };
+        let profile = self.simulation_params.weighting_profile(msg.experiment);
         self.reweight_edges(&profile)?;
         self.layout_experiment = msg.experiment;
         Ok(())

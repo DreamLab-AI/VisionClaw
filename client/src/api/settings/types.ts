@@ -84,6 +84,14 @@ export interface PhysicsSettings {
   ontologyConstraintStrength: number;
   /** Ontology layout mode: pull of asserted subClassOf edges, scaled by the parent's information content, 0-4 (ADR-2204 D5, default 0 = off). */
   hierarchyAffinity: number;
+  /** Edge weighting (ADR-2204 D3): 'legacy' keeps stored weights, 'evidence' collapses each pair's evidence into one normalised edge. */
+  weightingMode: 'legacy' | 'evidence';
+  /** Evidence-mode hub damping exponent, 0-2 (default 0 = off). */
+  hubDamping: number;
+  /** Evidence-mode lower weight bound, 0.01-1 (default 0.25). */
+  weightMin: number;
+  /** Evidence-mode upper weight bound, 1-100 (default 4). */
+  weightMax: number;
   clusterStrength: number;
 
   // --- Misc ---

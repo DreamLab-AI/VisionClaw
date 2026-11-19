@@ -13,6 +13,7 @@ use visionclaw_domain::models::edge::Edge;
 use visionclaw_domain::models::graph::GraphData;
 use visionclaw_domain::models::metadata::MetadataStore;
 use visionclaw_domain::models::node::Node;
+use visionclaw_domain::relations::{Producer, RelationSchema};
 use visionclaw_domain::vault::{self, LinkResolution, PageMeta, VaultIndex};
 
 /// Knowledge graph parser with position preservation support
@@ -327,7 +328,7 @@ impl KnowledgeGraphParser {
                     id: format!("{}_{}", source_id, target_id),
                     source: *source_id,
                     target: target_id,
-                    weight: 1.0,
+                    weight: RelationSchema::builtin().producer_weight(Producer::Wikilink),
                     edge_type: Some("explicit_link".to_string()),
                     metadata: None,
                     owl_property_iri: None,

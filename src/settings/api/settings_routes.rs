@@ -100,6 +100,10 @@ fn normalize_physics_keys(
             "sssp_enabled" => "ssspEnabled",
             "layout_mode" => "layoutMode",
             "hierarchy_affinity" => "hierarchyAffinity",
+            "weighting_mode" => "weightingMode",
+            "hub_damping" => "hubDamping",
+            "weight_min" => "weightMin",
+            "weight_max" => "weightMax",
             "stream_chunk_nodes" => "streamChunkNodes",
             "stream_move_threshold" => "streamMoveThreshold",
             "stream_ack_timeout_ms" => "streamAckTimeoutMs",
@@ -300,6 +304,27 @@ pub fn validate_physics_settings(settings: &PhysicsSettings) -> Result<(), Strin
         "hierarchy_affinity",
         bounds::HIERARCHY_AFFINITY.0,
         bounds::HIERARCHY_AFFINITY.1,
+        &mut errors,
+    );
+    check_range(
+        settings.hub_damping,
+        "hub_damping",
+        bounds::HUB_DAMPING.0,
+        bounds::HUB_DAMPING.1,
+        &mut errors,
+    );
+    check_range(
+        settings.weight_min,
+        "weight_min",
+        bounds::WEIGHT_MIN.0,
+        bounds::WEIGHT_MIN.1,
+        &mut errors,
+    );
+    check_range(
+        settings.weight_max,
+        "weight_max",
+        bounds::WEIGHT_MAX.0,
+        bounds::WEIGHT_MAX.1,
         &mut errors,
     );
     check_range(
@@ -2293,6 +2318,46 @@ mod tests {
         patch.insert("hierarchy_affinity".into(), serde_json::json!(1.0));
         let n = normalize_physics_keys(patch);
         assert!(n.contains_key("hierarchyAffinity"));
+    }
+
+    /// ADR-2204 D3: the weighting settings are bounded so that `wMin ≤ 1 ≤ wMax` always holds,
+    /// the defaults validate, and their snake spellings are normalised.
+    #[test]
+    fn weighting_settings_are_bounded_and_their_aliases_normalised() {
+        let with = |f: &dyn Fn(&mut PhysicsSettings)| {
+            let mut s = PhysicsSettings::default();
+            f(&mut s);
+            validate_physics_settings(&s)
+        };
+        assert!(with(&|_| {}).is_ok());
+        assert!(with(&|s| {
+            s.hub_damping = 2.0;
+            s.weight_min = 0.01;
+            s.weight_max = 100.0;
+        })
+        .is_ok());
+        for (name, f) in [
+            (
+                "hub_damping",
+                (&|s: &mut PhysicsSettings| s.hub_damping = -0.1) as &dyn Fn(&mut PhysicsSettings),
+            ),
+            ("hub_damping", &|s| s.hub_damping = 2.1),
+            ("weight_min", &|s| s.weight_min = 1.1),
+            ("weight_min", &|s| s.weight_min = 0.0),
+            ("weight_max", &|s| s.weight_max = 0.9),
+            ("weight_max", &|s| s.weight_max = f32::NAN),
+        ] {
+            let err = with(f).unwrap_err();
+            assert!(err.contains(name), "{err}");
+        }
+        let mut patch = serde_json::Map::new();
+        for k in ["weighting_mode", "hub_damping", "weight_min", "weight_max"] {
+            patch.insert(k.into(), serde_json::json!(1.0));
+        }
+        let n = normalize_physics_keys(patch);
+        for k in ["weightingMode", "hubDamping", "weightMin", "weightMax"] {
+            assert!(n.contains_key(k), "{k}");
+        }
     }
 
     /// The snake_case spellings are normalised like the other physics keys.
