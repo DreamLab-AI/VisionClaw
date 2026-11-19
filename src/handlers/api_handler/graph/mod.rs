@@ -221,6 +221,27 @@ pub async fn get_physics_state_summary(state: web::Data<AppState>) -> impl Respo
     HttpResponse::Ok().json(physics_state_summary(settlement.as_ref()))
 }
 
+/// The 503 answered while the stored graph is not served: `graph_loading` (retry
+/// shortly) or `graph_load_failed`. `None` once the graph is ready.
+pub(crate) fn graph_not_ready_response(
+    load: crate::actors::graph_readiness::GraphLoad,
+) -> Option<HttpResponse> {
+    use crate::actors::graph_readiness::GraphLoad;
+    let (code, message) = match load {
+        GraphLoad::Ready => return None,
+        GraphLoad::Loading => (
+            "graph_loading",
+            "The stored graph is still loading; retry shortly.",
+        ),
+        GraphLoad::Failed => ("graph_load_failed", "The stored graph failed to load."),
+    };
+    Some(
+        HttpResponse::ServiceUnavailable()
+            .insert_header(("Retry-After", "5"))
+            .json(serde_json::json!({ "error": code, "message": message })),
+    )
+}
+
 pub async fn get_graph_data(
     state: web::Data<AppState>,
     query: web::Query<GraphQuery>,
@@ -230,6 +251,16 @@ pub async fn get_graph_data(
         "Received request for graph data (CQRS Phase 1D), graph_type={:?}",
         query.graph_type
     );
+
+    // Boot readiness: the listener is up before the stored graph is loaded. Wait
+    // (bounded) for the first load rather than serve an empty graph as if real.
+    let load = state
+        .graph_readiness
+        .wait(crate::actors::graph_readiness::REST_GRAPH_WAIT)
+        .await;
+    if let Some(unavailable) = graph_not_ready_response(load) {
+        return Ok(unavailable);
+    }
 
     let graph_handler = state.graph_query_handlers.get_graph_data.clone();
     let node_map_handler = state.graph_query_handlers.get_node_map.clone();
@@ -2719,5 +2750,26 @@ mod positions_reply_tests {
         assert_eq!(r["data"]["metadata"]["numNodes"], 3);
         assert_eq!(r["data"]["metadata"]["kineticEnergy"], 40.0);
         assert_eq!(r["data"]["metadata"]["boundingBox"]["max"]["x"], 100.0);
+    }
+}
+
+#[cfg(test)]
+mod boot_gate_tests {
+    use super::graph_not_ready_response;
+    use crate::actors::graph_readiness::GraphLoad;
+    use actix_web::http::StatusCode;
+
+    #[test]
+    fn before_the_first_load_the_answer_is_503_not_an_empty_graph() {
+        let r = graph_not_ready_response(GraphLoad::Loading).expect("gated");
+        assert_eq!(r.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(r.headers().contains_key("retry-after"));
+    }
+
+    #[test]
+    fn a_failed_load_is_503_and_a_loaded_graph_is_not_gated() {
+        let r = graph_not_ready_response(GraphLoad::Failed).expect("gated");
+        assert_eq!(r.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(graph_not_ready_response(GraphLoad::Ready).is_none());
     }
 }

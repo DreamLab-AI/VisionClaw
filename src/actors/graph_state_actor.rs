@@ -97,9 +97,21 @@ pub struct GraphStateActor {
     /// Monotonic epoch incremented on every `UpdateNodePositions` apply.
     /// Broadcast actor uses this to short-circuit redundant encodes.
     position_epoch: u64,
+
+    /// Boot gate released by the first successful `ReloadGraphFromDatabase`.
+    readiness: Arc<crate::actors::graph_readiness::GraphReadiness>,
 }
 
 impl GraphStateActor {
+    /// Share the boot gate owned by `AppState` instead of the actor's private one.
+    pub fn with_readiness(
+        mut self,
+        readiness: Arc<crate::actors::graph_readiness::GraphReadiness>,
+    ) -> Self {
+        self.readiness = readiness;
+        self
+    }
+
     pub fn new(repository: Arc<dyn KnowledgeGraphRepository>) -> Self {
         info!("Initializing GraphStateActor with repository injection");
         Self {
@@ -116,6 +128,7 @@ impl GraphStateActor {
             compact_to_persistent: Vec::new(),
             position_snapshot: Arc::new(crate::actors::messages::PositionFrameSnapshot::default()),
             position_epoch: 0,
+            readiness: Arc::new(crate::actors::graph_readiness::GraphReadiness::new()),
         }
     }
 
@@ -1006,9 +1019,14 @@ impl Handler<ReloadGraphFromDatabase> for GraphStateActor {
                             act.graph_data.edges.len(),
                             act.graph_data.nodes.len().saturating_sub(1),
                         );
+                        // Release initial-graph requests held at the boot gate.
+                        act.readiness.mark_ready();
                         Ok(())
                     }
-                    Err(e) => Err(e),
+                    Err(e) => {
+                        act.readiness.mark_failed();
+                        Err(e)
+                    }
                 }
             }),
         )
@@ -1275,5 +1293,28 @@ mod shortest_path_characterisation {
             !r.contains_key(&9),
             "a dangling edge must not invent a reachable node 9"
         );
+    }
+}
+
+#[cfg(test)]
+mod boot_gate_tests {
+    use super::*;
+    use crate::actors::graph_readiness::{GraphLoad, GraphReadiness};
+    use actix::Actor;
+
+    #[actix_rt::test]
+    async fn gate_opens_only_after_the_stored_graph_is_reloaded() {
+        let store = Arc::new(oxigraph::store::Store::new().expect("store"));
+        let repo: Arc<dyn KnowledgeGraphRepository> = Arc::new(
+            crate::adapters::oxigraph_graph_repository::OxigraphGraphRepository::from_store(store),
+        );
+        let gate = Arc::new(GraphReadiness::new());
+        let addr = GraphStateActor::new(repo)
+            .with_readiness(gate.clone())
+            .start();
+
+        assert_eq!(gate.state(), GraphLoad::Loading, "empty before any load");
+        addr.send(ReloadGraphFromDatabase).await.unwrap().unwrap();
+        assert_eq!(gate.state(), GraphLoad::Ready);
     }
 }

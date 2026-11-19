@@ -196,6 +196,45 @@ impl SocketFlowServer {
         actix::spawn(async move {
             let is_current = || sync_generation_is_current(&sync_generation, my_generation);
 
+            // Boot readiness: hold the initial load until the stored graph is in the
+            // actor, so a connect during boot receives the real graph, not an empty
+            // one. A WebSocket has no request timeout, so after telling the client the
+            // graph is loading we keep waiting and push it on arrival, until the
+            // connection goes or a newer sync supersedes this one.
+            let readiness = app_state.graph_readiness.clone();
+            let mut told_loading = false;
+            loop {
+                use crate::actors::graph_readiness::GraphLoad;
+                match readiness
+                    .wait(crate::actors::graph_readiness::REST_GRAPH_WAIT)
+                    .await
+                {
+                    GraphLoad::Ready => break,
+                    GraphLoad::Failed => {
+                        warn!("Initial graph load: the stored graph failed to load");
+                        if is_current() {
+                            addr.do_send(super::actor_messages::GenGatedText {
+                                text: serde_json::json!({"type": "graph_load_failed"}).to_string(),
+                                generation: my_generation,
+                            });
+                        }
+                        return;
+                    }
+                    GraphLoad::Loading => {
+                        if !is_current() || !addr.connected() {
+                            return;
+                        }
+                        if !told_loading {
+                            told_loading = true;
+                            addr.do_send(super::actor_messages::GenGatedText {
+                                text: serde_json::json!({"type": "graph_loading"}).to_string(),
+                                generation: my_generation,
+                            });
+                        }
+                    }
+                }
+            }
+
             if let Ok(Ok(graph_data)) = app_state
                 .graph_service_addr
                 .send(crate::actors::messages::GetGraphData)

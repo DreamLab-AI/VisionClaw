@@ -303,6 +303,8 @@ pub struct AppState {
 
     pub graph_repository: Arc<ActorGraphRepository>,
     pub graph_query_handlers: GraphQueryHandlers,
+    /// Boot gate: released when the graph state actor has loaded the stored graph.
+    pub graph_readiness: Arc<crate::actors::graph_readiness::GraphReadiness>,
 
     pub event_bus: Arc<RwLock<EventBus>>,
     pub event_store: Arc<EventStore>,
@@ -799,8 +801,10 @@ impl AppState {
         info!("[AppState::new] Starting GraphServiceSupervisor (refactored architecture)");
 
         // GraphServiceSupervisor uses the Oxigraph-backed graph repository (ADR-11)
+        let graph_readiness = Arc::new(crate::actors::graph_readiness::GraphReadiness::new());
         let graph_service_addr = GraphServiceSupervisor::new(graph_adapter.clone()
             as Arc<dyn crate::ports::knowledge_graph_repository::KnowledgeGraphRepository>)
+        .with_readiness(graph_readiness.clone())
         .start();
 
         // Live linkage: rebind the supervisor's client coordinator to THIS
@@ -1366,6 +1370,7 @@ impl AppState {
 
             graph_repository,
             graph_query_handlers,
+            graph_readiness,
 
             event_bus,
             event_store,

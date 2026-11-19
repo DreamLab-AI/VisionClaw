@@ -468,6 +468,8 @@ pub struct GraphServiceSupervisor {
     // sync, bots edge loops) into a single client notification.
     graph_revision: u64,
     graph_update_notify_pending: bool,
+    /// Boot gate shared with `AppState`; handed to the graph state actor.
+    readiness: Arc<crate::actors::graph_readiness::GraphReadiness>,
 }
 
 #[derive(Debug, Clone)]
@@ -536,7 +538,17 @@ impl GraphServiceSupervisor {
             auto_components_in_flight: false,
             graph_revision: 0,
             graph_update_notify_pending: false,
+            readiness: Arc::new(crate::actors::graph_readiness::GraphReadiness::new()),
         }
+    }
+
+    /// Share the boot gate owned by `AppState` with the graph state actor.
+    pub fn with_readiness(
+        mut self,
+        readiness: Arc<crate::actors::graph_readiness::GraphReadiness>,
+    ) -> Self {
+        self.readiness = readiness;
+        self
     }
 
     /// Live linkage: debounced "graph topology changed" broadcast.
@@ -750,7 +762,9 @@ impl GraphServiceSupervisor {
                 info!("Starting GraphStateActor as temporary GraphState manager");
 
                 if let Some(ref kg_repo) = self.kg_repo {
-                    let actor = GraphStateActor::new(kg_repo.clone()).start();
+                    let actor = GraphStateActor::new(kg_repo.clone())
+                        .with_readiness(self.readiness.clone())
+                        .start();
                     self.graph_state = Some(actor);
                     info!("GraphStateActor started successfully");
                 } else {

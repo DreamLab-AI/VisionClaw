@@ -14,6 +14,7 @@ pub mod agent_roster_feed;
 pub mod client_coordinator_actor;
 pub mod client_filter;
 pub mod gpu;
+pub mod graph_readiness;
 pub mod graph_state_actor;
 pub mod position_stream;
 pub mod voice_interface_actor;
