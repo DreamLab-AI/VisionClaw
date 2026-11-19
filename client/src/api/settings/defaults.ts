@@ -81,6 +81,7 @@ export const DEFAULT_PHYSICS_SETTINGS: Partial<PhysicsSettings> = {
   constraintMaxForcePerNode: 50.0,
   ontologyConstraintsEnabled: true,
   ontologyConstraintStrength: 0.6,
+  hierarchyAffinity: 0.0,
   clusterStrength: 0.0,
 
   // --- Misc ---

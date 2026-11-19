@@ -82,6 +82,8 @@ export interface PhysicsSettings {
   ontologyConstraintsEnabled: boolean;
   /** Weight multiplier on the ontology constraints, 0-1 (ADR-2192, default 0.6). */
   ontologyConstraintStrength: number;
+  /** Ontology layout mode: pull of asserted subClassOf edges, scaled by the parent's information content, 0-4 (ADR-2204 D5, default 0 = off). */
+  hierarchyAffinity: number;
   clusterStrength: number;
 
   // --- Misc ---

@@ -99,6 +99,7 @@ fn normalize_physics_keys(
             "sssp_alpha" => "ssspAlpha",
             "sssp_enabled" => "ssspEnabled",
             "layout_mode" => "layoutMode",
+            "hierarchy_affinity" => "hierarchyAffinity",
             "stream_chunk_nodes" => "streamChunkNodes",
             "stream_move_threshold" => "streamMoveThreshold",
             "stream_ack_timeout_ms" => "streamAckTimeoutMs",
@@ -292,6 +293,13 @@ pub fn validate_physics_settings(settings: &PhysicsSettings) -> Result<(), Strin
         "stream_ack_timeout_ms",
         bounds::STREAM_ACK_TIMEOUT_MS.0,
         bounds::STREAM_ACK_TIMEOUT_MS.1,
+        &mut errors,
+    );
+    check_range(
+        settings.hierarchy_affinity,
+        "hierarchy_affinity",
+        bounds::HIERARCHY_AFFINITY.0,
+        bounds::HIERARCHY_AFFINITY.1,
         &mut errors,
     );
     check_range(
@@ -2266,6 +2274,25 @@ mod tests {
             let err = validate_physics_settings(&with_stream(c, t, to)).unwrap_err();
             assert!(err.contains(field), "{err}");
         }
+    }
+
+    /// ADR-2204 D5: `hierarchyAffinity` is bounded 0..=4 and its snake spelling is normalised.
+    #[test]
+    fn hierarchy_affinity_is_bounded_and_its_alias_normalised() {
+        let with = |a: f32| PhysicsSettings {
+            hierarchy_affinity: a,
+            ..PhysicsSettings::default()
+        };
+        assert!(validate_physics_settings(&with(0.0)).is_ok());
+        assert!(validate_physics_settings(&with(4.0)).is_ok());
+        for bad in [-0.1, 4.1, f32::NAN] {
+            let err = validate_physics_settings(&with(bad)).unwrap_err();
+            assert!(err.contains("hierarchy_affinity"), "{err}");
+        }
+        let mut patch = serde_json::Map::new();
+        patch.insert("hierarchy_affinity".into(), serde_json::json!(1.0));
+        let n = normalize_physics_keys(patch);
+        assert!(n.contains_key("hierarchyAffinity"));
     }
 
     /// The snake_case spellings are normalised like the other physics keys.

@@ -181,6 +181,7 @@ visualisation:
         ssspAlpha: 1.5
         constraintRampFrames: 60
         constraintMaxForcePerNode: 50.0
+        hierarchyAffinity: 0.0
         clusteringAlgorithm: leiden
         clusterCount: 5
         clusteringResolution: 1.0
@@ -294,6 +295,7 @@ visualisation:
         ssspAlpha: 1.5
         constraintRampFrames: 60
         constraintMaxForcePerNode: 50.0
+        hierarchyAffinity: 0.0
         clusteringAlgorithm: leiden
         clusterCount: 5
         clusteringResolution: 1.0

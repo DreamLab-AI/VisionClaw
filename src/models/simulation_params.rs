@@ -172,6 +172,9 @@ impl SimParams {
             sssp_alpha: Some(self.sssp_alpha),
             constraint_ramp_frames: self.constraint_ramp_frames,
             constraint_max_force_per_node: self.constraint_max_force_per_node,
+            // Host-side only (ADR-2204 D5): the device has no such field, so a device round trip
+            // carries no affinity.
+            hierarchy_affinity: 0.0,
             repulsion_softening_epsilon: self.repulsion_softening_epsilon,
             grid_cell_size: self.grid_cell_size,
             // Carry the authoritative GPU value rather than a hardcoded 0.0001.

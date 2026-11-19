@@ -135,6 +135,14 @@ fn default_ontology_constraint_strength() -> f32 {
     ONTOLOGY_CONSTRAINT_STRENGTH_DEFAULT
 }
 
+/// Default for `hierarchyAffinity`: 0, off. The layout then uses each edge's stored weight
+/// unchanged (ADR-2204 D5, opt-in ontology mode).
+pub const HIERARCHY_AFFINITY_DEFAULT: f32 = 0.0;
+
+fn default_hierarchy_affinity() -> f32 {
+    HIERARCHY_AFFINITY_DEFAULT
+}
+
 fn default_bounds_size() -> f32 {
     1600.0
 }
@@ -438,6 +446,13 @@ pub struct PhysicsSettings {
     )]
     pub ontology_constraint_strength: f32,
 
+    /// Ontology layout mode (ADR-2204 D5): how strongly an asserted `subClassOf` edge pulls its
+    /// child toward the parent, scaled by the parent's intrinsic information content so broad
+    /// classes pull weakly. `0` is off (the default); bounds `0..=4`. It shapes the per-edge
+    /// weights the host uploads, not the kernel parameters, so it is not a `SimParams` field.
+    #[serde(alias = "hierarchy_affinity", default = "default_hierarchy_affinity")]
+    pub hierarchy_affinity: f32,
+
     #[serde(alias = "clustering_algorithm")]
     pub clustering_algorithm: String,
     #[serde(alias = "cluster_count")]
@@ -626,6 +641,7 @@ impl Default for PhysicsSettings {
             constraint_max_force_per_node: default_constraint_max_force_per_node(),
             ontology_constraints_enabled: default_ontology_constraints_enabled(),
             ontology_constraint_strength: default_ontology_constraint_strength(),
+            hierarchy_affinity: default_hierarchy_affinity(),
 
             clustering_algorithm: "leiden".to_string(),
             cluster_count: 5,
@@ -809,6 +825,27 @@ mod tests {
                 ONTOLOGY_CONSTRAINT_STRENGTH_DEFAULT
             )
         );
+    }
+
+    /// ADR-2204 D5: `hierarchyAffinity` defaults to 0 (off), round-trips under its camelCase
+    /// name, accepts the snake alias, and a stored row without it loads as off.
+    #[test]
+    fn hierarchy_affinity_defaults_off_and_round_trips() {
+        let d = PhysicsSettings::default();
+        assert_eq!(d.hierarchy_affinity, 0.0);
+        let mut doc = serde_json::to_value(&d).unwrap();
+        assert_eq!(doc["hierarchyAffinity"], serde_json::json!(0.0));
+        doc["hierarchyAffinity"] = serde_json::json!(1.5);
+        let back: PhysicsSettings = serde_json::from_value(doc.clone()).unwrap();
+        assert_eq!(back.hierarchy_affinity, 1.5);
+        let obj = doc.as_object_mut().unwrap();
+        obj.remove("hierarchyAffinity");
+        obj.insert("hierarchy_affinity".into(), serde_json::json!(2.0));
+        let snake: PhysicsSettings = serde_json::from_value(doc.clone()).unwrap();
+        assert_eq!(snake.hierarchy_affinity, 2.0);
+        doc.as_object_mut().unwrap().remove("hierarchy_affinity");
+        let old: PhysicsSettings = serde_json::from_value(doc).unwrap();
+        assert_eq!(old.hierarchy_affinity, 0.0);
     }
 
     /// The stream settings are physics settings with calibrated defaults; a blob persisted before

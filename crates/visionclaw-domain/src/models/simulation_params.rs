@@ -181,6 +181,11 @@ pub struct SimulationParams {
     pub constraint_ramp_frames: u32,
     pub constraint_max_force_per_node: f32,
 
+    /// Ontology-mode hierarchy boost (ADR-2204 D5). Host-side only: it shapes the edge weights
+    /// the actor uploads and never reaches the device `SimParams`.
+    #[serde(default)]
+    pub hierarchy_affinity: f32,
+
     pub phase: SimulationPhase,
     pub mode: SimulationMode,
 
@@ -540,6 +545,7 @@ impl SimulationParams {
             sssp_alpha: Some(physics.sssp_alpha),
             constraint_ramp_frames: physics.constraint_ramp_frames,
             constraint_max_force_per_node: physics.constraint_max_force_per_node,
+            hierarchy_affinity: physics.hierarchy_affinity,
             repulsion_softening_epsilon: physics.repulsion_softening_epsilon,
             grid_cell_size: physics.grid_cell_size,
             gravity: physics.gravity,

@@ -92,6 +92,13 @@ pub const SSSP_ALPHA: Bound = (0.0, 5.0);
 /// there is this bound, enforced once at the route.
 pub const ONTOLOGY_CONSTRAINT_STRENGTH: Bound = (0.0, 1.0);
 
+// --- Ontology layout mode (ADR-2204 D5) -------------------------------------
+
+/// Pull of asserted `subClassOf` edges, scaled by the parent's information content
+/// (`hierarchy_affinity`). Default 0 (off); the weight multiplier is `1 + a * IC`, so 4 at most
+/// quintuples the weight of the most specific parent's edges.
+pub const HIERARCHY_AFFINITY: Bound = (0.0, 4.0);
+
 // --- Iterations (integer-valued, expressed as f32 for path-pattern reuse) -
 
 /// Physics solver iterations (`iterations`). Canonical default 50.

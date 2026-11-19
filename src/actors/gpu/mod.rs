@@ -45,6 +45,7 @@ pub mod context_bus;
 pub mod cuda_stream_wrapper;
 pub(crate) mod display_projection;
 pub mod domain_charge;
+pub mod edge_csr;
 pub mod force_compute_actor;
 pub mod gpu_manager_actor;
 pub mod gpu_resource_actor;
