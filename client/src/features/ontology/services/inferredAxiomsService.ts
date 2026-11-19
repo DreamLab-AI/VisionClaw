@@ -62,8 +62,10 @@ export interface ReasoningReport {
   namedGraph: string;
   runId?: string;
   triples: InferredTriple[];
-  /** Total inferred-triple count (== triples.length unless server paginates). */
+  /** True number of inferred axioms on the server (not the size of what was fetched). */
   count: number;
+  /** True when fewer axioms were fetched than `count` (page cap reached). */
+  partial?: boolean;
 }
 
 /** The empty report — used as the typed loading / not-yet-materialised state. */
@@ -88,7 +90,16 @@ interface RawInferredResponse {
   namedGraph?: string;
   runId?: string;
   triples?: RawEntry[];
+  /** Axioms in the whole (caller-visible) inferred graph. */
+  total?: number;
+  /** More axioms exist beyond this page. */
+  truncated?: boolean;
 }
+
+/** Axioms requested per page. */
+export const INFERRED_PAGE_SIZE = 500;
+/** Page ceiling: bounds a pathological graph at INFERRED_PAGE_SIZE x this many axioms. */
+export const INFERRED_MAX_PAGES = 40;
 
 const NGM = 'https://narrativegoldmine.com/ns/v1#';
 
@@ -160,21 +171,39 @@ function mapFlat(entries: RawEntry[]): InferredTriple[] {
     }));
 }
 
+/** Fetch one page; throws when the endpoint is absent. */
+async function fetchPage(offset: number): Promise<RawInferredResponse> {
+  const response = await unifiedApiClient.get<RawInferredResponse>(
+    `${INFERRED_ENDPOINT}?offset=${offset}&limit=${INFERRED_PAGE_SIZE}`,
+    { timeout: 15000 },
+  );
+  // unifiedApiClient unwraps the HTTP body into `.data`. Some endpoints wrap a
+  // second time ({ data: {...} }); tolerate both without assuming either.
+  const body = response.data as RawInferredResponse & { data?: RawInferredResponse };
+  return body?.data ?? body ?? {};
+}
+
 /**
- * Fetch the materialised inferred axioms. Returns EMPTY_REASONING_REPORT (not
- * a throw) when the endpoint is absent or returns non-200 — the report simply
- * shows "no inferred axioms yet" until the backend materialises them.
+ * Fetch the materialised inferred axioms, page by page, until the server's
+ * `total` is reached or INFERRED_MAX_PAGES. `count` is the server's total;
+ * `partial` says the page ceiling stopped the fetch short. Returns
+ * EMPTY_REASONING_REPORT (not a throw) when the endpoint is absent or returns
+ * non-200 — the report simply shows "no inferred axioms yet".
  */
 export async function fetchReasoningReport(): Promise<ReasoningReport> {
   try {
-    const response = await unifiedApiClient.get<RawInferredResponse>(INFERRED_ENDPOINT, {
-      timeout: 15000,
-    });
-    // unifiedApiClient unwraps the HTTP body into `.data`. Some endpoints wrap a
-    // second time ({ data: {...} }); tolerate both without assuming either.
-    const body = response.data as RawInferredResponse & { data?: RawInferredResponse };
-    const data: RawInferredResponse | undefined = body?.data ?? body;
-    const rawEntries = Array.isArray(data?.triples) ? data!.triples! : [];
+    const rawEntries: RawEntry[] = [];
+    let first: RawInferredResponse | undefined;
+    let total: number | undefined;
+    let more = true;
+    for (let page = 0; more && page < INFERRED_MAX_PAGES; page++) {
+      // `offset` counts axioms (the server pages whole axiom records).
+      const data = await fetchPage(page * INFERRED_PAGE_SIZE);
+      first ??= data;
+      if (typeof data.total === 'number') total = data.total;
+      rawEntries.push(...(Array.isArray(data.triples) ? data.triples : []));
+      more = data.truncated === true;
+    }
 
     // The whelk materialiser emits reified provenance triples; collapse them to
     // one edge per inferred axiom so the count reflects axioms, not raw triples.
@@ -182,12 +211,14 @@ export async function fetchReasoningReport(): Promise<ReasoningReport> {
       ? reconstructFromReified(rawEntries)
       : mapFlat(rawEntries);
 
-    logger.info(`Reasoning report: ${triples.length} inferred axioms (${rawEntries.length} raw triples)`);
+    const count = Math.max(total ?? triples.length, triples.length);
+    logger.info(`Reasoning report: ${triples.length} of ${count} inferred axioms (${rawEntries.length} raw triples)`);
     return {
-      namedGraph: data?.namedGraph || INFERRED_NAMED_GRAPH,
-      runId: data?.runId,
+      namedGraph: first?.namedGraph || INFERRED_NAMED_GRAPH,
+      runId: first?.runId,
       triples,
-      count: triples.length,
+      count,
+      partial: triples.length < count,
     };
   } catch (err: any) {
     // The inferred endpoint may not exist yet (WS-2 Rust work pending). Degrade

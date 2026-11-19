@@ -383,6 +383,12 @@ export function InferencePanel({
               <code className="text-xs">urn:ngm:graph:ontology:inferred</code>.
             </p>
           ) : (
+            <>
+            {report.partial && (
+              <p className="text-xs text-muted-foreground mb-1" role="status">
+                Showing {report.triples.length} of {report.count} inferred axioms.
+              </p>
+            )}
             <ul className="space-y-1 max-h-64 overflow-y-auto" aria-label="Inferred triples">
               {report.triples.map((t, i) => (
                 <li
@@ -400,6 +406,7 @@ export function InferencePanel({
                 </li>
               ))}
             </ul>
+            </>
           )}
         </div>
 
