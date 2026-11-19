@@ -92,6 +92,27 @@ the session realm and fails closed — an unknown token, an expired token, an
 absent token and an absent `NostrService` all produce 401, because presence of a
 token is not authentication.
 
+### Browser session keys (ADR-2205)
+
+A browser does not ask its signer once per request. After sign-in it binds an
+ephemeral in-memory secp256k1 key with one real NIP-98 signature
+(`POST /api/auth/nostr/session-key`, body `{sessionPubkey, expiresIn}`, `payload`
+tag required so the token is bound to that body), and signs later requests with
+it, each carrying a signed `["session", <principal>]` tag. The bind table is in
+memory, absolute-lifetime (`min(requested, SESSION_KEY_MAX_TTL_SECS, 3600)`) and
+never renewed.
+
+`NostrService::verify_nip98_identity` (`nostr_service.rs`) resolves identity in
+one place, so `verify_nip98_auth` and therefore every caller (RBAC in
+`verify_access`, the settings extractor, memory cloud, WebSocket upgrades)
+receives the **principal's** user, power-user flag and RBAC level included. A
+marked token with no live binding answers `401 {"code":"session_key_expired"}`
+and the client re-binds once. A session key never binds another key, manages API
+keys, or administers RBAC (`session_key_denied`, `utils/auth.rs`); the Solid
+proxy refuses it. This is not a revival of bearer sessions: every request is
+still a fresh single-use NIP-98 signature. Accepted risk: page script can use
+the in-memory key until it expires.
+
 ### Authorization: the RBAC lattice (legacy ADR-142)
 
 Roles, highest-first: **Owner > Admin > Editor > Viewer**

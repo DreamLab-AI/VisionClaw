@@ -348,6 +348,18 @@ or reconnect flow. Remaining session-based MCP clients require migration or the
 explicit compatibility setting; this change does not claim every transport has
 completed sunset.
 
+### Browser session keys (ADR-2205, 2026-11-19)
+
+The browser binds one ephemeral key per session with a single signature from the
+user's real signer and signs REST calls and WebSocket upgrades with it. Legacy
+opaque sessions stay off; each request remains a fresh single-use NIP-98 event
+under the same freshness window and replay cache. The binding is in memory, so a
+restart or expiry gives `401 session_key_expired` and one client re-bind. A
+session key is refused (`403 session_key_scope`) for binding keys, API-key
+management and RBAC administration, and for the Solid proxy. The in-memory key is
+exposed to XSS until it expires (TTL at most 3600 s); the deployment edge needs
+no change. Not observed on a deployed proxy.
+
 ### Storage publication and recovery controls (2026-09-07)
 
 Ontology pulls now stage a complete immutable generation and activate it through
