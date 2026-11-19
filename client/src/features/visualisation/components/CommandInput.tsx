@@ -7,6 +7,7 @@ import { ALL_FIELDS } from '../../control-center/registry/settingsRegistry';
 import { commandRegistry } from '../../command-palette/CommandRegistry';
 import { planJevCommand, type JevReview } from '../../../services/jev/commandFlow';
 import { applySettingWrites, physicsWrites, type SettingWrite } from '../../control-center/state/settingWrites';
+import { planInsightIntent } from './insightIntents';
 import { MACROS_BY_ID } from '../../control-center/registry/macros';
 import { DEFAULT_EDGES_SETTINGS, DEFAULT_PHYSICS_SETTINGS } from '../../../api/settings/defaults';
 
@@ -176,6 +177,29 @@ export function edgeOpacityFromCommand(lower: string): number | null {
 function parseCommandToActions(cmd: string): SettingsAction[] {
   const lower = cmd.toLowerCase();
   const actions: SettingsAction[] = [];
+
+  // Knowledge-engineer questions ("what are the main themes?", "what connects X and Y?")
+  // are answered through settings, layout and analytics. Evaluated before every other
+  // rule — notably focus/find/search below — and null for anything that is not one.
+  const insight = planInsightIntent(cmd);
+  if (insight) {
+    // The answer line rides on the settings write; analytics runs follow it.
+    actions.push({ description: insight.answer, writes: insight.writes });
+    for (const r of insight.requests) {
+      actions.push({ description: `Running ${r.endpoint.split('/').slice(-2).join(' ')}`, endpoint: r.endpoint, method: r.method, body: r.body });
+    }
+    if (insight.domains) {
+      const domains = insight.domains;
+      actions.push({
+        description: `Highlighting ${domains.join(' and ')}`,
+        localAction: async () => {
+          const { highlightDomains } = await import('./insightDomainHighlight');
+          await highlightDomains(domains);
+        },
+      });
+    }
+    return actions;
+  }
 
   // Cluster hulls
   if (lower.includes('hull') || lower.includes('cluster hull')) {
