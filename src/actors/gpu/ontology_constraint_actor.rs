@@ -68,6 +68,70 @@ fn reject_nonfinite_constraints(
     (survivors, rejected.len())
 }
 
+/// Result of [`map_to_live_constraints`].
+struct LiveMapping {
+    /// Constraints addressed by the GPU's node indices.
+    constraints: Vec<ConstraintData>,
+    /// The graph those indices refer to (node `id == index`).
+    graph: visionclaw_domain::models::graph::GraphData,
+    /// Axiom endpoints that resolved to no node.
+    unresolved: u64,
+    /// Constraints dropped because an endpoint had no compact id.
+    dropped_unmappable: usize,
+}
+
+/// Axioms → live-kernel constraints, addressed in the GPU's node-index space.
+///
+/// `graph_data` carries PERSISTENT node ids (31-bit hashes minted by `NodeIdHasher`), which is
+/// what `IriNodeResolver` needs for its local-name fallback. The GPU, however, indexes COMPACT
+/// ids `0..N-1`. Resolution therefore runs on the persistent graph, and each resulting node
+/// index is translated through `remap_graph_to_compact` — the very function
+/// `GraphStateActor` applies before the GPU upload, a pure function of the node set — so the two
+/// agree. A constraint naming a node with no compact id is dropped and counted, never mapped to
+/// a different node.
+fn map_to_live_constraints(
+    domain_axioms: &[DomainOwlAxiom],
+    graph_data: &visionclaw_domain::models::graph::GraphData,
+) -> LiveMapping {
+    let mut resolver = IriNodeResolver::from_nodes(&graph_data.nodes);
+    let mapped = map_axioms_to_constraints(domain_axioms, &mut resolver);
+
+    let mut compact_graph = graph_data.clone();
+    let compact_to_persistent =
+        crate::actors::graph_state_actor::remap_graph_to_compact(&mut compact_graph);
+    let persistent_to_compact: std::collections::HashMap<u32, i32> = compact_to_persistent
+        .iter()
+        .enumerate()
+        .map(|(compact, &persistent)| (persistent, compact as i32))
+        .collect();
+
+    let mut constraints = Vec::with_capacity(mapped.len());
+    let mut dropped_unmappable = 0usize;
+    'next: for mut c in mapped {
+        let used = (c.count.max(0) as usize).min(c.node_idx.len());
+        for slot in &mut c.node_idx[..used] {
+            match u32::try_from(*slot)
+                .ok()
+                .and_then(|p| persistent_to_compact.get(&p))
+            {
+                Some(&compact) => *slot = compact,
+                None => {
+                    dropped_unmappable += 1;
+                    continue 'next;
+                }
+            }
+        }
+        constraints.push(c);
+    }
+
+    LiveMapping {
+        constraints,
+        graph: compact_graph,
+        unresolved: resolver.unresolved_count(),
+        dropped_unmappable,
+    }
+}
+
 /// Scale a copy of the mapper's unscaled constraint buffer by `strength`.
 /// Weight is the only field the global strength touches; node indices, kind,
 /// params (rest-length / min-distance) and activation frame are preserved.
@@ -226,10 +290,21 @@ impl OntologyConstraintActor {
     ) -> Result<usize, String> {
         let start_time = Instant::now();
 
-        let mut resolver = IriNodeResolver::from_nodes(&graph_data.nodes);
         // Keep the unscaled mapper output as the base so the global-strength
         // slider can rescale reversibly; the live buffer is base × strength.
-        let mapped = map_axioms_to_constraints(&domain_axioms, &mut resolver);
+        let LiveMapping {
+            constraints: mapped,
+            graph: graph_data,
+            unresolved,
+            dropped_unmappable,
+        } = map_to_live_constraints(&domain_axioms, graph_data);
+        let graph_data = &graph_data;
+        if dropped_unmappable > 0 {
+            warn!(
+                "OntologyConstraintActor: dropped {} constraint(s) naming a node with no compact id",
+                dropped_unmappable
+            );
+        }
 
         // ADR-070 D2.3 — input-edge NaN guard. Reject any mapped constraint that
         // references a node with a non-finite position before it can reach the
@@ -267,7 +342,7 @@ impl OntologyConstraintActor {
             "OntologyConstraintActor: Mapped {} OWL axioms → {} live-kernel constraints ({} endpoint lookups unresolved)",
             domain_axioms.len(),
             produced,
-            resolver.unresolved_count()
+            unresolved
         );
 
         // The device write happens in ForceComputeActor (notified below), which
@@ -734,6 +809,61 @@ mod tests {
             object: parent.to_string(),
             annotations: std::collections::HashMap::new(),
         }
+    }
+
+    /// Regression: persistent node ids are 31-bit hashes, the GPU indexes compact `0..N-1`.
+    /// Mapped constraints must be addressed by compact id (previously every one fell outside
+    /// the constraint index: "N constraints -> 0 entries").
+    #[test]
+    fn constraints_are_addressed_by_compact_id_not_persistent_hash() {
+        use crate::utils::unified_gpu_compute::constraint_index::build_constraint_index;
+        let mut graph = visionclaw_domain::models::graph::GraphData::new();
+        // Deliberately unsorted and sparse, as hashed ids are.
+        graph.nodes = vec![
+            class_node(1_900_000_007, "urn:vc:class:Dog", 0.0),
+            class_node(70_000_001, "urn:vc:class:Animal", 40.0),
+            class_node(1_200_000_003, "urn:vc:class:Cat", 80.0),
+        ];
+        let axioms = vec![
+            sub_class_of("urn:vc:class:Dog", "urn:vc:class:Animal"),
+            sub_class_of("urn:vc:class:Cat", "urn:vc:class:Animal"),
+        ];
+        let m = map_to_live_constraints(&axioms, &graph);
+        assert!(!m.constraints.is_empty());
+        let index = build_constraint_index(&m.constraints, 3);
+        assert!(!index.ids.is_empty(), "constraint index must have entries");
+        // Compact order is by persistent id: Animal=0, Cat=1, Dog=2.
+        let pairs: std::collections::BTreeSet<(i32, i32)> = m
+            .constraints
+            .iter()
+            .filter(|c| c.count == 2)
+            .map(|c| {
+                (
+                    c.node_idx[0].min(c.node_idx[1]),
+                    c.node_idx[0].max(c.node_idx[1]),
+                )
+            })
+            .collect();
+        assert!(pairs.contains(&(0, 2)), "Dog-Animal -> (2,0): {pairs:?}");
+        assert!(pairs.contains(&(0, 1)), "Cat-Animal -> (1,0): {pairs:?}");
+        for c in &m.constraints {
+            for &i in &c.node_idx[..c.count as usize] {
+                assert!((0..3).contains(&i), "node_idx {i} outside compact range");
+            }
+        }
+        assert_eq!(m.dropped_unmappable, 0);
+    }
+
+    /// An axiom naming an IRI that is not in the graph yields no constraint (counted unresolved),
+    /// never one pointing at another node.
+    #[test]
+    fn an_unresolvable_endpoint_yields_no_constraint() {
+        let mut graph = visionclaw_domain::models::graph::GraphData::new();
+        graph.nodes = vec![class_node(5, "urn:vc:class:A", 0.0)];
+        let axioms = [sub_class_of("urn:vc:class:A", "urn:vc:class:Missing")];
+        let m = map_to_live_constraints(&axioms, &graph);
+        assert!(m.constraints.is_empty());
+        assert!(m.unresolved > 0);
     }
 
     #[test]
