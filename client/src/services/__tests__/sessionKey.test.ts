@@ -46,6 +46,8 @@ describe('bound session key (ADR-2205)', () => {
   let signEvent: ReturnType<typeof vi.fn>;
   let fetchMock: ReturnType<typeof vi.fn>;
   let binds: Array<{ headers: Record<string, string>; body: string }>;
+  let revokes: Array<{ headers: Record<string, string> }>;
+  let revokeBehaviour: () => Response;
   let apiBehaviour: (n: number) => Response;
   let apiCalls: number;
 
@@ -71,9 +73,15 @@ describe('bound session key (ADR-2205)', () => {
     signEvent = vi.fn(async (e: any) => finalizeEvent(e, realSecret));
     (window as any).nostr = { getPublicKey: vi.fn(async () => realPub), signEvent };
     binds = [];
+    revokes = [];
+    revokeBehaviour = () => json({ revoked: 1 });
     apiCalls = 0;
     apiBehaviour = () => json({ ok: true });
     fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === BIND_URL && init?.method === 'DELETE') {
+        revokes.push({ headers: init.headers as Record<string, string> });
+        return revokeBehaviour();
+      }
       if (url === BIND_URL) {
         binds.push({ headers: init!.headers as Record<string, string>, body: init!.body as string });
         return json({ sessionPubkey: JSON.parse(init!.body as string).sessionPubkey, expiresAt: Math.floor(Date.now() / 1000) + 600 });
@@ -267,6 +275,44 @@ describe('bound session key (ADR-2205)', () => {
     expect(getSignStats().total).toBe(0);
     await computeAuthHeaders(`${ORIGIN}/api/auth/nostr/api-keys`, 'POST', '{}');
     expect(getSignStats().total).toBe(1);
+  });
+
+  it('proves possession: the bind body carries a proof signed by the session key', async () => {
+    await nostrAuth.login();
+    const body = JSON.parse(binds[0].body);
+    const proof = JSON.parse(body.proof);
+    expect(verifyEvent(proof)).toBe(true);
+    expect(proof.kind).toBe(27236);
+    expect(proof.pubkey).toBe(body.sessionPubkey); // made BY the session key
+    expect(proof.tags).toContainEqual(['principal', realPub]);
+    expect(proof.tags).toContainEqual(['u', BIND_URL]);
+    expect(proof.tags).toContainEqual(['expires', String(body.expiresIn)]);
+    expect(proof.tags.find((t: string[]) => t[0] === 'nonce')?.[1]).toBeTruthy();
+    expect(Math.abs(proof.created_at - Date.now() / 1000)).toBeLessThan(30);
+  });
+
+  it('logout revokes the binding server-side, signed by the session key, with no extension prompt', async () => {
+    await nostrAuth.login();
+    const sessionPub = JSON.parse(binds[0].body).sessionPubkey;
+    signEvent.mockClear();
+    await nostrAuth.logout();
+    expect(revokes).toHaveLength(1);
+    expect(signEvent).toHaveBeenCalledTimes(0);
+    const ev = decode(revokes[0].headers.Authorization);
+    expect(ev.pubkey).toBe(sessionPub);
+    expect(ev.tags).toContainEqual(['session', realPub]);
+    expect(verifyEvent(ev)).toBe(true);
+    expect((nostrAuth as any).sessionKey).toBeNull();
+  });
+
+  it('logout still clears the key when the revoke fails', async () => {
+    await nostrAuth.login();
+    const first = (nostrAuth as any).sessionKey.secret as Uint8Array;
+    revokeBehaviour = () => json({ error: 'down' }, 503);
+    await nostrAuth.logout();
+    expect(revokes).toHaveLength(1);
+    expect((nostrAuth as any).sessionKey).toBeNull();
+    expect(first.every((b) => b === 0)).toBe(true);
   });
 
   it('leaves the loopback dev-token path alone', async () => {

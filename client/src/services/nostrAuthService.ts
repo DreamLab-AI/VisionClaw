@@ -195,6 +195,8 @@ type AuthStateListener = (state: AuthState) => void;
 
 // --- Service Implementation ---
 
+/** Kind of the proof-of-possession event a session key signs over its own bind. */
+const SESSION_KEY_PROOF_KIND = 27236;
 /** Lifetime requested for a bound session key; the server may grant less. */
 const SESSION_KEY_REQUESTED_TTL_SECS = 3600;
 /** Re-bind this long before expiry: wider than the server's 60 s NIP-98 freshness window. */
@@ -218,7 +220,8 @@ export function requiresRealSigner(url: string, method: string): boolean {
   }
   const segs = path.split('/').filter(Boolean);
   const starts = (prefix: string[]) => prefix.every((p, i) => segs[i] === p);
-  if (starts(['api', 'auth', 'nostr', 'session-key'])) return true;
+  // Revoking is signed by the session key itself; binding needs the real signer.
+  if (starts(['api', 'auth', 'nostr', 'session-key'])) return method.toUpperCase() !== 'DELETE';
   if (starts(['api', 'auth', 'nostr', 'api-keys'])) return true;
   if (starts(['api', 'admin', 'rbac']) && method.toUpperCase() !== 'GET') return true;
   // The Solid proxy forwards the token upstream, where it is verified as the
@@ -380,7 +383,28 @@ class NostrAuthService {
         secret = generateSecretKey();
         const sessionPubkey = getPublicKey(secret);
         const url = new URL('/api/auth/nostr/session-key', window.location.origin).href;
-        const body = JSON.stringify({ sessionPubkey, expiresIn: SESSION_KEY_REQUESTED_TTL_SECS });
+        // Proof of possession: the session key signs a statement binding itself
+        // to this principal, URL and lifetime, so the server never binds a key
+        // the browser does not hold (e.g. someone else's long-term key).
+        const proof = finalizeEvent(
+          {
+            created_at: Math.floor(Date.now() / 1000),
+            kind: SESSION_KEY_PROOF_KIND,
+            tags: [
+              ['principal', principal],
+              ['u', url],
+              ['expires', String(SESSION_KEY_REQUESTED_TTL_SECS)],
+              ['nonce', crypto.randomUUID()],
+            ],
+            content: '',
+          },
+          secret,
+        );
+        const body = JSON.stringify({
+          sessionPubkey,
+          expiresIn: SESSION_KEY_REQUESTED_TTL_SECS,
+          proof: JSON.stringify(proof),
+        });
         // Raw fetch with the real signer: the bind must not recurse into
         // signRequest's session branch or the UnifiedApiClient interceptors.
         const token = await this.signWithNip07(url, 'POST', body);
@@ -420,6 +444,18 @@ class NostrAuthService {
       this.bindInFlight = null;
     });
     return this.bindInFlight;
+  }
+
+  /** Ask the server to drop the held key's binding, signed by that key (no extension prompt). */
+  private async revokeSessionKey(): Promise<void> {
+    if (!this.sessionKey || this.sessionKey.expiresAt <= Date.now()) return;
+    try {
+      const url = new URL('/api/auth/nostr/session-key', window.location.origin).href;
+      const token = await this.signWithSessionKey(url, 'DELETE');
+      await fetch(url, { method: 'DELETE', headers: { Authorization: `Nostr ${token}` } });
+    } catch (error) {
+      logger.warn('Session key revoke failed; it will expire on its own', createErrorMetadata(error));
+    }
   }
 
   private discardSessionKey(): void {
@@ -631,6 +667,10 @@ class NostrAuthService {
 
   public async logout(): Promise<void> {
     logger.info('Logging out...');
+    // ADR-2205: revoke the binding server-side while the key can still sign.
+    // An exported key (XSS) is otherwise live until expiry. Failure is fine:
+    // the binding then simply runs to its TTL.
+    await this.revokeSessionKey();
     this.clearSession();
     this.notifyListeners({ authenticated: false });
   }

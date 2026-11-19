@@ -356,8 +356,11 @@ opaque sessions stay off; each request remains a fresh single-use NIP-98 event
 under the same freshness window and replay cache. The binding is in memory, so a
 restart or expiry gives `401 session_key_expired` and one client re-bind. A
 session key is refused (`403 session_key_scope`) for binding keys, API-key
-management and RBAC administration, and for the Solid proxy. The in-memory key is
-exposed to XSS until it expires (TTL at most 3600 s); the deployment edge needs
+management and RBAC administration, and for the Solid proxy. The bind needs a proof of
+possession signed by the session key, and revocation is
+`DELETE /api/auth/nostr/session-key`, called on logout. The in-memory key is
+exposed to XSS until it expires (TTL at most 3600 s), including export and
+off-browser use; the deployment edge needs
 no change. Not observed on a deployed proxy.
 
 ### Storage publication and recovery controls (2026-09-07)

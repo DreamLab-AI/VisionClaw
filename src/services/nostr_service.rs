@@ -53,6 +53,9 @@ pub enum NostrError {
     /// ADR-2205: a bind request was malformed or refused.
     #[error("session key bind refused: {0}")]
     SessionKeyBind(String),
+    /// ADR-2205: too many binds from one principal.
+    #[error("session key bind rate limit exceeded")]
+    SessionKeyRateLimited,
 }
 
 impl Serialize for NostrError {
@@ -111,6 +114,10 @@ impl Serialize for NostrError {
                 state.serialize_field("type", "SessionKeyBind")?;
                 state.serialize_field("message", msg)?;
             }
+            NostrError::SessionKeyRateLimited => {
+                state.serialize_field("type", "SessionKeyRateLimited")?;
+                state.serialize_field("message", "session key bind rate limit exceeded")?;
+            }
         }
         state.end()
     }
@@ -142,6 +149,55 @@ mod redis_keys {
 /// the default. Capture this once at service construction, not per request.
 fn legacy_sessions_enabled(value: Option<&str>) -> bool {
     value.is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true"))
+}
+
+/// Kind of the proof-of-possession event a session key signs over its own bind.
+const SESSION_KEY_PROOF_KIND: u16 = 27236;
+
+/// Check a bind's proof of possession (ADR-2205): a NIP-01 event signed BY the
+/// session key, of kind 27236, whose tags name the principal, the bind URL and
+/// the requested lifetime, with a nonce, created within the NIP-98 freshness
+/// window. The enclosing bind token is single-use and body-bound, so the proof
+/// cannot be replayed under another principal or terms.
+fn verify_bind_proof(
+    proof: &str,
+    session_pubkey: &str,
+    principal: &str,
+    request_url: &str,
+    expires_in: u64,
+    now: i64,
+) -> Result<(), &'static str> {
+    let event = Event::from_json(proof).map_err(|_| "proof is not a Nostr event")?;
+    event.verify().map_err(|_| "bad signature")?;
+    if event.kind != Kind::Custom(SESSION_KEY_PROOF_KIND) {
+        return Err("wrong kind");
+    }
+    if !event.pubkey.to_hex().eq_ignore_ascii_case(session_pubkey) {
+        return Err("not signed by the session key");
+    }
+    if (now - event.created_at.as_u64() as i64).abs() > 60 {
+        return Err("stale");
+    }
+    let tag = |name: &str| -> Option<String> {
+        event
+            .tags
+            .iter()
+            .find(|t| t.as_slice().first().is_some_and(|k| k == name))
+            .and_then(|t| t.as_slice().get(1).cloned())
+    };
+    if !tag("principal").is_some_and(|v| v.eq_ignore_ascii_case(principal)) {
+        return Err("names a different principal");
+    }
+    if tag("u").as_deref() != Some(request_url) {
+        return Err("names a different URL");
+    }
+    if tag("expires").as_deref() != Some(expires_in.to_string().as_str()) {
+        return Err("names a different lifetime");
+    }
+    if tag("nonce").is_none_or(|n| n.is_empty()) {
+        return Err("missing nonce");
+    }
+    Ok(())
 }
 
 /// A NIP-98 verification result (ADR-2205): the authenticated user, which for a
@@ -833,19 +889,46 @@ impl NostrService {
         #[serde(rename_all = "camelCase")]
         struct BindRequest {
             session_pubkey: String,
-            expires_in: Option<u64>,
+            expires_in: u64,
+            proof: String,
         }
         let request: BindRequest = serde_json::from_str(body)
             .map_err(|e| NostrError::SessionKeyBind(format!("invalid body: {e}")))?;
+
+        // Proof of possession: the session key itself must sign, for this
+        // principal, URL and lifetime. Without it anyone could bind a key they
+        // do not hold, including a victim's long-term key (targeted lockout).
+        verify_bind_proof(
+            &request.proof,
+            &request.session_pubkey,
+            &validation.pubkey,
+            request_url,
+            request.expires_in,
+            now,
+        )
+        .map_err(|why| NostrError::SessionKeyBind(format!("invalid proof of possession: {why}")))?;
+
+        // Defence in depth: a key that is already an account (has
+        // authenticated as itself, or is a configured power user) is never an
+        // ephemeral session key.
+        let candidate = request.session_pubkey.to_ascii_lowercase();
+        if self
+            .power_user_pubkeys
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case(&candidate))
+            || self.get_user(&candidate).await.is_some()
+        {
+            return Err(NostrError::SessionKeyBind(
+                "sessionPubkey is an existing account key".to_string(),
+            ));
+        }
 
         let binding = self
             .session_keys
             .bind(
                 &request.session_pubkey,
                 &validation.pubkey,
-                request
-                    .expires_in
-                    .unwrap_or_else(|| self.session_keys.max_ttl_secs()),
+                request.expires_in,
                 now,
             )
             .map_err(|e| {
@@ -861,6 +944,7 @@ impl NostrService {
                             "sessionPubkey is already bound to another principal"
                         }
                         BindError::TableFull => "session key table is full",
+                        BindError::RateLimited => return NostrError::SessionKeyRateLimited,
                     }
                     .to_string(),
                 )
@@ -880,6 +964,23 @@ impl NostrService {
             session_pubkey: request.session_pubkey.to_ascii_lowercase(),
             principal: binding.principal,
             expires_at: binding.expires_at,
+        })
+    }
+
+    /// Revoke session-key bindings (ADR-2205). A request signed by a session
+    /// key drops that key; one signed by the principal drops all of its keys.
+    /// Returns how many bindings were removed.
+    pub async fn revoke_session_key(
+        &self,
+        auth_header: &str,
+        request_url: &str,
+    ) -> Result<usize, NostrError> {
+        let verified = self
+            .verify_nip98_identity(auth_header, request_url, "DELETE", None)
+            .await?;
+        Ok(match verified.via_session_key {
+            Some(session_pubkey) => usize::from(self.session_keys.revoke_key(&session_pubkey)),
+            None => self.session_keys.revoke_principal(&verified.user.pubkey),
         })
     }
 

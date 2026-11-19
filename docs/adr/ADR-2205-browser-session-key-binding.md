@@ -36,8 +36,20 @@ signature per session instead of one per request", without reviving bearers.
    `payload` tag is required and checked (`BodyBinding::Required`), so a captured
    bind token cannot bind a different key. The server records
    `session_pubkey -> {principal, expires_at, scope}` in memory (a restart forces
-   a re-bind; Redis persistence is not wired). The lifetime is absolute:
-   `min(requested, SESSION_KEY_MAX_TTL_SECS, 3600)`, default 3600, never renewed.
+   a re-bind; Redis persistence is not wired). Each bind has an absolute
+   lifetime, `min(requested, SESSION_KEY_MAX_TTL_SECS, 3600)`, default 3600;
+   using a key never extends it (no sliding renewal). The same principal may
+   bind again, which needs a fresh real signature and restarts the clock.
+   **Proof of possession:** the body carries `proof`, a NIP-01 event of kind
+   27236 signed *by the session key*, tagged with the principal, the bind URL,
+   the requested `expires` and a `nonce`, created within 60 s. The server
+   verifies it before binding, so nobody can bind a key they do not hold (a
+   victim's long-term key would otherwise be locked out of its own account).
+   A key that is already an account (has authenticated as itself, or is a
+   configured power user) is refused as a session key. Per principal: at most 8
+   live keys (oldest evicted) and 10 binds a minute (`429`). Expired entries
+   are removed on the bind path (the principal's own, and the table once a
+   minute); the auth lookup takes a read lock and never scans.
 2. **Use.** Later requests are NIP-98-signed by the session key and carry a
    signed `["session", "<principal pubkey>"]` tag. The verifier is unchanged
    (freshness window, single-use replay cache). `NostrService::verify_nip98_identity`
@@ -70,20 +82,25 @@ signature per session instead of one per request", without reviving bearers.
 
 - A NIP-07 signer is asked once per session (plus deny-list and Solid requests).
 - **Accepted risk:** script running in the page (XSS) can use the in-memory key
-  until it expires, as it can call `window.nostr.signEvent` today; the exposure
-  is bounded by the TTL and the deny list, and the key never leaves memory.
+  until it expires, as it can call `window.nostr.signEvent` today. It can also
+  **export** the key and sign requests off-browser until expiry; there is no
+  automatic revocation on compromise. The exposure is bounded by the TTL (at
+  most 3600 s), the deny list, and the per-principal caps. Revocation exists but
+  is deliberate: `DELETE /api/auth/nostr/session-key`, signed by the session key
+  (drops that key) or by the principal (drops all its keys), which the client
+  calls on logout.
 - The binding table is per process and in memory: restarts and multiple
   instances without sticky routing force re-binds (a distinct 401, handled).
-- No server-side revocation endpoint: a binding ends at its TTL or a restart.
-  The maximum TTL is read from `SESSION_KEY_MAX_TTL_SECS`, not a stored setting.
+- A binding otherwise ends at its TTL or a restart. The maximum TTL is read from `SESSION_KEY_MAX_TTL_SECS`, not a stored setting.
 - Redis is not used: production builds with `--features gpu` only.
 - `ragflow_handler` still authenticates by `X-Nostr-Pubkey` plus a legacy
   bearer, so it is unreachable while legacy sessions are off.
 
 ## Verification
 
-Route-level tests in `tests/adr2205_session_key.rs` (11) and store unit tests in
+Route-level tests in `tests/adr2205_session_key.rs` (20, including proof of
+possession, the victim-lockout case, caps, rate limit and revocation) and store unit tests in
 `src/services/session_keys.rs`; client tests in
-`client/src/services/__tests__/sessionKey.test.ts` (11), including zero
+`client/src/services/__tests__/sessionKey.test.ts` (17), including zero
 `signEvent` calls after the bind. `implementation_status` stays `partial` and
 `activation_status` `inactive` until a deployed build is observed.

@@ -96,8 +96,10 @@ token is not authentication.
 
 A browser does not ask its signer once per request. After sign-in it binds an
 ephemeral in-memory secp256k1 key with one real NIP-98 signature
-(`POST /api/auth/nostr/session-key`, body `{sessionPubkey, expiresIn}`, `payload`
-tag required so the token is bound to that body), and signs later requests with
+(`POST /api/auth/nostr/session-key`, body `{sessionPubkey, expiresIn, proof}`, `payload`
+tag required so the token is bound to that body; `proof` is an event signed by the
+session key naming the principal, URL and lifetime, so only a key holder can be
+bound; account keys are refused; 8 keys and 10 binds/min per principal), and signs later requests with
 it, each carrying a signed `["session", <principal>]` tag. The bind table is in
 memory, absolute-lifetime (`min(requested, SESSION_KEY_MAX_TTL_SECS, 3600)`) and
 never renewed.

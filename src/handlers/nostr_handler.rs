@@ -65,6 +65,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             // ADR-2205: public under `/api/auth` (it must be reachable to
             // create a session) but self-verifying, with the body bound.
             .route("/session-key", web::post().to(bind_session_key))
+            .route("/session-key", web::delete().to(revoke_session_key))
             .route("/power-user-status", web::get().to(check_power_user_status))
             .route("/features", web::get().to(get_available_features))
             .route("/features/{feature}", web::get().to(check_feature_access)),
@@ -95,8 +96,35 @@ async fn bind_session_key(
         // Flat body (no StandardResponse envelope): `{sessionPubkey, principal, expiresAt}`.
         Ok(grant) => Ok(HttpResponse::Ok().json(grant)),
         Err(NostrError::SessionKeyScope(_)) => Ok(crate::utils::auth::session_key_scope_response()),
+        Err(NostrError::SessionKeyRateLimited) => Ok(HttpResponse::TooManyRequests()
+            .insert_header(("Retry-After", "60"))
+            .json(json!({ "error": "too many session key binds" }))),
         Err(NostrError::SessionKeyBind(message)) => {
             Ok(HttpResponse::BadRequest().json(json!({ "error": message })))
+        }
+        Err(e) => Ok(HttpResponse::Unauthorized().body(format!("NIP-98 auth failed: {e}"))),
+    }
+}
+
+/// Revoke bindings (ADR-2205). Signed by the session key itself (drops that
+/// key) or by the principal (drops all of its keys).
+async fn revoke_session_key(
+    req: HttpRequest,
+    nostr_service: web::Data<NostrService>,
+) -> Result<HttpResponse, actix_web::Error> {
+    let Some(auth) = req
+        .headers()
+        .get("Authorization")
+        .and_then(|h| h.to_str().ok())
+        .filter(|h| h.starts_with("Nostr "))
+    else {
+        return Ok(HttpResponse::Unauthorized().body("NIP-98 authorization required"));
+    };
+    let url = crate::utils::auth::nip98_request_url(&req);
+    match nostr_service.revoke_session_key(auth, &url).await {
+        Ok(revoked) => Ok(HttpResponse::Ok().json(json!({ "revoked": revoked }))),
+        Err(NostrError::SessionKeyExpired) => {
+            Ok(crate::utils::auth::session_key_expired_response())
         }
         Err(e) => Ok(HttpResponse::Unauthorized().body(format!("NIP-98 auth failed: {e}"))),
     }

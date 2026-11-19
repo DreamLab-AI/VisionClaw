@@ -69,6 +69,76 @@ fn token(
     format!("Nostr {}", B64.encode(event.as_json()))
 }
 
+/// Proof of possession (ADR-2205): a kind-27236 event signed BY the session key,
+/// naming the principal, the bind URL, the requested lifetime and a nonce.
+fn proof_event(
+    session: &Keys,
+    principal: &str,
+    expires_in: u64,
+    created_at: Option<u64>,
+) -> String {
+    let tags = vec![
+        Tag::custom(
+            TagKind::Custom("principal".into()),
+            vec![principal.to_string()],
+        ),
+        Tag::custom(
+            TagKind::Custom("u".into()),
+            vec![format!("{HOST}{BIND_PATH}")],
+        ),
+        Tag::custom(
+            TagKind::Custom("expires".into()),
+            vec![expires_in.to_string()],
+        ),
+        Tag::custom(
+            TagKind::Custom("nonce".into()),
+            vec![uuid::Uuid::new_v4().to_string()],
+        ),
+    ];
+    let mut builder = EventBuilder::new(Kind::Custom(27236), "").tags(tags);
+    if let Some(at) = created_at {
+        builder = builder.custom_created_at(Timestamp::from(at));
+    }
+    builder.sign_with_keys(session).expect("sign").as_json()
+}
+
+/// A bind body whose proof is made by `session` for `principal`.
+fn bind_body(session: &Keys, principal: &str, expires_in: u64) -> String {
+    json!({
+        "sessionPubkey": session.public_key().to_hex(),
+        "expiresIn": expires_in,
+        "proof": proof_event(session, principal, expires_in, None),
+    })
+    .to_string()
+}
+
+macro_rules! post_bind {
+    ($app:expr, $signer:expr, $body:expr) => {{
+        let body: String = $body;
+        let auth = token($signer, "POST", BIND_PATH, Some(&body), None);
+        let req = test::TestRequest::post()
+            .uri(BIND_PATH)
+            .insert_header(("Host", "localhost:8080"))
+            .insert_header(("Authorization", auth))
+            .insert_header(("Content-Type", "application/json"))
+            .set_payload(body)
+            .to_request();
+        test::call_service(&$app, req).await
+    }};
+}
+
+macro_rules! delete_session_key {
+    ($app:expr, $signer:expr, $session:expr) => {{
+        let auth = token($signer, "DELETE", BIND_PATH, None, $session);
+        let req = test::TestRequest::delete()
+            .uri(BIND_PATH)
+            .insert_header(("Host", "localhost:8080"))
+            .insert_header(("Authorization", auth))
+            .to_request();
+        test::call_service(&$app, req).await
+    }};
+}
+
 async fn probe(req: HttpRequest) -> HttpResponse {
     let who = get_authenticated_user(&req)
         .map(|u| u.pubkey)
@@ -96,7 +166,8 @@ macro_rules! app {
                         )
                         // A mutation: the owner a write would stamp is the
                         // identity this returns.
-                        .route("/probe/write", web::post().to(probe)),
+                        .route("/probe/write", web::post().to(probe))
+                        .route("/probe/any", web::get().to(probe)),
                 ),
         )
         .await
@@ -105,17 +176,8 @@ macro_rules! app {
 
 macro_rules! bind {
     ($app:expr, $signer:expr, $session:expr, $expires_in:expr) => {{
-        let body = json!({ "sessionPubkey": $session.public_key().to_hex(), "expiresIn": $expires_in })
-            .to_string();
-        let auth = token($signer, "POST", BIND_PATH, Some(&body), None);
-        let req = test::TestRequest::post()
-            .uri(BIND_PATH)
-            .insert_header(("Host", "localhost:8080"))
-            .insert_header(("Authorization", auth))
-            .insert_header(("Content-Type", "application/json"))
-            .set_payload(body)
-            .to_request();
-        test::call_service(&$app, req).await
+        let principal = $signer.public_key().to_hex();
+        post_bind!($app, $signer, bind_body($session, &principal, $expires_in))
     }};
 }
 
@@ -213,10 +275,9 @@ async fn a_bind_whose_body_was_swapped_is_rejected_and_binds_nothing() {
     let p = power_keys();
     let honest = Keys::generate();
     let attacker = Keys::generate();
-    let signed_body =
-        json!({ "sessionPubkey": honest.public_key().to_hex(), "expiresIn": 600 }).to_string();
-    let swapped =
-        json!({ "sessionPubkey": attacker.public_key().to_hex(), "expiresIn": 600 }).to_string();
+    let pp = p.public_key().to_hex();
+    let signed_body = bind_body(&honest, &pp, 600);
+    let swapped = bind_body(&attacker, &pp, 600);
     let auth = token(p, "POST", BIND_PATH, Some(&signed_body), None);
     let req = test::TestRequest::post()
         .uri(BIND_PATH)
@@ -245,7 +306,7 @@ async fn a_bind_with_no_payload_tag_is_rejected() {
     let app = app!();
     let p = power_keys();
     let s = Keys::generate();
-    let body = json!({ "sessionPubkey": s.public_key().to_hex(), "expiresIn": 600 }).to_string();
+    let body = bind_body(&s, &p.public_key().to_hex(), 600);
     let auth = token(p, "POST", BIND_PATH, None, None);
     let req = test::TestRequest::post()
         .uri(BIND_PATH)
@@ -381,7 +442,7 @@ async fn session_keys_are_refused_on_the_deny_list() {
 
     // Binding another session key.
     let other = Keys::generate();
-    let body = json!({ "sessionPubkey": other.public_key().to_hex(), "expiresIn": 60 }).to_string();
+    let body = bind_body(&other, &principal, 60);
     let auth = token(&s, "POST", BIND_PATH, Some(&body), Some(&principal));
     let req = test::TestRequest::post()
         .uri(BIND_PATH)
@@ -413,4 +474,192 @@ async fn power_user_status_reports_the_principal_for_a_session_key() {
     let r = test::call_service(&app, req).await;
     assert_eq!(r.status(), StatusCode::OK);
     assert_eq!(json_of(r).await["data"]["is_power_user"], true);
+}
+
+// ---- review findings (codex): proof of possession, exhaustion, revocation ----
+
+#[actix_web::test]
+async fn binding_a_victims_long_term_key_fails_and_the_victim_keeps_authenticating() {
+    let app = app!();
+    let attacker = Keys::generate();
+    let victim = Keys::generate();
+    // The victim is a known user: it has authenticated as itself.
+    let auth = token(&victim, "GET", "/api/probe/any", None, None);
+    let r = test::call_service(&app, get_req!("/api/probe/any", auth)).await;
+    assert_ne!(r.status(), StatusCode::UNAUTHORIZED);
+
+    // The attacker names the victim's key as the "session key" but cannot make
+    // its proof: the proof it can sign carries the attacker's own pubkey.
+    let a = attacker.public_key().to_hex();
+    let body = json!({
+        "sessionPubkey": victim.public_key().to_hex(),
+        "expiresIn": 600,
+        "proof": proof_event(&attacker, &a, 600, None),
+    })
+    .to_string();
+    let r = post_bind!(app, &attacker, body);
+    assert_eq!(
+        r.status(),
+        StatusCode::BAD_REQUEST,
+        "bind with a foreign key"
+    );
+
+    // The victim is unaffected and can still bind its own session key.
+    let auth = token(&victim, "GET", "/api/probe/any", None, None);
+    let r = test::call_service(&app, get_req!("/api/probe/any", auth)).await;
+    assert_ne!(r.status(), StatusCode::UNAUTHORIZED, "victim locked out");
+    let s = Keys::generate();
+    assert_eq!(bind!(app, &victim, &s, 600).status(), StatusCode::OK);
+}
+
+#[actix_web::test]
+async fn a_key_that_has_authenticated_as_itself_cannot_be_bound_even_with_its_own_proof() {
+    let app = app!();
+    let p = power_keys();
+    let known = Keys::generate();
+    let auth = token(&known, "GET", "/api/probe/any", None, None);
+    let r = test::call_service(&app, get_req!("/api/probe/any", auth)).await;
+    assert_ne!(r.status(), StatusCode::UNAUTHORIZED);
+    // Even a perfect proof (a leaked or reused long-term key) is refused.
+    let r = bind!(app, p, &known, 600);
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+    assert!(json_of(r).await["error"]
+        .as_str()
+        .unwrap()
+        .contains("existing account"));
+    // So is a configured power user's key.
+    let someone = Keys::generate();
+    let r = bind!(app, &someone, p, 600);
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+    assert!(json_of(r).await["error"]
+        .as_str()
+        .unwrap()
+        .contains("existing account"));
+}
+
+#[actix_web::test]
+async fn a_bind_without_a_proof_is_refused() {
+    let app = app!();
+    let p = power_keys();
+    let s = Keys::generate();
+    let body = json!({ "sessionPubkey": s.public_key().to_hex(), "expiresIn": 600 }).to_string();
+    assert_eq!(post_bind!(app, p, body).status(), StatusCode::BAD_REQUEST);
+}
+
+#[actix_web::test]
+async fn a_proof_over_a_different_principal_is_refused() {
+    let app = app!();
+    let p = power_keys();
+    let s = Keys::generate();
+    let other = Keys::generate().public_key().to_hex();
+    let r = post_bind!(app, p, bind_body(&s, &other, 600));
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+    // Not bound: the marked key is simply unknown.
+    let auth = token(
+        &s,
+        "GET",
+        "/api/probe/power",
+        None,
+        Some(&p.public_key().to_hex()),
+    );
+    let r = test::call_service(&app, get_req!("/api/probe/power", auth)).await;
+    assert_eq!(json_of(r).await["code"], "session_key_expired");
+}
+
+#[actix_web::test]
+async fn a_proof_for_other_terms_or_a_stale_proof_is_refused() {
+    let app = app!();
+    let p = power_keys();
+    let pp = p.public_key().to_hex();
+    // Proof made for a 60 s lifetime, body asks for 600.
+    let s = Keys::generate();
+    let body = json!({
+        "sessionPubkey": s.public_key().to_hex(), "expiresIn": 600,
+        "proof": proof_event(&s, &pp, 60, None),
+    })
+    .to_string();
+    assert_eq!(post_bind!(app, p, body).status(), StatusCode::BAD_REQUEST);
+    // Proof older than the freshness window.
+    let s = Keys::generate();
+    let old = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        - 3600;
+    let body = json!({
+        "sessionPubkey": s.public_key().to_hex(), "expiresIn": 600,
+        "proof": proof_event(&s, &pp, 600, Some(old)),
+    })
+    .to_string();
+    assert_eq!(post_bind!(app, p, body).status(), StatusCode::BAD_REQUEST);
+}
+
+#[actix_web::test]
+async fn a_principal_is_rate_limited_on_binds() {
+    let app = app!();
+    let user = Keys::generate();
+    let mut limited = None;
+    for i in 0..40 {
+        let r = bind!(app, &user, &Keys::generate(), 600);
+        if r.status() == StatusCode::TOO_MANY_REQUESTS {
+            limited = Some(i);
+            break;
+        }
+        assert_eq!(r.status(), StatusCode::OK);
+    }
+    assert!(limited.is_some(), "40 binds in a burst were never limited");
+    // Another principal is unaffected.
+    let (other, session) = (Keys::generate(), Keys::generate());
+    assert_eq!(bind!(app, &other, &session, 600).status(), StatusCode::OK);
+}
+
+#[actix_web::test]
+async fn the_session_key_itself_can_revoke_its_binding() {
+    let app = app!();
+    let p = power_keys();
+    let s = Keys::generate();
+    assert_eq!(bind!(app, p, &s, 600).status(), StatusCode::OK);
+    let principal = p.public_key().to_hex();
+    let r = delete_session_key!(app, &s, Some(&principal));
+    assert_eq!(r.status(), StatusCode::OK);
+    let auth = token(&s, "GET", "/api/probe/power", None, Some(&principal));
+    let r = test::call_service(&app, get_req!("/api/probe/power", auth)).await;
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(json_of(r).await["code"], "session_key_expired");
+}
+
+#[actix_web::test]
+async fn the_principal_can_revoke_all_its_bindings_and_only_its_own() {
+    let app = app!();
+    let user = Keys::generate();
+    let bystander = Keys::generate();
+    let (s1, s2, sb) = (Keys::generate(), Keys::generate(), Keys::generate());
+    assert_eq!(bind!(app, &user, &s1, 600).status(), StatusCode::OK);
+    assert_eq!(bind!(app, &user, &s2, 600).status(), StatusCode::OK);
+    assert_eq!(bind!(app, &bystander, &sb, 600).status(), StatusCode::OK);
+    let r = delete_session_key!(app, &user, None);
+    assert_eq!(r.status(), StatusCode::OK);
+    let u = user.public_key().to_hex();
+    for s in [&s1, &s2] {
+        let auth = token(s, "GET", "/api/probe/any", None, Some(&u));
+        let r = test::call_service(&app, get_req!("/api/probe/any", auth)).await;
+        assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+    }
+    let b = bystander.public_key().to_hex();
+    let auth = token(&sb, "GET", "/api/probe/any", None, Some(&b));
+    let r = test::call_service(&app, get_req!("/api/probe/any", auth)).await;
+    assert_eq!(r.status(), StatusCode::OK);
+}
+
+#[actix_web::test]
+async fn an_unauthenticated_revoke_is_refused() {
+    let app = app!();
+    let req = test::TestRequest::delete()
+        .uri(BIND_PATH)
+        .insert_header(("Host", "localhost:8080"))
+        .to_request();
+    assert_eq!(
+        test::call_service(&app, req).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
 }
