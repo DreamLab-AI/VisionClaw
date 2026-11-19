@@ -64,12 +64,18 @@ let _cachedAllSettings: Record<string, unknown> | null = null;
 let _cachedAllTimestamp = 0;
 const CACHE_TTL_MS = 2000;
 let _storedServerPaths: Set<string> = new Set();
+// Concurrent per-section reads share one /api/settings/all (one NIP-98 signature,
+// since the server accepts each token once). Cleared on settle: not a cache.
+let _inFlightAll: Promise<Record<string, unknown>> | null = null;
+let _allGeneration = 0;
 
 /** Drop the cached /api/settings/all copy, so the next read sees the server's current state
  * (a peer's broadcast must not be answered from a copy up to 2 s old). */
 export const invalidateSettingsCache = (): void => {
   _cachedAllSettings = null;
   _cachedAllTimestamp = 0;
+  _inFlightAll = null;
+  _allGeneration++;
 };
 
 /** The client paths the last /api/settings/all response actually stored (not defaults). */
@@ -199,14 +205,27 @@ export const getSettingsByPaths = async (
     if (_cachedAllSettings && (now - _cachedAllTimestamp) < CACHE_TTL_MS) {
       allSettings = _cachedAllSettings;
     } else {
-      const response = await axios.get(`${API_BASE}/api/settings/all`);
-      // ADR-2189: the server document may still carry settings the menus no longer
-      // have (e.g. visionclaw.nodes.opacity on the shared GraphSettings struct). Drop
-      // them at the boundary so they never re-enter the store or localStorage.
-      allSettings = stripRemovedPaths(transformApiToClientSettings(response.data));
-      _storedServerPaths = storedClientPaths(response.data);
-      _cachedAllSettings = allSettings;
-      _cachedAllTimestamp = now;
+      if (!_inFlightAll) {
+        const generation = _allGeneration
+        const request: Promise<Record<string, unknown>> = (async () => {
+          const response = await axios.get(`${API_BASE}/api/settings/all`);
+          // ADR-2189: the server document may still carry settings the menus no longer
+          // have (e.g. visionclaw.nodes.opacity on the shared GraphSettings struct). Drop
+          // them at the boundary so they never re-enter the store or localStorage.
+          const fresh = stripRemovedPaths(transformApiToClientSettings(response.data));
+          // A request dropped by invalidateSettingsCache must not repopulate it.
+          if (generation === _allGeneration) {
+            _storedServerPaths = storedClientPaths(response.data);
+            _cachedAllSettings = fresh;
+            _cachedAllTimestamp = Date.now();
+          }
+          return fresh;
+        })().finally(() => {
+          if (_inFlightAll === request) _inFlightAll = null;
+        });
+        _inFlightAll = request;
+      }
+      allSettings = await _inFlightAll;
     }
 
     const result: Record<string, unknown> = {};

@@ -23,6 +23,8 @@ if (import.meta.env.DEV) {
   const devWindow = window as unknown as Record<string, unknown>;
   devWindow.useSettingsStore = useSettingsStore;
   devWindow.useWebSocketStore = useWebSocketStore;
+  // Console: __apiRequestStats() -> { issued, coalesced } for UnifiedApiClient (issued ~ NIP-98 signatures).
+  devWindow.__apiRequestStats = () => unifiedApiClient.getRequestStats();
 }
 
 // Initialize authentication interceptor for all API calls

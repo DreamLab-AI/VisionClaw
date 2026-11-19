@@ -134,6 +134,11 @@ export function initializeAuthInterceptor(apiClient: any): void {
     onResponse: authResponseInterceptor,
   });
 
+  // Coalesced GETs must never cross identities (or dev/NIP-98 modes).
+  apiClient.setIdentityProvider?.(
+    () => `${nostrAuth.isDevMode() ? 'dev' : 'nip98'}:${nostrAuth.getCurrentUser()?.pubkey ?? ''}`,
+  );
+
   logger.info('Authentication interceptor initialized for UnifiedApiClient');
 }
 

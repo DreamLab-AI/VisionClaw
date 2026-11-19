@@ -65,6 +65,9 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
 };
 
 
+/** RequestConfig keys that do not change what a GET asks for or how it is signed. */
+const COALESCE_SAFE_KEYS = new Set(['method', 'timeout', 'retries', 'retryDelay']);
+
 export class UnifiedApiClient {
   private baseURL: string;
   private defaultHeaders: Record<string, string>;
@@ -73,6 +76,10 @@ export class UnifiedApiClient {
   private retryConfig: RetryConfig;
   private activeRequests = new Map<string, AbortController>();
   private requestIdCounter = 0;
+  /** Identical GETs currently in flight; entries are removed on settle, so this is never a cache. */
+  private inFlightGets = new Map<string, Promise<ApiResponse<any>>>();
+  private identityProvider: () => string = () => '';
+  private stats = { issued: 0, coalesced: 0 };
 
   constructor(baseURL: string = '/api', retryConfig: Partial<RetryConfig> = {}) {
     this.baseURL = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
@@ -118,6 +125,19 @@ export class UnifiedApiClient {
   }
 
   
+  /**
+   * Who the requests are signed as. It is part of the coalescing key, so two
+   * identities never share a response (or a signature).
+   */
+  public setIdentityProvider(provider: () => string): void {
+    this.identityProvider = provider;
+  }
+
+  /** Requests actually sent versus callers that joined one already in flight. */
+  public getRequestStats(): { issued: number; coalesced: number } {
+    return { ...this.stats };
+  }
+
   public setRetryConfig(config: Partial<RetryConfig>): void {
     this.retryConfig = { ...this.retryConfig, ...config };
   }
@@ -325,7 +345,7 @@ export class UnifiedApiClient {
   }
 
   
-  public async request<T = any>(
+  private async send<T = any>(
     method: string,
     url: string,
     data?: any,
@@ -335,6 +355,7 @@ export class UnifiedApiClient {
       method: method.toUpperCase(),
       ...config,
     };
+    this.stats.issued++;
 
     
     if (data && ['POST', 'PUT', 'PATCH'].includes(requestConfig.method!)) {
@@ -355,6 +376,43 @@ export class UnifiedApiClient {
   }
 
   
+  /**
+   * Identical GETs in flight share one request, and therefore one NIP-98
+   * signature: the server accepts each token once, so signing per duplicate is
+   * pure cost. Only plain GETs coalesce (no body, signal, headers, or skipped
+   * interceptors), the key includes the signing identity, and the entry is gone
+   * the moment the request settles, so a later call always signs afresh. Any
+   * other method ends sharing, so a GET issued after a write cannot be answered
+   * from a request that began before it.
+   */
+  public async request<T = any>(
+    method: string,
+    url: string,
+    data?: any,
+    config: RequestConfig = {}
+  ): Promise<ApiResponse<T>> {
+    const verb = method.toUpperCase();
+    if (verb !== 'GET') {
+      this.inFlightGets.clear();
+      return this.send<T>(method, url, data, config);
+    }
+    const keys = Object.keys(config);
+    const plain = data === undefined && keys.every(k => COALESCE_SAFE_KEYS.has(k));
+    if (!plain) return this.send<T>(method, url, data, config);
+
+    const key = `${this.identityProvider()}\n${this.buildUrl(url)}`;
+    const existing = this.inFlightGets.get(key);
+    if (existing) {
+      this.stats.coalesced++;
+      return existing as Promise<ApiResponse<T>>;
+    }
+    const promise: Promise<ApiResponse<T>> = this.send<T>(method, url, data, config).finally(() => {
+      if (this.inFlightGets.get(key) === promise) this.inFlightGets.delete(key);
+    });
+    this.inFlightGets.set(key, promise);
+    return promise;
+  }
+
   public async get<T = any>(url: string, config?: RequestConfig): Promise<ApiResponse<T>> {
     return this.request<T>('GET', url, undefined, config);
   }
