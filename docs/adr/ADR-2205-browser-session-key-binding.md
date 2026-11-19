@@ -55,9 +55,10 @@ signature per session instead of one per request", without reviving bearers.
    (`/api/auth/nostr/api-keys`), or administer RBAC (any non-GET under
    `/api/admin/rbac`): `403 {"code":"session_key_scope"}`, enforced in
    `verify_access` (`session_key_denied`), in the outer-identity reuse branch too.
-   The Solid proxy refuses session-key tokens (it forwards the token upstream
-   to be verified as the signer), and the client signs `/solid` and `/api/solid`
-   with the real signer. Everything else the principal can do, it can do.
+   The Solid proxy, pod management and the payment boundary refuse session-key
+   tokens (the Solid proxy forwards the token upstream, to be verified as the
+   signer), and the client signs `/solid`, `/api/solid` and `/api/pay` with the
+   real signer. Everything else the principal can do, it can do.
 4. **Client.** `nostrAuth.signRequest` binds once (single flight), signs REST and
    WebSocket upgrades with the session key, re-binds ahead of expiry (margin
    90 s, beyond the 60 s freshness window), re-binds once and retries once on
@@ -73,8 +74,9 @@ signature per session instead of one per request", without reviving bearers.
   is bounded by the TTL and the deny list, and the key never leaves memory.
 - The binding table is per process and in memory: restarts and multiple
   instances without sticky routing force re-binds (a distinct 401, handled).
-- No server-side revocation endpoint yet (`SessionKeyStore::revoke_principal`
-  exists, unwired). TTL is read from the environment, not a stored setting.
+- No server-side revocation endpoint: a binding ends at its TTL or a restart.
+  The maximum TTL is read from `SESSION_KEY_MAX_TTL_SECS`, not a stored setting.
+- Redis is not used: production builds with `--features gpu` only.
 - `ragflow_handler` still authenticates by `X-Nostr-Pubkey` plus a legacy
   bearer, so it is unreachable while legacy sessions are off.
 

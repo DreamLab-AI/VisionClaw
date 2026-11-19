@@ -133,12 +133,6 @@ impl SessionKeyStore {
             _ => SessionLookup::Unbound,
         }
     }
-
-    /// Drop every binding for `principal` (logout, revocation).
-    pub fn revoke_principal(&self, principal: &str) {
-        let mut table = self.bindings.write().unwrap_or_else(|e| e.into_inner());
-        table.retain(|_, b| b.principal != principal);
-    }
 }
 
 #[cfg(test)]
@@ -201,13 +195,5 @@ mod tests {
             store.bind(P, P, 10, NOW),
             Err(BindError::SessionKeyIsPrincipal)
         );
-    }
-
-    #[test]
-    fn revoking_a_principal_drops_its_keys() {
-        let store = SessionKeyStore::new(600);
-        store.bind(S, P, 100, NOW).unwrap();
-        store.revoke_principal(P);
-        assert_eq!(store.lookup(S, NOW), SessionLookup::Unbound);
     }
 }

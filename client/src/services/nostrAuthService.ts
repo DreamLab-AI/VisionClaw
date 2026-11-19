@@ -199,6 +199,8 @@ type AuthStateListener = (state: AuthState) => void;
 const SESSION_KEY_REQUESTED_TTL_SECS = 3600;
 /** Re-bind this long before expiry: wider than the server's 60 s NIP-98 freshness window. */
 const SESSION_KEY_MARGIN_MS = 90_000;
+/** After a refused bind, wait this long before trying again (per-request signing meanwhile). */
+const SESSION_KEY_RETRY_COOLDOWN_MS = 5 * 60_000;
 
 /**
  * Requests the server refuses a session key for (ADR-2205 deny list): binding
@@ -222,6 +224,8 @@ export function requiresRealSigner(url: string, method: string): boolean {
   // The Solid proxy forwards the token upstream, where it is verified as the
   // signer: a session key would act as an ephemeral stranger there.
   if (starts(['solid']) || starts(['api', 'solid'])) return true;
+  // Payments are verified against the account's own signer.
+  if (starts(['api', 'pay'])) return true;
   return false;
 }
 
@@ -243,8 +247,21 @@ class NostrAuthService {
    * signature. Every later request is signed with it, so a NIP-07 extension is
    * asked once per session instead of once per request.
    */
-  private sessionKey: { secret: Uint8Array; pubkey: string; principal: string; expiresAt: number } | null = null;
+  private sessionKey: {
+    secret: Uint8Array;
+    pubkey: string;
+    principal: string;
+    expiresAt: number;
+    /** Re-bind this long before `expiresAt` (capped at a quarter of a short lifetime). */
+    marginMs: number;
+  } | null = null;
   private bindInFlight: Promise<boolean> | null = null;
+  /**
+   * After a refused bind, requests sign per request (one real signature each)
+   * and do not retry the bind until this time: otherwise every request would
+   * cost a bind signature as well. `Infinity` = the server has no bind endpoint.
+   */
+  private bindSuspendedUntil = 0;
   private authStateListeners: AuthStateListener[] = [];
   private initialized = false;
 
@@ -304,9 +321,9 @@ class NostrAuthService {
    * Prefers local passkey-derived key, falls back to NIP-07 extension.
    */
   public async signRequest(url: string, method: string, body?: string): Promise<string> {
-    recordSignature(method, url);
     // Prefer local key (passkey-derived) over NIP-07 extension
     if (this.localPrivateKey) {
+      recordSignature(method, url);
       return this.signWithLocalKey(url, method, body);
     }
 
@@ -328,7 +345,7 @@ class NostrAuthService {
 
   /** Whether a live, unexpired session key is held (ADR-2205). */
   public hasSessionKey(): boolean {
-    return this.sessionKey !== null && this.sessionKey.expiresAt - SESSION_KEY_MARGIN_MS > Date.now();
+    return this.sessionKey !== null && this.sessionKey.expiresAt - this.sessionKey.marginMs > Date.now();
   }
 
   /**
@@ -356,6 +373,7 @@ class NostrAuthService {
     if (!principal || this.localPrivateKey || !this.hasNip07Provider() || this.isDevMode()) {
       return Promise.resolve(false);
     }
+    if (Date.now() < this.bindSuspendedUntil) return Promise.resolve(false);
     this.bindInFlight = (async () => {
       let secret: Uint8Array | null = null;
       try {
@@ -374,19 +392,27 @@ class NostrAuthService {
         if (!response.ok) {
           logger.warn(`Session key bind refused (HTTP ${response.status}); signing per request`);
           secret.fill(0);
+          this.bindSuspendedUntil =
+            response.status === 404 || response.status === 405
+              ? Infinity
+              : Date.now() + SESSION_KEY_RETRY_COOLDOWN_MS;
           return false;
         }
         const granted = await response.json().catch(() => ({} as { expiresAt?: number }));
         const expiresAtMs = typeof granted.expiresAt === 'number' ? granted.expiresAt * 1000 : 0;
         if (!(expiresAtMs > Date.now())) {
           secret.fill(0);
+          this.bindSuspendedUntil = Date.now() + SESSION_KEY_RETRY_COOLDOWN_MS;
           return false;
         }
         this.discardSessionKey();
-        this.sessionKey = { secret, pubkey: sessionPubkey, principal, expiresAt: expiresAtMs };
+        const marginMs = Math.min(SESSION_KEY_MARGIN_MS, (expiresAtMs - Date.now()) / 4);
+        this.sessionKey = { secret, pubkey: sessionPubkey, principal, expiresAt: expiresAtMs, marginMs };
+        this.bindSuspendedUntil = 0;
         return true;
       } catch (error) {
         secret?.fill(0);
+        this.bindSuspendedUntil = Date.now() + SESSION_KEY_RETRY_COOLDOWN_MS;
         logger.warn('Session key bind failed; signing per request', createErrorMetadata(error));
         return false;
       }
@@ -437,6 +463,8 @@ class NostrAuthService {
 
   /** Sign with the user's real NIP-07 signer (one extension round trip). */
   private async signWithNip07(url: string, method: string, body?: string): Promise<string> {
+    // The sign tally measures signer prompts, so session-key signatures are not counted.
+    recordSignature(method, url);
     const tags = await this.nip98Tags(url, method, body);
     const unsignedEvent = {
       created_at: Math.floor(Date.now() / 1000),
@@ -583,6 +611,7 @@ class NostrAuthService {
 
       this.storeCurrentUser();
       // ADR-2205: one real signature now, none per request afterwards.
+      this.bindSuspendedUntil = 0; // a new sign-in is a new session
       await this.ensureSessionKey();
       const newState = this.getCurrentAuthState();
       this.notifyListeners(newState);
@@ -622,6 +651,7 @@ class NostrAuthService {
   private clearSession(): void {
     this.currentUser = null;
     this.discardSessionKey();
+    this.bindSuspendedUntil = 0;
     if (this.localPrivateKey) {
       this.localPrivateKey.fill(0);
     }

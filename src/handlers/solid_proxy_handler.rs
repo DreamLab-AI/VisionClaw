@@ -1434,11 +1434,17 @@ async fn get_user_from_request(
         };
         let request_method = req.method().as_str();
 
+        // ADR-2205: pod management acts for the account's own signer, so a
+        // session key fails closed here as it does in the proxy above.
         match nostr_service
-            .verify_nip98_auth(auth_str, &request_url, request_method, None)
+            .verify_nip98_identity(auth_str, &request_url, request_method, None)
             .await
         {
-            Ok(user) => return Some(user),
+            Ok(verified) if verified.via_session_key.is_some() => {
+                warn!("Pod management refuses a session-key NIP-98 token");
+                return None;
+            }
+            Ok(verified) => return Some(verified.user),
             Err(e) => {
                 warn!("NIP-98 auth failed in pod management: {}", e);
                 return None;

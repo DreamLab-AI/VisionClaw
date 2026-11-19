@@ -416,6 +416,11 @@ async fn extract_caller_pubkey(req: &HttpRequest, body: Option<&str>) -> Option<
         BodyBinding::NoBody
     };
     match validate_nip98_token_bound(token, &url, method, body, binding) {
+        // ADR-2205: payments need the account's own signer, never a session key.
+        Ok(identity) if identity.session_principal.is_some() => {
+            debug!("[pay] refused a session-key NIP-98 token for {method} {url}");
+            None
+        }
         Ok(identity) => Some(identity.pubkey),
         Err(e) => {
             debug!("[pay] NIP-98 verify failed for {method} {url}: {e}");

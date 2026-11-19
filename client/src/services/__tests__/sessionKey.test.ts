@@ -143,7 +143,8 @@ describe('bound session key (ADR-2205)', () => {
     // The Solid proxy forwards the token upstream, so it needs the real signer too.
     await computeAuthHeaders(`${ORIGIN}/solid/pods/init`, 'POST', '{}');
     await computeAuthHeaders(`${ORIGIN}/api/solid/x/`, 'GET');
-    expect(signEvent).toHaveBeenCalledTimes(5);
+    await computeAuthHeaders(`${ORIGIN}/api/pay/charge`, 'POST', '{}');
+    expect(signEvent).toHaveBeenCalledTimes(6);
     signEvent.mockClear();
     // Reading RBAC state stays on the session key.
     await computeAuthHeaders(`${ORIGIN}/api/admin/rbac/whoami`, 'GET');
@@ -212,13 +213,60 @@ describe('bound session key (ADR-2205)', () => {
     expect(JSON.parse(binds[1].body).sessionPubkey).not.toBe(JSON.parse(binds[0].body).sessionPubkey);
   });
 
-  it('falls back to the real signer when the bind is refused', async () => {
+  it('falls back to ONE real signature per request when the bind is refused, without re-binding', async () => {
     fetchMock.mockImplementation(async (url: string) =>
       url === BIND_URL ? json({ error: 'no' }, 503) : json({ ok: true }));
+    await nostrAuth.login(); // the one refused bind attempt (1 real signature)
+    const attempts = () => fetchMock.mock.calls.filter((c) => c[0] === BIND_URL).length;
+    expect(attempts()).toBe(1);
+    signEvent.mockClear();
+    const h1 = await computeAuthHeaders(`${ORIGIN}/api/x`, 'GET');
+    const h2 = await computeAuthHeaders(`${ORIGIN}/api/y`, 'GET');
+    expect(decode(h1.Authorization).pubkey).toBe(realPub);
+    expect(decode(h2.Authorization).pubkey).toBe(realPub);
+    expect(signEvent).toHaveBeenCalledTimes(2); // not 4: no bind retried per request
+    expect(attempts()).toBe(1);
+    // A later sign-in is a new session and tries again.
+    await nostrAuth.logout();
+    await nostrAuth.login();
+    expect(attempts()).toBe(2);
+  });
+
+  it('never re-binds when the server has no bind endpoint (404/405)', async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      url === BIND_URL ? json({ error: 'nf' }, 404) : json({ ok: true }));
     await nostrAuth.login();
     signEvent.mockClear();
-    const h = await computeAuthHeaders(`${ORIGIN}/api/x`, 'GET');
-    expect(decode(h.Authorization).pubkey).toBe(realPub);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 3600_000);
+    await computeAuthHeaders(`${ORIGIN}/api/x`, 'GET');
+    vi.useRealTimers();
+    expect(fetchMock.mock.calls.filter((c) => c[0] === BIND_URL).length).toBe(1);
+    expect(signEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not bind on every request when the granted lifetime is shorter than the margin', async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+      url === BIND_URL
+        ? json({ sessionPubkey: JSON.parse(init!.body as string).sessionPubkey, expiresAt: Math.floor(Date.now() / 1000) + 60 })
+        : json({ ok: true }));
+    await nostrAuth.login();
+    signEvent.mockClear();
+    await computeAuthHeaders(`${ORIGIN}/api/x`, 'GET');
+    await computeAuthHeaders(`${ORIGIN}/api/y`, 'GET');
+    await computeAuthHeaders(`${ORIGIN}/api/z`, 'GET');
+    expect(fetchMock.mock.calls.filter((c) => c[0] === BIND_URL).length).toBe(1);
+    expect(signEvent).toHaveBeenCalledTimes(0);
+  });
+
+  it('counts only real-signer signatures in the sign tally', async () => {
+    const { getSignStats } = await import('../signStats');
+    await nostrAuth.login();
+    getSignStats(true);
+    for (let i = 0; i < 5; i++) await computeAuthHeaders(`${ORIGIN}/api/x?${i}`, 'GET');
+    expect(getSignStats().total).toBe(0);
+    await computeAuthHeaders(`${ORIGIN}/api/auth/nostr/api-keys`, 'POST', '{}');
+    expect(getSignStats().total).toBe(1);
   });
 
   it('leaves the loopback dev-token path alone', async () => {
