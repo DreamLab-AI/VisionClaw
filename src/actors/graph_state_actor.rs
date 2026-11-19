@@ -191,39 +191,7 @@ impl GraphStateActor {
     /// The original persistent IDs are preserved in `compact_to_persistent` for write-back to Oxigraph.
     fn remap_to_compact_ids(&mut self) {
         let graph_data = Arc::make_mut(&mut self.graph_data);
-
-        // Build original_id → compact_id mapping
-        let mut persistent_to_compact: HashMap<u32, u32> =
-            HashMap::with_capacity(graph_data.nodes.len());
-        self.compact_to_persistent = Vec::with_capacity(graph_data.nodes.len());
-
-        for (compact_id, node) in graph_data.nodes.iter_mut().enumerate() {
-            let persistent_id = node.id;
-            let compact = compact_id as u32;
-            persistent_to_compact.insert(persistent_id, compact);
-            self.compact_to_persistent.push(persistent_id);
-            node.id = compact;
-        }
-
-        // Remap edge source/target
-        for edge in &mut graph_data.edges {
-            if let Some(&compact_src) = persistent_to_compact.get(&edge.source) {
-                edge.source = compact_src;
-            } else {
-                warn!(
-                    "Edge source {} has no compact mapping — orphan edge",
-                    edge.source
-                );
-            }
-            if let Some(&compact_tgt) = persistent_to_compact.get(&edge.target) {
-                edge.target = compact_tgt;
-            } else {
-                warn!(
-                    "Edge target {} has no compact mapping — orphan edge",
-                    edge.target
-                );
-            }
-        }
+        self.compact_to_persistent = remap_graph_to_compact(graph_data);
 
         // Rebuild node_map with compact IDs
         let mut new_node_map = HashMap::with_capacity(graph_data.nodes.len());
@@ -1134,6 +1102,112 @@ impl Handler<ComputeShortestPaths> for GraphStateActor {
                 Err(e)
             }
         }
+    }
+}
+
+/// Remap a graph's node IDs to compact `0..N-1` and translate edge endpoints.
+///
+/// Returns the compact → persistent table. Nodes are first put in a canonical
+/// order (persistent id, then `metadata_id`) and edges in a canonical order
+/// after translation, so the result does not depend on the order the
+/// repository happened to yield rows in. Without that, every graph reload
+/// reshuffled every compact ID while the GPU kept the old mapping.
+pub(crate) fn remap_graph_to_compact(graph_data: &mut GraphData) -> Vec<u32> {
+    graph_data
+        .nodes
+        .sort_by(|a, b| (a.id, &a.metadata_id).cmp(&(b.id, &b.metadata_id)));
+
+    let mut persistent_to_compact: HashMap<u32, u32> =
+        HashMap::with_capacity(graph_data.nodes.len());
+    let mut compact_to_persistent = Vec::with_capacity(graph_data.nodes.len());
+
+    for (compact_id, node) in graph_data.nodes.iter_mut().enumerate() {
+        let persistent_id = node.id;
+        let compact = compact_id as u32;
+        persistent_to_compact.insert(persistent_id, compact);
+        compact_to_persistent.push(persistent_id);
+        node.id = compact;
+    }
+
+    for edge in &mut graph_data.edges {
+        if let Some(&compact_src) = persistent_to_compact.get(&edge.source) {
+            edge.source = compact_src;
+        } else {
+            warn!(
+                "Edge source {} has no compact mapping — orphan edge",
+                edge.source
+            );
+        }
+        if let Some(&compact_tgt) = persistent_to_compact.get(&edge.target) {
+            edge.target = compact_tgt;
+        } else {
+            warn!(
+                "Edge target {} has no compact mapping — orphan edge",
+                edge.target
+            );
+        }
+    }
+
+    graph_data.edges.sort_by(|a, b| {
+        (a.source, a.target, &a.edge_type, a.weight.to_bits()).cmp(&(
+            b.source,
+            b.target,
+            &b.edge_type,
+            b.weight.to_bits(),
+        ))
+    });
+
+    compact_to_persistent
+}
+
+#[cfg(test)]
+mod compact_id_stability {
+    use super::*;
+    use visionclaw_domain::models::edge::Edge;
+
+    fn graph(node_order: &[u32], edge_order: &[(u32, u32)]) -> GraphData {
+        let nodes = node_order
+            .iter()
+            .map(|&id| {
+                let mut n = Node::new_with_id(format!("n{id}"), None);
+                n.id = id;
+                n
+            })
+            .collect();
+        let edges = edge_order
+            .iter()
+            .map(|&(s, t)| Edge::new(s, t, 1.0))
+            .collect();
+        GraphData {
+            nodes,
+            edges,
+            ..GraphData::default()
+        }
+    }
+
+    #[test]
+    fn compact_ids_do_not_depend_on_load_order() {
+        let mut a = graph(&[40, 7, 1000, 3, 55], &[(7, 40), (3, 1000), (55, 7)]);
+        let mut b = graph(&[3, 55, 40, 1000, 7], &[(55, 7), (7, 40), (3, 1000)]);
+        let ma = remap_graph_to_compact(&mut a);
+        let mb = remap_graph_to_compact(&mut b);
+        assert_eq!(ma, mb, "compact→persistent table must be identical");
+        assert_eq!(ma, vec![3, 7, 40, 55, 1000]);
+        let key = |g: &GraphData| -> Vec<(u32, String)> {
+            g.nodes
+                .iter()
+                .map(|n| (n.id, n.metadata_id.clone()))
+                .collect()
+        };
+        assert_eq!(key(&a), key(&b));
+        let ek = |g: &GraphData| -> Vec<(u32, u32)> {
+            g.edges.iter().map(|e| (e.source, e.target)).collect()
+        };
+        assert_eq!(ek(&a), ek(&b), "edge remap must be identical");
+        assert_eq!(
+            a.nodes.iter().map(|n| n.id).collect::<Vec<_>>(),
+            vec![0, 1, 2, 3, 4]
+        );
     }
 }
 

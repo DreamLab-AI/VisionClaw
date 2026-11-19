@@ -61,6 +61,9 @@ pub struct PhysicsOrchestratorActor {
     force_resume_timer: Option<Instant>,
 
     last_node_count: usize,
+    /// Content fingerprint of the last graph seen by `update_graph_data`; the GPU
+    /// re-upload gate (a count-only gate missed swaps and edge-only changes).
+    last_graph_fingerprint: u64,
 
     current_iteration: u64,
 
@@ -218,6 +221,7 @@ impl PhysicsOrchestratorActor {
             auto_balance_last_check: None,
             force_resume_timer: None,
             last_node_count: 0,
+            last_graph_fingerprint: 0,
             current_iteration: 0,
             performance_metrics: PhysicsPerformanceMetrics::default(),
             ontology_constraints: None,
@@ -531,6 +535,9 @@ impl PhysicsOrchestratorActor {
     fn update_graph_data(&mut self, graph_data: Arc<GraphData>) {
         let prev_count = self.last_node_count;
         let new_count = graph_data.nodes.len();
+        let new_fingerprint = graph_fingerprint(&graph_data);
+        let changed = new_fingerprint != self.last_graph_fingerprint;
+        self.last_graph_fingerprint = new_fingerprint;
         self.graph_data_ref = Some(graph_data.clone());
         self.last_node_count = new_count;
 
@@ -538,7 +545,7 @@ impl PhysicsOrchestratorActor {
         // the new graph to ForceComputeActor — otherwise the GPU keeps computing
         // on the previous (stale) graph forever. This is the documented
         // "UpdateGPUGraphData propagation gap" from the ADR-090 sprint.
-        if self.gpu_initialized && self.gpu_compute_addr.is_some() && new_count != prev_count {
+        if self.gpu_initialized && self.gpu_compute_addr.is_some() && changed {
             if let Some(ref gpu_addr) = self.gpu_compute_addr {
                 let msg_id = crate::actors::messaging::MessageId::new();
                 let tracker = self.message_tracker.clone();
@@ -551,7 +558,7 @@ impl PhysicsOrchestratorActor {
                         .await;
                 });
                 info!(
-                    "PhysicsOrchestratorActor: graph grew {} → {} nodes — forwarding UpdateGPUGraphData to GPU",
+                    "PhysicsOrchestratorActor: graph content changed ({} → {} nodes) — forwarding UpdateGPUGraphData to GPU",
                     prev_count, new_count
                 );
                 gpu_addr.do_send(UpdateGPUGraphData {
@@ -1922,6 +1929,88 @@ impl Handler<ProbeTrackedKind> for PhysicsOrchestratorActor {
                 None => (0, 0, 0),
             }
         })
+    }
+}
+
+/// Content fingerprint of a graph's structure: the node-ID set plus every edge's
+/// `(source, target, type, weight)`. Order-independent, computed once per update.
+///
+/// The GPU holds a CSR and an index→ID map built from the graph it was last given, so
+/// anything that changes either (a swapped node, an edge-only change) must re-upload.
+/// A node *count* gate cannot see those.
+pub(crate) fn graph_fingerprint(graph: &GraphData) -> u64 {
+    use std::hash::{Hash, Hasher};
+    // Order-independent: sum (wrapping) a per-item hash so load order is irrelevant.
+    let item = |f: &dyn Fn(&mut std::collections::hash_map::DefaultHasher)| {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        f(&mut h);
+        h.finish()
+    };
+    let mut acc: u64 = 0;
+    for n in &graph.nodes {
+        acc = acc.wrapping_add(item(&|h| (0u8, n.id).hash(h)));
+    }
+    for e in &graph.edges {
+        acc = acc.wrapping_add(item(&|h| {
+            (1u8, e.source, e.target, &e.edge_type, e.weight.to_bits()).hash(h)
+        }));
+    }
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (acc, graph.nodes.len(), graph.edges.len()).hash(&mut h);
+    h.finish()
+}
+
+#[cfg(test)]
+mod graph_fingerprint_tests {
+    use super::*;
+    use visionclaw_domain::models::edge::Edge;
+    use visionclaw_domain::models::node::Node;
+
+    fn g(ids: &[u32], edges: &[(u32, u32, f32)]) -> GraphData {
+        GraphData {
+            nodes: ids
+                .iter()
+                .map(|&id| {
+                    let mut n = Node::new_with_id(format!("n{id}"), None);
+                    n.id = id;
+                    n
+                })
+                .collect(),
+            edges: edges.iter().map(|&(s, t, w)| Edge::new(s, t, w)).collect(),
+            ..GraphData::default()
+        }
+    }
+
+    #[test]
+    fn identical_data_has_identical_fingerprint_regardless_of_order() {
+        let a = g(&[0, 1, 2], &[(0, 1, 1.0), (1, 2, 2.0)]);
+        let b = g(&[2, 0, 1], &[(1, 2, 2.0), (0, 1, 1.0)]);
+        assert_eq!(graph_fingerprint(&a), graph_fingerprint(&b));
+    }
+
+    #[test]
+    fn same_count_with_swapped_membership_differs() {
+        assert_ne!(
+            graph_fingerprint(&g(&[0, 1, 2], &[])),
+            graph_fingerprint(&g(&[0, 1, 3], &[]))
+        );
+    }
+
+    #[test]
+    fn edge_only_change_differs() {
+        let base = g(&[0, 1, 2], &[(0, 1, 1.0)]);
+        assert_ne!(
+            graph_fingerprint(&base),
+            graph_fingerprint(&g(&[0, 1, 2], &[(0, 2, 1.0)]))
+        );
+        assert_ne!(
+            graph_fingerprint(&base),
+            graph_fingerprint(&g(&[0, 1, 2], &[(0, 1, 2.0)]))
+        );
+        assert_ne!(
+            graph_fingerprint(&base),
+            graph_fingerprint(&g(&[0, 1, 2], &[]))
+        );
     }
 }
 

@@ -1320,7 +1320,8 @@ fn load_nodes_in_graph(store: &Store, graph_iri: &str) -> RepoResult<Vec<Node>> 
     // Group (?prop, ?val) rows by ?node IRI then fold each group into a
     // Node value. Using IRI string as the grouping key keeps the
     // intermediate map small.
-    let mut grouped: HashMap<String, Vec<(String, oxigraph::model::Term)>> = HashMap::new();
+    let mut grouped: std::collections::BTreeMap<String, Vec<(String, oxigraph::model::Term)>> =
+        std::collections::BTreeMap::new();
     for sol in solutions {
         let sol = sol.map_err(access)?;
         let node = match sol.get("node") {
@@ -1444,6 +1445,9 @@ fn load_nodes_in_graph(store: &Store, graph_iri: &str) -> RepoResult<Vec<Node>> 
         out.push(n);
     }
 
+    // Canonical order: persistent id, then metadata id. The BTreeMap above is
+    // IRI-ordered, but two IRIs may share an id, so sort explicitly.
+    out.sort_by(|a, b| (a.id, &a.metadata_id).cmp(&(b.id, &b.metadata_id)));
     Ok(out)
 }
 
