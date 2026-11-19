@@ -31,7 +31,7 @@ export const DEFAULT_PHYSICS_SETTINGS: Partial<PhysicsSettings> = {
   iterations: 50,
   warmupIterations: 100,
   coolingRate: 0.001,
-  globalSpeed: 0.4,
+  globalSpeed: 1.0,
   damping: 0.9,
 
   // --- Core forces (canonical compact profile — settles within ~400u bounds) ---
@@ -59,7 +59,7 @@ export const DEFAULT_PHYSICS_SETTINGS: Partial<PhysicsSettings> = {
 
   // --- Layout forces (FA2 / dual-graph) ---
   linLogMode: true,
-  scalingRatio: 10.0,
+  scalingRatio: 0.1,
   adaptiveSpeed: true,
   ssspAlpha: 1.5,
   axisCompressionZ: 1.0,

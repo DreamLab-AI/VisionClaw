@@ -37,13 +37,13 @@ fn default_lin_log_mode() -> bool {
     true
 }
 fn default_scaling_ratio() -> f32 {
-    10.0
+    0.1
 }
 fn default_adaptive_speed() -> bool {
     true
 }
 fn default_global_speed() -> f32 {
-    0.16
+    1.0
 }
 fn default_spring_pop_scale() -> f32 {
     1.0

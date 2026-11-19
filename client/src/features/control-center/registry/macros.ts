@@ -73,8 +73,8 @@ const MACRO_DEFS: Array<Omit<MacroDef, 'scope'>> = [
       { path: `${P}damping`, value: 0.98 - t * 0.33 },     // 0.98 → 0.65 (inverse)
       { path: `${P}temperature`, value: 0.6 * t },         // 0 → 0.6
     ],
-    derive: (get) => clamp01((num(get, `${P}globalSpeed`, 0.4) - 0.05) / 1.95),
-    describe: (get) => `speed ${num(get, `${P}globalSpeed`, 0.4).toFixed(2)}, damping ${num(get, `${P}damping`, 0.9).toFixed(2)}`,
+    derive: (get) => clamp01((num(get, `${P}globalSpeed`, 1.0) - 0.05) / 1.95),
+    describe: (get) => `speed ${num(get, `${P}globalSpeed`, 1.0).toFixed(2)}, damping ${num(get, `${P}damping`, 0.9).toFixed(2)}`,
   },
   {
     id: 'focus',

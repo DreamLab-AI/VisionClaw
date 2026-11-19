@@ -4099,3 +4099,198 @@ mod hold_spring_overlay_gpu_tests {
         );
     }
 }
+
+/// Layout-balance regression: the DEFAULT stored physics must pull a graph into its communities.
+///
+/// The live layout once carried no information: with `scaling_ratio` 10 the FA2 repulsion
+/// `scaling_ratio * (deg_i + 1) * (deg_j + 1) / d` swamped the LinLog attraction `log1p(d) * w`, the
+/// per-node force clamp saturated, and the adaptive speed turned the step into a random walk
+/// (kNN graph-neighbour recall equal to random, every edge type about 1x a random pair's distance).
+/// This runs a planted-partition graph through the real kernel with parameters taken from
+/// `PhysicsSettings::default()` and nothing hand-set, so it pins the shipped defaults.
+/// Without CUDA it prints `SKIPPED`.
+#[cfg(test)]
+mod layout_balance_gpu_tests {
+    use super::*;
+    use cust::memory::CopyDestination;
+    use visionclaw_domain::types::PhysicsSettings;
+
+    const COMMUNITIES: usize = 12;
+    const PER: usize = 500;
+    const N: usize = COMMUNITIES * PER;
+    const STEPS: usize = 3000;
+
+    fn lcg(seed: &mut u64) -> f32 {
+        *seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        ((*seed >> 33) as f32) / (u32::MAX >> 1) as f32
+    }
+
+    /// Dense inside a community (p = 0.04, about 20 neighbours, the live median), sparse between
+    /// (p = 0.0009, about a fifth of all edges), three hubs per community wired to half its members. Undirected, unit weights, returned as `(a, b)` with a < b.
+    fn planted_partition() -> Vec<(usize, usize)> {
+        let mut seed = 2024u64;
+        let mut edges = Vec::new();
+        for a in 0..N {
+            for b in (a + 1)..N {
+                let same = a / PER == b / PER;
+                let hub = a % PER < 3 && same && b % 2 == 0;
+                let p = if same { 0.04 } else { 0.0009 };
+                if hub || lcg(&mut seed) < p {
+                    edges.push((a, b));
+                }
+            }
+        }
+        edges
+    }
+
+    #[test]
+    fn default_physics_pulls_planted_communities_together() {
+        let ctx = match cust::quick_init() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[layout_balance_gpu_tests] SKIPPED, CUDA init failed: {e}");
+                return;
+            }
+        };
+        let _ctx = ctx;
+        let ptx = match crate::utils::ptx::load_ptx_sync() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("[layout_balance_gpu_tests] SKIPPED, no PTX: {e}");
+                return;
+            }
+        };
+        let edges = planted_partition();
+        let mut g = match UnifiedGPUCompute::new(N, edges.len() * 2, &ptx) {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("[layout_balance_gpu_tests] SKIPPED, no CUDA device: {e}");
+                return;
+            }
+        };
+
+        // Symmetric CSR, unit weights.
+        let mut adj = vec![Vec::new(); N];
+        for &(a, b) in &edges {
+            adj[a].push(b as i32);
+            adj[b].push(a as i32);
+        }
+        let mut offsets = vec![0i32];
+        let mut cols = Vec::new();
+        for row in &adj {
+            cols.extend_from_slice(row);
+            offsets.push(cols.len() as i32);
+        }
+        g.upload_edges_csr(&offsets, &cols, &vec![1.0; cols.len()])
+            .expect("edges");
+
+        // The live engine has the degree weights uploaded (that is what hands the kernel its
+        // `node_degrees` pointer) and the degrees filled in on device; FA2 repulsion is
+        // `scaling_ratio * (deg_i + 1) * (deg_j + 1) / d`, so without them the force law differs.
+        let degree_weights: Vec<f32> = adj.iter().map(|r| (1.0 + r.len() as f32).ln()).collect();
+        g.upload_degree_weights(&degree_weights)
+            .expect("degree weights");
+        let degrees_kernel = g
+            ._module
+            .get_function("compute_node_degrees_kernel")
+            .expect("degrees kernel");
+        let stream = &g.stream;
+        unsafe {
+            cust::launch!(degrees_kernel<<<((N as u32) + 255) / 256, 256, 0, stream>>>(
+                g.edge_row_offsets.as_device_ptr(),
+                g.edge_weights.as_device_ptr(),
+                g.node_degrees.as_device_ptr(),
+                N as i32
+            ))
+            .expect("launch degrees");
+        }
+        g.stream.synchronize().expect("sync");
+        let mut deg = vec![0f32; N];
+        g.node_degrees
+            .index(0..N)
+            .copy_to(&mut deg[..])
+            .expect("read degrees");
+        let mut sorted = deg.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        println!(
+            "DEGREES p50 {} p99 {} max {}",
+            sorted[N / 2],
+            sorted[N * 99 / 100],
+            sorted[N - 1]
+        );
+
+        // Random start in a cloud like the live one.
+        let mut seed = 11u64;
+        let (mut x, mut y, mut z) = (vec![0f32; N], vec![0f32; N], vec![0f32; N]);
+        for i in 0..N {
+            x[i] = (lcg(&mut seed) - 0.5) * 300.0;
+            y[i] = (lcg(&mut seed) - 0.5) * 200.0;
+            z[i] = (lcg(&mut seed) - 0.5) * 200.0;
+        }
+        g.upload_positions(&x, &y, &z).expect("positions");
+
+        // The shipped defaults and nothing else; only the stability gate is lifted, as in `params()`.
+        let sim = visionclaw_domain::models::SimulationParams::from(&PhysicsSettings::default());
+        println!(
+            "DEFAULTS scaling_ratio={} global_speed={} lin_log={} adaptive={}",
+            sim.scaling_ratio, sim.global_speed, sim.lin_log_mode, sim.adaptive_speed
+        );
+        for _ in 0..STEPS {
+            g.execute_physics_step_with_bypass(&sim, true)
+                .expect("physics step");
+        }
+        g.stream.synchronize().expect("sync");
+        g.download_positions(&mut x, &mut y, &mut z)
+            .expect("download");
+
+        let dist = |a: usize, b: usize| {
+            ((x[a] - x[b]).powi(2) + (y[a] - y[b]).powi(2) + (z[a] - z[b]).powi(2)).sqrt()
+        };
+        let (mut intra, mut inter) = ((0f64, 0usize), (0f64, 0usize));
+        for &(a, b) in &edges {
+            let slot = if a / PER == b / PER {
+                &mut intra
+            } else {
+                &mut inter
+            };
+            slot.0 += dist(a, b) as f64;
+            slot.1 += 1;
+        }
+        assert!(
+            intra.1 > 100 && inter.1 > 20,
+            "graph must have both edge kinds"
+        );
+        let (intra_mean, inter_mean) = (intra.0 / intra.1 as f64, inter.0 / inter.1 as f64);
+
+        // kNN (k = 10) same-community share against the base rate (PER - 1) / (N - 1).
+        let k = 10;
+        let mut same = 0usize;
+        for i in 0..N {
+            let mut d: Vec<(f32, usize)> = (0..N)
+                .filter(|&j| j != i)
+                .map(|j| (dist(i, j), j))
+                .collect();
+            d.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+            same += d[..k].iter().filter(|&&(_, j)| j / PER == i / PER).count();
+        }
+        let share = same as f64 / (N * k) as f64;
+        let base = (PER - 1) as f64 / (N - 1) as f64;
+        println!(
+            "LAYOUT_BALANCE intra {intra_mean:.2} inter {inter_mean:.2} ratio {:.3} knn_share {share:.3} base {base:.3} lift {:.2}",
+            intra_mean / inter_mean,
+            share / base
+        );
+        assert!(
+            intra_mean < 0.6 * inter_mean,
+            "default physics leaves intra-community edges {:.2}x the inter-community length (need < 0.6): the layout carries no structure",
+            intra_mean / inter_mean
+        );
+        assert!(
+            share >= 3.0 * base,
+            "kNN same-community share {share:.3} is {:.2}x the base rate {base:.3} (need >= 3x)",
+            share / base
+        );
+    }
+}

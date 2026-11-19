@@ -163,7 +163,8 @@ visualisation:
         maxForce: 150.0
         repelK: 120.0
         springK: 12.0
-        globalSpeed: 0.4
+        globalSpeed: 1.0
+        scalingRatio: 0.1
         axisCompressionZ: 1.0
         boundaryDamping: 0.95
         dt: 0.016
@@ -275,7 +276,8 @@ visualisation:
         maxForce: 150.0
         repelK: 120.0
         springK: 12.0
-        globalSpeed: 0.4
+        globalSpeed: 1.0
+        scalingRatio: 0.1
         axisCompressionZ: 1.0
         boundaryDamping: 0.95
         dt: 0.016

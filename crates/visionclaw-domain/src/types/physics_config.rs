@@ -59,7 +59,7 @@ fn default_lin_log_mode() -> bool {
 }
 
 fn default_scaling_ratio() -> f32 {
-    10.0
+    0.1
 }
 
 fn default_adaptive_speed() -> bool {
@@ -67,7 +67,7 @@ fn default_adaptive_speed() -> bool {
 }
 
 fn default_global_speed() -> f32 {
-    0.4
+    1.0
 }
 
 fn default_spring_pop_scale() -> f32 {
@@ -643,9 +643,9 @@ impl Default for PhysicsSettings {
             // 0 = defer to the consumer's built-in default (3000).
             initial_node_limit: 0,
             lin_log_mode: true,
-            scaling_ratio: 10.0,
+            scaling_ratio: 0.1,
             adaptive_speed: true,
-            global_speed: 0.4,
+            global_speed: 1.0,
             dag_bias_k: default_dag_bias_k(),
             dag_level_distance: default_dag_level_distance(),
             plane_bias_k: default_plane_bias_k(),
