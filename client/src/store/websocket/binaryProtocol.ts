@@ -331,13 +331,13 @@ async function handlePositionUpdate(
   const graphType = graphDataManager.getGraphType();
 
   binaryMessageCount = (binaryMessageCount || 0) + 1;
-  if (binaryMessageCount % 100 === 1) {
+  if (binaryMessageCount % 100 === 1 && debugState.isDataDebugEnabled()) {
     logger.debug('Position update received', { graphType, dataSize: payload.byteLength, msgCount: binaryMessageCount });
   }
 
   try {
     await graphDataManager.updateNodePositions(payload);
-    if (binaryMessageCount % 100 === 1) {
+    if (binaryMessageCount % 100 === 1 && debugState.isDataDebugEnabled()) {
       logger.debug('Node positions updated successfully', { graphType });
     }
   } catch (error) {
@@ -386,13 +386,13 @@ async function handleLegacyBinaryData(
   const graphType = graphDataManager.getGraphType();
   binaryMessageCount = (binaryMessageCount || 0) + 1;
 
-  if (binaryMessageCount % 100 === 1) {
+  if (binaryMessageCount % 100 === 1 && debugState.isDataDebugEnabled()) {
     logger.debug('Legacy binary data received', { graphType, dataSize: data.byteLength, msgCount: binaryMessageCount });
   }
 
   try {
     await graphDataManager.updateNodePositions(data);
-    if (binaryMessageCount % 100 === 1) {
+    if (binaryMessageCount % 100 === 1 && debugState.isDataDebugEnabled()) {
       logger.debug('Node positions updated successfully (legacy)', { graphType });
     }
   } catch (error) {
