@@ -6,6 +6,7 @@
 // `normaliseKpiSummary`. Refreshes on an interval so the panel tracks the
 // rolling window without a manual poke.
 
+import { visibleInterval } from '../../../utils/visibleInterval';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { unifiedApiClient } from '../../../services/api/UnifiedApiClient';
 import { createLogger } from '../../../utils/loggerConfig';
@@ -44,10 +45,10 @@ export function useKpiSummary(): KpiSummaryState {
   useEffect(() => {
     mounted.current = true;
     refresh();
-    const id = window.setInterval(refresh, REFRESH_MS);
+    const stop = visibleInterval(refresh, REFRESH_MS);
     return () => {
       mounted.current = false;
-      window.clearInterval(id);
+      stop();
     };
   }, [refresh]);
 

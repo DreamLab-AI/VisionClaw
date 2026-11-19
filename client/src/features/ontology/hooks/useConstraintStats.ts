@@ -4,6 +4,7 @@
  * — degrades to zeros when the endpoint is unavailable.
  */
 
+import { visibleInterval } from '../../../utils/visibleInterval';
 import { useEffect, useRef, useState } from 'react';
 import {
   fetchConstraintStats,
@@ -43,10 +44,10 @@ export function useConstraintStats(intervalMs = 5000, enabled = true): UseConstr
     };
     run();
     if (intervalMs > 0) {
-      const id = window.setInterval(run, intervalMs);
+      const stop = visibleInterval(run, intervalMs);
       return () => {
         cancelled = true;
-        window.clearInterval(id);
+        stop();
       };
     }
     return () => { cancelled = true; };

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { visibleInterval } from '../../../utils/visibleInterval';
 import { unifiedApiClient } from '../../../services/api/UnifiedApiClient';
 import { parsePhysicsState, type PhysicsState } from './physicsState';
 
@@ -24,10 +25,10 @@ export function usePhysicsState(intervalMs = 3000): PhysicsState | null {
       }
     };
     void load();
-    const id = window.setInterval(load, intervalMs);
+    const stop = visibleInterval(load, intervalMs);
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      stop();
     };
   }, [intervalMs]);
   return state;
