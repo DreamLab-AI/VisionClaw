@@ -1662,8 +1662,8 @@ impl GitHubSyncService {
         }
     }
 
-    /// PRD-018 WS-3 / ADR-098 D1 — map materialised OWL axioms (asserted +
-    /// Whelk-inferred) to live-kernel constraints and upload them to the GPU.
+    /// PRD-018 WS-3 / ADR-098 D1 — map OWL axioms (asserted, never the Whelk
+    /// subClassOf/partOf closure, ADR-2204 D5) to live-kernel constraints and upload them to the GPU.
     ///
     /// Sends `ApplyMaterializedAxioms` to the GPUManagerActor, which routes to
     /// the OntologyConstraintActor where the canonical `map_axioms_to_constraints`
@@ -1683,8 +1683,10 @@ impl GitHubSyncService {
             return;
         };
 
-        let mut materialized = asserted_axioms;
-        materialized.extend(inferred_axioms);
+        let materialized = crate::physics::ontology_constraint_mapper::constraint_axioms(
+            asserted_axioms,
+            inferred_axioms,
+        );
         let axiom_count = materialized.len();
 
         info!(

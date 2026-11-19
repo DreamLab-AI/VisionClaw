@@ -1879,7 +1879,7 @@ mod grid_gpu_tests {
 
     const LIVE_NODES: usize = 9_688;
     const LIVE_EDGES: usize = 147_048;
-    /// Live constraint count (OWL mapper: 96,742 = 20,000 sibling-alignment + the rest
+    /// Live constraint count measured before ADR-2204 D5 (OWL mapper: 96,742 = 20,000 sibling-alignment + the rest
     /// DISTANCE / SEPARATION). Override with `TICK_CONSTRAINTS` (0 disables).
     const LIVE_CONSTRAINTS: usize = 96_742;
     /// ASSUMPTION: the ontology nodes the constraints touch are a skewed subset of the graph.
