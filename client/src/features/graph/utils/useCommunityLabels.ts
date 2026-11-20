@@ -16,7 +16,12 @@ export function useCommunityLabels(enabled: boolean, signature: string): Communi
   const [labels, setLabels] = useState<CommunityLabelsResponse | null>(null);
   const lastFetchAt = useRef<number>(-Infinity);
   const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; }, []);
+  // Set on every mount: StrictMode (dev) runs mount, cleanup, mount, and a ref
+  // that is only ever cleared would stay false and drop every response.
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   const refetch = useCallback(() => {
     lastFetchAt.current = Date.now();

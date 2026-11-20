@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { StrictMode } from 'react';
 import { renderHook, act } from '@testing-library/react';
 
 const fetchMock = vi.hoisted(() => vi.fn());
@@ -20,6 +21,16 @@ describe('useCommunityLabels', () => {
     for (let i = 0; i < 5; i++) rerender({ sig: '1:4' }); // each ~0.5 s tick re-renders
     await act(async () => { resolve(body(2)); await Promise.resolve(); });
     expect(result.current?.generation).toBe(2);
+  });
+
+  it('delivers labels under React StrictMode (dev builds run every effect mount, cleanup, mount)', async () => {
+    fetchMock.mockResolvedValue(body(3));
+    const { result } = renderHook(({ sig }) => useCommunityLabels(true, sig), {
+      initialProps: { sig: '1:4' },
+      wrapper: StrictMode,
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(result.current?.generation).toBe(3);
   });
 
   it('refetches when the partition signature changes, but not more than once per minimum interval', async () => {
