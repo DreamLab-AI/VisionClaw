@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: f6fcca7e80f844a914ead0170c64ebf07017870a
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [crates/visionclaw-splat/src/manifest.rs, xr-client/rust/src/splat_loader.rs, xr-client/scripts/space_portals.gd, xr-client/scripts/splat_volume.gd, xr-client/scripts/graph_scene.gd, xr-client/scripts/hud.gd, xr-client/scripts/xr_prefs.gd]
 owner: jjohare
 review_trigger: The first headset session in the merged space, a second staged asset, or any change to ADR-2170's placement or budget rules.
@@ -65,3 +65,7 @@ The merged space is still reached from the Layout page's Splat Scene group. **Me
 ## Re-verification — 2026-11-10 (`f6fcca7e8`)
 
 Governed-path changes since `7bd25427e`: `splat_loader.rs` (`cargo fmt` reflow and one test's `vec!` turned into an array; `05a057268`, `f3d5acc43`), `graph_scene.gd` (dead edge re-rank deleted, resume redial, grab release on a socket swap, local quality toggle, build stamp) and `hud.gd` (the build stamp in the Session header, `:1568`). No staged-scene or splat line appears in the diff (the only "merge" hits are the edge-expansion comment); the splat credits line is still `hud.gd:360-362`. **Decision unaffected.** Re-run: `git diff 7bd25427e..f6fcca7e8 -- <verified_paths>`; `f6fcca7e8` itself only corrects two `graph_scene.gd` comments (`_topo_ids` sizes the HUD's node readout, not a draw domain). Checked by reading that diff; `scripts/xr-gate.sh` passed at `f6fcca7e8` (both XR crates' fmt, clippy and tests; headless Godot 4.8-beta2 parse check and GUT, 676 of 679 passing, 3 pending for want of a GL renderer).
+
+## Re-verification — 2026-11-20
+
+Re-verified 2026-11-20 at b188b0397: `git diff f6fcca7e8..b188b0397 -- xr-client/scripts/graph_scene.gd` removes the unused `GRAPH_REFIT_SETTLE_SEC` constant and rewrites one comment (the fit lives in `spatial_volume.gd`). The staged splat scene and the ontology merge this record decides are untouched. Decision holds.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 relates: [ADR-2169]
 verified_paths: [src/utils/unified_gpu_compute/constraint_index.rs, src/utils/unified_gpu_compute/memory.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, src/utils/unified_gpu_compute/execution.rs, src/actors/gpu/force_compute_actor.rs]
 owner: jjohare
@@ -88,3 +88,7 @@ Governed-path change since `e2afd65d6`: `src/actors/gpu/force_compute_actor.rs` 
 ## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
 
 This stamp covers the ADR-2192 amendment above at the merge with main. `constraint_schedule_tests` (4) pass on an RTX 6000 Ada (`CUDA_VISIBLE_DEVICES=2`, `CUDA_ARCH=89`). **Decision unaffected.**
+
+## Amendment — 2026-11-20
+
+Amendment 2026-11-20, re-verified at b188b0397 (`git diff 01196ca74..b188b0397 -- src/actors/gpu/force_compute_actor.rs src/utils/unified_gpu_compute/execution.rs src/utils/unified_gpu_compute/memory.rs`). The per-node constraint index, `g_constraint_index`, the kernel arities (30 and 29) and the change-only upload are untouched; the kernel launch only changes which buffer feeds the FA2 repulsion pointer (`repulsion_strength`, ADR-2204 S4a, no signature change). **The live-shape figures are out of date.** The "96,742 constraints" (20,000 of them sibling alignment, per the comment in `execution.rs`) and the 9.7 ms / 29 ms step times were measured before `06f78f2d4` (ADR-2204 D5) deleted sibling alignment and stopped the Whelk `subClassOf`/`partOf` closure reaching the constraint mapper, so the live constraint set is smaller and its per-node lists shorter than the synthetic set here; the bit-identical and speed-up results stand for a graph of that shape but are no longer the live shape. Constraints are also now addressed by compact node id (`5407bd48c`). The hub-knee figures are unaffected. Not run: GPU tests.

@@ -102,9 +102,11 @@ frames (~30 s) after a parameter change during settle.
 | UI label | Settings key | Type | Range | Default | Effect |
 |---|---|---|---|---|---|
 | LinLog Mode | `linLogMode` | bool | off / on | **on** | Switches edge attraction to logarithmic (`log(1+d)`) so dense communities contract and sparse links stay long — clearer community separation |
-| Scaling Ratio | `scalingRatio` | f32 | — | **10.0** | ForceAtlas2 global scale multiplier applied to repulsion |
+| Scaling Ratio | `scalingRatio` | f32 | 0.01–100 | **0.1** | ForceAtlas2 global scale multiplier applied to repulsion. Default lowered from 10.0 on 2026-11-19 (`c4c2f47e1`): at 10 the repulsion swamped the LinLog attraction and the layout carried no structure (kNN neighbour recall equal to random); the regression test `layout_balance_gpu_tests` pins the shipped default |
 | Adaptive Speed | `adaptiveSpeed` | bool | off / on | **on** | Per-node swing/traction scales the global integration step: high-energy regions slow, converged regions speed up. Forwarded as `SimParams.adaptive_speed`; a change re-uploads params and reheats |
-| Global Speed | `globalSpeed` | f32 | — | **0.4** | Base global step multiplier the adaptive controller scales from |
+| Global Speed | `globalSpeed` | f32 | — | **1.0** | Base global step multiplier the adaptive controller scales from. Default raised from 0.4 on 2026-11-19 (`c4c2f47e1`); a held node still floors it at 2.0 (ADR-2169) |
+| Repulsion Mode | `repulsionMode` | enum | `uniform` / `strength` | **uniform** | FA2 repulsion weighting (ADR-2204 D4). `uniform` repels every node alike; `strength` weights each node by `1 + Σ w` of its edges. Host-side only: written to its own device buffer by `upload_repulsion`, so a mode switch does not reset positions or velocities |
+| Hierarchy Affinity | `hierarchyAffinity` | f32 | 0–4 | **0** | Ontology layout mode (ADR-2204 D5): extra pull of an asserted `subClassOf` edge, scaled by the parent's information content. 0 is off. Host-side only (shapes uploaded edge weights, not `SimParams`) |
 
 ---
 

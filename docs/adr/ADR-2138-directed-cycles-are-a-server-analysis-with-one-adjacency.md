@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 2a93efd1d8f1fa8a15b8e79767a487f55352e0ba
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [src/layout/scc.rs, src/handlers/api_handler/analytics/cycles_handlers.rs, src/settings/api/settings_routes.rs, client/src/api/layoutApi.ts, client/src/features/graph/hooks/useCyclicNodeIds.ts, xr-client/rust/src/render_store.rs, xr-client/scripts/hud.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): the XR Shapes tab first run on a headset against a live graph. Review: before any cycle datum is added to the 52-byte position frame"
@@ -144,3 +144,7 @@ Governed-path changes since `7bd25427e`: `render_store.rs` gains the headset qua
 The merge combines main's ADR-2192 changes (the two sections above it) with the XR slice-1 changes (the section above this one). The merge resolved without a conflict in any governed source file, only in this record's own text, and neither change touches the other's lines. **Decision unaffected.** Re-run: `git diff 2a93efd1d^1 2a93efd1d -- <verified_paths>` and `git diff 2a93efd1d^2 2a93efd1d -- <verified_paths>`.
 
 **Owner ruling (2026-11-16).** Accepted. The owner ratified this record in session on 16 November 2026; `decision_status` is `accepted`. Implementation and activation are unchanged by the ruling: activation stays `staged` until the run its review trigger names.
+
+## Amendment — 2026-11-20
+
+Amendment 2026-11-20, re-verified at b188b0397 (`git diff 2a93efd1d..b188b0397 -- src/settings/api/settings_routes.rs`). The cycle analysis, its one adjacency and the routes this record decides are untouched; the diff adds the ADR-2204 physics keys to the validator and key normaliser (`hierarchyAffinity` 0..=4, `hubDamping`, `weightMin`, `weightMax`, snake aliases). **One anchor is wrong:** item 4 cites the `spectral` and `clustered` whitelist at `settings_routes.rs:413-414`. Layout-mode validation no longer lists names there; it goes through `LayoutMode::parse` (`crates/visionclaw-domain/src/types/layout.rs:130-131` accepts both), with the accepted set named in the error text at `settings_routes.rs:1562`. `spectral` and `clustered` are still accepted, so the claim holds in a different form. Decision holds.

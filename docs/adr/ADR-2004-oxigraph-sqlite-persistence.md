@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 5db8ccf308a40948b89ec5976c15431387e03766
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -318,3 +318,7 @@ changes. `verified_commit` is bumped on that basis.
 ## Re-verification — 2026-11-16 (periodic Oxigraph checkpoint)
 
 Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `Cargo.toml` gains the path dependency `visionclaw-backup = { path = "crates/visionclaw-backup" }` and a comment line (two lines, after the `visionclaw-ontology` entry); `Cargo.lock` gains one dependency line for the root package and no registry package. Line numbers after `:57` of `Cargo.toml` move down by two. The decision (Oxigraph plus SQLite, no networked graph database) is unchanged; the `oxigraph` pin is still `{ version = "0.4" }`, now at `Cargo.toml:99`, and no graph-database dependency was added. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.
+
+## Amendment — 2026-11-20
+
+Amendment 2026-11-20, re-verified at b188b0397 (`git diff 5db8ccf30..b188b0397 -- Cargo.toml src/app_state.rs`). **The driver versions this record names are out of date.** `b188b0397` (RUSTSEC-2026-0459) moves `rusqlite` from 0.31 to **0.43** (still `bundled`) and `tokio-rusqlite` from 0.5 to **0.10** (`Cargo.toml:100-101`); the Verification and 2026-11 notes above that cite `rusqlite = "0.31"`, `tokio-rusqlite = "0.5"` and `Cargo.toml:92-93` were true at their dates and are not rewritten. The change is mechanical: `Connection::call` closures gained an explicit `-> rusqlite::Result<_>`, and each adapter's `map_db_err` became generic over `Display`. No persistence claim moves: the dual-store split, the SQLite adapters' statements and the `persistence-oxigraph` default feature are unchanged (the `sqlite_*_repository.rs` diffs are signature-only). `app_state.rs` gains the `graph_readiness` boot gate (`GraphReadiness`, created before the supervisor starts), which touches no store wiring. Decision holds.

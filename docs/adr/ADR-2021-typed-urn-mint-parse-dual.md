@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [src/uri/mod.rs, crates/visionclaw-domain/src/uri.rs, src/services/github_sync_service.rs, src/adapters/oxigraph_graph_repository.rs]
 owner: jjohare
 review_trigger: any new persisted identifier namespace, or a decision to rewrite/retire the legacy urn:ngm:* scheme
@@ -145,3 +145,7 @@ Governed-path change: `src/services/github_sync_service.rs` (ADR-2192 sync switc
 ## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
 
 `github_sync_service.rs`: `forget_inference` (ADR-2192). It mints nothing. **Decision unaffected.**
+
+## Re-verification — 2026-11-20
+
+Re-verified 2026-11-20 at b188b0397: `git diff 01196ca74..b188b0397 -- src/services/github_sync_service.rs src/adapters/oxigraph_graph_repository.rs`. Minting is unchanged: `domain_root_node` still takes its IRI from `crate::uri::ngm::domain_iri` (the only addition there is a `public: true` metadata flag), and the graph adapter's edge IRIs still go through `edge_iri`; no `format!("urn:...)` mint was added outside `uri::ngm` (the only `urn:` literals in the added lines are test fixtures). The adapter now also writes `vc:provenance` and `vc:owlProperty` on edges and reloads weights exactly (ADR-2204 S1); those are predicates on an edge, not minted identifiers. Decision holds.

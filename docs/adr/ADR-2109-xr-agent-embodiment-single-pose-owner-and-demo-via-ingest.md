@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: f6fcca7e80f844a914ead0170c64ebf07017870a
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs, xr-client/scripts/spatial_volume.gd]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -271,3 +271,7 @@ Governed-path changes since `7bd25427e`, in `graph_scene.gd`, `render_store.rs` 
 - The local quality toggle goes through the same filter pass, which still skips agents (`render_store.rs:2603`), so it cannot dim or hide an embodiment.
 
 **Decision unaffected.** Re-run: `git diff 7bd25427e..f6fcca7e8 -- <verified_paths>`; `f6fcca7e8` itself only corrects two `graph_scene.gd` comments (`_topo_ids` sizes the HUD's node readout, not a draw domain). Checked by reading that diff; `scripts/xr-gate.sh` passed at `f6fcca7e8` (both XR crates' fmt, clippy and tests; headless Godot 4.8-beta2 parse check and GUT, 676 of 679 passing, 3 pending for want of a GL renderer).
+
+## Re-verification — 2026-11-20
+
+Re-verified 2026-11-20 at b188b0397: `git diff f6fcca7e8..b188b0397 -- xr-client/scripts/graph_scene.gd` removes the unused `GRAPH_REFIT_SETTLE_SEC` constant (`d5de54a38`) and rewrites the comment above `GRAPH_TARGET_SPAN` to say the fit lives in `spatial_volume.gd` (ADR-2158). Nothing about pose ownership or the ingest-based demo path is touched. Line citations below `:58` in this file read two lower than the figures above; no claim depends on them.

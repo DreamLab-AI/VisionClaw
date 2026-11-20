@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [codescape, docs/PROTOCOL-registry.md]
 owner: jjohare
 review_trigger: a graphicle rev bump; any change to the V3 record, the V5 envelope or 0x23; Codescape gaining a compose service, a published port or a new egress target; a proposal to merge the workspace into the root
@@ -411,3 +411,7 @@ Re-stamped at the merge of `phys/integrate` and `viz/edge-tracking` (`ff849f2ba`
 ## Re-verification — 2026-11-07 (`7bd25427e`)
 
 Governed-path change since `ff849f2ba`: `docs/PROTOCOL-registry.md` 0.1.14 → 0.1.23. It adds changelog rows 0.1.15–0.1.23 (visibility sweep, gated analytics shapes, temporal keys, ontology per-caller reads and `inference_loaded`) and two sections, "Settings wire removals (ADR-2189)" and "Desktop node table: no new read path (ADR-2184)". The Codescape section ("Second producer: Codescape (`:4100`, ADR-2143)", `:221` on) is untouched. No tag byte or flag bit is allocated in the diff. **Decision unaffected.** Re-run: `git diff ff849f2ba..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.
+
+## Re-verification — 2026-11-20
+
+Re-verified 2026-11-20 at b188b0397: `git diff 7bd25427e..b188b0397 -- docs/PROTOCOL-registry.md` (0.1.23 to 0.1.24). It adds `GET /api/analytics/communities/labels` (ADR-2206) and a "Graph payload edge fields" note: an optional `provenance` on edges in `/api/graph/data` and `initialGraphLoad`, `edgeType: "explicit_link"` on `file_service` edges. The Codescape section and the frozen position wire are untouched (the registry states `community_id` at offset 44 keeps the run's own numbering). The edge `provenance` key is additive in a payload Codescape reads; that Codescape's decoder ignores unknown edge keys was not verified here. Decision holds.

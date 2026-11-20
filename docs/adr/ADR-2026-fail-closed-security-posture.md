@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 5db8ccf308a40948b89ec5976c15431387e03766
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs]
 owner: jjohare
 review_trigger: any new security-relevant env flag, or a request to soften the release boot-abort to a warning
@@ -224,3 +224,7 @@ Governed-path change since `b5200feb4`: `src/main.rs` (`57ba04beb`, `f284c2953`,
 ## Re-verification — 2026-11-16 (periodic Oxigraph checkpoint)
 
 Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `src/main.rs` loses the one-shot `ONTOLOGY_BACKUP_DIR` boot checkpoint block and gains a `ontology_checkpoint::spawn` call and a shutdown await; net 14 fewer lines at the block (about `:753`), so nothing before it moves, plus four lines after `server.await`. Anchors now: `init_solid_state().await` `:906`, `spawn_boot_pull` `:913`, `assert_effective_profile_or_exit` import `:945` and call `:948`, `HttpServer::new` `:991`, `.bind()` `:1289`. The file's net change is 10 fewer lines (13 added, 23 removed: 14 fewer at the block, 4 more after `server.await`). Everything before the block (hygiene call `:209`) is unchanged; the owner-less refusal sits after it and moved up by 14 (`RBAC_ALLOW_OWNERLESS_ENV` import `:782` to `:768`). The assertion and the fail-closed paths are untouched; the only change is that the checkpoint now runs as a background task that cannot fail startup, which does not bypass the profile assertion. The decision holds. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.
+
+## Re-verification — 2026-11-20
+
+Re-verified 2026-11-20 at b188b0397: `git diff 5db8ccf30..b188b0397 -- src/services/role_store.rs`. 14 lines changed, all `Connection::call` closures gaining `-> rusqlite::Result<_>` for the `rusqlite` 0.43 / `tokio-rusqlite` 0.10 upgrade (RUSTSEC-2026-0459). No fail-closed branch, default role or refusal path is touched. Decision holds.

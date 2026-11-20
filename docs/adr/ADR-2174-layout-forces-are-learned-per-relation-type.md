@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: a6d05ed1a8d090e290944ebb8a9c122c7f59ef8c
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 relates: [ADR-2028, ADR-2029, ADR-2035, ADR-2143]
 verified_paths: [crates/relational-field/PREREGISTRATION.md, crates/relational-field/results/h1/summary.json, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, crates/visionclaw-gpu/src/cuda_sources/semantic_forces.cu, crates/visionclaw-domain/src/types/physics_config.rs, src/utils/unified_gpu_compute/execution.rs]
 owner: jjohare
@@ -62,3 +62,7 @@ The original static H1 result is committed on main in [the preregistration](../.
 The passing gates do not establish typed geometry. RF matches the untyped B1 on hard-negative link prediction; most of its margin over B0 survives degree-preserving rewiring. The learned parameters do not reproduce RF geometry in the simulator. D4 also discloses exposure of D2's held-out target state; any D2 write-up must retain that limitation.
 
 This review compares the committed result and summary, including all six numeric thresholds and verdicts. It does not rerun the experiment. `implementation_status: partial` records the completed offline test while the proposed live force-law integration remains absent. The decision stays proposed and activation inactive. H1 supplies no basis to accept the conditional integration; a further experiment requires its own preregistration, and live kernel changes still require the follow-on ADR specified above.
+
+## Amendment — 2026-11-20
+
+Amendment 2026-11-20, re-verified at b188b0397 (`git diff a6d05ed1a..b188b0397 -- crates/visionclaw-domain/src/types/physics_config.rs src/utils/unified_gpu_compute/execution.rs`). The claims about the force path hold: the default is still LinLog (`lin_log_mode: true`, `physics_config.rs:713`) and no CUDA source changed. The two file:line anchors have moved: the LinLog default is at `physics_config.rs:713` (cited `:645`). `execution.rs` has been edited at `:190` and `:685` and by a 700-line test module; the cited `:955-970` was not re-located. The record also says the registry has no entry for `uses`, `supports` and others; unchanged (46 entries). This record's own status (proposed, partial) is unchanged.

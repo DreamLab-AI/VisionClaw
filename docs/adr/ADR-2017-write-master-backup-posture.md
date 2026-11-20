@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: e1e9f98917dffdf5fb041d8633a71892aa99375a
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [src/services/data_reconciliation.rs, src/services/github_sync_service.rs, scripts/backup-sqlite.sh, scripts/backup-secrets.sh]
 owner: jjohare
 review_trigger: an Oxigraph/RocksDB PITR or backup requirement, a cross-store consistency incident, or wiring RuVector delete-propagation
@@ -296,3 +296,7 @@ stores; no production restore has run. The SQLite posture, including
 ## Re-verification — 2026-11-16 (periodic Oxigraph checkpoint)
 
 Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `src/services/data_reconciliation.rs` changed only inside `checkpoint_oxigraph`. The progress note above that describes an opt-in `ONTOLOGY_BACKUP_DIR` checkpoint is now superseded in its mechanism: the server takes the checkpoint periodically (`ONTOLOGY_CHECKPOINT_DIR`, every `ONTOLOGY_CHECKPOINT_INTERVAL_SECS`, default 6 hours), builds it under a `.partial` name and keeps two; a failure is a warning, not a startup failure. The source-loss restore fixture still passes. The decision (one write-master per class, no 2PC, SQLite online backup) is unchanged; scheduling and off-device retention remain outstanding (ADR-2103). Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.
+
+## Re-verification — 2026-11-20
+
+Re-verified 2026-11-20 at b188b0397: `git diff e1e9f9891..b188b0397 -- src/services/github_sync_service.rs`. The diff is ADR-2204 S1-S3 (relation schema replaces the predicate constants and the `FANOUT_NODE_THRESHOLD` read, edge provenance, evidence weighting) and the boot-readiness gate; it adds or removes no backup, checkpoint or delete statement. The atomic `CLEAR`+`INSERT` still gates on `force_full_sync`: the binding is at `:426`, the call at `:704`, `save_ontology_graph` at `:1034-1112` (the `:360`, `:944-995`, `:1022` anchors above predate this and earlier shifts). The no-cross-store-2PC and no-tombstone posture is unchanged; the write-master and backup decision holds.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: e1e9f98917dffdf5fb041d8633a71892aa99375a
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [src/utils/nip98.rs, docs/SECURITY-profiles.md]
 owner: jjohare
 review_trigger: horizontal scaling of the backend (replicas/load balancer), or any change to TOKEN_MAX_AGE_SECONDS
@@ -216,3 +216,7 @@ Governed-path change since `ff849f2ba`: `docs/SECURITY-profiles.md` 0.1.4 → 0.
 ## Re-verification — 2026-11-16 (periodic Oxigraph checkpoint)
 
 Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `docs/SECURITY-profiles.md` changed only in the paragraph on the opt-in Oxigraph checkpoint (now `ONTOLOGY_CHECKPOINT_DIR`, periodic, failure is a warning). The NIP-98 replay cache is not mentioned in it. Nothing this record decides changes. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.
+
+## Re-verification — 2026-11-20
+
+Re-verified 2026-11-20 at b188b0397: `git diff e1e9f9891..b188b0397 -- src/utils/nip98.rs docs/SECURITY-profiles.md`. `nip98.rs` gains only `Nip98ValidationResult.session_principal` and the parse of a signed `session` tag (ADR-2205). The replay claim this record decides is untouched: `claim_signed_id` (`nip98.rs:578`) still runs once, after every other check and before the result is built, so an event signed by a bound session key is claimed under its own id exactly like any other. `SECURITY-profiles.md` gains the "Browser session keys" section; invariant 4 is unchanged. Decision holds. Not run: cargo (no build in this pass).

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 212465a0dd3fcc7981984a185b1f5bf0d0bd4e9a
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [src/models/force_channels.rs, src/utils/unified_gpu_compute/execution.rs, src/models/simulation_params.rs]
 owner: jjohare
 review_trigger: array-backed force-term refactor (deferred step 2), or any new host→GPU conversion path
@@ -273,3 +273,7 @@ Re-read against `execution.rs` at `e2afd65d6`: the change is test-only (the live
 ## Re-verification — 2026-11-10 (ADR-2191, `212465a0d`)
 
 **Decision unaffected.** `derive_dispatch_feature_flags` and the word written over `sim_params.feature_flags` are untouched. The governed change in `execution.rs` is which pointer the SSSP bit makes the force pass read: `sssp_distances_for_force_pass` (distances current, available and at least `num_nodes` long, else null), with the fallback to the SSSP working buffer removed. The ADR-2140 note above says the settings half of the OR defaults on; since ADR-2191 it defaults **off** (`SSSP_SPRING_ADJUST_DEFAULT`), and a stored value is honoured. Re-run on the RTX 6000 Ada (bus 0xAF) at `3f6c5faeb`, whose governed files are identical to `212465a0d`: `scripts/gpu-physics-gate.sh` (lib suite 1974 passed, harness 40 of 40), then the lib test binary that run built, filtered by name (`visionclaw_server-<hash> <filter> --test-threads=4`): `cargo test --lib adr_2029` (15) passes.
+
+## Re-verification — 2026-11-20
+
+Re-verified 2026-11-20 at b188b0397: `git diff 212465a0d..b188b0397 -- src/models/simulation_params.rs src/utils/unified_gpu_compute/execution.rs`. `simulation_params.rs` changes only the host-side `From<SimParams>` defaults, so the flag derivation is untouched. `execution.rs` gains (a) the FA2 repulsion buffer rename and pointer choice (`self.repulsion_uploaded`, `repulsion_strength`; ADR-2204 S4a, the kernel signature is unchanged) and (b) about 700 lines of GPU tests; no `ENABLE_*` flag is derived or set differently. Decision holds. GPU tests not run.

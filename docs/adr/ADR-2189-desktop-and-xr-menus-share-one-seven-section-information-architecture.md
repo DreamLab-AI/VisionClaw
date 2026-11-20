@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 7a6adcc8383aca0742cb84f49916cc4f5c084af3
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [client/src/features/control-center/registry/placement.ts, client/src/features/control-center/registry/manifest.ts, client/src/features/control-center/registry/ia.json, xr-client/data/ia.json, client/src/store/settings/retiredPaths.ts, client/src/features/control-center/state/settingWrites.ts, client/src/features/control-center/integrationSlots.ts, client/src/features/control-center/drawer/RightDrawer.tsx, client/src/features/control-center/hooks/useExclusiveSidePanels.ts, client/src/features/control-center/macros/MacroBar.tsx]
 relates: [ADR-2179, ADR-2180, ADR-2181, ADR-2182, ADR-2183, ADR-2184, ADR-2185, ADR-2186, ADR-2187, ADR-2188]
 owner: jjohare
@@ -399,3 +399,7 @@ Governed-path change: `placement.ts` maps the new source subgroup `quality|Ontol
 - Explore › Filters: Max Nodes (server removal), and a readonly Nodes Shown line (`readout: 'nodeFilterCount'`, a transient localKey field, never a stored path).
 
 Section counts are now explore 30, layout 82 and system 27, pinned in `registry.test.ts`. The seven-section structure and the two-level rule hold (`(b2)`, `(b5)` pass). **Decision unaffected.**
+
+## Re-verification — 2026-11-20
+
+Re-verified 2026-11-20 at b188b0397: `git diff 7a6adcc83..b188b0397 -- client/src/features/control-center/registry/ia.json xr-client/data/ia.json`. Both copies gain the same two toggles under Layers > Cluster hulls (`clusterHullLabels`, `clusterHullBridges`, ADR-2206, `scope: server`); the document still has seven sections, so the seven-section architecture holds, and the two committed copies stay identical. The "11 groups, 268 fields" in the Context is the pre-change audit and is not restated. The Vitest test that regenerates `ia.json` and compares both copies was not run (no npm in this pass); the two diffs were compared by eye and are identical.

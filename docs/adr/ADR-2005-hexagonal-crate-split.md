@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: c143ef890a5273ae708fdfa0f52d4724c418b2b9
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -440,3 +440,7 @@ changes. `verified_commit` is bumped on that basis.
 Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `Cargo.toml` gains the path dependency `visionclaw-backup = { path = "crates/visionclaw-backup" }` and a comment line (two lines, after the `visionclaw-ontology` entry); `Cargo.lock` gains one dependency line for the root package and no registry package. Line numbers after `:57` of `Cargo.toml` move down by two. The `[workspace].members` list holds 19 entries (`.` plus 18 crates), `visionclaw-backup` among them. The root crate now depends on `visionclaw-backup`, a leaf with no workspace dependency (it imports only external crates). Checked by running `cargo test -p visionclaw-integration-tests --test layer_direction`: it failed because the backup crate had no declared layer (a defect of this branch), and passes now that `layer_direction.rs` lists `visionclaw-backup` as a leaf. The decision holds. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.
 
 Re-verified 2026-11-17 at c143ef890: `src/actors/decision_elevation_actor.rs` (decision-case spec extracted into `case_spec_for`, category now `knowledge_enrichment`), `elevation_actor.rs` (a contract test) and `task_orchestrator_actor.rs` (a `Stopped` task state is swept like `Completed`/`Failed`); this record makes no claim about it.
+
+## Amendment — 2026-11-20
+
+Amendment 2026-11-20, re-verified at b188b0397 (`git diff c143ef890..b188b0397` over the governed paths). The split is still partial and nothing moved between crates. Counts and anchors this record gave have moved: `src/actors/*.rs` is now **26** files (was 23 at the count above) because `graph_readiness.rs` (boot gate, `AppState`-owned, no process-wide state) and, under `src/actors/gpu/`, `edge_csr.rs` (imports only `visionclaw_domain`) were added; `[workspace].members` is unchanged (the only manifest changes are the `rusqlite` 0.31 to 0.43 and `tokio-rusqlite` 0.5 to 0.10 pins in `Cargo.toml:100-101`, mechanical, RUSTSEC-2026-0459). The `visionclaw-backup` leaf now pins `rusqlite 0.43` to match, so the 2026-11-16 note's "reuses rusqlite 0.31.0" no longer describes `Cargo.lock`. No crate manifest gains a dependency edge (the only manifest edits are the version pins), so the layer direction is unchanged. `cargo test -p visionclaw-integration-tests --test layer_direction` was not run (no build in this pass). Decision holds.

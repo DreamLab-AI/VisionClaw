@@ -176,11 +176,18 @@ they need a named security profile before multi-tenant use.
 ### Dev-auth triple gate
 
 `Bearer dev-session-token` (arbitrary `X-Nostr-Pubkey`) is accepted **only**
-when all three hold (`auth.rs:221-260`, `dev_bypass_permitted_for_addr` `:139`,
-thin wrapper `dev_bypass_permitted` `:155`): compile-time
+when all three hold (acceptance site `auth.rs:307`, `dev_bypass_permitted_for_addr`
+`:139`, request-level gate `dev_bypass_permitted` `:164`): compile-time
 `debug_assertions`/`dev-auth` feature, runtime `DEV_AUTH_LOOPBACK=1`, **and** a
-loopback peer address. A remote attacker on a debug build cannot reach it. It is
-compiled out of release entirely.
+loopback peer address. Since `0df0fce98` (2026-11-19) the third condition is also
+checked against the forwarded client: when `X-Real-IP` or `X-Forwarded-For` is
+present, every address in it must be loopback (every hop, not only the first; an
+unparsable entry refuses), so a same-host reverse proxy such as the dev nginx on
+:3001 no longer lends its loopback peer address to a remote client. The `/wss`
+handshake uses the same gate (`http_handler.rs:423`). RFC 7239 `Forwarded` is not
+read, and a proxy that sets neither header is still indistinguishable from a local
+client. A remote attacker on a debug build cannot reach it. It is compiled out of
+release entirely.
 
 `RBAC_GATE_MODE=report` (log-only, no enforcement) similarly refuses to activate
 in release unless `RBAC_REPORT_MODE_ACK` equals today's UTC date, and logs at

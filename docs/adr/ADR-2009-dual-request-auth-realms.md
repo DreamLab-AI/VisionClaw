@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 493148a3cffd9fc3df4e98d88d3285a38ca147ec
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [src/utils/auth.rs, src/services/nostr_service.rs, src/middleware/rbac_gate.rs, client/src/services/api/authInterceptor.ts]
 owner: jjohare
 review_trigger: React client migrating to per-request NIP-98 signing, or any multi-tenant deployment where session-bearer mutations are unacceptable
@@ -172,3 +172,7 @@ Re-verified at `b4a175412`. **The Decision's second realm is conditional, and th
 ## Re-verification — 2026-10-31 (`493148a3c`)
 
 The only governed-path change since `2107637d6` is `493148a3c`: the `PROD_WS` nginx marker in `src/utils/auth.rs`'s `#[cfg(test)] mod nip98_proxy_tests` now includes `ws/presence`, matching `nginx.production.conf` after `6d412afa7`. It is a test-only change; production code and this record's decision are unchanged. `cargo test --lib` at `493148a3c` passed 1826, 0 failed. Re-run: `git diff 2107637d6..493148a3c -- src/utils/auth.rs`.
+
+## Amendment — 2026-11-20
+
+Amendment 2026-11-20, re-verified at b188b0397 (`git diff 493148a3c..b188b0397` over `src/utils/auth.rs`, `src/services/nostr_service.rs`, `client/src/services/api/authInterceptor.ts`). **A third request signer exists, and the realm order and status-code evidence above are incomplete.** ADR-2205 (amends this record) lets a browser bind one ephemeral key per session with one real signature; REST calls and `/wss` upgrades are then signed by that key, which names the principal in a signed `session` tag. `verify_access` now calls `verify_nip98_identity` (`nostr_service.rs:797`), which resolves the principal before any user is created, so the session key is never a user in its own right. Consequences for the evidence above: (1) the realm is still NIP-98 `Authorization: Nostr`, each event single-use under the same freshness window and replay cache, but the signer may be the bound key; (2) there are two new refusals besides 401 and 403: `401 session_key_expired` (`auth.rs` `session_key_expired_response`, the client re-binds once) and `403 session_key_scope` (`session_key_denied`), which bars a session key from binding keys, API-key management, non-GET `/api/admin/rbac` and the Solid proxy; (3) `getAuthHeaders` signs per request with the session key when one is bound. Unchanged: the legacy realm stays off by default, the RBAC lattice binds to the principal pubkey, `has_permission` (`auth.rs:41`) is untouched, and a missing credential is 401. Line anchors after `auth.rs:150` have moved (`verify_access` now begins at `:260`; the dev bearer is accepted at `:307`). `docs/IDENTITY-authority-chain.md` already carries the session-key section ("Browser session keys (ADR-2205)", `:95`). Decision holds as amended by ADR-2205.

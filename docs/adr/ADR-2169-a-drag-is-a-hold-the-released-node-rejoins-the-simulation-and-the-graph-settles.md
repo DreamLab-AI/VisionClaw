@@ -9,7 +9,7 @@ supersedes: []
 superseded_by: []
 amends: [ADR-2140]
 relates: [ADR-2141, ADR-2172]
-verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [src/utils/unified_gpu_compute/hold_overlay.rs, src/utils/unified_gpu_compute/execution.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, src/actors/gpu/hold_registry.rs, src/actors/gpu/force_compute_actor.rs, src/actors/physics_orchestrator_actor.rs, src/handlers/socket_flow_handler/position_updates.rs, src/handlers/socket_flow_handler/types.rs, src/handlers/layout_handler.rs, scripts/drag-physics-acceptance.mjs]
 owner: jjohare
 review_trigger: the first headset session after the server carrying this change is deployed (does the graph answer the hand, does it rest about two seconds after release), or any change to the FA2 integrator or the stored `globalSpeed`.
@@ -123,3 +123,7 @@ Governed-path change: `src/actors/gpu/force_compute_actor.rs`, where `sync_const
 ## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
 
 `force_compute_actor.rs`: two constraint sources (ontology, user), uploaded as their union (ADR-2192). Hold and release are untouched; the four `constraint_schedule_tests` pass on the device. **Decision unaffected.**
+
+## Amendment — 2026-11-20
+
+Amendment 2026-11-20, re-verified at b188b0397 (`git diff 01196ca74..b188b0397` over the governed paths). The hold rules are untouched: `HOLD_GLOBAL_SPEED` still floors with `base_global_speed.max(...)` while any node is held or settling (`force_compute_actor.rs:4891-4892`), and `hold_overlay.rs` is not in the diff. The orchestrator's re-upload gate changed from node count to a content fingerprint of nodes and edges (`graph_fingerprint`), which still skips an identical re-upload, so a drag does not trigger one. **One figure is now relative to a different default.** Item 5's measurements and the Consequences line "at `globalSpeed` 2.0 the neighbourhood moves about four times faster" were taken against the old stored default 0.4 (table: 4.5 / 10.5 / 19 units at 0.4 / 1 / 2). The default is now 1.0 (`c4c2f47e1`), so the 2.0 floor is about 1.8 times the default's response at rest, not 4 times, and it only binds when the stored value is below 2.0, which the default still is. The floor, the settle window and the unproven "rests within about 2 s" are unchanged. Not run: GPU tests.

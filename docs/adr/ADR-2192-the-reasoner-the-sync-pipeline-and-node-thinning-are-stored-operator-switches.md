@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [crates/visionclaw-domain/src/types/physics_config.rs, src/actors/gpu/ontology_constraint_actor.rs, src/actors/gpu/force_compute_actor.rs, src/actors/gpu/physics_supervisor.rs, src/actors/messages/physics_messages.rs, src/settings/models.rs, src/settings/api/settings_routes.rs, src/services/github_sync_service.rs, src/handlers/api_handler/ontology_physics/mod.rs, src/actors/client_filter.rs, src/actors/client_coordinator_actor.rs, src/handlers/api_handler/graph/mod.rs, client/src/features/control-center/registry/groups/quality.ts, client/src/features/control-center/registry/groups/motion.ts, client/src/features/ontology/components/OntologyForcesPanel.tsx]
 relates: [ADR-2140, ADR-2183, ADR-2189, ADR-2173, ADR-2071, ADR-098]
 owner: jjohare
@@ -88,3 +88,7 @@ At `01196ca74` (the merge with main that includes ADR-2191), stamped by the foll
 - `cargo test -p visionclaw-server --test corpus_local_sync`: 10 passed, 1 ignored. This includes the sync-switch test: reasoning and roots off, the purge and restore of roots, and reasoning off forgetting the closure and the stored results.
 - Client: `vitest run` gives 207 files and 1,921 tests passed; `tsc --noEmit` exits 0.
 - Not run: anything against the live stack.
+
+## Amendment — 2026-11-20
+
+Amendment 2026-11-20, re-verified at b188b0397 (`git diff 01196ca74..b188b0397` over the governed paths). The switches this record decides (`ontologyConstraintsEnabled`, `ontologyConstraintStrength`, `qualityGates.ontologyReasoning`, `materialiseInferredEdges`, `nodeFilter`) and their wiring are intact. **The statement of what the constraint switch governs is incomplete.** Since `06f78f2d4` (ADR-2204 D5) `constraint_axioms` (`src/physics/ontology_constraint_mapper.rs:166`) passes every asserted axiom and only those inferred axioms that do not attract: the Whelk `subClassOf`/`partOf` closure no longer reaches the constraint mapper even with reasoning on (inferred `disjointWith`/`sameAs` still do), and sibling alignment is deleted. Where this record says the layout loses "only the inferred ones" when reasoning is off, with reasoning on it now also loses the inferred attracting ones. Constraints are addressed by compact node id (`5407bd48c`, `map_to_live_constraints`). Other diffs: the node cap and the sync switches in `github_sync_service.rs` now read relation weights and the fan-out bound from the schema (`FANOUT_NODE_THRESHOLD` is still read, now through `relations.yaml`); `graph/mod.rs` gains the boot-readiness 503. The control-centre `scalingRatio` slider floor falls to 0.01 and two hull toggles are added (`motion.ts`, `quality.ts`). Decision holds. Not run: cargo, vitest.
