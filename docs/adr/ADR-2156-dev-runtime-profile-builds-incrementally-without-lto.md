@@ -101,6 +101,6 @@ changes. `verified_commit` is bumped on that basis.
 
 Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `Cargo.toml` gains the path dependency `visionclaw-backup = { path = "crates/visionclaw-backup" }` and a comment line (two lines, after the `visionclaw-ontology` entry); `Cargo.lock` gains one dependency line for the root package and no registry package. Line numbers after `:57` of `Cargo.toml` move down by two. No profile or lint setting changes (`[profile.dev]` anchors move down by two lines). The decision holds. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.
 
-## Re-verification — 2026-11-20
+## Amendment — 2026-11-20
 
 Re-verified 2026-11-20 at b188b0397: `git diff 5db8ccf30..b188b0397 -- Cargo.toml` is two lines, `rusqlite` 0.31 to 0.43 and `tokio-rusqlite` 0.5 to 0.10. The `[profile.dev]` settings and the incremental, no-LTO build this record decides are untouched. The dated note above that says the crate "reuses oxigraph 0.4.11 and rusqlite 0.31.0" described `Cargo.lock` at its date; the lock now holds `rusqlite 0.43.0`. Decision holds.
