@@ -1,14 +1,14 @@
 {
   "version": "2.0",
   "generatedFrom": "settingsRegistry.ts",
-  "count": 251,
+  "count": 253,
   "groups": [
     {
       "id": "layers",
       "label": "Layers",
       "testid": "group-layers",
       "hotkey": "1",
-      "fieldCount": 14
+      "fieldCount": 16
     },
     {
       "id": "explore",
@@ -250,6 +250,32 @@
       "subgroup": "Cluster hulls",
       "scope": "server",
       "label": "Community Hull Fallback",
+      "clientOnly": false,
+      "server": "visual"
+    },
+    {
+      "key": "clusterHullLabels",
+      "path": "visualisation.clusterHulls.labelsEnabled",
+      "testid": "setting-visualisation.clusterHulls.labelsEnabled",
+      "control": "toggle",
+      "group": "layers",
+      "sourceGroup": "quality",
+      "subgroup": "Cluster hulls",
+      "scope": "server",
+      "label": "Community Labels",
+      "clientOnly": false,
+      "server": "visual"
+    },
+    {
+      "key": "clusterHullBridges",
+      "path": "visualisation.clusterHulls.bridgesEnabled",
+      "testid": "setting-visualisation.clusterHulls.bridgesEnabled",
+      "control": "toggle",
+      "group": "layers",
+      "sourceGroup": "quality",
+      "subgroup": "Cluster hulls",
+      "scope": "server",
+      "label": "Highlight Bridges",
       "clientOnly": false,
       "server": "visual"
     },
@@ -1339,9 +1365,9 @@
       "label": "FA2 Scaling Ratio",
       "clientOnly": false,
       "server": "physics",
-      "min": 0.5,
+      "min": 0.01,
       "max": 100,
-      "step": 0.5
+      "step": 0.01
     },
     {
       "key": "adaptiveSpeed",

@@ -22,6 +22,7 @@ pub mod pagerank_handlers;
 // New submodules from split
 mod anomaly_handlers;
 mod clustering_handlers;
+mod community_labels_handlers;
 mod cycles_handlers;
 mod feature_flags_handlers;
 pub(crate) mod gpu_routes;
@@ -284,6 +285,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .route("/insights/realtime", web::get().to(get_realtime_insights))
             .route("/sssp/status", web::get().to(get_sssp_status))
             .route("/cycles", web::get().to(cycles_handlers::get_cycles))
+            .route(
+                "/communities/labels",
+                web::get().to(community_labels_handlers::get_community_labels),
+            )
             .route(
                 "/stress-majorization/stats",
                 web::get().to(get_stress_majorization_stats),

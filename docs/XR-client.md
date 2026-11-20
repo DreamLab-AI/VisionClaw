@@ -964,6 +964,15 @@ owner and GraphScene forwards it two hooks (`handle_control`, `route_text`).
   `requestInitialData`, held to the server's 30 s per-connection cooldown
   (`position_updates.rs:382`) so the last change is never dropped. Receipt never
   writes back; writes stay on the HUD-press NIP-98 path (Invariant 6).
+- **Community core hulls and labels (ADR-2206, not yet in XR).** The desktop now
+  draws a community hull around its *core* members only (`coreIds` from
+  `GET /api/analytics/communities/labels`) and names it at the core centroid.
+  XR keeps the `cluster_id` / `communityFallback` rules below until a follow-up:
+  it would fetch the same endpoint, take centroids from its 3,000-node subset
+  (core members absent from the subset are skipped; a community with fewer than
+  four resident core members gets a label chip only), and draw each label as one
+  billboard from the existing label budget. Nothing in the endpoint is
+  desktop-specific.
 - **Cluster hulls.** `hulls.rs` follows `ClusterHulls.tsx`: group by
   `cluster_id` (V3 offset 36) when any node has one, otherwise — only in
   *Communities* mode, the desktop's opt-in `communityFallback` — by Louvain

@@ -121,6 +121,20 @@
               "scope": "server"
             },
             {
+              "key": "clusterHullLabels",
+              "label": "Community Labels",
+              "path": "visualisation.clusterHulls.labelsEnabled",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
+              "key": "clusterHullBridges",
+              "label": "Highlight Bridges",
+              "path": "visualisation.clusterHulls.bridgesEnabled",
+              "control": "toggle",
+              "scope": "server"
+            },
+            {
               "key": "clusterHullSpatialFallback",
               "label": "Spatial Hull Fallback",
               "path": "visualisation.clusterHulls.spatialFallback",

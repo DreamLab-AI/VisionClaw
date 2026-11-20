@@ -6,6 +6,14 @@ import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js'
 import { nodeAnalyticsStore } from '../../analytics/store/nodeAnalyticsStore';
 import { ANALYTICS_STRIDE, ANALYTICS_CLUSTER_OFFSET, ANALYTICS_COMMUNITY_OFFSET } from '../../analytics/analyticsLayout';
 import { communityHsl } from '../state/analyticColours';
+import { Html } from '@react-three/drei';
+import { writeEmphasis } from '../explore/filterRegistry';
+import { HIGHLIGHT_SEARCH_HIT } from '../state/highlightMask';
+import {
+  acceptLabels, centroidOf, domainMixLine, fetchCommunityLabels, localCommunityCounts,
+  partitionSignature, planCommunityLayers, stableHslFor,
+  type CommunityLabelEntry, type CommunityLabelsResponse,
+} from '../utils/communityLabels';
 
 // ============================================================================
 // Types
@@ -34,6 +42,12 @@ const TICK_INTERVAL = 30;
 // hulls — opaque mush, not inspectable. Cap to the N largest communities so
 // distinct regions stay legible in 3D. Overridable via clusterHulls.maxHulls.
 const DEFAULT_MAX_HULLS = 32;
+
+// ADR-2206: refetch the community labels at most this often when the partition
+// the client holds changes, and as a slow heartbeat otherwise.
+const LABEL_REFETCH_MIN_MS = 5_000;
+const LABEL_HEARTBEAT_MS = 60_000;
+const BRIDGE_SOURCE = 'emph:community-bridges';
 
 // Spatial-clustering target bucket count when no server cluster_id exists.
 // Over-provisioned vs maxHulls so the N largest occupied cells are dense and
@@ -213,6 +227,11 @@ export const ClusterHulls: React.FC<ClusterHullsProps> = ({
   const frameCounter = useRef(0);
   const [tick, setTick] = useState(0);
   const analyticsRef = useRef<Float32Array | null>(null);
+  // ADR-2206: server labels for the detection run the client holds.
+  const [labels, setLabels] = useState<CommunityLabelsResponse | null>(null);
+  const lastFetch = useRef<{ at: number; signature: string }>({ at: 0, signature: '' });
+  const labelsEnabled = settings?.visualisation?.clusterHulls?.labelsEnabled ?? true;
+  const bridgesEnabled = settings?.visualisation?.clusterHulls?.bridgesEnabled ?? false;
 
   // ---- Early exit if feature is disabled ----
   // ADR-2189 merge A: hulls follow visualisation.clusterHulls.enabled only
@@ -243,6 +262,33 @@ export const ClusterHulls: React.FC<ClusterHullsProps> = ({
       setTick((t) => t + 1);
     }
   });
+
+  // ---- ADR-2206: community counts the client holds, and the label fetch ----
+  const localCounts = useMemo(() => {
+    const a = analyticsRef.current;
+    if (!a) return new Map<number, number>();
+    return localCommunityCounts(nodes.length, (i) => {
+      const idx = nodeIdToIndexMap.get(nodes[i].id);
+      return idx === undefined ? 0 : a[idx * ANALYTICS_STRIDE + ANALYTICS_COMMUNITY_OFFSET];
+    });
+    // tick drives periodic recomputation (analyticsRef is a ref)
+  }, [nodes, nodeIdToIndexMap, tick]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const signature = partitionSignature(localCounts);
+    if (!signature) return;
+    const now = Date.now();
+    const changed = signature !== lastFetch.current.signature;
+    const due = now - lastFetch.current.at >= (changed ? LABEL_REFETCH_MIN_MS : LABEL_HEARTBEAT_MS);
+    if (!due) return;
+    lastFetch.current = { at: now, signature };
+    let alive = true;
+    fetchCommunityLabels().then((r) => { if (alive) setLabels((cur) => acceptLabels(cur, r)); });
+    return () => { alive = false; };
+  }, [enabled, localCounts]);
+
+  const layers = useMemo(() => planCommunityLayers(labels, localCounts), [labels, localCounts]);
 
   // ---- Group nodes into clusters ----
   // ADR-031 D6: the hull layer renders ONLY server-provided clusters by default.
@@ -291,6 +337,19 @@ export const ClusterHulls: React.FC<ClusterHullsProps> = ({
       return { map, colorByKey };
     }
 
+    // ADR-2206: community hulls draw CORE members only (the server's `coreIds`),
+    // coloured by the run-independent stableId. Server cluster_id still wins above;
+    // the all-member community hull below stays an opt-in legacy tier.
+    if (layers.hulls.length > 0) {
+      for (const e of layers.hulls) {
+        const key = `community-core-${e.communityId}`;
+        map.set(key, e.coreIds.map(String));
+        _communityHullColor.setHSL(...stableHslFor(e));
+        colorByKey.set(key, `#${_communityHullColor.getHexString()}`);
+      }
+      return { map, colorByKey };
+    }
+
     // ADR-031 D6: no DBSCAN cluster_id, but the live graph carries Louvain
     // community_id. Community_id is real server structure, but Louvain optimises
     // graph modularity, not spatial locality — a community's members scatter
@@ -335,7 +394,7 @@ export const ClusterHulls: React.FC<ClusterHullsProps> = ({
     // Spatial clusters carry no semantic key; hullEntries colours them by rank.
     return { map: buildSpatialClusters(pts, SPATIAL_TARGET_CELLS), colorByKey };
     // Deps intentionally narrowed; react-hooks/exhaustive-deps is not enforced in this config.
-  }, [nodes, nodeIdToIndexMap, nodePositionsRef, tick, settings?.visualisation?.clusterHulls?.spatialFallback, settings?.visualisation?.clusterHulls?.communityFallback]);
+  }, [nodes, nodeIdToIndexMap, nodePositionsRef, tick, settings?.visualisation?.clusterHulls?.spatialFallback, settings?.visualisation?.clusterHulls?.communityFallback, layers]);
 
   // ---- Build hull geometries from current positions ----
   const hullEntries = useMemo(() => {
@@ -410,6 +469,52 @@ export const ClusterHulls: React.FC<ClusterHullsProps> = ({
     };
   }, [hullEntries]);
 
+  // ---- ADR-2206: label anchors (core centroid for hulls, member centroid for chips) ----
+  const labelAnchors = useMemo(() => {
+    if (!enabled || !labelsEnabled) return [] as Array<{ entry: CommunityLabelEntry; at: [number, number, number] }>;
+    const positions = nodePositionsRef.current;
+    if (!positions || layers.stale > 0 && layers.hulls.length + layers.chips.length === 0) return [];
+    const members = new Map<number, string[]>();
+    const chipIds = new Set(layers.chips.map((c) => c.communityId));
+    const a = analyticsRef.current;
+    if (a && chipIds.size > 0) {
+      for (const n of nodes) {
+        const idx = nodeIdToIndexMap.get(n.id);
+        if (idx === undefined) continue;
+        const c = a[idx * ANALYTICS_STRIDE + ANALYTICS_COMMUNITY_OFFSET];
+        if (chipIds.has(c)) { const arr = members.get(c); if (arr) arr.push(n.id); else members.set(c, [n.id]); }
+      }
+    }
+    const out: Array<{ entry: CommunityLabelEntry; at: [number, number, number] }> = [];
+    for (const e of [...layers.hulls, ...layers.chips]) {
+      if (!e.label) continue;
+      const ids = e.hasHull && e.coreIds.length > 0 ? e.coreIds.map(String) : (members.get(e.communityId) ?? []);
+      const at = centroidOf(ids, positions, (id) => nodeIdToIndexMap.get(id));
+      if (at) out.push({ entry: e, at });
+    }
+    return out;
+    // tick drives periodic recomputation
+  }, [enabled, labelsEnabled, layers, nodes, nodeIdToIndexMap, nodePositionsRef, tick]);
+
+  // ---- ADR-2206: bridges = wire members of a hulled community outside its core ----
+  useEffect(() => {
+    if (!enabled || !bridgesEnabled) { writeEmphasis(BRIDGE_SOURCE, HIGHLIGHT_SEARCH_HIT, null); return; }
+    const a = analyticsRef.current;
+    if (!a) return;
+    const core = new Map<number, Set<string>>();
+    for (const e of layers.hulls) core.set(e.communityId, new Set(e.coreIds.map(String)));
+    const ids: string[] = [];
+    for (const n of nodes) {
+      const idx = nodeIdToIndexMap.get(n.id);
+      if (idx === undefined) continue;
+      const c = a[idx * ANALYTICS_STRIDE + ANALYTICS_COMMUNITY_OFFSET];
+      const set = core.get(c);
+      if (set && !set.has(n.id)) ids.push(n.id);
+    }
+    writeEmphasis(BRIDGE_SOURCE, HIGHLIGHT_SEARCH_HIT, ids);
+    return () => { writeEmphasis(BRIDGE_SOURCE, HIGHLIGHT_SEARCH_HIT, null); };
+  }, [enabled, bridgesEnabled, layers, nodes, nodeIdToIndexMap, tick]);
+
   if (!enabled) return null;
 
   return (
@@ -429,6 +534,18 @@ export const ClusterHulls: React.FC<ClusterHullsProps> = ({
           />
         </mesh>
       ))}
+      {labelAnchors.map(({ entry, at }) => {
+        _communityHullColor.setHSL(...stableHslFor(entry));
+        const colour = `#${_communityHullColor.getHexString()}`;
+        return (
+          <Html key={`label-${entry.communityId}`} position={at} center distanceFactor={400} zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
+            <div data-testid="community-label" style={{ color: colour, textAlign: 'center', whiteSpace: 'nowrap', textShadow: '0 0 4px #000', font: '600 13px system-ui, sans-serif' }}>
+              {entry.label}
+              <div style={{ font: '400 10px system-ui, sans-serif', opacity: 0.85 }}>{domainMixLine(entry)}</div>
+            </div>
+          </Html>
+        );
+      })}
     </group>
   );
 };

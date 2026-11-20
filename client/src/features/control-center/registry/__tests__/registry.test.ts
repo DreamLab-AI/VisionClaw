@@ -22,7 +22,7 @@ const EXPECTED_GROUP_COUNTS: Record<string, number> = {
   motion: 86, // + the two stored ontology-constraint keys (ADR-2192)
   look: 23,
   labels: 6, // Label Draw Distance retired (ADR-2186: no distance cull)
-  quality: 33, // RuVector Integration removed (dead, settings audit 2026-11-06); + Max Nodes, Nodes Shown and the three Ontology Pipeline switches (ADR-2192)
+  quality: 35, // RuVector Integration removed (dead, settings audit 2026-11-06); + Max Nodes, Nodes Shown and the three Ontology Pipeline switches (ADR-2192)
   atmosphere: 32,
   ai: 2,
   system: 17, // Auth Enabled / Auth Required removed (dead)
@@ -33,7 +33,7 @@ const EXPECTED_GROUP_COUNTS: Record<string, number> = {
 
 /** Fields per SECTION (ADR-2189): what the rail, the dock and hotkeys 1..7 open. */
 const EXPECTED_SECTION_COUNTS: Record<string, number> = {
-  layers: 14,
+  layers: 16, // + Community Labels and Highlight Bridges (ADR-2206)
   explore: 30, // + Max Nodes and Nodes Shown (ADR-2192)
   encode: 18, // Label Draw Distance retired (ADR-2186); edge width, opacity and the three mode colours moved to Look › Edges
   layout: 82, // + Reasoner Constraints and their strength (ADR-2192)
@@ -175,7 +175,12 @@ const LEGACY_REMOVED = ADR_2189_REMOVED_PATHS.filter((p) =>
  * Paths a merge added (ADR-2189 §6 "Merge"): the generic knowledge edge colour
  * became agent mode's own edge colour, so every graph mode has exactly one.
  */
-const MERGE_ADDED_PATHS: string[] = ['visualisation.graphTypeVisuals.agent.edgeColor'];
+const MERGE_ADDED_PATHS: string[] = [
+  'visualisation.graphTypeVisuals.agent.edgeColor',
+  // ADR-2206: community labels and bridge highlighting (post-baseline, not in the frozen legacy contract).
+  'visualisation.clusterHulls.labelsEnabled',
+  'visualisation.clusterHulls.bridgesEnabled',
+];
 
 const TOTAL_FIELDS =
   168 - RETIRED_PATHS.length - LEGACY_REMOVED.length + EXPECTED_GROUP_COUNTS.agents + EXPECTED_GROUP_COUNTS.provenance

@@ -171,6 +171,9 @@ export const DEFAULT_CLUSTER_HULLS = {
   // into a blob. The honest default community signal is per-node colour
   // (nodes.colorScheme: 'community'); enable this only when you want the volumes.
   communityFallback: false,
+  // ADR-2206: labels at community core centroids (on); bridge highlighting (off).
+  labelsEnabled: true,
+  bridgesEnabled: false,
 };
 
 // ADR-031 D6: ship qualityGates defaults so correct server analytics render by

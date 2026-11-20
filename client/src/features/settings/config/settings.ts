@@ -540,6 +540,10 @@ export interface ClusterHullSettings {
   // cluster_id. Default off — community_id is real but spatially dispersed, so
   // its hulls overlap; the clean community signal is per-node colour.
   communityFallback?: boolean;
+  // ADR-2206: billboard label (terms + domain mix) at each community core centroid. Default on.
+  labelsEnabled?: boolean;
+  // ADR-2206: highlight community members outside their core (bridges). Default off.
+  bridgesEnabled?: boolean;
 }
 
 // Embedding cloud layer settings (live RuVector memory cloud + query trajectory explorer)

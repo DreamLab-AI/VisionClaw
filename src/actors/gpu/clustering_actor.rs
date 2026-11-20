@@ -469,7 +469,17 @@ impl ClusteringActor {
                 })
                 .collect();
             if let Ok(mut map) = analytics_map.write() {
-                if apply_modularity_gate(&mut map, &node_ids, &node_labels, modularity) {
+                let accepted = apply_modularity_gate(&mut map, &node_ids, &node_labels, modularity);
+                // ADR-2206: record the run as the wire now carries it (post-gate ids), so
+                // communities keep a stable identity and clients can tell runs apart.
+                let published: Vec<(u32, u32)> = node_ids
+                    .iter()
+                    .map(|&id| (id, map.get(&id).map_or(0, |a| a.community_id)))
+                    .collect();
+                if let Ok(mut reg) = crate::services::community_labels::registry().lock() {
+                    reg.observe(&published);
+                }
+                if accepted {
                     info!(
                         "ClusteringActor: Populated node_analytics with community assignments for {} nodes (modularity {:.4})",
                         node_labels.len(), modularity

@@ -53,6 +53,7 @@ pub mod ontology_enrichment_service;
 pub mod ontology_generation;
 pub mod ontology_mutation_service;
 pub mod ontology_pull;
+pub mod community_labels;
 pub mod ontology_query_service;
 pub mod ontology_reasoner;
 pub mod ontology_view_reasoner;
