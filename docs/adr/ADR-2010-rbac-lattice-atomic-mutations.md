@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []                   # legacy ADR-142/ADR-094 distilled — not in this tree; see lineage
 superseded_by: []
-verified_commit: 493148a3cffd9fc3df4e98d88d3285a38ca147ec
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [src/models/rbac.rs, src/services/role_store.rs, src/utils/auth.rs, src/handlers/admin_rbac_handler.rs, tests/rbac_concurrent_mutation_http_test.rs]
 owner: jjohare
 review_trigger: adoption of a multi-user-locked deployment, or any change to default_authenticated() or the last-Owner guard
@@ -213,3 +213,7 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-31 (`493148a3c`)
 
 The only governed-path change since `685bc974c` is `493148a3c`: the `PROD_WS` nginx marker in `src/utils/auth.rs`'s `#[cfg(test)] mod nip98_proxy_tests` now includes `ws/presence`, matching `nginx.production.conf` after `6d412afa7`. It is a test-only change; production code and this record's decision are unchanged. `cargo test --lib` at `493148a3c` passed 1826, 0 failed. Re-run: `git diff 685bc974c..493148a3c -- src/utils/auth.rs`.
+
+## Amendment — 2026-11-20
+
+Amendment 2026-11-20, re-verified at b188b0397 (`git diff 493148a3c..b188b0397 -- src/services/role_store.rs src/utils/auth.rs`). `role_store.rs` changed only for the `rusqlite` 0.31 to 0.43 / `tokio-rusqlite` 0.5 to 0.10 upgrade: every `Connection::call` closure, including the two that open a transaction (`assign_checked`, closure at `:419`; `remove_checked`, closure at `:509`), gained `-> rusqlite::Result<_>` and nothing else (14 one-line changes, no statement, no `c.transaction()` boundary, no `TxOutcome` fold). The caller's authority is still re-read inside the same transaction, so the atomicity claim holds. `auth.rs` gains the ADR-2205 session-key scope refusal, which bears on this record's surface: a request signed by a bound session key is refused `403 session_key_scope` on every non-GET under `/api/admin/rbac` (`session_key_denied`), whatever the principal's own level, so role mutation needs the account's real signer. `resolve_access_level` (`auth.rs:60`) and `has_permission` are unmoved. Decision holds.

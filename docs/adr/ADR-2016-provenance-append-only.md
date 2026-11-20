@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: c143ef890a5273ae708fdfa0f52d4724c418b2b9
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [src/services/data_reconciliation.rs, crates/visionclaw-adapters/src/provenance_emitter.rs, crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs, src/services/ontology_mutation_service.rs]
 owner: jjohare
 review_trigger: a GDPR/right-to-erasure obligation landing on provenance-recorded subjects, or introduction of a redaction/crypto-shred mechanism
@@ -261,3 +261,7 @@ None of these writes to `GRAPH_PROVENANCE`. No `DELETE`, `DROP` or `CLEAR` names
 Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `src/services/data_reconciliation.rs` changed only inside `checkpoint_oxigraph`, which now delegates to `visionclaw_backup::checkpoint::write` and returns the store directory of the new checkpoint. No DELETE, DROP or CLEAR is added against the provenance graph; the checkpoint only reads, and the existing source-loss restore test still passes. The append-only decision holds. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.
 
 Re-verified 2026-11-17 at c143ef890: `oxigraph_ontology_repository.rs`: `clear_derived_graph` issues `CLEAR SILENT GRAPH` (was `CLEAR GRAPH`) on the `summary`/`observed` derived graphs only, never on `GRAPH_PROVENANCE`; this record makes no claim about it.
+
+## Re-verification — 2026-11-20
+
+Re-verified 2026-11-20 at b188b0397: `git diff c143ef890..b188b0397 -- crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs`. The change is read-only: the inferred-graph read becomes paged (`read_inferred_graph_page`, `DEFAULT_INFERRED_PAGE` 500, `MAX_INFERRED_PAGE` 2000, and `read_inferred_graph_all`) over `urn:ngm:graph:ontology:inferred`, plus an `OWL_DISJOINT_WITH` constant. Grepping the added and removed lines for `DELETE`, `CLEAR`, `DROP` and `PROVENANCE` finds nothing, so nothing writes to or clears `GRAPH_PROVENANCE`. Append-only holds.

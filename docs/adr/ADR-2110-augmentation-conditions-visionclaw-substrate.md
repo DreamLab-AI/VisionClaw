@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: c143ef890a5273ae708fdfa0f52d4724c418b2b9
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [src/services/intent_match.rs, src/services/kpi_compute.rs, src/actors/elevation_actor.rs, src/adapters/sqlite_kpi_repository.rs, src/adapters/sqlite_enrichment_repository.rs, src/handlers/broker_inbox_handler.rs, client/src/features/control-center/governance/brokerCaseQueue.ts, client/src/features/control-center/governance/AcspCaseQueue.tsx]
 owner: jjohare
 review_trigger: The forum half of EXP-AC-002/004/006 landing, or the first live case queue with real decided cases
@@ -365,3 +365,7 @@ Governed-path changes since `c75004696`:
 **Decision unaffected.** Re-run: `git diff c75004696..7bd25427e -- <verified_paths>`. Checked by reading that diff; no test was re-run for this stamp.
 
 Re-verified 2026-11-17 at c143ef890: `elevation_actor.rs` (a forum-contract test only) and `sqlite_enrichment_repository.rs` (a read-only `committed_writebacks` query for the regenerate replay); this record makes no claim about it.
+
+## Re-verification — 2026-11-20
+
+Re-verified 2026-11-20 at b188b0397: `git diff c143ef890..b188b0397 -- src/actors/elevation_actor.rs src/adapters/sqlite_enrichment_repository.rs src/adapters/sqlite_kpi_repository.rs`. `elevation_actor.rs` adds `provenance: None` to one test fixture `Edge`. The two repositories change only for the `rusqlite` 0.43 / `tokio-rusqlite` 0.10 upgrade (closure return type, generic `map_db_err`); no query, schema or constraint changes. Decision holds.

@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158, ADR-2166]
-verified_commit: f6fcca7e80f844a914ead0170c64ebf07017870a
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [xr-client/scripts/graph_scene.gd, xr-client/scripts/spatial_environment.gd, xr-client/scripts/backend_connection.gd, xr-client/scripts/connection_volume_source.gd, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs, xr-client/materials/edge_flow_common.gdshaderinc, xr-client/materials/edge_flow.tres]
 owner: jjohare
 review_trigger: the first headset session grabbing in the Ontology volume and inside an entered room (reach, depth feel, two-hand comfort); or the server's drag-release unpin (stream GS) merging
@@ -138,3 +138,7 @@ The grab model is untouched:
 - `send_drag_end` (`backend_connection.gd:348`) still records no pin.
 
 **Decision unaffected; status stays `partial`/`inactive`.** Re-run: `git diff 7bd25427e..f6fcca7e8 -- <verified_paths>`; `f6fcca7e8` itself only corrects two `graph_scene.gd` comments (`_topo_ids` sizes the HUD's node readout, not a draw domain). Checked by reading that diff; `scripts/xr-gate.sh` passed at `f6fcca7e8` (both XR crates' fmt, clippy and tests; headless Godot 4.8-beta2 parse check and GUT, 676 of 679 passing, 3 pending for want of a GL renderer).
+
+## Re-verification — 2026-11-20
+
+Re-verified 2026-11-20 at b188b0397: `git diff f6fcca7e8..b188b0397 -- xr-client/scripts/graph_scene.gd` removes the unused `GRAPH_REFIT_SETTLE_SEC` constant and rewrites one comment (fit lives in `spatial_volume.gd`). The grab path, the pinned-node refit exclusion (F1) and the cited `:311`, `:313`, `:3022`, `:3764`, `:3771` anchors are untouched in logic; anchors below `:58` read two lines lower than stated. Decision holds.

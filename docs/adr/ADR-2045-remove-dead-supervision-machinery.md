@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [src/actors/mod.rs, src/actors/graph_service_supervisor.rs, crates/visionclaw-actors/src/supervisor.rs, tests/orchestration_improvements_test.rs]
 owner: jjohare
 review_trigger: a new supervision requirement that GraphServiceSupervisor cannot express
@@ -224,3 +224,7 @@ Governed diff `d38d430e6..b4a175412` adds only unrelated lines (`src/actors/mod.
 `15acb9219` re-targets the `UpdateBotsGraph` and `GetBotsGraphData` forwarding in `graph_service_supervisor.rs`. It used to go to `GraphStateActor` and now goes to `AgentBeamActor` (the real-agent feed, ADR-2142 amendment). It also adds `SetAgentBeamAddr` and a mod export. It does not touch `parent_supervisor`, `SetParentSupervisor` or the `Escalate` branch, so the coupling this record leaves for follow-up is unchanged. The decision holds unchanged.
 
 Governed-path change (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `src/actors/mod.rs` drops the `protected_settings_actor` module (dead: started, never addressed in production). No supervision machinery returns. **Decision unaffected.**
+
+## Re-verification — 2026-11-20
+
+Re-verified 2026-11-20 at b188b0397: `git diff b5200feb4..b188b0397 -- src/actors/graph_service_supervisor.rs src/actors/mod.rs`. `mod.rs` gains `pub mod graph_readiness;`; the supervisor gains a `readiness` field, `with_readiness` and hands the gate to `GraphStateActor` at start. No removed supervision machinery returns (the `Escalate` branch and the deleted re-exports are not touched), and the follow-up this record records for the supervisor is neither advanced nor undone. Decision holds.

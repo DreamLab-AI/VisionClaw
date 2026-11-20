@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: [ADR-2014]
 superseded_by: [ADR-2112]
-verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [crates/visionclaw-domain/src/vault/mod.rs, crates/visionclaw-domain/src/vault/link.rs, src/services/file_service.rs, src/services/github_sync_service.rs, src/services/parsers/knowledge_graph_parser.rs, src/services/github/content_enhanced.rs, src/services/ontology_mutation_service.rs, src/services/decision_elevation.rs, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: "the first GitHub sync run after the corpus repo is converted in place, or 2026-12-01, whichever is earlier — at which point the Logseq `key:: value` tolerance is removed"
@@ -225,3 +225,7 @@ Governed-path change: `src/services/github_sync_service.rs` (ADR-2192 sync switc
 ## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
 
 `github_sync_service.rs`: `forget_inference` (ADR-2192). The frontmatter gate is untouched. **Decision unaffected.**
+
+## Amendment — 2026-11-20
+
+Amendment 2026-11-20, re-verified at b188b0397 (`git diff 01196ca74..b188b0397 -- src/services/github_sync_service.rs src/services/file_service.rs src/services/parsers/knowledge_graph_parser.rs`). The gate still holds, **but the line anchors in the "Still true" bullet no longer land.** The sync rewrite (ADR-2204 S2, about 60 lines of predicate constants removed from the top of the file) moved everything down. Current anchors: `page_is_kg_included` helper `github_sync_service.rs:2455` (cited `:2098`) and its three call sites at `:1978`, `:2001` and `:2203` (`process_plain_vault_file`; cited two, `:1682` and `:1864`); `file_service.rs` helper `:776-777` and call sites `:384` and `:685` (cited `:684`, `:776`). Each of the two earlier call sites still calls the gate; the third is the plain-vault path. The added code in these files only sets the wikilink edge weight and label from the relation schema (`Producer::Wikilink`) and records `provenance: Asserted`. Decision holds.

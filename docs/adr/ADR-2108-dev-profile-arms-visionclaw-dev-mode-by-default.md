@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2039]
-verified_commit: c143ef890a5273ae708fdfa0f52d4724c418b2b9
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [docker-compose.unified.yml, src/utils/auth.rs, src/settings/auth_extractor.rs, xr-client/scripts/graph_scene.gd, xr-client/scripts/hud.gd]
 owner: jjohare
 review_trigger: any change to the dev compose environment block, dev_full_bypass_active, enforce_release_env_hygiene, or the XR client's _auth_headers / _on_physics_completed
@@ -91,3 +91,7 @@ The owner said: "Yes: the Cloudflare tunnel may stay down. The Trust box is LAN-
 ## Superseded — 2026-11-17 (owner ruling, 2026-11-16)
 
 On 16 November 2026 the owner accepted ADR-2039 as amended and ruled that this record is superseded by it: the dev bypass is off unless the operator sets `VISIONCLAW_DEV_MODE=1`, and the dev service's ports bind to loopback unless the operator sets `VISIONCLAW_BIND`. Decision 1 above (the `:-1` default) is reversed on `main` (`docker-compose.unified.yml:126` reads `:-0`; lines 247-248 bind `${VISIONCLAW_BIND:-127.0.0.1}`; merge `c888bf83f`). Decision 2 (the XR client's write-failure notice) is not reversed. Residue: a dev container started before that change still runs armed; it needs recreating. The original text above is unchanged.
+
+## Re-verification — 2026-11-20
+
+Re-verified 2026-11-20 at b188b0397 (record superseded by ADR-2039; note only): `git diff c143ef890..b188b0397 -- src/utils/auth.rs xr-client/scripts/graph_scene.gd`. `auth.rs` gains the proxy-hop check and ADR-2205 session-key scope; `graph_scene.gd` loses an unused constant. Neither touches `dev_full_bypass_respects_env_flag` or the default this record once set; the arming default is ADR-2039's.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: c143ef890a5273ae708fdfa0f52d4724c418b2b9
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [crates/vault-core/src/consistency.rs, crates/vault-core/src/lib.rs, crates/vault/src/model.rs, crates/vault/src/build/turtle.rs, crates/vault/src/whelk.rs, crates/vault/src/validate.rs, crates/vault/src/build/mod.rs, crates/vault/src/propose.rs, crates/vault/tests/probe_consistency.rs, src/actors/elevation_actor.rs]
 owner: jjohare
 review_trigger: the `disjoint-with` key entering ontology/vocabulary.yaml; any proposal to re-enable domain-root disjointness; a WHELK_INCONSISTENT blocker firing on a real proposal
@@ -99,3 +99,7 @@ ontomark-parse 0.1.4: 520 passed, 5 existing diagnostics ignored. The source
 review contract is recorded in VisionFlow ADR-2024 and Ontomark ADR-OM-013.
 
 Re-verified 2026-11-17 at c143ef890: `elevation_actor.rs`: one forum-contract test added in `mod tests`; the consistency gate and its probes are untouched; this record makes no claim about it.
+
+## Re-verification — 2026-11-20
+
+Re-verified 2026-11-20 at b188b0397: `git diff c143ef890..b188b0397 -- src/actors/elevation_actor.rs` is one added line, `provenance: None` in a test fixture `Edge` (`:1969`). The Whelk consistency gate this record proves armed is untouched. Decision holds.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []                   # legacy ADR-011/ADR-142 distilled — not in this tree; see lineage
 superseded_by: []
-verified_commit: 493148a3cffd9fc3df4e98d88d3285a38ca147ec
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [src/middleware/rbac_gate.rs, src/utils/auth.rs]
 owner: jjohare
 review_trigger: addition of an /api sub-scope with a distinct auth requirement, or any change to the public-prefix allowlist
@@ -160,3 +160,7 @@ matching or level-mapping logic changed.** `src/utils/auth.rs` is unchanged.
 ## Re-verification — 2026-10-31 (`493148a3c`)
 
 The only governed-path change since `4024ac777` is `493148a3c`: the `PROD_WS` nginx marker in `src/utils/auth.rs`'s `#[cfg(test)] mod nip98_proxy_tests` now includes `ws/presence`, matching `nginx.production.conf` after `6d412afa7`. It is a test-only change; production code and this record's decision are unchanged. `cargo test --lib` at `493148a3c` passed 1826, 0 failed. Re-run: `git diff 4024ac777..493148a3c -- src/utils/auth.rs`.
+
+## Amendment — 2026-11-20
+
+Amendment 2026-11-20, re-verified at b188b0397 (`git diff 493148a3c..b188b0397 -- src/utils/auth.rs`). `RbacGate` still sends every non-public `/api` request through `verify_access`, and the level lattice (`has_permission`, `auth.rs:41`) is untouched. **The gate is no longer the only place a route is refused on who signed.** ADR-2205 adds `session_key_denied(method, routed_path)` inside `verify_access` (on both the reused-identity path and the fresh NIP-98 path): a request signed by a bound browser session key is refused `403 session_key_scope` for binding keys, API-key management and non-GET `/api/admin/rbac`, regardless of the principal's level. It is segment-aware over the router-decoded path, like the gate. Anything that reads "the gate decides every refusal" in this record should be read with that second, signer-scoped refusal in mind. Decision holds.

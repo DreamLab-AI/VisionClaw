@@ -9,7 +9,7 @@ supersedes: []
 superseded_by: []
 amends: [ADR-2140]
 relates: [ADR-2028, ADR-2029, ADR-2143, ADR-2169, ADR-2173]
-verified_commit: 01196ca74206359e715febfed56e77fc6d1affc2
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [src/adapters/sqlite_settings_repository.rs, src/handlers/api_handler/analytics/pathfinding.rs, scripts/gpu-physics-gate.sh, crates/visionclaw-gpu/tests/force_kernel_baseline/harness.rs, src/utils/unified_gpu_compute/buffers.rs, src/utils/unified_gpu_compute/construction.rs, src/utils/unified_gpu_compute/memory.rs, src/utils/unified_gpu_compute/sssp.rs, src/utils/unified_gpu_compute/community.rs, src/utils/unified_gpu_compute/execution.rs, src/utils/unified_gpu_compute/lifecycle_gpu_tests.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, crates/visionclaw-domain/src/types/physics_config.rs, src/handlers/settings_handler/types.rs, src/handlers/api_handler/analytics/sssp_handlers.rs]
 owner: jjohare
 review_trigger: a new device buffer on UnifiedGPUCompute; stage S3 of the physics rework (separate path-length and stiffness buffers), which decides whether SSSP spring adjustment comes back on; any change to relaxation_step_kernel or the SSSP host loop
@@ -85,3 +85,7 @@ An independent review of the first implementation found one regression and five 
 ## Re-verification — 2026-11-10 (`01196ca74`, ADR-2192 review round)
 
 `physics_config.rs` gains ADR-2192's `ontologyConstraintsEnabled` / `ontologyConstraintStrength` beside this record's `ssspEnabled` default, which is unchanged. **Decision unaffected.**
+
+## Amendment — 2026-11-20
+
+Amendment 2026-11-20, re-verified at b188b0397 (`git diff 01196ca74..b188b0397` over the governed paths). **Decision item 9 lists the node-indexed state a graph change clears, and the list is now incomplete.** ADR-2204 S4a adds one graph-sized buffer, `repulsion_strength` (`buffers.rs:157`, declared once in the `graph_sized_buffers!` macro with fill `zero`), and `resize_buffers` / the topology-change path now also clears it and resets `repulsion_uploaded` (`buffers.rs:303`), so the kernel runs classic repulsion until `upload_repulsion` runs again. Read item 9 as "... degree weights, **the FA2 repulsion buffer**, the hold overlay's rest lengths ...". The rename `node_degrees` to `community_degrees` (community detection no longer shares the repulsion buffer, `8fe7f284c`) does not change the declared-once rule. The SSSP spring default (off) and the clear-on-change rule for SSSP, mask, community labels and `SemanticGpu` are unchanged. Not run: GPU tests.

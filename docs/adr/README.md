@@ -40,7 +40,7 @@ The [historical closeout routing note](../adr-history-closeout.md) points each f
 
 The [estate status/evidence contract](../../../VisionFlow/docs/architecture/adr-status-contract.md) defines the independent decision, implementation and activation axes and distinguishes lineage from supersession (2026-09-07).
 
-_162 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
+_165 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 
 | ID | Title | Domain | Date | Decision | Impl | Activation | Supersedes | Superseded by | Owner | Repo |
 |----|-------|--------|------|----------|------|------------|------------|---------------|-------|------|
@@ -206,3 +206,6 @@ _162 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2189](ADR-2189-desktop-and-xr-menus-share-one-seven-section-information-architecture.md) | Desktop and XR menus share one seven-section information architecture, generated from the settings registry | XR-client | 2026-11-06 | accepted | complete | staged | — | — | jjohare | visionclaw |
 | [ADR-2191](ADR-2191-graph-sized-gpu-buffers-are-declared-once-and-sssp-spring-adjust-is-off-by-default.md) | Graph-sized GPU buffers are declared once and resized together; SSSP results never outlive their graph; SSSP spring adjustment is off by default | GPU-wire-abi | 2026-11-10 | accepted | complete | staged | — | — | jjohare | visionclaw |
 | [ADR-2192](ADR-2192-the-reasoner-the-sync-pipeline-and-node-thinning-are-stored-operator-switches.md) | The reasoner's layout constraints, the sync pipeline's reasoning and materialisation, and node thinning are stored operator switches | BASELINE-architecture | 2026-11-10 | proposed | complete | inactive | — | — | jjohare | visionclaw |
+| [ADR-2204](ADR-2204-relations-have-one-declarative-schema-and-one-weighting-stage.md) | Relations have one declarative schema and one weighting stage, from corpus to pixels | — | 2026-11-19 | proposed | partial | inactive | — | — | jjohare | visionclaw |
+| [ADR-2205](ADR-2205-browser-session-key-binding.md) | A browser binds an ephemeral session key with one real signature and signs requests with it | — | 2026-11-19 | proposed | partial | inactive | — | — | jjohare | visionclaw |
+| [ADR-2206](ADR-2206-community-hulls-show-cores-bridges-and-grounded-labels.md) | Community hulls show cores, bridges and grounded labels | — | 2026-11-20 | proposed | partial | inactive | — | — | jjohare | visionclaw |

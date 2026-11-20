@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [src/gpu/mod.rs, src/actors/gpu/connected_components_actor.rs, src/handlers/socket_flow_handler/mod.rs, src/handlers/socket_flow_handler/actor_messages.rs, src/handlers/socket_flow_handler/types.rs, tests/gpu_safety_tests.rs]
 owner: jjohare
 review_trigger: Any reintroduction of a message type, module or kernel with no caller at merge time
@@ -191,3 +191,7 @@ Governed diff `6e89f6adb..b4a175412` touches `src/gpu/mod.rs`, `socket_flow_hand
 ## Re-verification — 2026-11-07 (`7bd25427e`)
 
 Governed-path change since `aba13edc5`: `src/handlers/socket_flow_handler/types.rs` (`dc7fd3858`, `5d1d841a1`, `ab05ee9d6`, the visibility sweep). The `/wss` `initialGraphLoad` replaces its inline `is_visible` closure with the shared `visible_subgraph` scrub (`:505-509`), and the state-sync counts come from `graph_access::visible_counts` (`:210`). No removed item comes back. `grep -rn "REMOVED (ADR-2054)" src/ crates/` still finds every recorded site; the two in this file are now `types.rs:158` (`queue_directive`, cited `:219`) and `:313` (`get_pending_directives` and `pending_directives`, cited `:603`). No `queue_directive` or `pending_directives` definition exists. **Decision unaffected.** Re-run: `git diff aba13edc5..7bd25427e -- <verified_paths>`. Checked by reading that diff and the grep; no test was re-run for this stamp.
+
+## Amendment — 2026-11-20
+
+Amendment 2026-11-20, re-verified at b188b0397 (`git diff 7bd25427e..b188b0397 -- src/handlers/socket_flow_handler/types.rs`). The diff adds 39 lines at `:196`, the boot-readiness wait in the initial-graph sync (`graph_loading` / `graph_load_failed` frames), and removes nothing. Nothing ADR-2054 deleted has come back: `queue_directive`, `get_pending_directives` and the `pending_directives` field appear in `types.rs` only inside the two `REMOVED (ADR-2054)` markers (grep). **Anchor correction:** the Verification section cites those markers at `types.rs:219` and `:603`; they are now at `:158` and `:352` (earlier removals in the file moved them before this change, which sits below `:196` and shifts only what follows it). The `mod.rs`, `actor_messages.rs`, `connected_components_actor.rs` and `gpu/mod.rs` sites were not re-located in this pass. Decision holds.

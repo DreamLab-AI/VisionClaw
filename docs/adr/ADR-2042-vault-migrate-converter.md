@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: [ADR-2113]
-verified_commit: 5db8ccf308a40948b89ec5976c15431387e03766
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [crates/vault-migrate, Cargo.toml, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: the in-place conversion of the corpus repo is committed, after which the crate is kept only as the round-trip/no-op checker
@@ -227,3 +227,7 @@ changes. `verified_commit` is bumped on that basis.
 ## Re-verification — 2026-11-16 (periodic Oxigraph checkpoint)
 
 Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `Cargo.toml` gains the path dependency `visionclaw-backup = { path = "crates/visionclaw-backup" }` and a comment line (two lines, after the `visionclaw-ontology` entry); `Cargo.lock` gains one dependency line for the root package and no registry package. Line numbers after `:57` of `Cargo.toml` move down by two. The retired converter, workspace membership of `vault` and `vault-core`, and `docs/VAULT-corpus-format.md` are unchanged; the record stays superseded by ADR-2113. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.
+
+## Amendment — 2026-11-20
+
+Re-verified 2026-11-20 at b188b0397: `git diff 5db8ccf30..b188b0397 -- Cargo.toml` is two lines, `rusqlite` 0.31 to 0.43 and `tokio-rusqlite` 0.5 to 0.10 (RUSTSEC-2026-0459). The converter this record decides does not use either crate; the 2026-11-16 note's "it reuses oxigraph 0.4.11 and rusqlite 0.31.0" was true of `Cargo.lock` at its date and is now `rusqlite 0.43.0`. Decision holds.

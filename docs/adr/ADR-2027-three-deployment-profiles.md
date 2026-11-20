@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: c143ef890a5273ae708fdfa0f52d4724c418b2b9
+verified_commit: b188b0397756517fda22fb67d17222d4cec46579
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -400,3 +400,7 @@ Reviewed the governed-path delta through `a45077526e9bad84163ccd0883c2fd1ff8a937
 Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `src/main.rs` loses the one-shot `ONTOLOGY_BACKUP_DIR` boot checkpoint block and gains a `ontology_checkpoint::spawn` call and a shutdown await; net 14 fewer lines at the block (about `:753`), so nothing before it moves, plus four lines after `server.await`. Anchors now: `init_solid_state().await` `:906`, `spawn_boot_pull` `:913`, `assert_effective_profile_or_exit` import `:945` and call `:948`, `HttpServer::new` `:991`, `.bind()` `:1289`. The file's net change is 10 fewer lines (13 added, 23 removed: 14 fewer at the block, 4 more after `server.await`). Everything before the block (hygiene call `:209`) is unchanged; the owner-less refusal sits after it and moved up by 14 (`RBAC_ALLOW_OWNERLESS_ENV` import `:782` to `:768`). No profile flag, selector or compose service changed. The decision holds. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.
 
 Re-verified 2026-11-17 at c143ef890: `docker-compose.unified.yml` dev service: `VISIONCLAW_DEV_MODE` default `:-0` and dev ports bound to `${VISIONCLAW_BIND:-127.0.0.1}`; the RBAC flag defaults this record cites are untouched; this record makes no claim about it.
+
+## Re-verification — 2026-11-20
+
+Re-verified 2026-11-20 at b188b0397: `git diff c143ef890..b188b0397 -- src/services/role_store.rs`. 14 lines changed, all `Connection::call` closures gaining `-> rusqlite::Result<_>` for the `rusqlite` 0.43 / `tokio-rusqlite` 0.10 upgrade. No profile flag, selector, owner-less refusal or compose default is touched, so the three-profile table is unchanged. Decision holds.
