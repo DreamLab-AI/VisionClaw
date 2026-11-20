@@ -124,6 +124,18 @@ Context: after S4a (`6aeed03ce`), settled live kNN lift is 28 (uniform repulsion
   - **The 44 → 28 drop is not explained by these kernels:** removing them lowers lift further. The inferred-`subClassOf` follow-on below is the remaining candidate.
 - **Follow-on, not part of this decision:** inferred `subClassOf` edges in the physics graph (D2 says hierarchy contributes direct asserted parents only). They are tested separately by turning off `materialiseInferredEdges` and resyncing.
 
+## Pre-registered: inferred-hierarchy-edge A/B, recorded 2026-11-20 before any run
+
+Context: the live graph carries 5,275 `hierarchical` edges with provenance `inferred` (immediate inferred parents from the reasoner, capped per child, ADR-2071; not the full closure) beside 10,895 asserted ones. `qualityGates.materialiseInferredEdges = false` purges stored inferred edges on the next sync (`github_sync_service.rs` `purge_inferred_edges`), and `true` re-creates them, so the arm switch is the setting plus an incremental sync.
+
+- **Arms.** I1 = inferred edges on (current); I0 = off. Schedule: I1 → I0 → I1 → I0 → I1. Each I0 phase is compared with the I1 phases on either side (their mean).
+- **Per-phase procedure.** Set the gate, trigger `POST /api/admin/sync`, then confirm the count of `provenance: inferred` edges in REST (0 for I0; above 5,000 for I1). After the re-upload, wait until the mean frame displacement stays below 0.1 for two consecutive probes (record the time taken, cap 20 min). Then take three probes 30 s apart; the phase value is their median.
+- **Frozen scoring set.** kNN lift and domain lift are scored in every phase against one edge set frozen before the run (asserted, non-spoke, non-inferred edges from the 2026-11-20 snapshot), so a changing neighbour set cannot move the metric. Guard: median pair distance.
+- **Decision rule.** Effect = mean over the two I0 phases of (I0 − mean of adjacent I1). The standard deviation is that of the three I1 phases. **Inferred edges harm the layout** if both I0 phases exceed their adjacent I1 mean on kNN lift, and the mean effect exceeds 2 × that SD. **They help** under the mirror condition. Otherwise neutral.
+- **If they harm:** the end state is D2/D7. Inferred hierarchy edges stay in the store and on the wire with their provenance, but contribute nothing to physics in every weighting mode. Leaving the gate off is not the fix, because it also removes them from view.
+- **If neutral:** the remaining graph changes since 19 Nov are tested next: S3's co-citation fan-out boundary, and `explicit_link` labels reaching the registry and the dynamic-relationship kernel, which S4b gives an `enabled` switch whatever the result.
+- **Held fixed.** Uniform repulsion, constraints off, Legacy weighting, `hierarchyAffinity` 0, both semantic kernels on, no community detection, one writer. The gate is restored to on at the end.
+
 ## Verification
 
 Not yet implemented. To be filled at the implementation commit: each expectation's test with red-then-green output, the protocol's numbers, the live probe across a reload, and the independent review identity.
