@@ -116,6 +116,12 @@ Context: after S4a (`6aeed03ce`), settled live kNN lift is 28 (uniform repulsion
   - **Keep** (load-bearing): in all three cycles, kNN lift or domain lift falls below the preceding K0 by more than that standard deviation.
   - **Otherwise:** inconclusive; the kernel stays and the result is reported.
 - **Held fixed.** Uniform repulsion, constraints off, Legacy weighting, `hierarchyAffinity` 0, one writer; every kernel is restored to on at the end.
+- **Result (2026-11-20 02:50–03:51, build `6aeed03ce`).** K0 baseline kNN lift 28.71 (sd 0.296 over nine phases), domain lift sd 0.024.
+  - **KA (attribute spring off): KEEP.** kNN −1.84 / −2.16 / −1.20, domain −0.19 / −0.13 / −0.12 against the preceding K0 phase; median pair distance +22 to +24%.
+  - **KX (cross-domain off): inconclusive.** kNN +0.02 / −0.19 / +0.10, domain within ±0.013, scale ±1%. The kernel has no measurable effect.
+  - **KB (both off): KEEP,** the same as KA.
+  - **Reading.** The attribute spring is load-bearing: it holds the layout about 20% tighter and raises fidelity. Its negative rest length (w > 1.18) therefore acts as useful extra attraction on strong edges, not as a defect to delete. D4's "one attraction term" must absorb it as a measured change (for example the attraction exponent δ, or a weight transform), not a silent removal. The cross-domain kernel is neutral and is a removal candidate once D4's replacement lands.
+  - **The 44 → 28 drop is not explained by these kernels:** removing them lowers lift further. The inferred-`subClassOf` follow-on below is the remaining candidate.
 - **Follow-on, not part of this decision:** inferred `subClassOf` edges in the physics graph (D2 says hierarchy contributes direct asserted parents only). They are tested separately by turning off `materialiseInferredEdges` and resyncing.
 
 ## Verification
