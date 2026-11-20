@@ -10,11 +10,12 @@ import { Html } from '@react-three/drei';
 import { writeEmphasis } from '../explore/filterRegistry';
 import { HIGHLIGHT_SEARCH_HIT } from '../state/highlightMask';
 import {
-  centroidOf, domainMixLine, localCommunityCounts,
+  domainMixLine, localCommunityCounts,
   partitionSignature, planCommunityLayers, stableHslFor,
   type CommunityLabelEntry,
 } from '../utils/communityLabels';
 import { useCommunityLabels } from '../utils/useCommunityLabels';
+import { hullCentre, keepHullPoints, type Point3 } from '../utils/hullOutliers';
 
 // ============================================================================
 // Types
@@ -412,7 +413,7 @@ export const ClusterHulls: React.FC<ClusterHullsProps> = ({
 
     let rank = 0;
     for (const [key, nodeIds] of ranked) {
-      const points: THREE.Vector3[] = [];
+      const raw: Point3[] = [];
 
       for (const id of nodeIds) {
         const idx = nodeIdToIndexMap.get(id);
@@ -421,15 +422,12 @@ export const ClusterHulls: React.FC<ClusterHullsProps> = ({
         const base = idx * 3;
         if (base + 2 >= positions.length) continue;
 
-        const x = positions[base];
-        const y = positions[base + 1];
-        const z = positions[base + 2];
-
-        // Skip zero/NaN positions
-        if (Number.isNaN(x) || Number.isNaN(y) || Number.isNaN(z)) continue;
-
-        points.push(new THREE.Vector3(x, y, z));
+        raw.push([positions[base], positions[base + 1], positions[base + 2]]);
       }
+
+      // A few members in another body of the display must not stretch the hull
+      // across the scene: keep the members within the community's own spread.
+      const points = keepHullPoints(raw).map(([x, y, z]) => new THREE.Vector3(x, y, z));
 
       const geometry = buildHullGeometry(points, padding, slabThickness);
       if (geometry) {
@@ -482,7 +480,14 @@ export const ClusterHulls: React.FC<ClusterHullsProps> = ({
     for (const e of [...layers.hulls, ...layers.chips]) {
       if (!e.label) continue;
       const ids = e.hasHull && e.coreIds.length > 0 ? e.coreIds.map(String) : (members.get(e.communityId) ?? []);
-      const at = centroidOf(ids, positions, (id) => nodeIdToIndexMap.get(id));
+      const pts: Point3[] = [];
+      for (const id of ids) {
+        const idx = nodeIdToIndexMap.get(id);
+        if (idx === undefined) continue;
+        const b = idx * 3;
+        if (b + 2 < positions.length) pts.push([positions[b], positions[b + 1], positions[b + 2]]);
+      }
+      const at = hullCentre(pts);
       if (at) out.push({ entry: e, at });
     }
     return out;
