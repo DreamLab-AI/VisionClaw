@@ -104,6 +104,20 @@ Live constraints are off (operator decision, 2026-11-19) pending this test. Caus
   - **Follow-up actions:** the constraint mapper's closure and sibling paths are deleted. The paired tests were computed in Python, not in StatCraft, because StatCraft reports to 2 decimal places and could not resolve effects of 0.002.
 - **Outcomes.** A winner becomes a D5 rewrite and a stored mode setting. If A3 or A4 wins, the mapper's closure and sibling paths are deleted. If nothing beats A0, constraints stay off and D5 narrows to the ontology-tension lens (layout positions contradicting declared axioms, surfaced for curation) or removal.
 
+## Pre-registered: extra-kernel A/B (S4c), recorded 2026-11-20 before any run
+
+Context: after S4a (`6aeed03ce`), settled live kNN lift is 28 (uniform repulsion), against 44 on 19 Nov. The graph now carries 5,275 inferred `subClassOf` edges (provenance `inferred`) on top of 10,895 asserted ones. The replica, which has no semantic kernels, scores both graphs alike (54 against 56), so the drop is in a live-only term. The attribute-spring rest length `max − w·(max−min)` is negative for w > 1.18, and hierarchical edges weigh 1.6.
+
+- **Arms** (each switched through the physics settings PUT `semantic.<kernel>.enabled`, everything else unchanged): K0 = current (attribute spring and cross-domain on); KA = attribute spring off; KX = cross-domain off; KB = both off. The dynamic-relationship kernel has no switch and is not tested here.
+- **Schedule.** Three cycles of K0 → KA → K0 → KX → K0 → KB. Each phase settles 120 s, then takes three probes 30 s apart; the phase value is their median. Each arm is compared with the K0 phase immediately before it.
+- **Metrics.** kNN lift (all non-spoke edges) and domain lift; guard: median pair distance.
+- **Decision rule.** For each arm, compute the paired difference arm − preceding K0 per cycle.
+  - **Retire** (when that arm's kernel set is off): in all three cycles, kNN lift and domain lift are both ≥ the preceding K0, the mean kNN gain exceeds the **standard deviation** of the nine K0 phases, and median pair distance stays within ±25% of K0.
+  - **Keep** (load-bearing): in all three cycles, kNN lift or domain lift falls below the preceding K0 by more than that standard deviation.
+  - **Otherwise:** inconclusive; the kernel stays and the result is reported.
+- **Held fixed.** Uniform repulsion, constraints off, Legacy weighting, `hierarchyAffinity` 0, one writer; every kernel is restored to on at the end.
+- **Follow-on, not part of this decision:** inferred `subClassOf` edges in the physics graph (D2 says hierarchy contributes direct asserted parents only). They are tested separately by turning off `materialiseInferredEdges` and resyncing.
+
 ## Verification
 
 Not yet implemented. To be filled at the implementation commit: each expectation's test with red-then-green output, the protocol's numbers, the live probe across a reload, and the independent review identity.
