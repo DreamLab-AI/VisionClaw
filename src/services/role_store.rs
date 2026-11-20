@@ -234,7 +234,7 @@ impl RoleStore {
     /// (pre-constraint) table by rebuild if necessary.
     pub async fn new(conn: Arc<Connection>) -> Result<Self, tokio_rusqlite::Error> {
         let (migrated, kept, total) = conn
-            .call(|c| {
+            .call(|c| -> rusqlite::Result<_> {
                 let existing_sql: Option<String> = c
                     .query_row(
                         "SELECT sql FROM sqlite_master WHERE type='table' AND name='user_roles'",
@@ -330,7 +330,7 @@ impl RoleStore {
         let key_for_err = key.clone();
         let raw: Option<String> = self
             .conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached("SELECT role FROM user_roles WHERE pubkey = ?1")?;
                 let mut rows = stmt.query([key])?;
                 match rows.next()? {
@@ -384,7 +384,7 @@ impl RoleStore {
         let role_str = role.as_str().to_string();
         let assigned_by = assigned_by.map(canonicalise_pubkey);
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 c.execute(
                     "INSERT INTO user_roles (pubkey, role, assigned_by, updated_at)
                      VALUES (?1, ?2, ?3, strftime('%s','now'))
@@ -419,7 +419,7 @@ impl RoleStore {
 
         let outcome: TxOutcome = self
             .conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let tx = c.transaction()?;
 
                 // ADR-2010: re-resolve the CALLER's authority inside the same
@@ -509,7 +509,7 @@ impl RoleStore {
 
         let outcome: TxRemoval = self
             .conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let tx = c.transaction()?;
 
                 // ADR-2010: caller authority is re-read inside the transaction.
@@ -583,7 +583,7 @@ impl RoleStore {
     pub async fn has_owner(&self) -> Result<bool, RoleStoreError> {
         let exists: i64 = self
             .conn
-            .call(|c| {
+            .call(|c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT EXISTS(SELECT 1 FROM user_roles WHERE role = 'owner')",
                 )?;
@@ -601,7 +601,7 @@ impl RoleStore {
     pub async fn list(&self) -> Result<Vec<RoleAssignment>, RoleStoreError> {
         let rows = self
             .conn
-            .call(|c| {
+            .call(|c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT pubkey, role, assigned_by, updated_at
                      FROM user_roles ORDER BY updated_at DESC",
@@ -1038,7 +1038,7 @@ mod tests {
         let store = mem_store().await;
         let bad = store
             .conn
-            .call(|c| {
+            .call(|c| -> rusqlite::Result<_> {
                 c.execute(
                     "INSERT INTO user_roles (pubkey, role) VALUES (?1, 'superuser')",
                     [PK_A],
@@ -1055,7 +1055,7 @@ mod tests {
         // migrate it (dropping the invalid row), so the corrupt role cannot
         // survive; get() then returns None and effective_role is the default.
         let conn = Connection::open_in_memory().await.unwrap();
-        conn.call(|c| {
+        conn.call(|c| -> rusqlite::Result<_> {
             c.execute_batch(
                 "CREATE TABLE user_roles (pubkey TEXT PRIMARY KEY, role TEXT, \
                  assigned_by TEXT, updated_at INTEGER DEFAULT 0);",
@@ -1065,7 +1065,7 @@ mod tests {
         .await
         .unwrap();
         let key = PK_A.to_string();
-        conn.call(move |c| {
+        conn.call(move |c| -> rusqlite::Result<_> {
             c.execute(
                 "INSERT INTO user_roles (pubkey, role) VALUES (?1, 'superuser')",
                 [key],
@@ -1089,7 +1089,7 @@ mod tests {
         // preserved (canonicalised), invalid ones dropped, and the rebuilt table
         // enforces the CHECK afterwards.
         let conn = Connection::open_in_memory().await.unwrap();
-        conn.call(|c| {
+        conn.call(|c| -> rusqlite::Result<_> {
             c.execute_batch(
                 "CREATE TABLE user_roles (pubkey TEXT PRIMARY KEY, role TEXT, \
                  assigned_by TEXT, updated_at INTEGER DEFAULT 0);
@@ -1113,7 +1113,7 @@ mod tests {
         // The rebuilt table enforces the CHECK.
         let bad = store
             .conn
-            .call(|c| {
+            .call(|c| -> rusqlite::Result<_> {
                 c.execute(
                     "INSERT INTO user_roles (pubkey, role) VALUES (?1, 'superuser')",
                     [PK_B],
@@ -1189,7 +1189,7 @@ mod tests {
         let caller = caller_with_role(&store, PK_B, UserRole::Owner).await;
         store
             .conn
-            .call(|c| {
+            .call(|c| -> rusqlite::Result<_> {
                 c.execute("DELETE FROM user_roles WHERE pubkey = ?1", [PK_B])?;
                 Ok(())
             })
@@ -1220,7 +1220,7 @@ mod tests {
         // stored value is unparseable.
         store
             .conn
-            .call(|c| {
+            .call(|c| -> rusqlite::Result<_> {
                 c.execute("PRAGMA writable_schema=ON", [])?;
                 c.execute(
                     "UPDATE user_roles SET role = 'superuser' WHERE pubkey = ?1",

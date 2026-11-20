@@ -102,7 +102,7 @@ type RawCanaryStatusRow = (
     Option<i64>,
 );
 
-fn map_db_err(e: tokio_rusqlite::Error) -> CanaryStoreError {
+fn map_db_err<E: std::fmt::Display>(e: E) -> CanaryStoreError {
     CanaryStoreError::Database(e.to_string())
 }
 
@@ -156,7 +156,7 @@ impl SqliteCanaryRepository {
     /// Open (or create) the canary DB at `db_path` and apply [`CREATE_SCHEMA`].
     pub async fn open(db_path: &Path) -> Result<Self> {
         let conn = Connection::open(db_path).await.map_err(map_db_err)?;
-        conn.call(|c| {
+        conn.call(|c| -> rusqlite::Result<_> {
             c.execute_batch(CREATE_SCHEMA)?;
             Ok(())
         })
@@ -181,7 +181,7 @@ impl SqliteCanaryRepository {
         let sha = reg.sha_at_registration.clone();
         let registered_at_ms = reg.registered_at_ms;
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "INSERT INTO liveness_canaries
                          (canary_id, description, kind, owner_repo, wave,
@@ -213,7 +213,7 @@ impl SqliteCanaryRepository {
         let id = canary_id.to_string();
         let row: Option<RawCanaryRow> = self
             .conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT canary_id, description, kind, owner_repo, wave,
                             sha_at_registration, registered_at_ms
@@ -278,7 +278,7 @@ impl SqliteCanaryRepository {
         let evidence = evidence.to_string();
         let sha = sha.to_string();
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "INSERT INTO canary_fires (canary_id, evidence, sha, fired_at_ms)
                      VALUES (?1, ?2, ?3, ?4)",
@@ -304,7 +304,7 @@ impl SqliteCanaryRepository {
         let cutoff = now_ms.saturating_sub(window_ms);
         let rows: Vec<RawCanaryStatusRow> = self
             .conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT c.canary_id, c.description, c.kind, c.owner_repo, c.wave,
                             c.sha_at_registration,

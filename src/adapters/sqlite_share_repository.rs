@@ -69,7 +69,7 @@ pub enum ShareStoreError {
 /// Result alias for the share store.
 pub type Result<T> = std::result::Result<T, ShareStoreError>;
 
-fn map_db_err(e: tokio_rusqlite::Error) -> ShareStoreError {
+fn map_db_err<E: std::fmt::Display>(e: E) -> ShareStoreError {
     ShareStoreError::Database(e.to_string())
 }
 
@@ -94,7 +94,7 @@ impl SqliteShareRepository {
     /// Open (creating when absent) the store at `db_path`.
     pub async fn open(db_path: &Path) -> Result<Self> {
         let conn = Connection::open(db_path).await.map_err(map_db_err)?;
-        conn.call(|c| {
+        conn.call(|c| -> rusqlite::Result<_> {
             c.execute_batch(CREATE_SCHEMA)?;
             Ok(())
         })
@@ -119,7 +119,7 @@ impl SqliteShareRepository {
         let count = i64::from(share.access_count);
         let max = share.max_access_count.map(i64::from);
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 c.execute(
                     "INSERT OR REPLACE INTO shared_graphs
                          (id, creator_id, expires_at_ms, access_count, max_access_count, record)
@@ -138,7 +138,7 @@ impl SqliteShareRepository {
         let key = id.to_string();
         let row: Option<(String, i64)> = self
             .conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT record, access_count FROM shared_graphs WHERE id = ?1",
                 )?;
@@ -164,7 +164,7 @@ impl SqliteShareRepository {
     pub async fn claim_access(&self, id: Uuid) -> Result<AccessClaim> {
         let key = id.to_string();
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let updated = c.execute(
                     "UPDATE shared_graphs SET access_count = access_count + 1
                      WHERE id = ?1
@@ -205,7 +205,7 @@ impl SqliteShareRepository {
         let owner = caller.to_string();
         let deleted = self
             .conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 Ok(c.execute(
                     "DELETE FROM shared_graphs WHERE id = ?1 AND creator_id = ?2",
                     rusqlite::params![key, owner],
@@ -227,7 +227,7 @@ impl SqliteShareRepository {
         let key = id.to_string();
         let deleted = self
             .conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 Ok(c.execute(
                     "DELETE FROM shared_graphs WHERE id = ?1 AND creator_id IS NULL",
                     rusqlite::params![key],
@@ -244,7 +244,7 @@ impl SqliteShareRepository {
         let cutoff = now.timestamp_millis();
         let records: Vec<String> = self
             .conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let tx = c.transaction()?;
                 let records = {
                     let mut stmt = tx.prepare(
@@ -300,7 +300,7 @@ mod tests {
         let id = s.id.to_string();
         store
             .conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 c.execute(
                     "INSERT INTO shared_graphs
                          (id, creator_id, expires_at_ms, access_count, max_access_count, record)

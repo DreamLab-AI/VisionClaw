@@ -221,7 +221,7 @@ fn current_owner_pubkey() -> String {
 // ---------------------------------------------------------------------------
 
 /// Map `tokio_rusqlite::Error` into the trait error type.
-fn map_db_err(e: tokio_rusqlite::Error) -> SettingsRepositoryError {
+fn map_db_err<E: std::fmt::Display>(e: E) -> SettingsRepositoryError {
     SettingsRepositoryError::DatabaseError(e.to_string())
 }
 
@@ -328,7 +328,7 @@ impl SqliteSettingsRepository {
     pub async fn open(db_path: &Path) -> RepoResult<Self> {
         let conn = Connection::open(db_path).await.map_err(map_db_err)?;
         let migrated = conn
-            .call(|c| {
+            .call(|c| -> rusqlite::Result<_> {
                 c.execute_batch(CREATE_SCHEMA)?;
                 Ok(migrate_sssp_spring_adjust_off(c)?)
             })
@@ -371,7 +371,7 @@ impl SqliteSettingsRepository {
     /// Retrieve all file SHA1 hashes from sync_file_metadata.
     pub async fn get_file_sha1s(&self) -> Result<HashMap<String, String>, SettingsRepositoryError> {
         self.conn
-            .call(|c| {
+            .call(|c| -> rusqlite::Result<_> {
                 let mut stmt =
                     c.prepare_cached("SELECT file_name, sha1 FROM sync_file_metadata")?;
                 let mut rows = stmt.query([])?;
@@ -397,7 +397,7 @@ impl SqliteSettingsRepository {
         }
         let files_owned: Vec<(String, String)> = files.to_vec();
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let tx = c.transaction()?;
                 {
                     let mut stmt = tx.prepare_cached(
@@ -422,7 +422,7 @@ impl SqliteSettingsRepository {
     ) -> Result<Option<String>, SettingsRepositoryError> {
         let key_owned = key.to_string();
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached("SELECT value FROM sync_config WHERE key = ?1")?;
                 let mut rows = stmt.query(rusqlite::params![&key_owned])?;
                 if let Some(row) = rows.next()? {
@@ -445,7 +445,7 @@ impl SqliteSettingsRepository {
         let key_owned = key.to_string();
         let value_owned = value.to_string();
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "INSERT OR REPLACE INTO sync_config (key, value)
                      VALUES (?1, ?2)",
@@ -460,7 +460,7 @@ impl SqliteSettingsRepository {
     /// Delete all sync metadata (file hashes and config).
     pub async fn clear_sync_metadata(&self) -> Result<(), SettingsRepositoryError> {
         self.conn
-            .call(|c| {
+            .call(|c| -> rusqlite::Result<_> {
                 c.execute("DELETE FROM sync_file_metadata", [])?;
                 c.execute("DELETE FROM sync_config", [])?;
                 Ok(())
@@ -479,7 +479,7 @@ impl SettingsRepository for SqliteSettingsRepository {
         let key_owned = key.to_string();
         let pubkey = current_owner_pubkey();
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 // Per-user resolution (ADR-11 §D5):
                 //   * If a row exists at (key, pubkey) return it.
                 //   * Else if a row exists at (key, NULL) return it.
@@ -520,7 +520,7 @@ impl SettingsRepository for SqliteSettingsRepository {
         let value_json = encode_setting_value(&value)?;
 
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "INSERT INTO settings (key, owner_pubkey, value, description, updated_at)
                      VALUES (?1, ?2, ?3, ?4, unixepoch())
@@ -548,7 +548,7 @@ impl SettingsRepository for SqliteSettingsRepository {
         let key_owned = key.to_string();
         let pubkey = current_owner_pubkey();
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "DELETE FROM settings
                      WHERE key = ?1
@@ -569,7 +569,7 @@ impl SettingsRepository for SqliteSettingsRepository {
         let key_owned = key.to_string();
         let pubkey = current_owner_pubkey();
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT 1 FROM settings
                      WHERE key = ?1
@@ -600,7 +600,7 @@ impl SettingsRepository for SqliteSettingsRepository {
         // placeholder. We assemble all params dynamically into a Vec.
         let raw_rows: Vec<(String, String)> = self
             .conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let placeholders = (1..=keys_owned.len())
                     .map(|i| format!("?{}", i))
                     .collect::<Vec<_>>()
@@ -685,7 +685,7 @@ impl SettingsRepository for SqliteSettingsRepository {
         let pubkey = current_owner_pubkey();
 
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let tx = c.transaction()?;
                 {
                     let mut stmt = tx.prepare_cached(
@@ -713,7 +713,7 @@ impl SettingsRepository for SqliteSettingsRepository {
         let prefix_owned = prefix.map(|s| s.to_string());
         let pubkey = current_owner_pubkey();
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT DISTINCT key FROM settings
                      WHERE (owner_pubkey = ?1 OR owner_pubkey = '')
@@ -738,7 +738,7 @@ impl SettingsRepository for SqliteSettingsRepository {
         let pubkey = current_owner_pubkey();
         let rows: Vec<(String, bool, String)> = self
             .conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 // `(owner_pubkey = '') ASC` orders user-level rows before
                 // global rows. Combined with the fold below, this means the
                 // user value wins for any key that exists at both layers.
@@ -839,7 +839,7 @@ impl SettingsRepository for SqliteSettingsRepository {
         let pubkey = current_owner_pubkey();
 
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let tx = c.transaction()?;
                 {
                     // Replace this owner's slice atomically. NULL-owner rows
@@ -874,7 +874,7 @@ impl SettingsRepository for SqliteSettingsRepository {
         let pubkey = current_owner_pubkey();
         let json: Option<String> = self
             .conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT settings_json FROM physics_profiles
                      WHERE profile_name = ?1
@@ -912,7 +912,7 @@ impl SettingsRepository for SqliteSettingsRepository {
         let json = serde_json::to_string(settings).map_err(map_json_err)?;
 
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "INSERT INTO physics_profiles (profile_name, owner_pubkey, settings_json, updated_at)
                      VALUES (?1, ?2, ?3, unixepoch())
@@ -933,7 +933,7 @@ impl SettingsRepository for SqliteSettingsRepository {
     async fn list_physics_profiles(&self) -> RepoResult<Vec<String>> {
         let pubkey = current_owner_pubkey();
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT DISTINCT profile_name FROM physics_profiles
                      WHERE (owner_pubkey = ?1 OR owner_pubkey = '')
@@ -957,7 +957,7 @@ impl SettingsRepository for SqliteSettingsRepository {
         let name = profile_name.to_string();
         let pubkey = current_owner_pubkey();
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "DELETE FROM physics_profiles
                      WHERE profile_name = ?1
@@ -978,7 +978,7 @@ impl SettingsRepository for SqliteSettingsRepository {
         // Pull everything, regardless of current pubkey.
         let rows: Vec<(String, String, String, Option<String>, i64)> = self
             .conn
-            .call(|c| {
+            .call(|c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT key, owner_pubkey, value, description, updated_at
                      FROM settings
@@ -1066,7 +1066,7 @@ impl SettingsRepository for SqliteSettingsRepository {
         }
 
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let tx = c.transaction()?;
                 tx.execute("DELETE FROM settings", [])?;
                 {
@@ -1101,7 +1101,7 @@ impl SettingsRepository for SqliteSettingsRepository {
     // ------------------------------------------------------------------
     async fn health_check(&self) -> RepoResult<bool> {
         self.conn
-            .call(|c| {
+            .call(|c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached("SELECT 1")?;
                 let mut rows = stmt.query([])?;
                 let ok = if let Some(row) = rows.next()? {

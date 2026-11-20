@@ -97,8 +97,8 @@ validator = { version = "0.18", features = ["derive"] }
 
 # Database - Oxigraph + SQLite (ADR-11 canonical persistence)
 oxigraph = { version = "0.4" }
-rusqlite = { version = "0.31", features = ["bundled"] }
-tokio-rusqlite = { version = "0.5" }
+rusqlite = { version = "0.43", features = ["bundled"] }
+tokio-rusqlite = { version = "0.10" }
 
 # Redis (optional distributed caching)
 redis = { version = "0.27", features = ["aio", "tokio-comp", "connection-manager"], optional = true }

@@ -135,7 +135,7 @@ type RawProposalRow = (
     i64,
 );
 
-fn map_db_err(e: tokio_rusqlite::Error) -> EnrichmentStoreError {
+fn map_db_err<E: std::fmt::Display>(e: E) -> EnrichmentStoreError {
     EnrichmentStoreError::Database(e.to_string())
 }
 
@@ -374,7 +374,7 @@ impl SqliteEnrichmentRepository {
     /// Open (or create) the enrichment DB at `db_path` and apply [`CREATE_SCHEMA`].
     pub async fn open(db_path: &Path) -> Result<Self> {
         let conn = Connection::open(db_path).await.map_err(map_db_err)?;
-        conn.call(|c| {
+        conn.call(|c| -> rusqlite::Result<_> {
             c.execute_batch(CREATE_SCHEMA)?;
             apply_additive_migrations(c)?;
             Ok(())
@@ -405,7 +405,7 @@ impl SqliteEnrichmentRepository {
         let proposal_json = serde_json::to_string(&p.proposal_json).map_err(map_json_err)?;
         let status = p.status.clone();
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "INSERT INTO enrichment_proposals
                          (case_id, category, source_iri, proposal_json, status, created_at, updated_at)
@@ -441,7 +441,7 @@ impl SqliteEnrichmentRepository {
         let case_id = case_id.to_string();
         let status = status.to_string();
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "UPDATE enrichment_proposals
                      SET status = ?2, updated_at = unixepoch()
@@ -459,7 +459,7 @@ impl SqliteEnrichmentRepository {
         let case_id_owned = case_id.to_string();
         let row: Option<RawProposalRow> = self
             .conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT case_id, category, source_iri, proposal_json, status, created_at, updated_at
                      FROM enrichment_proposals WHERE case_id = ?1",
@@ -519,7 +519,7 @@ impl SqliteEnrichmentRepository {
         let status_owned = status.map(|s| s.to_string());
         let rows: Vec<RawProposalRow> = self
             .conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 // `?1 IS NULL OR status = ?1` collapses the optional filter into
                 // one prepared statement.
                 let mut stmt = c.prepare_cached(
@@ -568,7 +568,7 @@ impl SqliteEnrichmentRepository {
     pub async fn count(&self, status: Option<&str>) -> Result<i64> {
         let status_owned = status.map(|s| s.to_string());
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT COUNT(*) FROM enrichment_proposals
                      WHERE (?1 IS NULL OR status = ?1)",
@@ -590,7 +590,7 @@ impl SqliteEnrichmentRepository {
     pub async fn claim_application(&self, case_id: &str) -> Result<bool> {
         let case_id = case_id.to_owned();
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 Ok(c.execute(
                     "UPDATE enrichment_proposals SET status = 'applying', updated_at = unixepoch()
                  WHERE case_id = ?1 AND status = 'approved'",
@@ -622,7 +622,7 @@ impl SqliteEnrichmentRepository {
         let status = status_for_outcome(&outcome).to_string();
 
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let tx = c.transaction()?;
                 let decision_id: i64;
                 {
@@ -702,7 +702,7 @@ impl SqliteEnrichmentRepository {
         let case_id_owned = case_id.to_string();
         let activity_owned = activity_urn.to_string();
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "UPDATE enrichment_decisions
                      SET writeback_committed = 1,
@@ -727,7 +727,7 @@ impl SqliteEnrichmentRepository {
     /// so the KPI lineage can trace a value back to each contributing decision.
     pub async fn decisions_since(&self, cutoff_ms: i64) -> Result<Vec<KpiDecisionRow>> {
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT outcome, activity_urn, decided_at_ms, broker_pubkey
                      FROM enrichment_decisions
@@ -761,7 +761,7 @@ impl SqliteEnrichmentRepository {
     pub async fn decided_cases_since(&self, cutoff_ms: i64) -> Result<Vec<DecidedCaseRow>> {
         let raw: Vec<RawDecidedCase> = self
             .conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 // The inner MAX(decided_at_ms) per case keeps one row per case;
                 // the id tiebreak keeps it deterministic when two decisions
                 // share a millisecond.
@@ -808,7 +808,7 @@ impl SqliteEnrichmentRepository {
     pub async fn decisions_for(&self, case_id: &str) -> Result<Vec<StoredDecision>> {
         let case_id_owned = case_id.to_string();
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT case_id, outcome, attributed, broker_pubkey, reasoning,
                             writeback_triggered, writeback_committed, activity_urn,
@@ -852,7 +852,7 @@ impl SqliteEnrichmentRepository {
     /// URN, proposal URN and outcome the decide path wrote with.
     pub async fn committed_writebacks(&self) -> Result<Vec<StoredDecision>> {
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT case_id, outcome, attributed, broker_pubkey, reasoning,
                             writeback_triggered, writeback_committed, activity_urn,
@@ -898,7 +898,7 @@ impl SqliteEnrichmentRepository {
     /// single read. A pending proposal joins to a row with `None` decision fields.
     pub async fn loop_traces(&self, limit: i64) -> Result<Vec<LoopTraceRow>> {
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT p.case_id, p.category, p.status, p.proposal_json,
                             p.created_at, p.updated_at,
@@ -935,7 +935,7 @@ impl SqliteEnrichmentRepository {
         let case_id_owned = case_id.to_string();
         let raw: Option<RawLoopTrace> = self
             .conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT p.case_id, p.category, p.status, p.proposal_json,
                             p.created_at, p.updated_at,
@@ -972,7 +972,7 @@ impl SqliteEnrichmentRepository {
         cutoff_ms: i64,
     ) -> Result<Vec<ProvenanceDecisionRow>> {
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT case_id, owner_did, activity_urn, proposal_urn, outcome,
                             attributed, decided_at_ms
@@ -1508,7 +1508,7 @@ mod tests {
         {
             let repo = SqliteEnrichmentRepository::open(&path).await.unwrap();
             repo.conn
-                .call(|c| {
+                .call(|c| -> rusqlite::Result<_> {
                     c.execute_batch(
                         "DROP INDEX IF EXISTS enrichment_decision_event_idx;
                          ALTER TABLE enrichment_decisions DROP COLUMN decision_created_at_s;

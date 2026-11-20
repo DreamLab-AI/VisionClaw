@@ -20,7 +20,7 @@ path = "src/main.rs"
 # Versions match the root crate so the lockfile gains no new registry package.
 # `backup` is rusqlite's online-backup API; it is feature-gated upstream.
 oxigraph = { version = "0.4" }
-rusqlite = { version = "0.31", features = ["bundled", "backup"] }
+rusqlite = { version = "0.43", features = ["bundled", "backup"] }
 sha2 = "0.10"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0"

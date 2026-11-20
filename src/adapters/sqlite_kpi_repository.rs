@@ -127,7 +127,7 @@ pub enum KpiStoreError {
 
 pub type Result<T> = std::result::Result<T, KpiStoreError>;
 
-fn map_db_err(e: tokio_rusqlite::Error) -> KpiStoreError {
+fn map_db_err<E: std::fmt::Display>(e: E) -> KpiStoreError {
     KpiStoreError::Database(e.to_string())
 }
 
@@ -279,7 +279,7 @@ impl SqliteKpiRepository {
     /// Open (or create) the KPI DB at `db_path` and apply [`CREATE_SCHEMA`].
     pub async fn open(db_path: &Path) -> Result<Self> {
         let conn = Connection::open(db_path).await.map_err(map_db_err)?;
-        conn.call(|c| {
+        conn.call(|c| -> rusqlite::Result<_> {
             c.execute_batch(CREATE_SCHEMA)?;
             apply_additive_migrations(c)?;
             Ok(())
@@ -308,7 +308,7 @@ impl SqliteKpiRepository {
         observed_at_ms: i64,
     ) -> Result<()> {
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "INSERT INTO kpi_agent_events
                          (event_id, source_agent_id, action_type, observed_at_ms)
@@ -334,7 +334,7 @@ impl SqliteKpiRepository {
     pub async fn record_agent_trajectory(&self, t: &NewAgentTrajectory) -> Result<()> {
         let t = t.clone();
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "INSERT INTO kpi_agent_events
                          (event_id, source_agent_id, action_type, observed_at_ms,
@@ -367,7 +367,7 @@ impl SqliteKpiRepository {
     /// be `None` for an anonymous frame); the trace join filters on `agent_did`.
     pub async fn trajectories_since(&self, cutoff_ms: i64) -> Result<Vec<AgentTrajectoryRow>> {
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT event_id, source_agent_id, action_type, action_type_name,
                             agent_did, source_urn, target_urn, handoff_id,
@@ -403,7 +403,7 @@ impl SqliteKpiRepository {
     /// Count agent-events observed at or after `cutoff_ms` (the rolling window).
     pub async fn count_agent_events_since(&self, cutoff_ms: i64) -> Result<i64> {
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT COUNT(*) FROM kpi_agent_events WHERE observed_at_ms >= ?1",
                 )?;
@@ -432,7 +432,7 @@ impl SqliteKpiRepository {
         let snap = snap.clone();
         let lineage: Vec<(String, String, Option<f64>)> = lineage.to_vec();
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let tx = c.transaction()?;
                 let snapshot_id: i64;
                 {
@@ -482,7 +482,7 @@ impl SqliteKpiRepository {
     pub async fn latest_snapshot(&self, kpi: &str) -> Result<Option<KpiSnapshotRow>> {
         let kpi = kpi.to_string();
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT id, kpi, value, confidence, numerator, denominator,
                             sample_count, window_start_ms, window_end_ms,
@@ -504,7 +504,7 @@ impl SqliteKpiRepository {
     /// All lineage rows for a snapshot (the queryable `DERIVED_FROM` trail).
     pub async fn lineage_for(&self, snapshot_id: i64) -> Result<Vec<KpiLineageRow>> {
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt = c.prepare_cached(
                     "SELECT snapshot_id, source_kind, source_ref, contribution
                      FROM kpi_lineage WHERE snapshot_id = ?1
@@ -530,7 +530,7 @@ impl SqliteKpiRepository {
     pub async fn snapshot_count(&self, kpi: &str) -> Result<i64> {
         let kpi = kpi.to_string();
         self.conn
-            .call(move |c| {
+            .call(move |c| -> rusqlite::Result<_> {
                 let mut stmt =
                     c.prepare_cached("SELECT COUNT(*) FROM kpi_snapshots WHERE kpi = ?1")?;
                 let mut rows = stmt.query(rusqlite::params![&kpi])?;
