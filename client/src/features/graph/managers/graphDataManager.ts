@@ -7,6 +7,7 @@ import { binaryProtocol } from '../../../services/BinaryWebSocketProtocol';
 import { graphWorkerProxy } from './graphWorkerProxy';
 import type { GraphData, Node, Edge } from './graphWorkerProxy';
 import { useWorkerErrorStore } from '../../../store/workerErrorStore';
+import { waitForWorkerReady } from './dataManager/workerWait';
 
 // Sub-modules
 import { ensureNodeHasValidPosition, validateNodeMappings, dropLinkedPageStubs } from './dataManager/nodeUtils';
@@ -80,25 +81,21 @@ class GraphDataManager {
     try {
       if (debugState.isEnabled()) logger.debug('Waiting for worker to be ready...');
 
-      let attempts = 0;
-      const maxAttempts = 1000; // 10 seconds
-      while (!graphWorkerProxy.isReady() && attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 10));
-        attempts++;
-      }
+      // The worker is started after sign-in; the clock runs from that request,
+      // not from this constructor (which runs on the sign-in screen).
+      const outcome = await waitForWorkerReady(graphWorkerProxy, {
+        pollMs: 10,
+        readyTimeoutMs: 12_000,
+      });
 
-      if (!graphWorkerProxy.isReady()) {
-        logger.warn('Graph worker proxy not ready after timeout, attempting recovery...');
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        if (!graphWorkerProxy.isReady()) {
-          logger.warn('Graph worker proxy still not ready after recovery attempt');
-          this.workerInitialized = false;
-          useWorkerErrorStore.getState().setWorkerError(
-            'The graph visualization worker failed to initialize.',
-            'Worker initialization timed out after 12 seconds. Click retry to attempt reinitialization.',
-          );
-          return;
-        }
+      if (outcome === 'timeout') {
+        logger.warn('Graph worker proxy not ready 12 seconds after initialisation was requested');
+        this.workerInitialized = false;
+        useWorkerErrorStore.getState().setWorkerError(
+          'The graph visualization worker failed to initialize.',
+          'Worker initialization timed out after 12 seconds. Click retry to attempt reinitialization.',
+        );
+        return;
       }
 
       this.workerInitialized = true;

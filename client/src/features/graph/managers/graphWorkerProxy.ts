@@ -214,6 +214,11 @@ class GraphWorkerProxy {
     return this.isInitialized && this.workerApi !== null;
   }
 
+  /** True once initialisation has been requested (it may still be in flight). */
+  public isInitRequested(): boolean {
+    return this.initPromise !== null;
+  }
+
   // ── D7 method 1: processBinaryFrame (ordered single-flight) ───────────
 
   /**
