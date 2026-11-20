@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 const request = vi.fn();
 const applyWrites = vi.fn();
@@ -52,6 +52,22 @@ describe('CommandInput insight intents', () => {
     submit('what connects blockchain and robotics?');
     expect(await screen.findByText(/CLIENT-SIDE ANSWER/)).toBeTruthy();
     expect(await screen.findByText(/401/)).toBeTruthy();
+  });
+
+  it('keeps an insight answer readable after the transient status lines have faded', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      request.mockResolvedValue({});
+      submit('what connects blockchain and robotics?');
+      expect(await screen.findByText(/CLIENT-SIDE ANSWER/)).toBeTruthy();
+      // Status lines fade out about 4.5 s after they appear; an answer of several
+      // sentences cannot be read in that time.
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      expect(screen.queryByText(/^Processing:/)).toBeNull();
+      expect(screen.getByText(/CLIENT-SIDE ANSWER/)).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('view commands still work: show hulls', async () => {

@@ -20,6 +20,9 @@ interface StatusLine {
   id: number;
   text: string;
   timestamp: number;
+  /** An answer to the user's question: stays readable until the next command.
+   *  Progress lines ("Processing…", "Configuration applied") fade out. */
+  isAnswer?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -60,6 +63,8 @@ interface SettingsAction {
   localAction?: () => void | string | undefined | Promise<void | string | undefined>;
   /** Runs with the endpoint's response body; a returned string becomes a status line. */
   afterRequest?: (response: unknown) => Promise<string | undefined>;
+  /** The description is an answer to the user's question, not a progress line. */
+  isAnswer?: boolean;
   /** A failure is reported as a status line and the remaining actions still run.
    *  Insight analytics requests are optional: a viewer who cannot sign the request
    *  (401) still gets every answer the client can compute from the graph it holds. */
@@ -191,7 +196,7 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
   const insight = planInsightIntent(cmd);
   if (insight) {
     // The answer line rides on the settings write; analytics runs follow it.
-    actions.push({ description: insight.answer, writes: insight.writes });
+    actions.push({ description: insight.answer, writes: insight.writes, isAnswer: true });
     const needsResponse = insight.followUp === 'anomalies' || insight.followUp === 'hubs';
     for (const r of insight.requests) {
       actions.push({
@@ -615,10 +620,11 @@ async function executeAction(action: SettingsAction): Promise<string | undefined
 // StatusText — retro green scanline fade
 // ---------------------------------------------------------------------------
 
-const StatusText: React.FC<{ text: string; timestamp: number }> = ({ text, timestamp }) => {
+const StatusText: React.FC<{ text: string; timestamp: number; isAnswer?: boolean }> = ({ text, timestamp, isAnswer }) => {
   const [opacity, setOpacity] = useState(1);
 
   useEffect(() => {
+    if (isAnswer) return; // answers stay until the next command
     const fadeStart = setTimeout(() => {
       const interval = setInterval(() => {
         setOpacity(prev => {
@@ -633,18 +639,19 @@ const StatusText: React.FC<{ text: string; timestamp: number }> = ({ text, times
       return () => clearInterval(interval);
     }, 2000);
     return () => clearTimeout(fadeStart);
-  }, [timestamp]);
+  }, [timestamp, isAnswer]);
 
   if (opacity <= 0) return null;
 
   return (
     <div style={{
       color: `rgba(0, 255, 65, ${opacity})`,
-      fontSize: '11px',
+      fontSize: isAnswer ? '12px' : '11px',
+      lineHeight: isAnswer ? 1.45 : undefined,
       fontFamily: '"Courier New", monospace',
       padding: '2px 4px',
       textShadow: `0 0 4px rgba(0, 255, 65, ${opacity * 0.5})`,
-      backgroundImage: opacity > 0.5
+      backgroundImage: !isAnswer && opacity > 0.5
         ? 'repeating-linear-gradient(0deg, transparent, transparent 1px, rgba(0,0,0,0.1) 1px, rgba(0,0,0,0.1) 2px)'
         : 'none',
       transition: 'opacity 0.1s linear',
@@ -690,13 +697,20 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isCollapsed }) => {
     void useSettingsStore.getState().ensureLoaded(ALL_PATHS);
   }, []);
 
-  const addStatus = useCallback((text: string) => {
+  const addStatus = useCallback((text: string, isAnswer = false) => {
     const id = ++statusIdRef.current;
-    setStatusLines(prev => [...prev.slice(-4), { id, text, timestamp: Date.now() }]);
+    setStatusLines(prev => {
+      // Keep every answer of the current command; cap only the progress lines.
+      const answers = prev.filter(l => l.isAnswer);
+      const progress = prev.filter(l => !l.isAnswer).slice(-4);
+      const kept = prev.filter(l => answers.includes(l) || progress.includes(l));
+      return [...kept, { id, text, timestamp: Date.now(), isAnswer }];
+    });
   }, []);
 
   const processCommand = useCallback(async (cmd: string) => {
     setIsProcessing(true);
+    setStatusLines([]); // the previous command's answer makes way for this one
     addStatus(`Processing: ${cmd}`);
 
     try {
@@ -711,7 +725,7 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isCollapsed }) => {
 
       let heldForReview = false;
       for (const action of actions) {
-        addStatus(action.description);
+        addStatus(action.description, !!action.isAnswer);
         if (action.isLlmFallback) {
           // Jev option: only here, where the pre-change path would hand the raw
           // text to the settings assistant. null (flag off, no endpoint, error,
@@ -726,13 +740,13 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isCollapsed }) => {
         } else if (action.optional) {
           try {
             const answer = await executeAction(action);
-            if (answer) addStatus(answer);
+            if (answer) addStatus(answer, true);
           } catch (error) {
             addStatus(`Skipped: ${error instanceof Error ? error.message : 'request failed'}`);
           }
         } else {
           const answer = await executeAction(action);
-          if (answer) addStatus(answer);
+          if (answer) addStatus(answer, true);
         }
         await new Promise(r => setTimeout(r, 300));
       }
@@ -862,7 +876,7 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isCollapsed }) => {
       {statusLines.length > 0 && (
         <div className="mt-2 min-h-[20px] space-y-0.5">
           {statusLines.map(line => (
-            <StatusText key={line.id} text={line.text} timestamp={line.timestamp} />
+            <StatusText key={line.id} text={line.text} timestamp={line.timestamp} isAnswer={line.isAnswer} />
           ))}
         </div>
       )}
