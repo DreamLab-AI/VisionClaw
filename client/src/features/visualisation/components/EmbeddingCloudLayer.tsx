@@ -47,6 +47,7 @@ import { createCloudSprites, type CloudSprites } from '../memoryCloud/cloudSprit
 import { robustBounds, type RobustBounds } from '@/utils/robustBounds';
 import { sharedNodePositions, sharedNodeIdToIndexMap } from '../../graph/contexts/NodePositionContext';
 import { graphDataManager } from '../../graph/managers/graphDataManager';
+import { useOverlayPortal } from '../../graph/utils/overlayHost';
 
 interface EmbeddingCloudProps {
   enabled: boolean;
@@ -120,6 +121,7 @@ const statusBox = (colour: string, background: string): React.CSSProperties => (
 });
 
 const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
+  const overlayPortal = useOverlayPortal();
   /** outer: graph centre, scale, rotation */
   const placeRef = useRef<THREE.Group>(null);
   /** inner: cloud-local frame (recentred on the dense core); the route and rig use this */
@@ -435,7 +437,7 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
 
   if (!snapshot && (status === 'loading' || status === 'idle')) {
     return (
-      <Html center>
+      <Html portal={overlayPortal} center>
         <div style={statusBox('#7ef0cf', 'rgba(0,0,0,0.7)')}>Loading memory cloud…</div>
       </Html>
     );
@@ -443,7 +445,7 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
 
   if (!snapshot && status === 'error') {
     return (
-      <Html center>
+      <Html portal={overlayPortal} center>
         <div style={statusBox('#ff6666', 'rgba(80,0,0,0.7)')}>Memory cloud unavailable: {loadError}</div>
       </Html>
     );
@@ -486,7 +488,7 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
       />
       <MemoryCameraRig cloudGroup={groupRef} positions={snapshot.positions} />
       {hoveredMeta && worldHover && (
-        <Html position={worldHover} center style={{ pointerEvents: 'none' }}>
+        <Html portal={overlayPortal} position={worldHover} center style={{ pointerEvents: 'none' }}>
           <div
             style={{
               background: 'rgba(0,0,0,0.85)',

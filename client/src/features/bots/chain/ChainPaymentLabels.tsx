@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { agentMarkerPosition } from '../agentMarkerPass';
 import type { BotsEdge } from '../types/BotsTypes';
 import { CHAIN_PAYMENT_COLOR, CHAIN_PAYMENT_EDGE_TYPE, chainEdgeLabel } from './chainPayments';
+import { useOverlayPortal } from '../../graph/utils/overlayHost';
 
 export const MAX_LINES_PER_PAIR = 3;
 
@@ -60,6 +61,7 @@ export function pairMidpoint(
 }
 
 const PairLabel: React.FC<{ group: ChainLabelGroup }> = ({ group }) => {
+  const overlayPortal = useOverlayPortal();
   const ref = useRef<THREE.Group>(null);
   // Both ends come from the marker map, where the agents' markers are drawn.
   useFrame(() => {
@@ -69,7 +71,7 @@ const PairLabel: React.FC<{ group: ChainLabelGroup }> = ({ group }) => {
   });
   return (
     <group ref={ref}>
-      <Html center style={{ pointerEvents: 'none', whiteSpace: 'nowrap' }}>
+      <Html portal={overlayPortal} center style={{ pointerEvents: 'none', whiteSpace: 'nowrap' }}>
         <div
           data-testid="chain-edge-label"
           style={{ color: CHAIN_PAYMENT_COLOR, fontSize: '9px', fontFamily: 'monospace', textShadow: '0 0 3px black' }}

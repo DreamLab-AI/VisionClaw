@@ -18,6 +18,7 @@ import {
   computeNameplateTier, tickNameplateDensity, NAMEPLATE_DENSITY_LIMIT, NAMEPLATE_HYSTERESIS,
   NAMEPLATE_NAME_DISTANCE_FACTOR, type NameplateTier,
 } from '../nameplateTier';
+import { useOverlayPortal } from '../../graph/utils/overlayHost';
 
 /** Where a nameplate sits: the agent's marker position, from the marker map. */
 export function nameplateAnchor(wireId: number | string, out: { set(x: number, y: number, z: number): unknown }): boolean {
@@ -42,6 +43,7 @@ export interface AgentNameplateProps {
 const _p = new THREE.Vector3();
 
 export const AgentNameplate: React.FC<AgentNameplateProps> = ({ wireId, record, color }) => {
+  const overlayPortal = useOverlayPortal();
   const ref = useRef<THREE.Group>(null);
   const camera = useThree(s => s.camera);
   const registryName = useAgentTargetStore(s => s.agents.get(wireId)?.name);
@@ -76,7 +78,7 @@ export const AgentNameplate: React.FC<AgentNameplateProps> = ({ wireId, record, 
   return (
     <group ref={ref} visible={false}>
       {tier !== 'hidden' && (
-        <Html center style={{ pointerEvents: 'none', whiteSpace: 'nowrap', textAlign: 'center', transform: 'translateY(-26px)' }}>
+        <Html portal={overlayPortal} center style={{ pointerEvents: 'none', whiteSpace: 'nowrap', textAlign: 'center', transform: 'translateY(-26px)' }}>
           <div data-testid="agent-nameplate" style={{ color, fontSize: '11px', fontFamily: 'monospace', textShadow: '0 0 3px black' }}>
             <div>{text}</div>
             {tier === 'full' && record && <div style={{ fontSize: '9px', opacity: 0.8 }}>{record.type} · {record.status}</div>}

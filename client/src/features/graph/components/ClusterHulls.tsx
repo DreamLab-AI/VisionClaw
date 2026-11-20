@@ -16,6 +16,7 @@ import {
 } from '../utils/communityLabels';
 import { useCommunityLabels } from '../utils/useCommunityLabels';
 import { hullCentre, keepHullPoints, type Point3 } from '../utils/hullOutliers';
+import { useOverlayPortal } from '../utils/overlayHost';
 
 // ============================================================================
 // Types
@@ -221,6 +222,7 @@ export const ClusterHulls: React.FC<ClusterHullsProps> = ({
   nodeIdToIndexMap,
   settings,
 }) => {
+  const overlayPortal = useOverlayPortal();
   const groupRef = useRef<THREE.Group>(null);
   const frameCounter = useRef(0);
   const [tick, setTick] = useState(0);
@@ -541,7 +543,7 @@ export const ClusterHulls: React.FC<ClusterHullsProps> = ({
         _communityHullColor.setHSL(...stableHslFor(entry));
         const colour = `#${_communityHullColor.getHexString()}`;
         return (
-          <Html key={`label-${entry.communityId}`} position={at} center distanceFactor={400} zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
+          <Html portal={overlayPortal} key={`label-${entry.communityId}`} position={at} center distanceFactor={400} zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
             <div data-testid="community-label" style={{ color: colour, textAlign: 'center', whiteSpace: 'nowrap', textShadow: '0 0 4px #000', font: '600 13px system-ui, sans-serif' }}>
               {entry.label}
               <div style={{ font: '400 10px system-ui, sans-serif', opacity: 0.85 }}>{domainMixLine(entry)}</div>
