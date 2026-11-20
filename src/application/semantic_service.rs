@@ -201,31 +201,23 @@ impl SemanticService {
     }
 }
 
-// NOTE: Tests disabled due to:
-// 1. Result<T> requires 2 generic arguments (Result<T, E>) but trait returns Result<T>
-// 2. GpuSemanticAnalyzer trait methods have incorrect return types
-// To re-enable: Update trait method signatures to match crate::Result type alias
-/*
 #[cfg(test)]
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use crate::events::event_bus::EventBus;
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
 
     struct MockSemanticAnalyzer;
 
     #[async_trait]
     impl GpuSemanticAnalyzer for MockSemanticAnalyzer {
-        async fn initialize(&mut self, _graph: Arc<GraphData>) -> Result<()> {
+        async fn initialize(&mut self, _graph: Arc<GraphData>) -> SemanticResult<()> {
             Ok(())
         }
 
         async fn detect_communities(
             &mut self,
             _algorithm: ClusteringAlgorithm,
-        ) -> Result<CommunityDetectionResult> {
+        ) -> SemanticResult<CommunityDetectionResult> {
             Ok(CommunityDetectionResult {
                 clusters: HashMap::new(),
                 cluster_sizes: HashMap::new(),
@@ -237,7 +229,7 @@ mod tests {
         async fn compute_shortest_paths(
             &mut self,
             source_node_id: u32,
-        ) -> Result<PathfindingResult> {
+        ) -> SemanticResult<PathfindingResult> {
             Ok(PathfindingResult {
                 source_node: source_node_id,
                 distances: HashMap::new(),
@@ -249,27 +241,27 @@ mod tests {
         async fn compute_sssp_distances(
             &mut self,
             _source_node_id: u32,
-        ) -> Result<Vec<f32>> {
+        ) -> SemanticResult<Vec<f32>> {
             Ok(vec![])
         }
 
         async fn compute_all_pairs_shortest_paths(
             &mut self,
-        ) -> Result<HashMap<(u32, u32), Vec<u32>>> {
+        ) -> SemanticResult<HashMap<(u32, u32), Vec<u32>>> {
             Ok(HashMap::new())
         }
 
         async fn compute_landmark_apsp(
             &mut self,
             _num_landmarks: usize,
-        ) -> Result<Vec<Vec<f32>>> {
+        ) -> SemanticResult<Vec<Vec<f32>>> {
             Ok(vec![])
         }
 
         async fn generate_semantic_constraints(
             &mut self,
             _config: SemanticConstraintConfig,
-        ) -> Result<ConstraintSet> {
+        ) -> SemanticResult<ConstraintSet> {
             Ok(ConstraintSet::default())
         }
 
@@ -277,7 +269,7 @@ mod tests {
             &mut self,
             _constraints: &ConstraintSet,
             _max_iterations: usize,
-        ) -> Result<OptimizationResult> {
+        ) -> SemanticResult<OptimizationResult> {
             Ok(OptimizationResult {
                 converged: true,
                 iterations: 100,
@@ -290,7 +282,7 @@ mod tests {
         async fn analyze_node_importance(
             &mut self,
             _algorithm: ImportanceAlgorithm,
-        ) -> Result<HashMap<u32, f32>> {
+        ) -> SemanticResult<HashMap<u32, f32>> {
             Ok(HashMap::new())
         }
 
@@ -316,8 +308,7 @@ mod tests {
     #[tokio::test]
     async fn test_semantic_service_creation() {
         let adapter = Arc::new(RwLock::new(MockSemanticAnalyzer));
-        let event_bus = Arc::new(RwLock::new(EventBus::new()));
-        let service = SemanticService::new(adapter, event_bus);
+        let service = SemanticService::new(adapter);
 
         let stats = service.get_statistics().await.unwrap();
         assert_eq!(stats.total_analyses, 50);
@@ -326,11 +317,9 @@ mod tests {
     #[tokio::test]
     async fn test_detect_communities() {
         let adapter = Arc::new(RwLock::new(MockSemanticAnalyzer));
-        let event_bus = Arc::new(RwLock::new(EventBus::new()));
-        let service = SemanticService::new(adapter, event_bus);
+        let service = SemanticService::new(adapter);
 
         let result = service.detect_communities_louvain().await.unwrap();
         assert_eq!(result.modularity, 0.5);
     }
 }
-*/
