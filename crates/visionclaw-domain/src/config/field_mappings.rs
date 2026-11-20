@@ -85,6 +85,27 @@ pub(crate) static FIELD_MAPPINGS: std::sync::LazyLock<
 > = std::sync::LazyLock::new(|| {
     let mut field_mappings = std::collections::HashMap::new();
 
+    // Provider service settings. The settings write handler snake-cases the
+    // payload, and without these mappings the merged JSON carries both the
+    // snake_case and the camelCase key, so deserialisation fails with a
+    // duplicate-field error and a saved API key is never stored (W3-02).
+    for (snake, camel) in [
+        ("api_key", "apiKey"),
+        ("base_url", "baseUrl"),
+        ("api_base_url", "apiBaseUrl"),
+        ("api_url", "apiUrl"),
+        ("agent_id", "agentId"),
+        ("chat_id", "chatId"),
+        ("max_retries", "maxRetries"),
+        ("max_tokens", "maxTokens"),
+        ("top_p", "topP"),
+        ("presence_penalty", "presencePenalty"),
+        ("frequency_penalty", "frequencyPenalty"),
+        ("rate_limit", "rateLimit"),
+    ] {
+        field_mappings.insert(snake, camel);
+    }
+
     field_mappings.insert("base_color", "baseColor");
     field_mappings.insert("emission_color", "emissionColor");
     field_mappings.insert("node_size", "nodeSize");
