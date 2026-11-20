@@ -35,11 +35,18 @@ export interface CommunityLabelsResponse {
   communities: CommunityLabelEntry[];
 }
 
+function isLabels(v: unknown): v is CommunityLabelsResponse {
+  const r = v as CommunityLabelsResponse | null;
+  return !!r && typeof r.generation === 'number' && Array.isArray(r.communities);
+}
+
 export async function fetchCommunityLabels(): Promise<CommunityLabelsResponse | null> {
   try {
-    const res = await unifiedApiClient.get<CommunityLabelsResponse>('/analytics/communities/labels', { timeout: 10000 });
-    const body = (res as { data?: CommunityLabelsResponse }).data ?? (res as unknown as CommunityLabelsResponse);
-    if (body && typeof body.generation === 'number' && Array.isArray(body.communities)) return body;
+    const res = await unifiedApiClient.get<unknown>('/analytics/communities/labels', { timeout: 10000 });
+    // `res.data` is the HTTP body, which the server wraps as {success, data, ...}.
+    const raw = (res as { data?: { data?: unknown } }).data;
+    const body = raw && typeof raw === 'object' && 'data' in raw ? raw.data : raw;
+    if (isLabels(body)) return body;
   } catch {
     // fail-open: no labels, hulls simply do not draw
   }
@@ -82,23 +89,52 @@ export interface CommunityLayers {
   hulls: CommunityLabelEntry[];
   /** Communities with a label but no hull: a chip at the members' centroid. */
   chips: CommunityLabelEntry[];
-  /** Entries dropped because their size no longer matches what the client holds. */
+  /** Entries dropped because they describe a different detection run than the client holds. */
   stale: number;
 }
 
+/** What the client holds: each node's wire community id (`undefined` = node not held), and per-id counts. */
+export interface LocalCommunities {
+  communityOf: (nodeId: number) => number | undefined;
+  counts: Map<number, number>;
+}
+
+/** Fraction of resolvable sample ids that must still carry the entry's community id. */
+const FRESH_SHARE = 0.9;
+
 /**
- * Decide what to draw. An entry is stale (drawn as nothing, refetch wanted) when
- * the client's own member count for its `communityId` differs from the entry's
- * `size`: the labels describe a different detection run than the ids on the wire.
+ * An entry is fresh when the nodes the client holds agree with it: of the core
+ * and exemplar ids the client can resolve, at least 90% still carry the entry's
+ * `communityId`. With nothing to sample (a chip with no exemplars) the client's
+ * own count must be non-zero and no larger than the server's `size`.
+ *
+ * The server `size` counts every member the caller may see, pages and domain
+ * roots included, so a client that filters node types holds fewer; equality of
+ * counts would call every entry stale.
  */
+function isFresh(e: CommunityLabelEntry, local: LocalCommunities): boolean {
+  let held = 0;
+  let agree = 0;
+  for (const id of [...e.coreIds, ...e.exemplars.map((x) => x.id)]) {
+    const c = local.communityOf(id);
+    if (c === undefined) continue;
+    held++;
+    if (c === e.communityId) agree++;
+  }
+  if (held > 0) return agree / held >= FRESH_SHARE;
+  const n = local.counts.get(e.communityId) ?? 0;
+  return n > 0 && n <= e.size;
+}
+
+/** Decide what to draw; a stale entry draws nothing and asks for a refetch. */
 export function planCommunityLayers(
   labels: CommunityLabelsResponse | null,
-  localCounts: Map<number, number>,
+  local: LocalCommunities,
 ): CommunityLayers {
   const out: CommunityLayers = { hulls: [], chips: [], stale: 0 };
   if (!labels) return out;
   for (const e of labels.communities) {
-    if (localCounts.get(e.communityId) !== e.size) { out.stale++; continue; }
+    if (!isFresh(e, local)) { out.stale++; continue; }
     if (e.hasHull && e.coreIds.length > 0) out.hulls.push(e);
     else out.chips.push(e);
   }

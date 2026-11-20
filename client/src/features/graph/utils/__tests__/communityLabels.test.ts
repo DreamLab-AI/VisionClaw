@@ -1,9 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 
-vi.mock('../../../../services/api/UnifiedApiClient', () => ({ unifiedApiClient: { get: vi.fn() } }));
+const getMock = vi.hoisted(() => vi.fn());
+vi.mock('../../../../services/api/UnifiedApiClient', () => ({ unifiedApiClient: { get: getMock } }));
 
 import {
-  acceptLabels, planCommunityLayers, centroidOf, domainMixLine, localCommunityCounts,
+  fetchCommunityLabels, acceptLabels, planCommunityLayers, centroidOf, domainMixLine, localCommunityCounts,
   partitionSignature, stableHslFor, type CommunityLabelEntry, type CommunityLabelsResponse,
 } from '../communityLabels';
 
@@ -14,33 +15,70 @@ const entry = (over: Partial<CommunityLabelEntry>): CommunityLabelEntry => ({
 });
 const resp = (generation: number, communities: CommunityLabelEntry[]): CommunityLabelsResponse => ({ generation, communities });
 
+/** A probe over the nodes the client holds: `held` maps node id -> its local community. */
+const probe = (held: Record<number, number>) => ({
+  communityOf: (id: number) => held[id],
+  counts: new Map<number, number>(Object.values(held).reduce((m, c) => m.set(c, (m.get(c) ?? 0) + 1), new Map<number, number>())),
+});
+
 describe('planCommunityLayers', () => {
   it('draws a hull only for hasHull communities; the rest get a chip', () => {
     const labels = resp(3, [
       entry({ communityId: 1, hasHull: true }),
-      entry({ communityId: 2, hasHull: false, coreIds: [], coreSize: 0, size: 5 }),
+      entry({ communityId: 2, hasHull: false, coreIds: [], coreSize: 0, size: 2, exemplars: [{ id: 20, label: 'x' }] }),
     ]);
-    const plan = planCommunityLayers(labels, new Map([[1, 4], [2, 5]]));
+    const plan = planCommunityLayers(labels, probe({ 1: 1, 2: 1, 3: 1, 20: 2, 21: 2 }));
     expect(plan.hulls.map((e) => e.communityId)).toEqual([1]);
     expect(plan.chips.map((e) => e.communityId)).toEqual([2]);
     expect(plan.stale).toBe(0);
   });
 
   it('never draws a hull for hasHull with an empty core', () => {
-    const plan = planCommunityLayers(resp(1, [entry({ coreIds: [] })]), new Map([[1, 4]]));
+    const plan = planCommunityLayers(resp(1, [entry({ coreIds: [], size: 2 })]), probe({ 8: 1, 9: 1 }));
     expect(plan.hulls).toHaveLength(0);
     expect(plan.chips).toHaveLength(1);
   });
 
-  it('drops an entry whose size no longer matches the ids the client holds (stale run)', () => {
-    const plan = planCommunityLayers(resp(3, [entry({ size: 4 })]), new Map([[1, 9]]));
+  it('drops an entry whose core ids carry other community ids locally (a different run)', () => {
+    const plan = planCommunityLayers(resp(3, [entry({})]), probe({ 1: 7, 2: 7, 3: 7 }));
     expect(plan.hulls).toHaveLength(0);
     expect(plan.chips).toHaveLength(0);
     expect(plan.stale).toBe(1);
   });
 
+  it('a type filter or node thinning does not make a fresh entry stale', () => {
+    // The server size (4) counts pages the client filtered out; only 2 of 4 members are held.
+    const plan = planCommunityLayers(resp(3, [entry({ size: 4, coreIds: [1, 2, 3] })]), probe({ 1: 1, 2: 1 }));
+    expect(plan.hulls.map((e) => e.communityId)).toEqual([1]);
+    expect(plan.stale).toBe(0);
+  });
+
+  it('a chip with no sample ids falls back to a count that cannot exceed the server size', () => {
+    const chip = entry({ communityId: 2, hasHull: false, coreIds: [], coreSize: 0, size: 3, exemplars: [] });
+    expect(planCommunityLayers(resp(1, [chip]), probe({ 5: 2, 6: 2 })).chips).toHaveLength(1);
+    expect(planCommunityLayers(resp(1, [chip]), probe({ 5: 2, 6: 2, 7: 2, 8: 2 })).stale).toBe(1);
+    expect(planCommunityLayers(resp(1, [chip]), probe({})).stale).toBe(1);
+  });
+
   it('draws nothing before any labels arrive', () => {
-    expect(planCommunityLayers(null, new Map([[1, 4]]))).toEqual({ hulls: [], chips: [], stale: 0 });
+    expect(planCommunityLayers(null, probe({ 1: 1 }))).toEqual({ hulls: [], chips: [], stale: 0 });
+  });
+});
+
+describe('fetchCommunityLabels', () => {
+  it('unwraps the server envelope {success, data} carried in the HTTP body', async () => {
+    const body = resp(4, [entry({})]);
+    getMock.mockResolvedValueOnce({ data: { success: true, data: body, error: null }, status: 200 });
+    expect(await fetchCommunityLabels()).toEqual(body);
+  });
+  it('accepts a bare body and fails open on an error or a malformed reply', async () => {
+    const body = resp(4, []);
+    getMock.mockResolvedValueOnce({ data: body, status: 200 });
+    expect(await fetchCommunityLabels()).toEqual(body);
+    getMock.mockResolvedValueOnce({ data: { success: true, data: { nope: 1 } } });
+    expect(await fetchCommunityLabels()).toBeNull();
+    getMock.mockRejectedValueOnce(new Error('503'));
+    expect(await fetchCommunityLabels()).toBeNull();
   });
 });
 

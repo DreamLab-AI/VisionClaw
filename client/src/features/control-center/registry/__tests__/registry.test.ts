@@ -175,9 +175,9 @@ const LEGACY_REMOVED = ADR_2189_REMOVED_PATHS.filter((p) =>
  * Paths a merge added (ADR-2189 §6 "Merge"): the generic knowledge edge colour
  * became agent mode's own edge colour, so every graph mode has exactly one.
  */
-const MERGE_ADDED_PATHS: string[] = [
-  'visualisation.graphTypeVisuals.agent.edgeColor',
-  // ADR-2206: community labels and bridge highlighting (post-baseline, not in the frozen legacy contract).
+const MERGE_ADDED_PATHS: string[] = ['visualisation.graphTypeVisuals.agent.edgeColor'];
+/** ADR-2206: community labels and bridge highlighting (post-baseline, not in the frozen legacy contract). */
+const ADR_2206_PATHS: string[] = [
   'visualisation.clusterHulls.labelsEnabled',
   'visualisation.clusterHulls.bridgesEnabled',
 ];
@@ -185,7 +185,7 @@ const MERGE_ADDED_PATHS: string[] = [
 const TOTAL_FIELDS =
   168 - RETIRED_PATHS.length - LEGACY_REMOVED.length + EXPECTED_GROUP_COUNTS.agents + EXPECTED_GROUP_COUNTS.provenance
   + WAVE1_LAYOUT_PATHS.length + MEMORY_EXPLORER_PATHS.length + NETWORK_PATHS.length + SEMANTIC_PATHS.length + TWEENING_PATHS.length
-  + LAYOUT_MODE_PATHS.length + GRAPH_VIEW_PATHS.length + MERGE_ADDED_PATHS.length + NODE_FILTER_PATHS.length
+  + LAYOUT_MODE_PATHS.length + GRAPH_VIEW_PATHS.length + MERGE_ADDED_PATHS.length + ADR_2206_PATHS.length + NODE_FILTER_PATHS.length
   + ONTOLOGY_PHYSICS_PATHS.length + ONTOLOGY_PIPELINE_PATHS.length + READOUT_FIELDS.length;
 
 /**
@@ -385,7 +385,7 @@ describe('control-center settings registry', () => {
     // post-date WP5 and are asserted independently.
     const migratedPaths = ALL_PATHS.filter(
       (p) =>
-        !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p) && !networkSet.has(p) && !semanticSet.has(p) && !tweeningSet.has(p) && !layoutModeSet.has(p) && !graphViewSet.has(p) && !MERGE_ADDED_PATHS.includes(p) && !NODE_FILTER_PATHS.includes(p) && !ONTOLOGY_PHYSICS_PATHS.includes(p) && !ONTOLOGY_PIPELINE_PATHS.includes(p),
+        !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p) && !networkSet.has(p) && !semanticSet.has(p) && !tweeningSet.has(p) && !layoutModeSet.has(p) && !graphViewSet.has(p) && !MERGE_ADDED_PATHS.includes(p) && !ADR_2206_PATHS.includes(p) && !NODE_FILTER_PATHS.includes(p) && !ONTOLOGY_PHYSICS_PATHS.includes(p) && !ONTOLOGY_PIPELINE_PATHS.includes(p),
     );
     const migratedSet = new Set(migratedPaths);
 

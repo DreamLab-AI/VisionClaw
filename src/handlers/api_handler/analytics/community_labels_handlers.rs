@@ -19,7 +19,7 @@ use visionclaw_domain::utils::visibility_filter::visible_subgraph;
 
 use crate::actors::messages::GetGraphData;
 use crate::services::community_labels::{
-    build_labels, registry, CommunityLabel, EdgeInput, LabelParams, MemberInput, StableRegistry,
+    build_labels, registry, CommunityLabel, EdgeInput, LabelParams, MemberInput,
 };
 use crate::utils::binary_protocol::NODE_ID_MASK;
 use crate::{error_json, ok_json, AppState};
@@ -100,7 +100,8 @@ pub fn labels_for_view(
     pubkey: Option<&str>,
     filter_on: bool,
     community_of: &dyn Fn(u32) -> u32,
-    stable: &StableRegistry,
+    generation: u64,
+    stable: &HashMap<u32, u64>,
     params: &LabelParams,
 ) -> CommunityLabelsResponse {
     let view = visible_subgraph(graph, pubkey, filter_on);
@@ -130,11 +131,11 @@ pub fn labels_for_view(
     let communities = build_labels(&members, &edges, params)
         .into_iter()
         .map(|l| {
-            let sid = stable.stable_id(l.community_id).unwrap_or(l.community_id as u64);
+            let sid = stable.get(&l.community_id).copied().unwrap_or(l.community_id as u64);
             CommunityLabelDto::from_label(l, sid)
         })
         .collect();
-    CommunityLabelsResponse { generation: stable.generation(), communities }
+    CommunityLabelsResponse { generation, communities }
 }
 
 const CACHE_TTL: Duration = Duration::from_secs(20);
@@ -162,7 +163,11 @@ pub async fn get_community_labels(
         }
     };
     let pubkey = crate::handlers::graph_access::caller_pubkey(&caller).map(str::to_owned);
-    let generation = registry().lock().map(|r| r.generation()).unwrap_or(0);
+    // One short critical section: copy the run's identities, then compute lock-free.
+    let (generation, stable) = registry()
+        .lock()
+        .map(|r| (r.generation(), r.stable_ids()))
+        .unwrap_or_default();
     let key: CacheKey = (generation, pubkey.clone());
     if let Ok(c) = cache().lock() {
         if let Some((at, hit)) = c.get(&key) {
@@ -177,13 +182,13 @@ pub async fn get_community_labels(
             .read()
             .map(|m| m.iter().map(|(&id, a)| (id, a.community_id)).collect())
             .unwrap_or_default();
-        let reg = registry().lock().map_err(|_| "registry poisoned".to_string())?;
         Ok::<_, String>(labels_for_view(
             &graph,
             pubkey.as_deref(),
             visionclaw_domain::utils::visibility_filter::filter_enabled(),
             &|id| ids.get(&(id & NODE_ID_MASK)).copied().unwrap_or(0),
-            &reg,
+            generation,
+            &stable,
             &LabelParams::default(),
         ))
     })
@@ -245,18 +250,19 @@ mod tests {
         LabelParams { k: 3, hull_min_core: 2, min_corpus_count: 2, min_community_count: 2, ..Default::default() }
     }
 
-    fn registry_for(g: &GraphData) -> StableRegistry {
-        let mut r = StableRegistry::new();
+    /// `(generation, stable ids)` after one detection run putting every node in community 1.
+    fn registry_for(g: &GraphData) -> (u64, HashMap<u32, u64>) {
+        let mut r = crate::services::community_labels::StableRegistry::new();
         let a: Vec<(u32, u32)> = g.nodes.iter().map(|n| (n.id, 1)).collect();
-        r.observe(&a);
-        r
+        let generation = r.observe(&a);
+        (generation, r.stable_ids())
     }
 
     #[test]
     fn a_private_node_contributes_nothing_to_an_anonymous_callers_labels() {
         let g = fixture();
-        let reg = registry_for(&g);
-        let anon = labels_for_view(&g, None, true, &|_| 1, &reg, &params());
+        let (gen, reg) = registry_for(&g);
+        let anon = labels_for_view(&g, None, true, &|_| 1, gen, &reg, &params());
         assert_eq!(anon.communities.len(), 1);
         let c = &anon.communities[0];
         assert_eq!(c.size, 6, "hidden members are not counted");
@@ -269,21 +275,21 @@ mod tests {
     #[test]
     fn the_owner_sees_their_private_nodes_and_the_filter_off_sees_all() {
         let g = fixture();
-        let reg = registry_for(&g);
-        let owner = labels_for_view(&g, Some("owner-key"), true, &|_| 1, &reg, &params());
+        let (gen, reg) = registry_for(&g);
+        let owner = labels_for_view(&g, Some("owner-key"), true, &|_| 1, gen, &reg, &params());
         assert_eq!(owner.communities[0].size, 12);
         assert!(owner.communities[0].terms.iter().any(|t| t.contains("zebrafish")));
-        let off = labels_for_view(&g, None, false, &|_| 1, &reg, &params());
+        let off = labels_for_view(&g, None, false, &|_| 1, gen, &reg, &params());
         assert_eq!(off.communities[0].size, 12);
-        let stranger = labels_for_view(&g, Some("someone-else"), true, &|_| 1, &reg, &params());
+        let stranger = labels_for_view(&g, Some("someone-else"), true, &|_| 1, gen, &reg, &params());
         assert_eq!(stranger.communities[0].size, 6);
     }
 
     #[test]
     fn response_carries_generation_stable_id_and_camel_case_wire_names() {
         let g = fixture();
-        let reg = registry_for(&g);
-        let r = labels_for_view(&g, None, true, &|_| 1, &reg, &params());
+        let (gen, reg) = registry_for(&g);
+        let r = labels_for_view(&g, None, true, &|_| 1, gen, &reg, &params());
         assert_eq!(r.generation, 1);
         assert_eq!(r.communities[0].stable_id, 1);
         let v = serde_json::to_value(&r).unwrap();
@@ -301,8 +307,8 @@ mod tests {
             n.metadata.insert("type".into(), "page".into());
         }
         let g = Arc::new(g);
-        let reg = registry_for(&g);
-        let r = labels_for_view(&g, None, true, &|_| 1, &reg, &params());
+        let (gen, reg) = registry_for(&g);
+        let r = labels_for_view(&g, None, true, &|_| 1, gen, &reg, &params());
         assert!(r.communities[0].terms.is_empty());
         assert!(r.communities[0].domain_mix.is_empty());
     }

@@ -10,10 +10,11 @@ import { Html } from '@react-three/drei';
 import { writeEmphasis } from '../explore/filterRegistry';
 import { HIGHLIGHT_SEARCH_HIT } from '../state/highlightMask';
 import {
-  acceptLabels, centroidOf, domainMixLine, fetchCommunityLabels, localCommunityCounts,
+  centroidOf, domainMixLine, localCommunityCounts,
   partitionSignature, planCommunityLayers, stableHslFor,
-  type CommunityLabelEntry, type CommunityLabelsResponse,
+  type CommunityLabelEntry,
 } from '../utils/communityLabels';
+import { useCommunityLabels } from '../utils/useCommunityLabels';
 
 // ============================================================================
 // Types
@@ -43,10 +44,6 @@ const TICK_INTERVAL = 30;
 // distinct regions stay legible in 3D. Overridable via clusterHulls.maxHulls.
 const DEFAULT_MAX_HULLS = 32;
 
-// ADR-2206: refetch the community labels at most this often when the partition
-// the client holds changes, and as a slow heartbeat otherwise.
-const LABEL_REFETCH_MIN_MS = 5_000;
-const LABEL_HEARTBEAT_MS = 60_000;
 const BRIDGE_SOURCE = 'emph:community-bridges';
 
 // Spatial-clustering target bucket count when no server cluster_id exists.
@@ -227,9 +224,6 @@ export const ClusterHulls: React.FC<ClusterHullsProps> = ({
   const frameCounter = useRef(0);
   const [tick, setTick] = useState(0);
   const analyticsRef = useRef<Float32Array | null>(null);
-  // ADR-2206: server labels for the detection run the client holds.
-  const [labels, setLabels] = useState<CommunityLabelsResponse | null>(null);
-  const lastFetch = useRef<{ at: number; signature: string }>({ at: 0, signature: '' });
   const labelsEnabled = settings?.visualisation?.clusterHulls?.labelsEnabled ?? true;
   const bridgesEnabled = settings?.visualisation?.clusterHulls?.bridgesEnabled ?? false;
 
@@ -274,21 +268,20 @@ export const ClusterHulls: React.FC<ClusterHullsProps> = ({
     // tick drives periodic recomputation (analyticsRef is a ref)
   }, [nodes, nodeIdToIndexMap, tick]);
 
-  useEffect(() => {
-    if (!enabled) return;
-    const signature = partitionSignature(localCounts);
-    if (!signature) return;
-    const now = Date.now();
-    const changed = signature !== lastFetch.current.signature;
-    const due = now - lastFetch.current.at >= (changed ? LABEL_REFETCH_MIN_MS : LABEL_HEARTBEAT_MS);
-    if (!due) return;
-    lastFetch.current = { at: now, signature };
-    let alive = true;
-    fetchCommunityLabels().then((r) => { if (alive) setLabels((cur) => acceptLabels(cur, r)); });
-    return () => { alive = false; };
-  }, [enabled, localCounts]);
+  const signature = useMemo(() => partitionSignature(localCounts), [localCounts]);
+  const labels = useCommunityLabels(!!enabled, signature);
 
-  const layers = useMemo(() => planCommunityLayers(labels, localCounts), [labels, localCounts]);
+  const layers = useMemo(() => {
+    const a = analyticsRef.current;
+    const byId = new Map<number, number>();
+    if (a) {
+      for (const n of nodes) {
+        const idx = nodeIdToIndexMap.get(n.id);
+        if (idx !== undefined) byId.set(Number(n.id), a[idx * ANALYTICS_STRIDE + ANALYTICS_COMMUNITY_OFFSET]);
+      }
+    }
+    return planCommunityLayers(labels, { communityOf: (id) => byId.get(id), counts: localCounts });
+  }, [labels, localCounts, nodes, nodeIdToIndexMap]);
 
   // ---- Group nodes into clusters ----
   // ADR-031 D6: the hull layer renders ONLY server-provided clusters by default.
@@ -497,23 +490,28 @@ export const ClusterHulls: React.FC<ClusterHullsProps> = ({
   }, [enabled, labelsEnabled, layers, nodes, nodeIdToIndexMap, nodePositionsRef, tick]);
 
   // ---- ADR-2206: bridges = wire members of a hulled community outside its core ----
-  useEffect(() => {
-    if (!enabled || !bridgesEnabled) { writeEmphasis(BRIDGE_SOURCE, HIGHLIGHT_SEARCH_HIT, null); return; }
+  // Keyed on the id set itself so an unchanged set is a no-op write, and cleared
+  // only on disable or unmount, never between ticks.
+  const bridgeIds = useMemo(() => {
     const a = analyticsRef.current;
-    if (!a) return;
+    if (!enabled || !bridgesEnabled || !a) return [] as string[];
     const core = new Map<number, Set<string>>();
     for (const e of layers.hulls) core.set(e.communityId, new Set(e.coreIds.map(String)));
     const ids: string[] = [];
     for (const n of nodes) {
       const idx = nodeIdToIndexMap.get(n.id);
       if (idx === undefined) continue;
-      const c = a[idx * ANALYTICS_STRIDE + ANALYTICS_COMMUNITY_OFFSET];
-      const set = core.get(c);
-      if (set && !set.has(n.id)) ids.push(n.id);
+      const set = core.get(a[idx * ANALYTICS_STRIDE + ANALYTICS_COMMUNITY_OFFSET]);
+      if (set && !set.has(String(n.id))) ids.push(String(n.id));
     }
-    writeEmphasis(BRIDGE_SOURCE, HIGHLIGHT_SEARCH_HIT, ids);
-    return () => { writeEmphasis(BRIDGE_SOURCE, HIGHLIGHT_SEARCH_HIT, null); };
+    return ids;
+    // tick drives periodic recomputation
   }, [enabled, bridgesEnabled, layers, nodes, nodeIdToIndexMap, tick]);
+  const bridgeKey = bridgeIds.join(',');
+  useEffect(() => {
+    writeEmphasis(BRIDGE_SOURCE, HIGHLIGHT_SEARCH_HIT, bridgeIds.length ? bridgeIds : null);
+  }, [bridgeKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { writeEmphasis(BRIDGE_SOURCE, HIGHLIGHT_SEARCH_HIT, null); }, []);
 
   if (!enabled) return null;
 

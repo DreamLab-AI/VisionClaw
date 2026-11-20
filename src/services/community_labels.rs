@@ -452,6 +452,11 @@ impl StableRegistry {
     pub fn generation(&self) -> u64 {
         self.generation
     }
+    /// The run's `community_id -> stableId` map, copied so a caller can release the
+    /// registry lock before doing any real work.
+    pub fn stable_ids(&self) -> HashMap<u32, u64> {
+        self.by_community.clone()
+    }
     /// Stable id of the run's community `community_id`.
     pub fn stable_id(&self, community_id: u32) -> Option<u64> {
         self.by_community.get(&community_id).copied()

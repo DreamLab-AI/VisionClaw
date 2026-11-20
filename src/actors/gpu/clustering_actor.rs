@@ -459,6 +459,7 @@ impl ClusteringActor {
         // ADR-031 D3: community detection is the single writer of community_id only.
         // cluster_id is a distinct field (invariant I-6) owned by K-means/DBSCAN and
         // is left untouched here — the legacy dup-write into cluster_id is removed.
+        let mut published_run: Option<Vec<(u32, u32)>> = None;
         if let Some(ref analytics_map) = self.node_analytics {
             // translate_gpu_index needs &self, so resolve the masked graph node ids
             // here; the gate itself (apply_modularity_gate) is a pure, unit-tested
@@ -476,9 +477,7 @@ impl ClusteringActor {
                     .iter()
                     .map(|&id| (id, map.get(&id).map_or(0, |a| a.community_id)))
                     .collect();
-                if let Ok(mut reg) = crate::services::community_labels::registry().lock() {
-                    reg.observe(&published);
-                }
+                published_run = Some(published);
                 if accepted {
                     info!(
                         "ClusteringActor: Populated node_analytics with community assignments for {} nodes (modularity {:.4})",
@@ -491,6 +490,14 @@ impl ClusteringActor {
                         modularity, MODULARITY_GATE
                     );
                 }
+            }
+        }
+
+        // Observe after the analytics write guard is released: the registry is not
+        // taken while the position broadcast's reader is blocked.
+        if let Some(published) = published_run {
+            if let Ok(mut reg) = crate::services::community_labels::registry().lock() {
+                reg.observe(&published);
             }
         }
 
