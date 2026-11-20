@@ -26,6 +26,30 @@ updates:
       npm-client-minor-patch:
         update-types: [minor, patch]
 
+  - package-ecosystem: npm
+    directory: "/loom/app/ontology-mcp"
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 2
+    groups:
+      npm-ontology-mcp-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: cargo
+    directory: "/xr-client/rust"
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 2
+    groups:
+      cargo-xr-client-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directory: "/"
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 2
+    groups:
+      docker-minor-patch:
+        update-types: [minor, patch]
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule: { interval: weekly }
