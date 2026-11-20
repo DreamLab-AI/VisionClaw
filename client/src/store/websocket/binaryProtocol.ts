@@ -152,10 +152,14 @@ function updateNodeTypeMapFromParsed(
   parsedNodes: BinaryNodeData[],
   set: (partial: { nodeTypeMap: Map<number, NodeType> }) => void,
 ) {
+  // Whether this chunk changed what the map SAYS (an id gained, lost or changed
+  // its type). Re-ordering for eviction is not a change.
+  let changed = false;
   for (const node of parsedNodes) {
     const nodeType = getNodeType(node.nodeId);
     if (nodeType !== NodeType.Unknown) {
       const actualId = getActualNodeId(node.nodeId);
+      if (currentNodeTypeMap.get(actualId) !== nodeType) changed = true;
       // Re-insert to keep recently-seen ids at the tail (LRU-ish for eviction).
       if (currentNodeTypeMap.has(actualId)) {
         currentNodeTypeMap.delete(actualId);
@@ -169,9 +173,13 @@ function updateNodeTypeMapFromParsed(
     const oldest = currentNodeTypeMap.keys().next().value;
     if (oldest === undefined) break;
     currentNodeTypeMap.delete(oldest);
+    changed = true;
   }
 
-  set({ nodeTypeMap: new Map(currentNodeTypeMap) });
+  // Publish only a real change. The store's nodeTypeMap identity feeds the graph's
+  // per-node visual-mode map and, through it, the edge plan (a pass over every edge):
+  // a fresh Map on every position chunk rebuilt that plan about twice a second.
+  if (changed) set({ nodeTypeMap: new Map(currentNodeTypeMap) });
 }
 
 export function getCurrentNodeTypeMap(): Map<number, NodeType> {
