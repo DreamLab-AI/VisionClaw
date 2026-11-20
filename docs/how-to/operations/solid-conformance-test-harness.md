@@ -1,5 +1,7 @@
 # Running Solid Conformance Test Harness (CTH)
 
+> Note 2026-11-20: the Node JSS server this guide starts (`bin/jss.js`, `src/server.js`) and its `test/` suite were removed (CD-F6). The commands below no longer run as written; point the harness at the embedded solid-pod server instead.
+
 Step-by-step instructions for running the Solid Conformance Test Harness against this server.
 
 ## Prerequisites
