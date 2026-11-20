@@ -11,7 +11,7 @@
  * The highlight level arrives in the texture's w: greyed nodes are
  * desaturated and mixed `uGreyMix` toward the background at `uGreyOpacity`;
  * emphasised nodes are drawn `uEmphScale` larger and brighter. In halo mode
- * (the emphasis overlay that feeds selective bloom) only emphasised nodes
+ * (the emphasis overlay that feeds selective bloom; max-blended) only emphasised nodes
  * draw, as a larger soft glow.
  *
  * Instance attributes: aIndex float (render index), aColor vec3 (linear RGB),
@@ -127,7 +127,10 @@ export async function createTslOverviewNodeMaterial(
     const r = length(vCorner);
     If(r.greaterThan(1), () => { Discard(); });
     if (halo) {
-      return vec4(vColor, vAlpha.mul(float(1).sub(smoothstep(0, 1, r))));
+      // Premultiplied: the halo blends with `max` (below), which applies no alpha
+      // weighting of its own, so the falloff has to be in the colour.
+      const ha = vAlpha.mul(float(1).sub(smoothstep(0, 1, r)));
+      return vec4(vColor.mul(ha), ha);
     }
     const a = vAlpha.mul(float(1).sub(smoothstep(0.85, 1, r)));
     const col = mix(vColor, vColor.mul(0.45), smoothstep(0.62, 0.78, r));
@@ -138,8 +141,21 @@ export async function createTslOverviewNodeMaterial(
     transparent: true,
     depthWrite: !halo,
     depthTest: true,
-    blending: halo ? THREE.AdditiveBlending : THREE.NormalBlending,
+    blending: halo ? THREE.CustomBlending : THREE.NormalBlending,
   });
+  if (halo) {
+    // Overlapping halos keep the brightest value instead of adding up. Hundreds of
+    // emphasised nodes overlap at overview zoom; summed, they reached white and the
+    // bloom spread that over the centre of the graph. One halo alone looks the same
+    // as before. WebGPU requires both factors to be `one` with a min/max operation.
+    material.blendEquation = THREE.MaxEquation;
+    material.blendEquationAlpha = THREE.MaxEquation;
+    material.blendSrc = THREE.OneFactor;
+    material.blendDst = THREE.OneFactor;
+    material.blendSrcAlpha = THREE.OneFactor;
+    material.blendDstAlpha = THREE.OneFactor;
+    material.premultipliedAlpha = true;
+  }
   material.name = halo ? 'OverviewNodeHaloNodeMaterial' : 'OverviewNodeNodeMaterial';
   (material as unknown as { vertexNode: unknown }).vertexNode = vertex;
   (material as unknown as { colorNode: unknown }).colorNode = fragment;

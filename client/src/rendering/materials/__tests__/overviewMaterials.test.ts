@@ -41,15 +41,33 @@ describe('overview edge material', () => {
 });
 
 describe('overview node material', () => {
-  it('sprite and halo materials build: the sprite writes depth, the halo blends additively', async () => {
+  it('sprite and halo materials build: the sprite writes depth, the halo does not', async () => {
     for (const halo of [false, true]) {
       const g = createOverviewNodeGeometry(4);
       const m = await createTslOverviewNodeMaterial(createOverviewNodeUniforms(tex, 4, halo), g) as THREE.Material & { vertexNode?: unknown };
-      expect(m.vertexNode).toBeTruthy();
+      expect(m.vertexNode).toBeDefined();
       expect(m.depthWrite).toBe(!halo);
-      expect(m.blending).toBe(halo ? THREE.AdditiveBlending : THREE.NormalBlending);
+      if (!halo) expect(m.blending).toBe(THREE.NormalBlending);
     }
   });
+
+  // Hundreds of emphasised nodes sit on top of each other at overview zoom (217 for
+  // "where are the gaps?"). Added together, their halos reached white and the bloom
+  // spread that over the centre of the graph. Overlapping halos keep the brightest
+  // value instead, so a crowd of halos is never brighter than one.
+  it('overlapping halos keep the brightest value instead of adding up', async () => {
+    const g = createOverviewNodeGeometry(4);
+    const m = await createTslOverviewNodeMaterial(createOverviewNodeUniforms(tex, 4, true), g);
+    expect(m.blending).toBe(THREE.CustomBlending);
+    expect(m.blendEquation).toBe(THREE.MaxEquation);
+    expect(m.blendEquationAlpha).toBe(THREE.MaxEquation);
+    // WebGPU requires both factors to be `one` with a min/max operation.
+    expect([m.blendSrc, m.blendDst, m.blendSrcAlpha, m.blendDstAlpha]).toEqual(
+      [THREE.OneFactor, THREE.OneFactor, THREE.OneFactor, THREE.OneFactor]);
+    // With max there is no alpha weighting by the blend stage, so the colour carries it.
+    expect(m.premultipliedAlpha).toBe(true);
+  });
+
   it('sprite size: spriteSizePx for the smallest node, larger nodes larger, clamped', () => {
     expect(spriteSizePx(2.5 * 0.4, 0.4, 4)).toBe(4);
     expect(spriteSizePx(5 * 0.4, 0.4, 4)).toBe(8);
