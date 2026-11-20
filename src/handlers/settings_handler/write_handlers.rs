@@ -17,30 +17,6 @@ use super::physics::propagate_physics_to_gpu;
 use super::types::{value_type_name, SettingsResponseDTO};
 use super::validation::validate_settings_update;
 
-/// Provider sections whose `api_key` the GET routes redact to `null`
-/// (see `redact_settings_secrets` in `routes.rs`).
-const SECRET_BEARING_SECTIONS: [&str; 3] = ["openai", "ragflow", "perplexity"];
-
-/// Drop a `null` provider `api_key` from an update payload.
-///
-/// The GET routes redact saved keys to `null`, so a client that echoes the body
-/// it read back would otherwise overwrite the stored key with `null` (W3-02).
-/// A `null` key therefore means "unchanged"; a non-empty string replaces the key.
-fn strip_redacted_secret_placeholders(update: &mut Value) {
-    let Some(obj) = update.as_object_mut() else {
-        return;
-    };
-    for section in SECRET_BEARING_SECTIONS {
-        if let Some(Value::Object(section_obj)) = obj.get_mut(section) {
-            for key in ["api_key", "apiKey"] {
-                if section_obj.get(key).is_some_and(Value::is_null) {
-                    section_obj.remove(key);
-                }
-            }
-        }
-    }
-}
-
 pub async fn update_settings(
     _req: HttpRequest,
     _user: AuthenticatedUser,
@@ -50,7 +26,6 @@ pub async fn update_settings(
     let mut update = payload.into_inner();
 
     convert_to_snake_case_recursive(&mut update);
-    strip_redacted_secret_placeholders(&mut update);
 
     debug!("Settings update received: {:?}", update);
 
@@ -547,64 +522,4 @@ pub async fn batch_update_settings(
         "message": format!("Successfully updated {} out of {} settings", success_count, updates.len()),
         "results": results
     }))
-}
-
-#[cfg(test)]
-mod secret_round_trip_tests {
-    use super::strip_redacted_secret_placeholders;
-    use crate::config::AppFullSettings;
-    use serde_json::json;
-
-    #[test]
-    fn echoing_a_redacted_get_body_keeps_the_saved_keys() {
-        let mut settings = AppFullSettings::default();
-        settings
-            .merge_update(json!({
-                "openai": { "apiKey": "sk-saved" },
-                "ragflow": { "apiKey": "rag-saved" },
-                "perplexity": { "apiKey": "pplx-saved" }
-            }))
-            .unwrap();
-        assert_eq!(
-            settings.openai.as_ref().unwrap().api_key.as_deref(),
-            Some("sk-saved")
-        );
-
-        // What a client sends back after reading the redacted GET body.
-        let mut echoed = json!({
-            "openai": { "api_key": null },
-            "ragflow": { "api_key": null },
-            "perplexity": { "apiKey": null, "model": "sonar" }
-        });
-        strip_redacted_secret_placeholders(&mut echoed);
-        settings.merge_update(echoed).unwrap();
-
-        assert_eq!(
-            settings.openai.as_ref().unwrap().api_key.as_deref(),
-            Some("sk-saved")
-        );
-        assert_eq!(
-            settings.ragflow.as_ref().unwrap().api_key.as_deref(),
-            Some("rag-saved")
-        );
-        assert_eq!(
-            settings.perplexity.as_ref().unwrap().api_key.as_deref(),
-            Some("pplx-saved")
-        );
-    }
-
-    #[test]
-    fn a_new_non_null_key_still_replaces_the_saved_one() {
-        let mut settings = AppFullSettings::default();
-        settings
-            .merge_update(json!({ "openai": { "apiKey": "old" } }))
-            .unwrap();
-        let mut update = json!({ "openai": { "api_key": "new" } });
-        strip_redacted_secret_placeholders(&mut update);
-        settings.merge_update(update).unwrap();
-        assert_eq!(
-            settings.openai.as_ref().unwrap().api_key.as_deref(),
-            Some("new")
-        );
-    }
 }
