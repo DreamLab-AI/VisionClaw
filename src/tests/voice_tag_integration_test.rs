@@ -197,7 +197,7 @@ async fn test_concurrent_voice_commands() {
     }
 
     
-    for i in 0..5 {
+    for _ in 0..5 {
         let tts_response = tokio::time::timeout(
             tokio::time::Duration::from_secs(1),
             tts_rx.recv()

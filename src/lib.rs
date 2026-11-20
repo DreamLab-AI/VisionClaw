@@ -48,6 +48,9 @@ pub mod web_contract;
 
 pub mod test_helpers;
 
+#[cfg(test)]
+mod tests;
+
 pub use actors::{ClientCoordinatorActor, MetadataActor, OptimizedSettingsActor};
 pub use app_state::AppState;
 // ADR-090: model types now canonical in visionclaw-domain. Re-exports here
