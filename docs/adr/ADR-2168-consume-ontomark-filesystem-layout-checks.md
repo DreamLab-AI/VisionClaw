@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: b188b0397756517fda22fb67d17222d4cec46579
+verified_commit: 1f9e79db7a68231b4bdab7af617098b353276a47
 verified_paths: [Cargo.toml, Cargo.lock, crates/vault/Cargo.toml, crates/vault/src/main.rs, crates/vault/tests/shared_layout.rs, src/services/corpus_source/local.rs]
 owner: jjohare
 review_trigger: a layout or discovery change, Ontomark dependency upgrade, or producer cutover
@@ -113,3 +113,5 @@ Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `Carg
 ## Amendment — 2026-11-20
 
 Re-verified 2026-11-20 at b188b0397: `git diff 5db8ccf30..b188b0397 -- Cargo.toml Cargo.lock`. `Cargo.toml` changes two lines (`rusqlite` 0.43, `tokio-rusqlite` 0.10); `Cargo.lock` moves `rusqlite` 0.31.0 to 0.43.0, `libsqlite3-sys` 0.28 to 0.40, `tokio-rusqlite` 0.5.1 to 0.10.0, drops `ahash`/`hashlink` 0.9 and adds `rsqlite-vfs`/`sqlite-wasm-rs`. The `ontomark-compile = 0.6.3` optional dependency and the `vault` layout checks this record decides are untouched. The 2026-11-16 note's "rusqlite 0.31.0" described the lock at its date. Decision holds.
+
+Re-verified 2026-11-20 at 1f9e79db7: `git diff b188b0397..1f9e79db7 -- Cargo.lock`. Lockfile only: `openssl` 0.10.73 to 0.10.82, `openssl-sys` 0.9.109 to 0.9.118, `rustls` 0.23.31 to 0.23.46, `rustls-webpki` 0.103.4 to 0.103.17, `quinn-proto` 0.11.13 to 0.11.19, and a new `rand_pcg` 0.10.3 entry. No ontomark entry or feature set changes, so no claim in this record is affected.
