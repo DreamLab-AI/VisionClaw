@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: b188b0397756517fda22fb67d17222d4cec46579
+verified_commit: 67318384fda1e834d84f3323745b0c1c7d296b7d
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -250,3 +250,7 @@ The merge combines main's ADR-2192 changes (the two sections above it) with the 
 ## Re-verification — 2026-11-20
 
 Re-verified 2026-11-20 at b188b0397 (record superseded by ADR-2115; note only): `git diff 2a93efd1d..b188b0397 -- client/src/features/settings/config/settings.ts data/settings.yaml xr-client/scripts/graph_scene.gd`. `settings.ts` gains two optional `ClusterHullSettings` fields (`labelsEnabled`, `bridgesEnabled`, ADR-2206); `data/settings.yaml` gains physics keys (`hierarchyAffinity`, `weightingMode`, `repulsionMode`, `hubDamping`, `weightMin`, `weightMax`, `scalingRatio`) and `globalSpeed` 0.4 to 1.0, all below `:67` where the `knowledge` graph key this record decides is persisted; `graph_scene.gd` drops an unused constant and reflows a comment. No claim about the graph key or the graph-type value is affected.
+
+## Re-verification — 2026-11-21 (`67318384f`)
+
+Governed-path change since b188b0397: `client/src/features/settings/config/settings.ts` changes one doc comment on the `agentColors` field (it no longer cites the deleted `settings_handler` module). No key, type or default changed, so nothing this record states about the `knowledge` graph settings key is affected. Checked by reading the diff; no test was re-run.
