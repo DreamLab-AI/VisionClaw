@@ -35,6 +35,7 @@ The fix is concentrated: stop equating a self-signed identity with write authori
 - `src/config/feature_access.rs:38-52` `register_new_user()` unconditionally pushes every new pubkey into `approved_pubkeys` **and** `openai_enabled` **and** `ragflow_enabled`. The `APPROVED_PUBKEYS` env allowlist is a seed only; the register path auto-grants paid-API feature access to any caller.
 - 85 handler params take the bare `AuthenticatedUser` extractor and discard it (`_auth`/`_user`); only 8 sites call `require_power_user()`.
 - `src/handlers/bots_handler.rs:401` `spawn_agent_hybrid`, `:251` `initialize_hive_mind_swarm`, `:700` `submit_task`, `:791` `interrupt_task`, `:597` `remove_task` — all `_auth: AuthenticatedUser` (discarded), mounted at `/api/bots/*`.
+> Note 2026-11-21: the `settings_handler` module cited in the next bullet was never mounted and has been deleted.
 - `src/handlers/settings_handler/write_handlers.rs:20` `update_settings` takes `_user: AuthenticatedUser` (discarded), never calls `verify_write_settings` — despite the `AccessLevel::WriteSettings` machinery existing and being unit-tested (`src/utils/auth.rs:284-300`).
 - Reachable: `config.yml` tunnels `junkiejarvis.com` → `visionclaw-server:3001`; `nginx.production.conf:106` proxies all `/api/` to the backend.
 

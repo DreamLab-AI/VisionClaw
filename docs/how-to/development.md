@@ -200,7 +200,6 @@ src/
 ├── handlers/                    # HTTP and WebSocket request handlers
 │   ├── graph_state_handler.rs   # Graph CRUD
 │   ├── physics_handler.rs       # Physics parameter endpoints
-│   ├── settings_handler.rs      # Settings read/write
 │   ├── ontology_handler.rs      # Ontology management
 │   ├── socket_flow_handler.rs   # Binary WebSocket stream
 │   ├── speech_socket_handler.rs # Voice/STT/TTS socket

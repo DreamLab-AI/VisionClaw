@@ -121,8 +121,6 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .configure(bots::config)
         .configure(analytics::config)
         .configure(crate::handlers::nostr_handler::config)
-        // OLD settings_handler disabled - using new SettingsActor routes from visionclaw_server::settings::api
-        // .configure(crate::handlers::settings_handler::config)
         .configure(crate::handlers::ragflow_handler::config)
         .configure(crate::handlers::constraints_handler::config)
         // Ontology routes (previously orphaned outside scope)

@@ -253,9 +253,12 @@ table previously listed `PERPLEXITY_API_KEY` as if it configured the Perplexity
 endpoint. It does not. `PerplexityService` reads `AppFullSettings.perplexity` and
 fails with "Perplexity settings not configured" when that section is absent; the
 `api_url`, `api_key` and `model` it uses all come from settings
-(`src/services/perplexity_service.rs:99-120`), which is why the section is one of
-the three `SECRET_BEARING_SECTIONS` redacted from full-settings GETs
-(`settings_handler/routes.rs:229`). The only two Perplexity environment variables
+(`src/services/perplexity_service.rs:99-120`), which is why the section was one of
+the three `SECRET_BEARING_SECTIONS` redacted from full-settings GETs by the old
+`settings_handler`, deleted 2026-11-21 (never mounted). The live
+`GET /api/settings/all` (`settings_routes.rs`) carries no provider-key sections at all;
+per-user provider keys are written and read only through `/api/auth/nostr/api-keys`
+(`src/handlers/nostr_handler.rs`). The only two Perplexity environment variables
 the code reads are `PERPLEXITY_ENABLED_PUBKEYS`, which gates *who* may use the
 feature (`src/config/feature_access.rs:20`), and `PERPLEXITY_API_KEY`, read solely
 by `AppState`'s readiness report to decide whether the service was expected to be

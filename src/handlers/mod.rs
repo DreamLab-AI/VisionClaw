@@ -23,7 +23,6 @@ pub mod decision_handler;
 pub use decision_handler::configure_decision_routes;
 pub mod pages_handler;
 pub mod ragflow_handler;
-pub mod settings_handler;
 pub mod settings_validation_fix;
 pub mod socket_flow_handler;
 pub mod speech_socket_handler;

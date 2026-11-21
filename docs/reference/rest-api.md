@@ -636,12 +636,10 @@ as does an actor-reject or unavailable GPU actor.
 Configured in `settings/api/settings_routes.rs` (`configure_routes`, mounted at
 `src/main.rs:947-949` under `web::scope("/settings")` with a 60 req/min rate
 limit). There is **no generic key-based `GET/PUT/DELETE /api/settings/:key`
-or `POST /api/settings/bulk`** — that surface belonged to the old
-`settings_handler::config` (`src/handlers/settings_handler/routes.rs`, which
-also defined `/settings/path`, `/settings/schema`, `/settings/current`,
-`/settings/reset`, `/settings/save`), which is dead code: its `.configure()`
-call is commented out at `api_handler/mod.rs:138-139` ("OLD settings_handler
-disabled — using new SettingsActor routes"). All endpoints below are the live
+or `POST /api/settings/bulk`** — that surface belonged to the old `settings_handler` module (which also defined `/settings/path`,
+`/settings/schema`, `/settings/current`, `/settings/reset`, `/settings/save`).
+That module was never mounted and was deleted on 2026-11-21 (SETTINGS-HANDLER-DEAD).
+All endpoints below are the live
 `OptimizedSettingsActor`-backed replacement (the never-started `SettingsActor` was
 deleted by ADR-2046 on 2026-09-05). All mutation endpoints require
 authentication; reads are open.
