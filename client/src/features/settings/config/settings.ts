@@ -201,9 +201,10 @@ export interface RenderingSettings {
    */
   labelLayoutEvery?: number;
   /**
-   * Per-agent-type palette, server-typed as AgentColorsDTO
-   * (handlers/settings_handler/types.rs:215-227, camelCase wire) and sourced
-   * from DevConfig.rendering.agent_colors. Consumed by BotsShared
+   * Per-agent-type palette (camelCase wire), sourced on the server from
+   * DevConfig.rendering.agent_colors (src/config/dev_config.rs). The Rust DTO
+   * that typed it lived in the unmounted settings_handler module, deleted
+   * 2026-11-21; no served settings route sends this field. Consumed by BotsShared
    * getVisionClawColors(); absent unless the server provides it.
    */
   agentColors?: AgentColorsSettings;
