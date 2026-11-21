@@ -87,6 +87,9 @@ signature per session instead of one per request", without reviving bearers.
    refused, and zeroes the key on logout. The loopback dev-token path, the
    passkey local-key path and the XR client's own signing are unchanged.
 
+
+> Note 2026-11-21 (open policy decision, W3-02): `GET /api/auth/nostr/api-keys` returns the caller's stored provider keys in plaintext, to the authenticated owner only, with `Cache-Control: no-store` (`src/handlers/nostr_handler.rs` `get_api_keys`; asserted by `post_without_pubkey_segment_with_valid_session_succeeds`). A session key is already refused on this route by the scope rule above. Options: (a) keep plaintext read-back to the owner, as now; (b) return presence booleans only (`{"openai": true, ...}`), so a stored secret is never sent to any client, and add a write-only "replace" flow in the client. The client does not call this route today, so (b) breaks nothing; the choice is the operator's. Related fix the same day: `POST` now patches instead of replacing (`NostrService::update_user_api_keys`), so saving one provider no longer erases the others.
+
 ## Consequences
 
 - A NIP-07 signer is asked once per session (plus deny-list and Solid requests).

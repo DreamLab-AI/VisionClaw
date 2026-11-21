@@ -360,9 +360,9 @@ mod runtime_tests {
         let graph = GetGraphDataHandler::new(probe.clone());
         let nodes = GetNodeMapHandler::new(probe.clone());
         let physics = GetPhysicsStateHandler::new(probe.clone());
-        let _ = execute_in_thread(move || graph.handle(GetGraphData)).await;
-        let _ = execute_in_thread(move || nodes.handle(GetNodeMap)).await;
-        let _ = execute_in_thread(move || physics.handle(GetPhysicsState)).await;
+        let _ = execute_in_thread(move || graph.handle(GetGraphData).map_err(Box::new)).await;
+        let _ = execute_in_thread(move || nodes.handle(GetNodeMap).map_err(Box::new)).await;
+        let _ = execute_in_thread(move || physics.handle(GetPhysicsState).map_err(Box::new)).await;
 
         let seen: Vec<bool> = probe.seen.lock().unwrap().iter().copied().collect();
         assert_eq!(seen.len(), 3, "each handler reaches the repository once");
