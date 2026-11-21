@@ -118,3 +118,5 @@ possession, the victim-lockout case, caps, rate limit and revocation) and store 
 `client/src/services/__tests__/sessionKey.test.ts` (18), including zero
 `signEvent` calls after the bind. `implementation_status` stays `partial` and
 `activation_status` `inactive` until a deployed build is observed.
+
+> Note 2026-11-21: the open choice recorded above is settled. `GET /api/auth/nostr/api-keys` now returns `{perplexity, openai, ragflow}` as booleans saying whether a non-empty key is stored, never the key itself (`src/handlers/nostr_handler.rs`, `get_api_keys`; regression test `api_keys_route_tests::post_without_pubkey_segment_with_valid_session_succeeds`). Owner decision.

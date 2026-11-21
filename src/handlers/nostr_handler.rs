@@ -413,7 +413,17 @@ async fn get_api_keys(
 
     match nostr_service.get_user(&caller).await {
         Some(user) => {
-            let mut response = ok_json!(user.api_keys)?;
+            // Report which providers have a key stored, never the key itself:
+            // the client only needs presence, and a stored secret must not
+            // travel back to the browser.
+            let has = |k: &Option<String>| k.as_deref().is_some_and(|v| !v.trim().is_empty());
+            let keys = &user.api_keys;
+            let presence = serde_json::json!({
+                "perplexity": has(&keys.perplexity),
+                "openai": has(&keys.openai),
+                "ragflow": has(&keys.ragflow),
+            });
+            let mut response = ok_json!(presence)?;
             response.headers_mut().insert(
                 actix_web::http::header::CACHE_CONTROL,
                 actix_web::http::header::HeaderValue::from_static("no-store"),
@@ -520,10 +530,18 @@ mod api_keys_route_tests {
             "no-store"
         );
         let body: serde_json::Value = test::read_body_json(response).await;
+        // The GET reports which providers have a key, never the key itself.
         assert!(
-            body.to_string().contains("sk-test"),
+            !body.to_string().contains("sk-test"),
+            "a stored secret must never be sent back: {body}"
+        );
+        assert_eq!(
+            body["data"]["openai"],
+            json!(true),
             "saved key must be read from the same store"
         );
+        assert_eq!(body["data"]["perplexity"], json!(false));
+        assert_eq!(body["data"]["ragflow"], json!(false));
     }
 
     /// Property: saving one provider key must not erase the others. A field
