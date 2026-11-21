@@ -209,11 +209,7 @@ add_file "$PROJECT_ROOT/src/adapters/gpu_semantic_analyzer.rs" "GPU" "GPU semant
 add_file "$PROJECT_ROOT/src/adapters/actix_physics_adapter.rs" "GPU" "Physics actor adapter"
 add_file "$PROJECT_ROOT/src/ports/gpu_physics_adapter.rs" "GPU" "GPU physics port"
 
-# Constraint Translation
-add_file "$PROJECT_ROOT/src/constraints/semantic_axiom_translator.rs" "Constraints" "Translate OWL axioms to forces"
-add_file "$PROJECT_ROOT/src/constraints/gpu_converter.rs" "Constraints" "Convert constraints to GPU buffers"
-add_file "$PROJECT_ROOT/src/constraints/semantic_gpu_buffer.rs" "Constraints" "GPU buffer management"
-add_file "$PROJECT_ROOT/src/constraints/axiom_mapper.rs" "Constraints" "Map axioms to constraint types"
+# Constraint Translation (single path: src/physics/ontology_constraints.rs)
 add_file "$PROJECT_ROOT/src/physics/ontology_constraints.rs" "Physics" "Physics constraint definitions"
 add_file "$PROJECT_ROOT/src/physics/semantic_constraints.rs" "Physics" "Semantic constraint logic"
 
@@ -286,7 +282,7 @@ PIPELINE FLOW SUMMARY:
 2. Markdown parsed for OWL + semantics → src/services/ontology_parser.rs
 3. Data stored in Oxigraph → src/adapters/oxigraph_ontology_repository.rs
 4. Edges + metadata generated → src/services/edge_generation.rs
-5. OWL axioms → GPU forces → src/constraints/semantic_axiom_translator.rs
+5. OWL axioms → GPU forces → src/physics/ontology_constraints.rs
 6. CUDA kernels compute physics → src/utils/unified_gpu_compute.rs
 7. Graph state built → src/actors/graph_state_actor.rs
 8. WebSocket streams to client → src/handlers/socket_flow_handler.rs

@@ -595,7 +595,7 @@ ruvector = ["ruvector-core"]
 ```
 
 **Validation**:
-- Run existing `tests/semantic_physics_integration_test.rs`
+- Run the semantic-forces tests under `src/physics/` and `crates/visionclaw-gpu` (the earlier `tests/semantic_physics_integration_test.rs` was wholly commented out and was deleted 2026-11-21)
 - Benchmark before/after with `cargo bench`
 - Compare similarity scores (should be identical, just faster)
 

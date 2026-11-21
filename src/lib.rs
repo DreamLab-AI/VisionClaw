@@ -5,7 +5,6 @@ pub mod app_state;
 pub mod application;
 pub mod client;
 pub mod config;
-pub mod constraints;
 pub mod layout;
 // Storage-agnostic domain kernels (ADR-130 Decision 2 broker kernel lives here).
 pub mod domain;
