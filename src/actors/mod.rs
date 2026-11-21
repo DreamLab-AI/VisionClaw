@@ -84,8 +84,6 @@ pub use voice_commands::{SwarmIntent, SwarmVoiceResponse, VoiceCommand, VoicePre
 pub use workspace_actor::WorkspaceActor;
 
 // Phase 5: Actor lifecycle management and coordination
-pub mod event_coordination;
-pub use event_coordination::{initialize_event_coordinator, EventCoordinator};
 // ADR-2045: `src/actors/lifecycle.rs` (`ActorLifecycleManager`,
 // `initialize_actor_system`, `shutdown_actor_system`, its own
 // `SupervisionStrategy`/`SupervisionDecision` pair) was dead code — it was

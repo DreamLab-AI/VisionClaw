@@ -3,17 +3,12 @@
 //!
 //! Application service that integrates actor-based physics simulation
 //! through hexagonal architecture ports. Handles GPU-accelerated physics
-//! computations and event publishing.
+//! computations.
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::events::domain_events::{
-    LayoutOptimizedEvent, PositionsUpdatedEvent, SimulationStartedEvent, SimulationStoppedEvent,
-};
-use crate::events::event_bus::EventBus;
 use crate::models::simulation_params::SettleMode;
-use crate::utils::time;
 use visionclaw_domain::models::graph::GraphData;
 use visionclaw_domain::models::node::Node;
 use visionclaw_domain::ports::gpu_physics_adapter::{
@@ -50,18 +45,13 @@ pub struct LayoutOptimizationRequest {
 
 pub struct PhysicsService {
     physics_adapter: Arc<RwLock<dyn GpuPhysicsAdapter>>,
-    event_bus: Arc<RwLock<EventBus>>,
     simulation_id: Arc<RwLock<Option<String>>>,
 }
 
 impl PhysicsService {
-    pub fn new(
-        physics_adapter: Arc<RwLock<dyn GpuPhysicsAdapter>>,
-        event_bus: Arc<RwLock<EventBus>>,
-    ) -> Self {
+    pub fn new(physics_adapter: Arc<RwLock<dyn GpuPhysicsAdapter>>) -> Self {
         Self {
             physics_adapter,
-            event_bus,
             simulation_id: Arc::new(RwLock::new(None)),
         }
     }
@@ -79,36 +69,11 @@ impl PhysicsService {
         let sim_id = format!("sim-{}", uuid::Uuid::new_v4());
         *self.simulation_id.write().await = Some(sim_id.clone());
 
-        let event = SimulationStartedEvent {
-            simulation_id: sim_id.clone(),
-            physics_profile: params.profile_name,
-            node_count: graph.nodes.len(),
-            timestamp: time::now(),
-        };
-
-        let _ = self.event_bus.write().await.publish(event).await;
-
         Ok(sim_id)
     }
 
     pub async fn stop_simulation(&self) -> PhysicsResult<()> {
-        let sim_id = self.simulation_id.read().await.clone();
-
-        if let Some(simulation_id) = sim_id {
-            let adapter = self.physics_adapter.read().await;
-            let stats = adapter.get_statistics().await?;
-
-            let event = SimulationStoppedEvent {
-                simulation_id,
-                iterations: stats.total_steps as u32,
-                final_energy: stats.average_energy as f64,
-                timestamp: time::now(),
-            };
-
-            let _ = self.event_bus.write().await.publish(event).await;
-
-            *self.simulation_id.write().await = None;
-        }
+        *self.simulation_id.write().await = None;
 
         Ok(())
     }
@@ -137,14 +102,6 @@ impl PhysicsService {
             }
         }
 
-        let event = PositionsUpdatedEvent {
-            graph_id: "main".to_string(),
-            updated_nodes: nodes.iter().map(|n| n.id.to_string()).collect(),
-            timestamp: time::now(),
-        };
-
-        let _ = self.event_bus.write().await.publish(event).await;
-
         Ok(nodes)
     }
 
@@ -165,16 +122,6 @@ impl PhysicsService {
         };
 
         let nodes = self.compute_layout(graph, params).await?;
-
-        let event = LayoutOptimizedEvent {
-            layout_id: format!("layout-{}", uuid::Uuid::new_v4()),
-            algorithm: request.algorithm,
-            node_count: nodes.len(),
-            optimization_score: request.target_energy as f64,
-            timestamp: time::now(),
-        };
-
-        let _ = self.event_bus.write().await.publish(event).await;
 
         Ok(nodes)
     }
@@ -229,7 +176,6 @@ impl PhysicsService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::event_bus::EventBus;
     use async_trait::async_trait;
     use std::sync::Arc;
     use tokio::sync::RwLock;
@@ -337,8 +283,7 @@ mod tests {
     #[tokio::test]
     async fn test_physics_service_creation() {
         let adapter = Arc::new(RwLock::new(MockPhysicsAdapter));
-        let event_bus = Arc::new(RwLock::new(EventBus::new()));
-        let service = PhysicsService::new(adapter, event_bus);
+        let service = PhysicsService::new(adapter);
 
         assert!(!service.is_running().await);
     }
@@ -346,8 +291,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_gpu_status() {
         let adapter = Arc::new(RwLock::new(MockPhysicsAdapter));
-        let event_bus = Arc::new(RwLock::new(EventBus::new()));
-        let service = PhysicsService::new(adapter, event_bus);
+        let service = PhysicsService::new(adapter);
 
         let status = service.get_gpu_status().await.unwrap();
         assert_eq!(status.device_name, "Mock GPU");

@@ -838,10 +838,8 @@ async fn main() -> std::io::Result<()> {
     let physics_service = {
         use visionclaw_server::adapters::actix_physics_adapter::ActixPhysicsAdapter;
         use visionclaw_server::application::PhysicsService;
-        use visionclaw_server::events::EventBus;
         let adapter = Arc::new(tokio::sync::RwLock::new(ActixPhysicsAdapter::new()));
-        let event_bus = Arc::new(tokio::sync::RwLock::new(EventBus::new()));
-        web::Data::new(Arc::new(PhysicsService::new(adapter, event_bus)))
+        web::Data::new(Arc::new(PhysicsService::new(adapter)))
     };
 
     // SemanticService for /api/semantic/*. Every handler there extracts

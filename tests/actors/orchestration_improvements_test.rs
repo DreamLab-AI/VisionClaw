@@ -7,7 +7,6 @@
 //!  3. Observational status inference via TaskStatusChanged
 //!  4. HeartbeatDirective serialisation round-trip
 //!  5. BroadcastResult congested/closed client struct
-//!  6. Panic isolation in EventBus handlers
 //!  7. Graceful drain (TaskOrchestratorActor + SupervisorActor)
 
 use std::sync::Arc;
@@ -143,93 +142,6 @@ mod task_orchestrator_tests {
         assert_eq!(actor.active_tasks.len(), 0);
         // accepting_tasks starts true
         assert!(actor.accepting_tasks);
-    }
-}
-
-// ─── Item 6: Panic isolation in EventBus ────────────────────────────────────
-
-#[cfg(test)]
-mod event_bus_panic_isolation_tests {
-    use std::collections::HashMap;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use async_trait::async_trait;
-    use visionclaw_server::events::bus::EventBus;
-    use visionclaw_server::events::types::{EventError, EventHandler, StoredEvent};
-    use visionclaw_server::events::domain_events::NodeAddedEvent;
-    use visionclaw_server::utils::time;
-
-    struct PanicHandler;
-
-    #[async_trait]
-    impl EventHandler for PanicHandler {
-        fn event_type(&self) -> &'static str { "NodeAdded" }
-        fn handler_id(&self) -> &str { "panic-handler" }
-        async fn handle(&self, _event: &StoredEvent) -> Result<(), EventError> {
-            panic!("intentional test panic");
-        }
-    }
-
-    struct CountingHandler {
-        count: Arc<AtomicUsize>,
-    }
-
-    #[async_trait]
-    impl EventHandler for CountingHandler {
-        fn event_type(&self) -> &'static str { "NodeAdded" }
-        fn handler_id(&self) -> &str { "counting-handler" }
-        async fn handle(&self, _event: &StoredEvent) -> Result<(), EventError> {
-            self.count.fetch_add(1, Ordering::SeqCst);
-            Ok(())
-        }
-    }
-
-    fn make_event() -> NodeAddedEvent {
-        NodeAddedEvent {
-            node_id: "n1".to_string(),
-            label: "Test".to_string(),
-            node_type: "Person".to_string(),
-            properties: HashMap::new(),
-            timestamp: time::now(),
-        }
-    }
-
-    #[tokio::test]
-    async fn panic_in_one_handler_does_not_kill_bus() {
-        let bus = EventBus::new();
-        let count = Arc::new(AtomicUsize::new(0));
-
-        // Register both: panicking handler first, then counting handler
-        bus.subscribe(Arc::new(PanicHandler)).await;
-        bus.subscribe(Arc::new(CountingHandler { count: count.clone() })).await;
-
-        // publish should not itself panic
-        let _ = bus.publish(make_event()).await;
-
-        // The counting handler must still have run despite the panic in the other
-        assert_eq!(
-            count.load(Ordering::SeqCst), 1,
-            "counting handler should run even when another handler panics"
-        );
-    }
-
-    #[tokio::test]
-    async fn panic_is_reported_as_handler_error() {
-        let bus = EventBus::new();
-        bus.subscribe(Arc::new(PanicHandler)).await;
-
-        let result = bus.publish(make_event()).await;
-        // With a single handler that panics, all handlers failed → Err returned
-        assert!(
-            result.is_err(),
-            "expected Err when the only handler panics"
-        );
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("panic") || err_msg.contains("handler"),
-            "error should mention panic or handler, got: {}",
-            err_msg
-        );
     }
 }
 

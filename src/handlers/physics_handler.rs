@@ -466,20 +466,16 @@ mod tests {
     ) -> (StatusCode, String) {
         use crate::adapters::actix_physics_adapter::ActixPhysicsAdapter;
         use crate::application::PhysicsService;
-        use crate::events::EventBus;
         let nostr = crate::services::nostr_service::NostrService::new()
             .with_power_users(vec![POWER.to_string()]);
         for pk in [POWER, EDITOR] {
             nostr.create_user_for_test(pk).await.expect("test user");
         }
         let adapter = Arc::new(tokio::sync::RwLock::new(ActixPhysicsAdapter::new()));
-        let event_bus = Arc::new(tokio::sync::RwLock::new(EventBus::new()));
         let app = atest::init_service(
             App::new()
                 .app_data(web::Data::new(nostr))
-                .app_data(web::Data::new(Arc::new(PhysicsService::new(
-                    adapter, event_bus,
-                ))))
+                .app_data(web::Data::new(Arc::new(PhysicsService::new(adapter))))
                 .wrap_fn(move |req, srv| {
                     if let Some(pk) = identity {
                         req.extensions_mut()

@@ -60,7 +60,7 @@ curl http://localhost:8080/api/readyz
 # Full system diagnostics (detailed component-level health)
 curl http://localhost:8080/api/health
 
-# Application metrics (event bus stats, circuit breaker states, uptime)
+# Application metrics (uptime, active connections, circuit breaker states)
 curl http://localhost:8080/api/metrics
 
 # Pipeline status

@@ -10,7 +10,6 @@ pub mod layout;
 // Storage-agnostic domain kernels (ADR-130 Decision 2 broker kernel lives here).
 pub mod domain;
 pub mod errors;
-pub mod events;
 pub mod gpu;
 pub mod handlers;
 pub mod inference;

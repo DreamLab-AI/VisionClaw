@@ -17,9 +17,6 @@ use crate::adapters::{
 use crate::adapters::actor_graph_repository::ActorGraphRepository;
 use crate::application::graph::*;
 
-// Event bus and store (events module — unrelated to the removed CQRS bus)
-use crate::events::EventBus;
-
 use crate::actors::gpu;
 use crate::actors::gpu::GPUContextBus;
 use crate::actors::graph_service_supervisor::GraphServiceSupervisor;
@@ -304,8 +301,6 @@ pub struct AppState {
     pub graph_query_handlers: GraphQueryHandlers,
     /// Boot gate: released when the graph state actor has loaded the stored graph.
     pub graph_readiness: Arc<crate::actors::graph_readiness::GraphReadiness>,
-
-    pub event_bus: Arc<RwLock<EventBus>>,
 
     pub settings_addr: Addr<OptimizedSettingsActor>,
     pub metadata_addr: Addr<MetadataActor>,
@@ -892,28 +887,6 @@ impl AppState {
             )),
         };
 
-        let event_bus = Arc::new(RwLock::new(EventBus::new()));
-
-        // Register event handlers on the EventBus
-        {
-            use crate::events::handlers::{
-                AuditEventHandler, GraphEventHandler, NotificationEventHandler,
-                OntologyEventHandler,
-            };
-
-            let bus = event_bus.write().await;
-            let audit_handler = Arc::new(AuditEventHandler::new("global-audit"));
-            let notification_handler =
-                Arc::new(NotificationEventHandler::new("global-notifications"));
-            let graph_handler = Arc::new(GraphEventHandler::new("global-graph"));
-            let ontology_handler = Arc::new(OntologyEventHandler::new("global-ontology"));
-            bus.subscribe(audit_handler).await;
-            bus.subscribe(notification_handler).await;
-            bus.subscribe(graph_handler).await;
-            bus.subscribe(ontology_handler).await;
-            info!("[AppState::new] EventBus handlers registered: AuditEventHandler, NotificationEventHandler, GraphEventHandler, OntologyEventHandler");
-        }
-
         // Log warnings for settings that are present in config but not yet wired
         {
             let net = &settings.system.network;
@@ -1359,8 +1332,6 @@ impl AppState {
             graph_repository,
             graph_query_handlers,
             graph_readiness,
-
-            event_bus,
 
             settings_addr,
             metadata_addr,
