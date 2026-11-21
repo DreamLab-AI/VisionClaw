@@ -4,6 +4,8 @@ Scoped source check at VisionClaw `e78210c4d` and standalone Codescape
 `58108c0357bd0dbf6588f8b6adf6e044f4c04556`. These notes qualify the external
 estate summary. They do not change adopted decisions or activation statuses.
 No runtime, GPU, headset or release test was run for this documentation pass.
+
+> Note 2026-11-21: `58108c0` is the standalone Codescape checkout the review read on 2026-11-02, not the pin. The `codescape` submodule of VisionClaw is pinned at `e3b76f63e` (`git ls-tree HEAD codescape`; `docs/PROTOCOL-registry.md`, ADR-2143 re-verification of 2026-10-30), and the notes below are not re-checked against it.
 Earlier execution receipts remain bounded to their declared fixtures and revisions.
 
 | External claim | Current disposition and source |
