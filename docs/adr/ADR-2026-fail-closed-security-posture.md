@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b188b0397756517fda22fb67d17222d4cec46579
+verified_commit: 745a46f12c3e4faed0b10cc166d0f9e09cef8f15
 verified_paths: [src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs]
 owner: jjohare
 review_trigger: any new security-relevant env flag, or a request to soften the release boot-abort to a warning
@@ -228,3 +228,7 @@ Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `src/
 ## Re-verification — 2026-11-20
 
 Re-verified 2026-11-20 at b188b0397: `git diff 5db8ccf30..b188b0397 -- src/services/role_store.rs`. 14 lines changed, all `Connection::call` closures gaining `-> rusqlite::Result<_>` for the `rusqlite` 0.43 / `tokio-rusqlite` 0.10 upgrade (RUSTSEC-2026-0459). No fail-closed branch, default role or refusal path is touched. Decision holds.
+
+## Re-verification — 2026-11-21 (`745a46f12`)
+
+Governed-path change since `b188b0397`: `src/main.rs` drops the unused `EventBus` it handed to `PhysicsService::new` (CD-F1); nothing in this record's boot, profile or auth path moved. Re-run: `git diff b188b0397..745a46f12 -- <verified_paths>`. **Decision unaffected.**

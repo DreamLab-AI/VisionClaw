@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b188b0397756517fda22fb67d17222d4cec46579
+verified_commit: 745a46f12c3e4faed0b10cc166d0f9e09cef8f15
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -444,3 +444,7 @@ Re-verified 2026-11-17 at c143ef890: `src/actors/decision_elevation_actor.rs` (d
 ## Amendment — 2026-11-20
 
 Amendment 2026-11-20, re-verified at b188b0397 (`git diff c143ef890..b188b0397` over the governed paths). The split is still partial and nothing moved between crates. Counts and anchors this record gave have moved: `src/actors/*.rs` is now **26** files (was 23 at the count above) because `graph_readiness.rs` (boot gate, `AppState`-owned, no process-wide state) and, under `src/actors/gpu/`, `edge_csr.rs` (imports only `visionclaw_domain`) were added; `[workspace].members` is unchanged (the only manifest changes are the `rusqlite` 0.31 to 0.43 and `tokio-rusqlite` 0.5 to 0.10 pins in `Cargo.toml:100-101`, mechanical, RUSTSEC-2026-0459). The `visionclaw-backup` leaf now pins `rusqlite 0.43` to match, so the 2026-11-16 note's "reuses rusqlite 0.31.0" no longer describes `Cargo.lock`. No crate manifest gains a dependency edge (the only manifest edits are the version pins), so the layer direction is unchanged. `cargo test -p visionclaw-integration-tests --test layer_direction` was not run (no build in this pass). Decision holds.
+
+## Re-verification — 2026-11-21 (`745a46f12`)
+
+Governed-path change since `b188b0397`: `src/actors/event_coordination.rs` is deleted (CD-F1: `initialize_event_coordinator` had no caller) and `src/actors/mod.rs` drops its two lines. The 2026-clippy paragraph above that mentions an unused test import in that file is historical. No crate boundary, port or adapter in this record moved. Re-run: `git diff b188b0397..745a46f12 -- <verified_paths>`. **Decision unaffected.**

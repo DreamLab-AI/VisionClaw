@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: [ADR-2108]
 superseded_by: []
-verified_commit: b188b0397756517fda22fb67d17222d4cec46579
+verified_commit: 745a46f12c3e4faed0b10cc166d0f9e09cef8f15
 verified_paths: [src/utils/auth.rs, src/settings/auth_extractor.rs, src/handlers/socket_flow_handler/filter_auth.rs, src/main.rs, docker-compose.unified.yml, env.example, env.development.template]
 owner: jjohare
 review_trigger: any change to verify_access, the dev-auth feature gates, enforce_release_env_hygiene, the WS authenticate handler, or the dev compose environment block
@@ -151,3 +151,7 @@ compile-gate, the release boot-refusal, the dev-service-only scoping and the
 ## Re-verification — 2026-11-20
 
 Re-verified 2026-11-20 at b188b0397: `git diff c143ef890..b188b0397 -- src/utils/auth.rs`. The change is the proxy-hop check in `dev_bypass_permitted` (`0df0fce98`) and the ADR-2205 session-key scope; it does not touch the arming rule this record decides (`dev_full_bypass_active`, `VISIONCLAW_DEV_MODE` accepted only as `1`/`true`, default off) or the loopback port binding in `docker-compose.unified.yml`. The dev token bypass this record calls LAN-local is now additionally refused for a proxied request whose forwarded client is not loopback (see ADR-2012, same date). Decision holds.
+
+## Re-verification — 2026-11-21 (`745a46f12`)
+
+Governed-path change since `b188b0397`: `src/main.rs` drops the unused `EventBus` it handed to `PhysicsService::new` (CD-F1); nothing in this record's boot, profile or auth path moved. Re-run: `git diff b188b0397..745a46f12 -- <verified_paths>`. **Decision unaffected.**

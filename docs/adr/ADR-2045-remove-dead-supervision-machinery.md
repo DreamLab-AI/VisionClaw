@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b188b0397756517fda22fb67d17222d4cec46579
+verified_commit: 745a46f12c3e4faed0b10cc166d0f9e09cef8f15
 verified_paths: [src/actors/mod.rs, src/actors/graph_service_supervisor.rs, crates/visionclaw-actors/src/supervisor.rs, tests/orchestration_improvements_test.rs]
 owner: jjohare
 review_trigger: a new supervision requirement that GraphServiceSupervisor cannot express
@@ -228,3 +228,7 @@ Governed-path change (server consolidation, 2026-11-06, `923feef34..b5200feb4`):
 ## Re-verification — 2026-11-20
 
 Re-verified 2026-11-20 at b188b0397: `git diff b5200feb4..b188b0397 -- src/actors/graph_service_supervisor.rs src/actors/mod.rs`. `mod.rs` gains `pub mod graph_readiness;`; the supervisor gains a `readiness` field, `with_readiness` and hands the gate to `GraphStateActor` at start. No removed supervision machinery returns (the `Escalate` branch and the deleted re-exports are not touched), and the follow-up this record records for the supervisor is neither advanced nor undone. Decision holds.
+
+## Re-verification — 2026-11-21 (`745a46f12`)
+
+Governed-path change since `b188b0397`: `src/actors/mod.rs` loses the `event_coordination` module and re-export (CD-F1); `tests/orchestration_improvements_test.rs` loses the `event_bus_panic_isolation_tests` module (the EventBus it tested was deleted). The test's `supervisor_drain_tests` module is untouched but moved up by 93 lines, so the `:276-280` anchors above are now about `:183-190`. No supervision machinery returned. Re-run: `git diff b188b0397..745a46f12 -- <verified_paths>`. **Decision unaffected.**

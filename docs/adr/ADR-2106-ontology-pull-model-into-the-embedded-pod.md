@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: c143ef890a5273ae708fdfa0f52d4724c418b2b9
+verified_commit: 745a46f12c3e4faed0b10cc166d0f9e09cef8f15
 verified_paths: [src/services/ontology_generation.rs, .github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example, scripts/ontology/build-local-release.sh, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).
@@ -251,3 +251,7 @@ Owner policy: the GitHub path is network-expensive and parked, and ingest is loc
 Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `src/main.rs` loses the one-shot `ONTOLOGY_BACKUP_DIR` boot checkpoint block and gains a `ontology_checkpoint::spawn` call and a shutdown await; net 14 fewer lines at the block (about `:753`), so nothing before it moves, plus four lines after `server.await`. Anchors now: `init_solid_state().await` `:906`, `spawn_boot_pull` `:913`, `assert_effective_profile_or_exit` import `:945` and call `:948`, `HttpServer::new` `:991`, `.bind()` `:1289`. The file's net change is 10 fewer lines (13 added, 23 removed: 14 fewer at the block, 4 more after `server.await`). Everything before the block (hygiene call `:209`) is unchanged; the owner-less refusal sits after it and moved up by 14 (`RBAC_ALLOW_OWNERLESS_ENV` import `:782` to `:768`). `env.example` gains a backup and checkpoint comment block near `:99` (net 8 lines), so `ONTOLOGY_PULL_URL/ENABLED/TIMEOUT_SECS/INTERVAL_SECS` are now at `env.example:249-252`. The pull model, `init_solid_state` and `spawn_boot_pull` order are unchanged. The decision holds. Checked by reading the diff; `cargo test -p visionclaw-backup` and the server's `services::ontology_checkpoint` and `services::data_reconciliation` tests pass. `verified_commit` is bumped on that basis.
 
 Re-verified 2026-11-17 at c143ef890: `docker-compose.unified.yml` dev service (dev-mode default `:-0`, loopback port binding) and `env.example` (comment block documenting `VISIONCLAW_BIND` and `VISIONCLAW_DEV_MODE`); no ontology-pull setting changed; this record makes no claim about it.
+
+## Re-verification — 2026-11-21 (`745a46f12`)
+
+Governed-path change since `c143ef890`: `src/main.rs` drops the unused `EventBus` it handed to `PhysicsService::new` (CD-F1); nothing in this record's boot, profile or auth path moved. Re-run: `git diff c143ef890..745a46f12 -- <verified_paths>`. **Decision unaffected.**

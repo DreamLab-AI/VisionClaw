@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b188b0397756517fda22fb67d17222d4cec46579
+verified_commit: 745a46f12c3e4faed0b10cc166d0f9e09cef8f15
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -404,3 +404,7 @@ Re-verified 2026-11-17 at c143ef890: `docker-compose.unified.yml` dev service: `
 ## Re-verification — 2026-11-20
 
 Re-verified 2026-11-20 at b188b0397: `git diff c143ef890..b188b0397 -- src/services/role_store.rs`. 14 lines changed, all `Connection::call` closures gaining `-> rusqlite::Result<_>` for the `rusqlite` 0.43 / `tokio-rusqlite` 0.10 upgrade. No profile flag, selector, owner-less refusal or compose default is touched, so the three-profile table is unchanged. Decision holds.
+
+## Re-verification — 2026-11-21 (`745a46f12`)
+
+Governed-path change since `b188b0397`: `src/main.rs` drops the unused `EventBus` it handed to `PhysicsService::new` (CD-F1); nothing in this record's boot, profile or auth path moved. Re-run: `git diff b188b0397..745a46f12 -- <verified_paths>`. **Decision unaffected.**
