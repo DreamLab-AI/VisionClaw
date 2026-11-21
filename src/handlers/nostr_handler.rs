@@ -526,6 +526,55 @@ mod api_keys_route_tests {
         );
     }
 
+    /// Property: saving one provider key must not erase the others. A field
+    /// that is absent (or null) leaves the stored key unchanged; an empty
+    /// string clears it.
+    #[actix_web::test]
+    async fn partial_post_keeps_the_other_stored_keys() {
+        let (service, token) = service_with_session().await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(service.clone()))
+                .configure(config),
+        )
+        .await;
+        let post = |body: serde_json::Value| {
+            test::TestRequest::post()
+                .uri("/auth/nostr/api-keys")
+                .insert_header(("X-Nostr-Pubkey", PUBKEY))
+                .insert_header(("X-Nostr-Token", token.clone()))
+                .set_json(body)
+                .to_request()
+        };
+
+        let r =
+            test::call_service(&app, post(json!({"openai": "sk-one", "ragflow": "rf-one"}))).await;
+        assert_eq!(r.status(), StatusCode::OK);
+        let r = test::call_service(&app, post(json!({"perplexity": "pp-two"}))).await;
+        assert_eq!(r.status(), StatusCode::OK);
+        let r = test::call_service(&app, post(json!({"openai": null}))).await;
+        assert_eq!(r.status(), StatusCode::OK);
+
+        let keys = service.get_user(PUBKEY).await.expect("user").api_keys;
+        assert_eq!(
+            keys.openai.as_deref(),
+            Some("sk-one"),
+            "null leaves a key unchanged"
+        );
+        assert_eq!(
+            keys.ragflow.as_deref(),
+            Some("rf-one"),
+            "absent leaves a key unchanged"
+        );
+        assert_eq!(keys.perplexity.as_deref(), Some("pp-two"));
+
+        let r = test::call_service(&app, post(json!({"ragflow": ""}))).await;
+        assert_eq!(r.status(), StatusCode::OK);
+        let keys = service.get_user(PUBKEY).await.expect("user").api_keys;
+        assert!(keys.ragflow.is_none(), "empty string clears a key");
+        assert_eq!(keys.openai.as_deref(), Some("sk-one"));
+    }
+
     #[actix_web::test]
     async fn post_without_session_is_rejected() {
         let (service, _) = service_with_session().await;

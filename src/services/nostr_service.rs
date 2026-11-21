@@ -604,6 +604,8 @@ impl NostrService {
         users.get(pubkey).cloned()
     }
 
+    /// Patch the caller's stored provider keys: `None` leaves a key unchanged,
+    /// an empty string clears it, any other value replaces it.
     pub async fn update_user_api_keys(
         &self,
         pubkey: &str,
@@ -615,7 +617,19 @@ impl NostrService {
             if user.is_power_user {
                 return Err(NostrError::PowerUserOperation);
             }
-            user.api_keys = api_keys;
+            // Patch semantics: an absent key is left unchanged, a non-empty
+            // string replaces it, an empty string clears it. Saving one
+            // provider must not erase the others.
+            fn patch(slot: &mut Option<String>, incoming: Option<String>) {
+                match incoming {
+                    None => {}
+                    Some(v) if v.is_empty() => *slot = None,
+                    Some(v) => *slot = Some(v),
+                }
+            }
+            patch(&mut user.api_keys.perplexity, api_keys.perplexity);
+            patch(&mut user.api_keys.openai, api_keys.openai);
+            patch(&mut user.api_keys.ragflow, api_keys.ragflow);
             user.last_seen = time::timestamp_seconds();
             let updated_user = user.clone();
             drop(users);
