@@ -1,7 +1,6 @@
 use actix::prelude::*;
 use actix_web::web;
 use log::{debug, error, info, warn};
-use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
@@ -19,7 +18,7 @@ use crate::adapters::actor_graph_repository::ActorGraphRepository;
 use crate::application::graph::*;
 
 // Event bus and store (events module — unrelated to the removed CQRS bus)
-use crate::events::{EventBus, EventStore};
+use crate::events::EventBus;
 
 use crate::actors::gpu;
 use crate::actors::gpu::GPUContextBus;
@@ -307,7 +306,6 @@ pub struct AppState {
     pub graph_readiness: Arc<crate::actors::graph_readiness::GraphReadiness>,
 
     pub event_bus: Arc<RwLock<EventBus>>,
-    pub event_store: Arc<EventStore>,
 
     pub settings_addr: Addr<OptimizedSettingsActor>,
     pub metadata_addr: Addr<MetadataActor>,
@@ -896,16 +894,6 @@ impl AppState {
 
         let event_bus = Arc::new(RwLock::new(EventBus::new()));
 
-        // Initialize EventStore with file-backed repository (configurable via env)
-        let event_store_path = std::env::var("EVENT_STORE_PATH")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("/tmp/visionclaw-events"));
-        let event_store = Arc::new(EventStore::with_file_backend(event_store_path.clone()));
-        info!(
-            "[AppState::new] EventStore initialized with file backend at {:?}",
-            event_store_path
-        );
-
         // Register event handlers on the EventBus
         {
             use crate::events::handlers::{
@@ -1373,7 +1361,6 @@ impl AppState {
             graph_readiness,
 
             event_bus,
-            event_store,
 
             settings_addr,
             metadata_addr,

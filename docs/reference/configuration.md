@@ -78,7 +78,6 @@ The dev health check probes `http://localhost:4000/api/health`; production probe
 | `RUST_LOG` | string | see below | Per-module log filter (Rust `tracing`). |
 | `RUST_LOG_REDIRECT` | boolean | `true` | Redirect Rust logs to the configured log sink. |
 | `DATA_DIR` | string | `./data` (image: `/app/data`) | Root data directory. The Oxigraph dataset lives at `${DATA_DIR}/oxigraph/`. |
-| `EVENT_STORE_PATH` | string | `${DATA_DIR}/events` | Append-only event/provenance store path. |
 | `SETTINGS_FILE_PATH` | string | `data/settings.yaml` | Runtime settings file location. |
 | `LOG_DIR` | string | `/app/logs` | Directory for log files. |
 | `TELEMETRY_LOG_DIR` | string | `${LOG_DIR}` | Directory for structured telemetry output. |

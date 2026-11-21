@@ -152,15 +152,6 @@ pub struct EventEnvelope {
     pub event: Box<dyn std::any::Any + Send + Sync>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EventSnapshot {
-    pub aggregate_id: String,
-    pub aggregate_type: String,
-    pub sequence: i64,
-    pub timestamp: DateTime<Utc>,
-    pub state: String,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -2,12 +2,10 @@ pub mod bus;
 pub mod domain_events;
 pub mod handlers;
 pub mod middleware;
-pub mod store;
 pub mod types;
 
 pub use types::{
-    DomainEvent, EventError, EventHandler, EventMetadata, EventMiddleware, EventResult,
-    EventSnapshot, StoredEvent,
+    DomainEvent, EventError, EventHandler, EventMetadata, EventMiddleware, EventResult, StoredEvent,
 };
 
 pub use domain_events::*;
@@ -18,8 +16,6 @@ pub use bus::{DeadLetterEntry, DeadLetterQueue, EventBus};
 pub mod event_bus {
     pub use super::bus::EventBus;
 }
-
-pub use store::{EventRepository, EventStore, FileEventRepository, InMemoryEventRepository};
 
 pub use middleware::{
     EnrichmentMiddleware, LoggingMiddleware, MetricsMiddleware, RetryMiddleware,
