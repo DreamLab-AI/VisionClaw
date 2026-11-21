@@ -36,11 +36,7 @@ impl QueryHandler<GetGraphData, Arc<GraphData>> for GetGraphDataHandler {
 
         let repository = self.repository.clone();
 
-        let runtime = tokio::runtime::Runtime::new().map_err(|e| {
-            Hexserror::adapter("E_GRAPH_001", &format!("Failed to create runtime: {}", e))
-        })?;
-
-        runtime.block_on(async move {
+        tokio::runtime::Handle::current().block_on(async move {
             repository.get_graph().await.map_err(|e| {
                 Hexserror::adapter("E_GRAPH_001", &format!("Failed to get graph data: {}", e))
             })
@@ -71,11 +67,7 @@ impl QueryHandler<GetNodeMap, Arc<HashMap<u32, Node>>> for GetNodeMapHandler {
 
         let repository = self.repository.clone();
 
-        let runtime = tokio::runtime::Runtime::new().map_err(|e| {
-            Hexserror::adapter("E_GRAPH_002", &format!("Failed to create runtime: {}", e))
-        })?;
-
-        runtime.block_on(async move {
+        tokio::runtime::Handle::current().block_on(async move {
             repository.get_node_map().await.map_err(|e| {
                 Hexserror::adapter("E_GRAPH_002", &format!("Failed to get node map: {}", e))
             })
@@ -106,11 +98,7 @@ impl QueryHandler<GetPhysicsState, PhysicsState> for GetPhysicsStateHandler {
 
         let repository = self.repository.clone();
 
-        let runtime = tokio::runtime::Runtime::new().map_err(|e| {
-            Hexserror::adapter("E_GRAPH_003", &format!("Failed to create runtime: {}", e))
-        })?;
-
-        runtime.block_on(async move {
+        tokio::runtime::Handle::current().block_on(async move {
             repository.get_physics_state().await.map_err(|e| {
                 Hexserror::adapter(
                     "E_GRAPH_003",
@@ -281,5 +269,106 @@ impl QueryHandler<ComputeShortestPaths, PathfindingResult> for ComputeShortestPa
                     )
                 })
         })
+    }
+}
+
+#[cfg(test)]
+mod runtime_tests {
+    //! X-2: the sync query handlers are dispatched through `execute_in_thread`
+    //! (a `spawn_blocking` thread of the serving runtime). They must drive the
+    //! repository on that runtime, not build a private runtime per request.
+
+    use super::*;
+    use crate::handlers::utils::execute_in_thread;
+    use crate::ports::graph_repository::BinaryNodeData;
+    use crate::ports::graph_repository::GraphRepository as Repo;
+    use crate::ports::graph_repository::{GraphRepositoryError, Result as RepoResult};
+    use async_trait::async_trait;
+    use glam::Vec3;
+    use std::collections::HashSet;
+    use std::sync::Mutex;
+    use visionclaw_domain::models::edge::Edge;
+
+    /// Records whether each read executes on a current-thread runtime; every method
+    /// fails after recording, because only the runtime matters here.
+    #[derive(Default)]
+    struct RuntimeProbe {
+        seen: Mutex<Vec<bool>>,
+    }
+
+    impl RuntimeProbe {
+        fn note<T>(&self) -> RepoResult<T> {
+            self.seen.lock().unwrap().push(matches!(
+                tokio::runtime::Handle::current().runtime_flavor(),
+                tokio::runtime::RuntimeFlavor::CurrentThread
+            ));
+            Err(GraphRepositoryError::AccessError("probe".into()))
+        }
+    }
+
+    #[async_trait]
+    impl Repo for RuntimeProbe {
+        async fn add_nodes(&self, _: Vec<Node>) -> RepoResult<Vec<u32>> {
+            self.note()
+        }
+        async fn add_edges(&self, _: Vec<Edge>) -> RepoResult<Vec<String>> {
+            self.note()
+        }
+        async fn update_positions(&self, _: Vec<(u32, BinaryNodeData)>) -> RepoResult<()> {
+            self.note()
+        }
+        async fn clear_dirty_nodes(&self) -> RepoResult<()> {
+            self.note()
+        }
+        async fn get_graph(&self) -> RepoResult<Arc<GraphData>> {
+            self.note()
+        }
+        async fn get_node_map(&self) -> RepoResult<Arc<HashMap<u32, Node>>> {
+            self.note()
+        }
+        async fn get_physics_state(&self) -> RepoResult<PhysicsState> {
+            self.note()
+        }
+        async fn get_node_positions(&self) -> RepoResult<Vec<(u32, Vec3)>> {
+            self.note()
+        }
+        async fn get_constraints(&self) -> RepoResult<ConstraintSet> {
+            self.note()
+        }
+        async fn get_auto_balance_notifications(&self) -> RepoResult<Vec<AutoBalanceNotification>> {
+            self.note()
+        }
+        async fn get_equilibrium_status(&self) -> RepoResult<bool> {
+            self.note()
+        }
+        async fn compute_shortest_paths(
+            &self,
+            _: PathfindingParams,
+        ) -> RepoResult<PathfindingResult> {
+            self.note()
+        }
+        async fn get_dirty_nodes(&self) -> RepoResult<HashSet<u32>> {
+            self.note()
+        }
+    }
+
+    #[tokio::test]
+    async fn graph_reads_run_on_the_serving_runtime() {
+        let probe = Arc::new(RuntimeProbe::default());
+        // `#[tokio::test]` serves on a current-thread runtime; `Runtime::new()` is multi-thread.
+
+        let graph = GetGraphDataHandler::new(probe.clone());
+        let nodes = GetNodeMapHandler::new(probe.clone());
+        let physics = GetPhysicsStateHandler::new(probe.clone());
+        let _ = execute_in_thread(move || graph.handle(GetGraphData)).await;
+        let _ = execute_in_thread(move || nodes.handle(GetNodeMap)).await;
+        let _ = execute_in_thread(move || physics.handle(GetPhysicsState)).await;
+
+        let seen: Vec<bool> = probe.seen.lock().unwrap().iter().copied().collect();
+        assert_eq!(seen.len(), 3, "each handler reaches the repository once");
+        assert!(
+            seen.iter().all(|on_serving| *on_serving),
+            "a handler built a private multi-thread runtime: {seen:?}"
+        );
     }
 }
