@@ -473,20 +473,20 @@ impl RelationSchema {
                     colours.insert(key.clone(), c.clone());
                 }
             }
-            relations.push(serde_json::json!({
-                "label": rel.label,
-                "kind": rel.kind,
-                "physics": rel.physics,
-                "drawn": rel.drawn,
-                "colour": rel.colour,
-            }));
+            relations.push(sorted_object([
+                ("label", serde_json::json!(rel.label)),
+                ("kind", serde_json::json!(rel.kind)),
+                ("physics", serde_json::json!(rel.physics)),
+                ("drawn", serde_json::json!(rel.drawn)),
+                ("colour", serde_json::json!(rel.colour)),
+            ]));
         }
-        serde_json::json!({
-            "schemaVersion": self.version,
-            "defaultColour": self.default_colour,
-            "colours": colours,
-            "relations": relations,
-        })
+        sorted_object([
+            ("schemaVersion", serde_json::json!(self.version)),
+            ("defaultColour", serde_json::json!(self.default_colour)),
+            ("colours", serde_json::json!(colours)),
+            ("relations", serde_json::Value::Array(relations)),
+        ])
     }
 
     /// The prefix map the document declared.
@@ -566,6 +566,17 @@ impl Quarantine {
     pub fn clear(&self) {
         self.seen.lock().unwrap_or_else(|p| p.into_inner()).clear();
     }
+}
+
+/// Builds a JSON object whose keys are always in sorted order.
+///
+/// `serde_json::json!` keeps insertion order when any crate in the build turns
+/// on serde_json's `preserve_order` feature and sorts keys otherwise, so the
+/// committed projection would differ between build sets. Collecting through a
+/// `BTreeMap` gives the same sorted order either way.
+fn sorted_object<const N: usize>(fields: [(&str, serde_json::Value); N]) -> serde_json::Value {
+    let sorted: BTreeMap<&str, serde_json::Value> = fields.into_iter().collect();
+    serde_json::Value::Object(sorted.into_iter().map(|(k, v)| (k.to_owned(), v)).collect())
 }
 
 #[cfg(test)]

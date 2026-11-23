@@ -112,10 +112,17 @@ pub fn stem(word: &str) -> String {
     if w.len() > 4 && w.ends_with("ies") {
         return format!("{}y", &w[..w.len() - 3]);
     }
-    if w.len() > 4 && (w.ends_with("sses") || w.ends_with("shes") || w.ends_with("ches") || w.ends_with("xes")) {
+    if w.len() > 4
+        && (w.ends_with("sses") || w.ends_with("shes") || w.ends_with("ches") || w.ends_with("xes"))
+    {
         return w[..w.len() - 2].to_string();
     }
-    if w.len() > 3 && w.ends_with('s') && !w.ends_with("ss") && !w.ends_with("us") && !w.ends_with("is") {
+    if w.len() > 3
+        && w.ends_with('s')
+        && !w.ends_with("ss")
+        && !w.ends_with("us")
+        && !w.ends_with("is")
+    {
         return w[..w.len() - 1].to_string();
     }
     w
@@ -155,7 +162,10 @@ fn terms_of(text: &str) -> Vec<(String, String)> {
     let toks = tokens(text);
     let mut out: Vec<(String, String)> = toks.iter().map(|t| (stem(t), t.clone())).collect();
     for w in toks.windows(2) {
-        out.push((format!("{} {}", stem(&w[0]), stem(&w[1])), format!("{} {}", w[0], w[1])));
+        out.push((
+            format!("{} {}", stem(&w[0]), stem(&w[1])),
+            format!("{} {}", w[0], w[1]),
+        ));
     }
     out
 }
@@ -164,12 +174,13 @@ fn title_case(term: &str) -> String {
     term.split(' ')
         .map(|w| {
             let mut c = w.chars();
-            c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+            c.next()
+                .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
+                .unwrap_or_default()
         })
         .collect::<Vec<_>>()
         .join(" ")
 }
-
 
 /// Members of each community (id > 0) whose neighbourhood is at least
 /// `core_share` the same community. Spatial kNN when every member has a finite,
@@ -225,7 +236,9 @@ fn spatial_neighbours(members: &[MemberInput], p: &LabelParams) -> Option<Vec<Ve
         dist.clear();
         for j in 0..n {
             if i != j {
-                let d = (pts[i][0] - pts[j][0]).powi(2) + (pts[i][1] - pts[j][1]).powi(2) + (pts[i][2] - pts[j][2]).powi(2);
+                let d = (pts[i][0] - pts[j][0]).powi(2)
+                    + (pts[i][1] - pts[j][1]).powi(2)
+                    + (pts[i][2] - pts[j][2]).powi(2);
                 dist.push((d, j));
             }
         }
@@ -271,7 +284,11 @@ pub fn build_labels(
             continue;
         }
         if let Some(d) = m.domain.as_ref().filter(|d| !d.is_empty()) {
-            *domains.entry(m.community).or_default().entry(d.clone()).or_default() += 1;
+            *domains
+                .entry(m.community)
+                .or_default()
+                .entry(d.clone())
+                .or_default() += 1;
         }
         let counts = per.entry(m.community).or_default();
         for (key, surf) in terms_of(&format!("{}. {}", m.label, m.definition)) {
@@ -283,7 +300,10 @@ pub fn build_labels(
     let mean_total = if per.is_empty() {
         1.0
     } else {
-        per.values().map(|c| c.values().sum::<u32>() as f64).sum::<f64>() / per.len() as f64
+        per.values()
+            .map(|c| c.values().sum::<u32>() as f64)
+            .sum::<f64>()
+            / per.len() as f64
     };
 
     // Asserted in-community degree between content members, for exemplars.
@@ -307,7 +327,12 @@ pub fn build_labels(
                 .into_iter()
                 .flatten()
                 .filter(|(k, &f)| f >= p.min_community_count && all[*k] >= p.min_corpus_count)
-                .map(|(k, &f)| (k.clone(), (f as f64 / total) * (1.0 + mean_total / all[k] as f64).ln()))
+                .map(|(k, &f)| {
+                    (
+                        k.clone(),
+                        (f as f64 / total) * (1.0 + mean_total / all[k] as f64).ln(),
+                    )
+                })
                 .collect();
             scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
@@ -337,17 +362,29 @@ pub fn build_labels(
                         .unwrap_or_else(|| k.clone())
                 })
                 .collect();
-            let label = terms.iter().map(|t| title_case(t)).collect::<Vec<_>>().join(" \u{b7} ");
+            let label = terms
+                .iter()
+                .map(|t| title_case(t))
+                .collect::<Vec<_>>()
+                .join(" \u{b7} ");
 
-            let mut mix: Vec<(String, u32)> = domains.get(&c).map(|d| d.iter().map(|(k, v)| (k.clone(), *v)).collect()).unwrap_or_default();
+            let mut mix: Vec<(String, u32)> = domains
+                .get(&c)
+                .map(|d| d.iter().map(|(k, v)| (k.clone(), *v)).collect())
+                .unwrap_or_default();
             mix.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
             let dom_total: u32 = mix.iter().map(|(_, v)| v).sum();
             let domain_mix: Vec<DomainShare> = mix
                 .iter()
                 .take(3)
-                .map(|(d, v)| DomainShare { domain: d.clone(), share: *v as f32 / dom_total.max(1) as f32 })
+                .map(|(d, v)| DomainShare {
+                    domain: d.clone(),
+                    share: *v as f32 / dom_total.max(1) as f32,
+                })
                 .collect();
-            let cross_domain = domain_mix.first().is_some_and(|d| d.share < p.cross_domain_below);
+            let cross_domain = domain_mix
+                .first()
+                .is_some_and(|d| d.share < p.cross_domain_below);
 
             let mut ex: Vec<(u32, u32)> = members
                 .iter()
@@ -358,7 +395,10 @@ pub fn build_labels(
             let exemplars = ex
                 .into_iter()
                 .take(p.exemplars)
-                .map(|(id, _)| Exemplar { id, label: by_id[&id].label.clone() })
+                .map(|(id, _)| Exemplar {
+                    id,
+                    label: by_id[&id].label.clone(),
+                })
                 .collect();
 
             let mut core_ids = core.get(&c).cloned().unwrap_or_default();
@@ -444,7 +484,10 @@ impl StableRegistry {
                 by_community.insert(c, self.next_stable);
             }
         }
-        self.prev = now.into_iter().map(|(c, m)| (by_community[&c], m)).collect();
+        self.prev = now
+            .into_iter()
+            .map(|(c, m)| (by_community[&c], m))
+            .collect();
         self.by_community = by_community;
         self.generation += 1;
         self.generation
@@ -515,12 +558,27 @@ mod tests {
     #[test]
     fn ctfidf_label_merges_agent_and_agents_and_picks_the_distinctive_term() {
         let labels = build_labels(&corpus(), &[], &tiny());
-        let c1 = labels.iter().find(|l| l.community_id == 1).expect("community 1");
+        let c1 = labels
+            .iter()
+            .find(|l| l.community_id == 1)
+            .expect("community 1");
         assert_eq!(c1.terms[0].to_lowercase(), "agent", "terms: {:?}", c1.terms);
-        let agentish = c1.terms.iter().filter(|t| t.to_lowercase().contains("agent")).count();
-        assert!(agentish <= 2, "agent/agents must not fill every slot: {:?}", c1.terms);
+        let agentish = c1
+            .terms
+            .iter()
+            .filter(|t| t.to_lowercase().contains("agent"))
+            .count();
+        assert!(
+            agentish <= 2,
+            "agent/agents must not fill every slot: {:?}",
+            c1.terms
+        );
         let c2 = labels.iter().find(|l| l.community_id == 2).unwrap();
-        assert!(c2.terms.iter().any(|t| t.to_lowercase().contains("shader")), "{:?}", c2.terms);
+        assert!(
+            c2.terms.iter().any(|t| t.to_lowercase().contains("shader")),
+            "{:?}",
+            c2.terms
+        );
         assert!(c2.label.to_lowercase().contains("shader"));
     }
 
@@ -596,8 +654,20 @@ mod tests {
             content(5, 2, "e", "", "d"),
             content(6, 2, "f", "", "d"),
         ];
-        let e = |a, b| EdgeInput { a, b, asserted: true };
-        let edges = [e(1, 2), e(2, 3), e(1, 3), e(4, 5), e(4, 6), e(4, 1), e(5, 6)];
+        let e = |a, b| EdgeInput {
+            a,
+            b,
+            asserted: true,
+        };
+        let edges = [
+            e(1, 2),
+            e(2, 3),
+            e(1, 3),
+            e(4, 5),
+            e(4, 6),
+            e(4, 1),
+            e(5, 6),
+        ];
         let core = core_members(&m, &edges, &tiny());
         let mut c1 = core[&1].clone();
         c1.sort_unstable();
@@ -649,9 +719,19 @@ mod tests {
             at(4, 2, 500.0),
             at(5, 2, 900.0),
         ];
-        let p = LabelParams { k: 2, hull_min_core: 2, ..tiny() };
+        let p = LabelParams {
+            k: 2,
+            hull_min_core: 2,
+            ..tiny()
+        };
         let labels = build_labels(&m, &[], &p);
-        assert!(labels.iter().find(|l| l.community_id == 1).unwrap().has_hull);
+        assert!(
+            labels
+                .iter()
+                .find(|l| l.community_id == 1)
+                .unwrap()
+                .has_hull
+        );
         let c2 = labels.iter().find(|l| l.community_id == 2).unwrap();
         assert!(!c2.has_hull);
         assert_eq!(c2.size, 2);
@@ -666,11 +746,18 @@ mod tests {
             with_private.push(content(i, 1, "Zebrafish", "zebrafish zebrafish", "ai"));
         }
         let leaked = build_labels(&with_private, &[], &tiny());
-        assert!(leaked[0].terms[0].to_lowercase().contains("zebrafish"), "{:?}", leaked[0].terms);
+        assert!(
+            leaked[0].terms[0].to_lowercase().contains("zebrafish"),
+            "{:?}",
+            leaked[0].terms
+        );
         let public_only = build_labels(&corpus(), &[], &tiny());
         for l in &public_only {
             assert!(!l.label.to_lowercase().contains("zebrafish"));
-            assert!(l.terms.iter().all(|t| !t.to_lowercase().contains("zebrafish")));
+            assert!(l
+                .terms
+                .iter()
+                .all(|t| !t.to_lowercase().contains("zebrafish")));
             assert!(l.exemplars.iter().all(|x| x.id < 20));
         }
         assert_eq!(public_only[0].size, 3, "size counts the view only");
@@ -679,12 +766,18 @@ mod tests {
     #[test]
     fn stable_ids_survive_a_renumbered_run_and_split_gets_a_new_one() {
         let mut r = StableRegistry::new();
-        let run1: Vec<(u32, u32)> = (0..10).map(|n| (n, 1)).chain((10..20).map(|n| (n, 2))).collect();
+        let run1: Vec<(u32, u32)> = (0..10)
+            .map(|n| (n, 1))
+            .chain((10..20).map(|n| (n, 2)))
+            .collect();
         assert_eq!(r.observe(&run1), 1);
         let (a, b) = (r.stable_id(1).unwrap(), r.stable_id(2).unwrap());
         assert_ne!(a, b);
         // Renumbered: old 1 -> 7, old 2 -> 3, one member moved, a new community 9 appears.
-        let mut run2: Vec<(u32, u32)> = (0..10).map(|n| (n, 7)).chain((10..19).map(|n| (n, 3))).collect();
+        let mut run2: Vec<(u32, u32)> = (0..10)
+            .map(|n| (n, 7))
+            .chain((10..19).map(|n| (n, 3)))
+            .collect();
         run2[0] = (0, 3);
         run2.push((19, 9));
         run2.extend((30..34).map(|n| (n, 9)));
@@ -692,7 +785,10 @@ mod tests {
         assert_eq!(r.stable_id(7), Some(a));
         assert_eq!(r.stable_id(3), Some(b));
         let fresh = r.stable_id(9).unwrap();
-        assert!(fresh != a && fresh != b, "no overlap >= 0.5 -> new identity");
+        assert!(
+            fresh != a && fresh != b,
+            "no overlap >= 0.5 -> new identity"
+        );
         // Wire id 0 (unassigned) never gets an identity.
         assert_eq!(r.stable_id(0), None);
     }
@@ -704,7 +800,10 @@ mod tests {
         r.observe(&run1);
         let a = r.stable_id(1).unwrap();
         // Community 1 splits 6/4: only the 6-share (J=0.6) keeps the identity.
-        let run2: Vec<(u32, u32)> = (0..6).map(|n| (n, 5)).chain((6..10).map(|n| (n, 6))).collect();
+        let run2: Vec<(u32, u32)> = (0..6)
+            .map(|n| (n, 5))
+            .chain((6..10).map(|n| (n, 6)))
+            .collect();
         r.observe(&run2);
         assert_eq!(r.stable_id(5), Some(a));
         assert_ne!(r.stable_id(6), Some(a));
