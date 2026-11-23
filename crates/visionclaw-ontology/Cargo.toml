@@ -32,7 +32,6 @@ futures = "0.3"
 
 # OWL / ontology libs
 horned-owl = { version = "1.2.0", features = ["remote"] }
-horned-functional = { version = "0.4.0" }
 whelk = { git = "https://github.com/jjohare/whelk-rs", rev = "79a1ee21789add5a66faa0ec1a830c32dba9b539" }
 
 # Utilities
@@ -46,7 +45,7 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 blake3 = "1.5"
 dashmap = "6.1"
-lru = "0.12"
+lru = "0.16.3"
 sha2 = "0.10"
 toml = "0.9"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
