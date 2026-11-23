@@ -73,9 +73,23 @@ impl CommunityLabelDto {
             core_ids: l.core_ids,
             label: l.label,
             terms: l.terms,
-            domain_mix: l.domain_mix.into_iter().map(|d| DomainShareDto { domain: d.domain, share: d.share }).collect(),
+            domain_mix: l
+                .domain_mix
+                .into_iter()
+                .map(|d| DomainShareDto {
+                    domain: d.domain,
+                    share: d.share,
+                })
+                .collect(),
             cross_domain: l.cross_domain,
-            exemplars: l.exemplars.into_iter().map(|e| ExemplarDto { id: e.id, label: e.label }).collect(),
+            exemplars: l
+                .exemplars
+                .into_iter()
+                .map(|e| ExemplarDto {
+                    id: e.id,
+                    label: e.label,
+                })
+                .collect(),
             has_hull: l.has_hull,
         }
     }
@@ -126,16 +140,26 @@ pub fn labels_for_view(
     let edges: Vec<EdgeInput> = view
         .edges
         .iter()
-        .map(|e| EdgeInput { a: e.source, b: e.target, asserted: e.provenance == Some(EdgeProvenance::Asserted) })
+        .map(|e| EdgeInput {
+            a: e.source,
+            b: e.target,
+            asserted: e.provenance == Some(EdgeProvenance::Asserted),
+        })
         .collect();
     let communities = build_labels(&members, &edges, params)
         .into_iter()
         .map(|l| {
-            let sid = stable.get(&l.community_id).copied().unwrap_or(l.community_id as u64);
+            let sid = stable
+                .get(&l.community_id)
+                .copied()
+                .unwrap_or(l.community_id as u64);
             CommunityLabelDto::from_label(l, sid)
         })
         .collect();
-    CommunityLabelsResponse { generation, communities }
+    CommunityLabelsResponse {
+        generation,
+        communities,
+    }
 }
 
 const CACHE_TTL: Duration = Duration::from_secs(20);
@@ -143,7 +167,8 @@ const CACHE_MAX: usize = 16;
 type CacheKey = (u64, Option<String>);
 
 fn cache() -> &'static Mutex<HashMap<CacheKey, (Instant, Arc<CommunityLabelsResponse>)>> {
-    static C: OnceLock<Mutex<HashMap<CacheKey, (Instant, Arc<CommunityLabelsResponse>)>>> = OnceLock::new();
+    static C: OnceLock<Mutex<HashMap<CacheKey, (Instant, Arc<CommunityLabelsResponse>)>>> =
+        OnceLock::new();
     C.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -237,7 +262,13 @@ mod tests {
             .collect();
         // Private nodes whose unique term would top the ranking if it leaked.
         for i in 7..=12 {
-            nodes.push(class_node(i, "Zebrafish", "zebrafish zebrafish zebrafish", false, i as f32));
+            nodes.push(class_node(
+                i,
+                "Zebrafish",
+                "zebrafish zebrafish zebrafish",
+                false,
+                i as f32,
+            ));
         }
         Arc::new(GraphData {
             nodes,
@@ -247,7 +278,13 @@ mod tests {
     }
 
     fn params() -> LabelParams {
-        LabelParams { k: 3, hull_min_core: 2, min_corpus_count: 2, min_community_count: 2, ..Default::default() }
+        LabelParams {
+            k: 3,
+            hull_min_core: 2,
+            min_corpus_count: 2,
+            min_community_count: 2,
+            ..Default::default()
+        }
     }
 
     /// `(generation, stable ids)` after one detection run putting every node in community 1.
@@ -268,7 +305,11 @@ mod tests {
         assert_eq!(c.size, 6, "hidden members are not counted");
         assert!(!c.label.to_lowercase().contains("zebrafish"), "{}", c.label);
         assert!(c.terms.iter().all(|t| !t.contains("zebrafish")));
-        assert!(c.core_ids.iter().all(|&id| id <= 6), "hidden ids never named: {:?}", c.core_ids);
+        assert!(
+            c.core_ids.iter().all(|&id| id <= 6),
+            "hidden ids never named: {:?}",
+            c.core_ids
+        );
         assert!(c.exemplars.iter().all(|e| e.id <= 6));
     }
 
@@ -278,10 +319,14 @@ mod tests {
         let (gen, reg) = registry_for(&g);
         let owner = labels_for_view(&g, Some("owner-key"), true, &|_| 1, gen, &reg, &params());
         assert_eq!(owner.communities[0].size, 12);
-        assert!(owner.communities[0].terms.iter().any(|t| t.contains("zebrafish")));
+        assert!(owner.communities[0]
+            .terms
+            .iter()
+            .any(|t| t.contains("zebrafish")));
         let off = labels_for_view(&g, None, false, &|_| 1, gen, &reg, &params());
         assert_eq!(off.communities[0].size, 12);
-        let stranger = labels_for_view(&g, Some("someone-else"), true, &|_| 1, gen, &reg, &params());
+        let stranger =
+            labels_for_view(&g, Some("someone-else"), true, &|_| 1, gen, &reg, &params());
         assert_eq!(stranger.communities[0].size, 6);
     }
 
@@ -294,7 +339,19 @@ mod tests {
         assert_eq!(r.communities[0].stable_id, 1);
         let v = serde_json::to_value(&r).unwrap();
         let c = &v["communities"][0];
-        for k in ["communityId", "stableId", "size", "coreSize", "coreIds", "label", "terms", "domainMix", "crossDomain", "exemplars", "hasHull"] {
+        for k in [
+            "communityId",
+            "stableId",
+            "size",
+            "coreSize",
+            "coreIds",
+            "label",
+            "terms",
+            "domainMix",
+            "crossDomain",
+            "exemplars",
+            "hasHull",
+        ] {
             assert!(c.get(k).is_some(), "missing {k}");
         }
         assert!(v.get("generation").is_some());
