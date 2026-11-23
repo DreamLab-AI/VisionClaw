@@ -93,7 +93,7 @@ socket2 = { version = "0.5", features = ["all"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
-validator = { version = "0.18", features = ["derive"] }
+validator = { version = "0.20", features = ["derive"] }
 
 # Database - Oxigraph + SQLite (ADR-11 canonical persistence)
 oxigraph = { version = "0.4" }
@@ -154,8 +154,8 @@ visionclaw-memory-cloud = { path = "crates/visionclaw-memory-cloud" }
 visionclaw-jev = { path = "crates/visionclaw-jev" }
 
 # OpenAPI/Swagger documentation
-utoipa = { version = "5", features = ["actix_extras", "chrono", "uuid"] }
-utoipa-swagger-ui = { version = "9", features = ["actix-web"] }
+utoipa = { version = "6", features = ["actix_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "10", features = ["actix-web"] }
 
 
 # Utilities
@@ -185,7 +185,7 @@ byteorder = "1.5"
 urlencoding = "2.1"
 dashmap = "6.1"
 # heck = "0.5"  # Unused - removed during cleanup
-lru = "0.12"
+lru = "0.16"
 # path_abs = "0.5"  # Unused - removed during cleanup
 ordered-float = "4.5.0"
 notify = "6.1"  # File system watching for hot-reload
@@ -214,7 +214,6 @@ whelk = { git = "https://github.com/jjohare/whelk-rs", rev = "79a1ee21789add5a66
 # Ontology dependencies (always enabled)
 # Note: Using 1.2.0 for ArcStr support (thread-safe string type)
 horned-owl = { version = "1.2.0", features = ["remote"] }
-horned-functional = { version = "0.4.0" }
 # walkdir = { version = "2.4" }  # Unused - removed during cleanup
 clap = { version = "4.5", features = ["derive"] }
 

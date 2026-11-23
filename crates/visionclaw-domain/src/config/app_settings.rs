@@ -258,7 +258,7 @@ impl AppFullSettings {
         let mut result = HashMap::new();
 
         for (field, field_errors) in errors.field_errors() {
-            let camel_case_field = to_camel_case(field);
+            let camel_case_field = to_camel_case(&field);
             let messages: Vec<String> = field_errors
                 .iter()
                 .map(|error| match error.code.as_ref() {

@@ -34,7 +34,7 @@ bcrypt = "0.15"
 # `PhysicsSettings` (and friends) carry the full derive set once, and the
 # monolith re-exports without re-deriving.
 specta = { version = "2.0.0-rc.22", features = ["derive", "export"] }
-validator = { version = "0.18", features = ["derive"] }
+validator = { version = "0.20", features = ["derive"] }
 thiserror = "2.0"
 
 # Settings validation (validation.rs in config module)
