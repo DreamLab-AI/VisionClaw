@@ -422,11 +422,17 @@ repo's dotenv carries): `AGENTBOX_SYSTEM_ONE_PROXY=1`, endpoint
 `http://agentbox:8094/v1/systemone` (the agentbox proxy on `visionclaw_network`, never a
 published port), model `jev-latest`, `AGENTBOX_SYSTEM_ONE_BACKEND_LOCAL=0`. The proxy
 holds the vendor key and forwards to the backend agentbox selects, so
-`./agentbox.sh systemone backend <name>` moves every item at once. `VISIONCLAW_JEV_ALLOW_CLOUD=1`
-lets the four items that are local-only by default (memory rerank, patch rank, ingest
-suggest, proposal triage) take that route; set it to 0, with `VISIONCLAW_JEV_LOCAL=1`
-and a local `VISIONCLAW_JEV_ENDPOINT`, to keep them on a LAN model. loom and codescape
-merge the same block (`LOOM_JEV_ALLOW_CLOUD=1`, `CODESCAPE_JEV_ALLOW_CLOUD=1`).
+`./agentbox.sh systemone backend <name>` moves every item at once. The four items that
+are local-only (memory rerank, patch rank, ingest suggest, proposal triage) take that
+route only when the backend is declared local. Compose sets `VISIONCLAW_JEV_ALLOW_CLOUD=0`
+(owner ruling 2026-11-16, ADR-2148 amendment; `docker-compose.unified.yml:21-25`), and with
+`AGENTBOX_SYSTEM_ONE_BACKEND_LOCAL=0` those four items take their non-judge fallback. To
+run them, declare the backend local with `AGENTBOX_SYSTEM_ONE_BACKEND_LOCAL=1` or
+`VISIONCLAW_JEV_LOCAL=1` (or name a LAN model in `VISIONCLAW_JEV_ENDPOINT`); setting
+`VISIONCLAW_JEV_ALLOW_CLOUD=1` instead accepts a cloud backend for them
+(`crates/visionclaw-jev/src/config.rs:314-318`). loom and codescape merge the same block
+and default the same way (`LOOM_JEV_ALLOW_CLOUD=0`, `CODESCAPE_JEV_ALLOW_CLOUD=0`,
+`docker-compose.unified.yml:418,528`).
 Supervisord passes its inherited environment to the Rust backend. Recreate the
 application through `scripts/launch.sh` after this change; changing a shell does not
 change an existing container. Opt out with `VISIONCLAW_JEV=0`, or disable an individual

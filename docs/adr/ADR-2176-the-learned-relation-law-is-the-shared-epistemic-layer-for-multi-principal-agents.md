@@ -7,7 +7,7 @@ implementation_status: none
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: b188b0397756517fda22fb67d17222d4cec46579
+verified_commit: c7c1437959f65e8fe9e45e2a29d568b38d5a4e4a
 relates: [ADR-2174, ADR-2139, ADR-2157, ADR-2160, ADR-2170, ADR-2022, ADR-2115]
 verified_paths: [crates/relational-field/src/lib.rs, crates/relational-field/src/bin/h1.rs, crates/relational-field/results/h1/summary.json, crates/relational-field/Cargo.toml, crates/relational-field/PREREGISTRATION.md, crates/relational-field/PREREGISTRATION-D2.md, src/services/semantic_type_registry.rs, crates/visionclaw-domain/src/utils/visibility_filter.rs, src/handlers/api_handler/graph/mod.rs, docs/DATA-authority-erasure.md]
 owner: jjohare
@@ -115,3 +115,12 @@ Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `docs
 ## Amendment — 2026-11-20
 
 Amendment 2026-11-20, re-verified at b188b0397 (`git diff e1e9f9891..b188b0397 -- src/handlers/api_handler/graph/mod.rs src/services/semantic_type_registry.rs`). The registry still holds 46 `register_internal` entries; the diff changes a comment and replaces a label-list test with `registry_agrees_with_the_relation_schema_for_predicate_labels`. The earlier notes (2026-11-10) say the visibility gate "still runs first" in `GET /api/graph/data`. **It is now second:** a boot-readiness wait (`graph_not_ready_response`, `graph/mod.rs:226`, called at `:261`) answers `503 graph_loading` / `graph_load_failed` while the stored graph is not loaded, before any gate. It returns no graph data, so it cannot widen what a caller sees; once ready, the visibility gate and the caller's own node-filter snapshot run exactly as before. Decision unaffected.
+
+## Re-verification — 2026-11-23
+
+Re-verified at `c7c1437959f65e8fe9e45e2a29d568b38d5a4e4a` (`git diff b188b0397..c7c1437959f65e8fe9e45e2a29d568b38d5a4e4a` over the governed paths). The only
+change is `docs/DATA-authority-erasure.md`: its backup-coverage bullet now records the
+Oxigraph backup tool and periodic checkpoint as on `main` since `4f02b817c`, and changelog
+0.2.3. The relational-field crate, `semantic_type_registry.rs`, `visibility_filter.rs` and
+`graph/mod.rs` are unchanged. Nothing this record decides depends on backup coverage;
+proposed/none/inactive stands. `verified_commit` is bumped on that basis.

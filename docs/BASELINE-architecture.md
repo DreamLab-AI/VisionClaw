@@ -1,7 +1,7 @@
 ---
 title: VisionClaw Current Architecture Baseline
 doc_id: VC-BASELINE
-version: 0.4.6
+version: 0.4.7
 status: draft-for-ratification
 verified_commit: 
 date: 2026-08-31
@@ -21,6 +21,7 @@ sources:
   - crates/visionclaw-protocol/src/protocols/binary_settings_protocol.rs
   - src/utils/binary_protocol.rs
 changelog:
+  - "0.4.7 (2026-11-23): Jev note corrected: VISIONCLAW_JEV_ALLOW_CLOUD defaults to 0 since the 2026-11-16 owner ruling (local-only items fall back unless the backend is declared local), not 1. Known divergences: Oxigraph backup tool and periodic checkpoint are on main (ADR-2103). No invariant changed. Verified at 4900ec60b."
   - "0.4.6 (2026-11-07): crate census corrected: eighteen workspace members (Cargo.toml:2-21), visionclaw-splat (ADR-2170, a leaf) added to the list and to layer_direction.rs ALLOWED, where its absence had failed the rust-cpu gate. Citation refresh; no invariant changed."
   - "0.4.5 (2026-11-06): one desktop renderer: WebGPURenderer only, with its WebGL2 backend as the fallback (TSL materials only, BloomNode only, linear blend everywhere, Lightformer studio into CubeRenderTarget); splats one backend (three GaussianSplat addon; Spark removed, ADR-2170 amended); graph-view suite status per ADR (2179/2181/2182 partial) with its remaining gaps, and ADR-2187 rejected; ADR-2184 node table is typed arrays (apache-arrow removed). No invariant changed."
   - "0.4.4 (2026-11-06): ADR-2189 menus: explore, Memory explorer and node detail are tabs of one right-hand drawer; the timeline Diff checkbox and provenance.diffMode are one control; one edge colour per graph mode; Show Clusters/Communities merged into colour scheme. Corrects 0.4.3: non-physics server buckets are stored under one key each and reach every viewer, they do not follow the account."
@@ -54,9 +55,12 @@ that deployment. Existing authentication, validation and governance own actions;
 model errors retain the previous behaviour. `/api/jev/edge` provides bounded,
 authenticated edge suggestions without reviving the unused enrichment writer.
 Automatic outcome thresholds remain unset pending calibration. Activation is
-live since the 2026-10-30 host recreate (ADR-2148 close-out; dev profile, with the
-cloud path enabled by `VISIONCLAW_JEV_ALLOW_CLOUD=1`); see
-[configuration](reference/configuration.md#jev-option).
+live since the 2026-10-30 host recreate (ADR-2148 close-out; dev profile). Since the
+2026-11-16 owner ruling (ADR-2148 amendment, `9450923f9`) the cloud path is off by
+default: `VISIONCLAW_JEV_ALLOW_CLOUD` defaults to 0 (`docker-compose.unified.yml:25`),
+so the four local-only items use the proxy only when the backend is declared local and
+otherwise take their non-judge fallback (`crates/visionclaw-jev/src/config.rs:314-318`);
+see [configuration](reference/configuration.md#jev-option).
 
 ### Stores (effective persistence)
 
@@ -418,9 +422,13 @@ read-only guard defaults off (`public_demo.rs:29-33`, `unwrap_or(false)`).
 - **Sources-of-truth conflict**: Oxigraph (132) vs Pod write-master (050/052) vs
   GitHub `public::true` (051) vs RuVector agent memory (030). `deleteAgentMemory()`
   has no reverse tombstone to RuVector — deletion does not revoke agent memory.
-- **No estate-wide erasure/backup design**: `scripts/backup-sqlite.sh`
-  (2026-08-31) covers SQLite only; no point-in-time Oxigraph backup, no
-  cross-store consistent restore, no RPO/RTO.
+- **No estate-wide erasure/backup design**: `scripts/backup-sqlite.sh` covers
+  SQLite only. Oxigraph now has a point-in-time backup (corrected 2026-11-23): the
+  server checkpoints the store every 6 hours (`src/main.rs:750-759`, on by default in
+  `docker-compose.unified.yml:26-28`) and `crates/visionclaw-backup` (ADR-2103, on main
+  since `4f02b817c`) dumps and restores it; the repository schedules nothing, the host
+  runs a nightly timer. Still missing: cross-store consistent restore and a ratified
+  RPO/RTO (see [DATA-authority-erasure](DATA-authority-erasure.md)).
 - **Identifier grammars unreconciled** (vc:, urn:visionclaw:, visionclaw:owner:,
   hex/npub), DID doc ADR-074-D2' vs ADR-125 conflict.
 - **SOPS** (legacy ADR-109) accepted 2026-05-09, never executed — `.env`

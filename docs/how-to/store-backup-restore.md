@@ -137,9 +137,11 @@ the unit failed on a non-zero exit.
 
 For another installation, explicitly provision and verify each step:
 
-1. Merge `feat/store-backup-and-restore` and rebuild the server image (the checkpoint
-   task is in the server binary). On the production image, add a volume for the
-   checkpoint directory.
+1. Build the server image from `main` at or after merge `4f02b817c` (2026-11-16), which
+   carries the checkpoint task in the server binary (`src/main.rs:750-759`). Compose
+   already mounts the `visionclaw-checkpoints` volume at `/app/checkpoints` for both
+   profiles (`docker-compose.unified.yml:184,327`); a deployment outside that file needs
+   its own volume for the checkpoint directory.
 2. Set `ONTOLOGY_CHECKPOINT_DIR` for the server to that directory (outside `/app/data`).
    The interval needs no setting unless 6 hours is wrong.
 3. Build `visionclaw-backup` on the host and copy it to `/usr/local/bin`; the production image ships only `visionclaw-server`.
