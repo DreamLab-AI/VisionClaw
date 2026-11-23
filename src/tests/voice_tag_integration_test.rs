@@ -10,22 +10,19 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::services::voice_tag_manager::{VoiceTagManager, TaggedVoiceResponse};
-use crate::actors::voice_commands::{VoiceCommand, SwarmVoiceResponse, SwarmIntent};
+use crate::actors::voice_commands::{SwarmIntent, SwarmVoiceResponse, VoiceCommand};
+use crate::services::voice_tag_manager::{TaggedVoiceResponse, VoiceTagManager};
 use crate::types::speech::SpeechOptions;
 use crate::utils::time;
 
 #[tokio::test]
 async fn test_voice_tag_pipeline() {
-    
     let mut tag_manager = VoiceTagManager::new();
 
-    
     let (tts_tx, mut tts_rx) = mpsc::channel(10);
     tag_manager.set_tts_sender(tts_tx);
     let tag_manager = Arc::new(tag_manager);
 
-    
     let session_id = Uuid::new_v4().to_string();
     let voice_command = VoiceCommand {
         raw_text: "spawn researcher agent".to_string(),
@@ -39,22 +36,16 @@ async fn test_voice_tag_pipeline() {
         voice_tag: None,
     };
 
-    
-    let tagged_cmd = tag_manager.create_tagged_command(
-        voice_command,
-        true, 
-        SpeechOptions::default(),
-        None, 
-    ).await.expect("Failed to create tagged command");
+    let tagged_cmd = tag_manager
+        .create_tagged_command(voice_command, true, SpeechOptions::default(), None)
+        .await
+        .expect("Failed to create tagged command");
 
     let tag = tagged_cmd.tag.clone();
     println!("Created tagged voice command with tag: {}", tag.short_id());
 
-    
     assert!(tag_manager.is_tag_active(&tag.tag_id).await);
 
-    
-    
     let agent_response = TaggedVoiceResponse {
         response: SwarmVoiceResponse {
             text: "Successfully spawned researcher agent. The agent is ready to analyze data and conduct research.".to_string(),
@@ -69,20 +60,21 @@ async fn test_voice_tag_pipeline() {
         responded_at: time::now(),
     };
 
-    
-    tag_manager.process_tagged_response(agent_response).await
+    tag_manager
+        .process_tagged_response(agent_response)
+        .await
         .expect("Failed to process tagged response");
 
-    
-    let tts_response = tokio::time::timeout(
-        tokio::time::Duration::from_secs(1),
-        tts_rx.recv()
-    ).await.expect("Timeout waiting for TTS response")
+    let tts_response = tokio::time::timeout(tokio::time::Duration::from_secs(1), tts_rx.recv())
+        .await
+        .expect("Timeout waiting for TTS response")
         .expect("No TTS response received");
 
-    
     assert_eq!(tts_response.tag.tag_id, tag.tag_id);
-    assert!(tts_response.response.text.contains("Successfully spawned researcher agent"));
+    assert!(tts_response
+        .response
+        .text
+        .contains("Successfully spawned researcher agent"));
     assert!(tts_response.response.use_voice);
     assert!(tts_response.is_final);
 
@@ -90,7 +82,6 @@ async fn test_voice_tag_pipeline() {
     println!("   Tag: {}", tag.short_id());
     println!("   Response: {}", tts_response.response.text);
 
-    
     assert!(!tag_manager.is_tag_active(&tag.tag_id).await);
 }
 
@@ -98,12 +89,10 @@ async fn test_voice_tag_pipeline() {
 async fn test_tag_timeout_cleanup() {
     let mut tag_manager = VoiceTagManager::new();
 
-    
     let (tts_tx, _tts_rx) = mpsc::channel(10);
     tag_manager.set_tts_sender(tts_tx);
     let tag_manager = Arc::new(tag_manager);
 
-    
     let voice_command = VoiceCommand {
         raw_text: "help".to_string(),
         parsed_intent: SwarmIntent::Help,
@@ -113,25 +102,24 @@ async fn test_tag_timeout_cleanup() {
         voice_tag: None,
     };
 
-    let tagged_cmd = tag_manager.create_tagged_command(
-        voice_command,
-        true,
-        SpeechOptions::default(),
-        Some(chrono::Duration::milliseconds(10)), 
-    ).await.expect("Failed to create tagged command");
+    let tagged_cmd = tag_manager
+        .create_tagged_command(
+            voice_command,
+            true,
+            SpeechOptions::default(),
+            Some(chrono::Duration::milliseconds(10)),
+        )
+        .await
+        .expect("Failed to create tagged command");
 
     let tag = tagged_cmd.tag.clone();
 
-    
     assert!(tag_manager.is_tag_active(&tag.tag_id).await);
 
-    
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
-    
     tag_manager.cleanup_expired_commands().await;
 
-    
     assert!(!tag_manager.is_tag_active(&tag.tag_id).await);
 
     println!("Tag timeout cleanup test completed successfully!");
@@ -141,12 +129,10 @@ async fn test_tag_timeout_cleanup() {
 async fn test_concurrent_voice_commands() {
     let mut tag_manager = VoiceTagManager::new();
 
-    
     let (tts_tx, mut tts_rx) = mpsc::channel(100);
     tag_manager.set_tts_sender(tts_tx);
     let tag_manager = Arc::new(tag_manager);
 
-    
     let mut tags = Vec::new();
     for i in 0..5 {
         let voice_command = VoiceCommand {
@@ -161,22 +147,18 @@ async fn test_concurrent_voice_commands() {
             voice_tag: None,
         };
 
-        let tagged_cmd = tag_manager.create_tagged_command(
-            voice_command,
-            true,
-            SpeechOptions::default(),
-            None,
-        ).await.expect("Failed to create tagged command");
+        let tagged_cmd = tag_manager
+            .create_tagged_command(voice_command, true, SpeechOptions::default(), None)
+            .await
+            .expect("Failed to create tagged command");
 
         tags.push(tagged_cmd.tag.clone());
     }
 
-    
     for tag in &tags {
         assert!(tag_manager.is_tag_active(&tag.tag_id).await);
     }
 
-    
     for (i, tag) in tags.iter().enumerate() {
         let response = TaggedVoiceResponse {
             response: SwarmVoiceResponse {
@@ -192,16 +174,16 @@ async fn test_concurrent_voice_commands() {
             responded_at: time::now(),
         };
 
-        tag_manager.process_tagged_response(response).await
+        tag_manager
+            .process_tagged_response(response)
+            .await
             .expect("Failed to process tagged response");
     }
 
-    
     for _ in 0..5 {
-        let tts_response = tokio::time::timeout(
-            tokio::time::Duration::from_secs(1),
-            tts_rx.recv()
-        ).await.expect("Timeout waiting for TTS response")
+        let tts_response = tokio::time::timeout(tokio::time::Duration::from_secs(1), tts_rx.recv())
+            .await
+            .expect("Timeout waiting for TTS response")
             .expect("No TTS response received");
 
         assert!(tts_response.response.text.contains("spawned successfully"));
@@ -209,7 +191,6 @@ async fn test_concurrent_voice_commands() {
         assert!(tts_response.is_final);
     }
 
-    
     for tag in &tags {
         assert!(!tag_manager.is_tag_active(&tag.tag_id).await);
     }

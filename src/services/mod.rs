@@ -42,6 +42,7 @@ pub mod voice_intent_client;
 // V3 (PRD-023 WP-10): the conversational-grounding confidence gate that holds a
 // low-confidence / under-specified spoken command for a clarification turn
 // instead of dispatching it.
+pub mod community_labels;
 pub mod edge_classifier;
 pub mod inferred_edge_materialiser;
 #[cfg(feature = "solid-pod-embed")]
@@ -53,7 +54,6 @@ pub mod ontology_enrichment_service;
 pub mod ontology_generation;
 pub mod ontology_mutation_service;
 pub mod ontology_pull;
-pub mod community_labels;
 pub mod ontology_query_service;
 pub mod ontology_reasoner;
 pub mod ontology_view_reasoner;
