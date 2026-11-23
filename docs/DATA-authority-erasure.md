@@ -1,10 +1,11 @@
 ---
 title: Data Authority & Erasure
 doc_id: VC-DATA
-version: 0.2.2
+version: 0.2.3
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.2.3 (2026-11-23): Backup-coverage bullet corrected: the visionclaw-backup tool and the periodic Oxigraph checkpoint are on main since 4f02b817c (2026-11-16), checkpointing is on by default in compose, and the host runs a nightly backup timer; the earlier text said both were unmerged. No invariant changed. Verified at 4900ec60b."
   - "0.2.2 (2026-10-30): PROPOSED only, nothing implemented. ADR-2157 and ADR-2161 add a Proposed section: the NIP-29 membership cache and its persisted per-kind (rev, created_at, event id, content digest) group-state watermark (distinct from the catalogue watermark (rev, event id)), remote data spaces as render-only, and cross-space link records as 7-day leases with tombstones (audit round 2). The ownership matrix and Invariants are untouched. Drafted against e74bcddc7."
   - "0.2.1 (2026-09-06): Remediation — 2026-09-05 section: Wave 3 ADRs (2094–2101, 2061, 2071, 2085; proposed 2102–2105) and the ledger/diagram re-verification landed in 2cf222406 — re-verified at "
   - "0.2.0 — Authored-content owner restated as the Obsidian vault gate (frontmatter `public: true` / `owl-class`, ADR-2040); citations marked `:~` pending re-verification against the vault reader."
@@ -106,16 +107,25 @@ distributed transaction and no compensating-action framework in code.
   `./backups/sqlite`, outside `./data`. Membership is a contract (ADR-2069): a missing
   member of `REQUIRED_DBS` (`settings`, `enrichment`, `kpi`, `shares`) aborts the run and
   publishes no manifest, while a missing `OPTIONAL_DBS` member (`liveness`) is logged and
-  skipped. **Oxigraph:** on branch `feat/store-backup-and-restore` the `visionclaw-backup`
-  tool (`crates/visionclaw-backup`, ADR-2103) dumps the whole store as N-Quads with a
-  SHA-256 manifest and restores it into an empty directory; this is tested against
-  synthetic stores only. It is not merged to main, not scheduled and has not run against
-  the live stores, so on `main` Oxigraph still has no scheduled backup. On that branch the
-  server also writes its own periodic Oxigraph checkpoint (`ONTOLOGY_CHECKPOINT_DIR`,
-  `ONTOLOGY_CHECKPOINT_INTERVAL_SECS`, default 6 hours), which is the live-writer-safe source
-  the tool backs up; the checkpoint task is built and tested but not running. There
-  is no cross-store consistent restore and no declared RPO/RTO until a restore is timed on
-  the live data.
+  skipped. **Oxigraph (corrected 2026-11-23):** the `visionclaw-backup` tool
+  (`crates/visionclaw-backup`, workspace member at `Cargo.toml:21`, ADR-2103) is on `main`
+  since merge `4f02b817c` (2026-11-16). `backup` dumps the whole store as N-Quads alongside
+  SQLite snapshots under a SHA-256 manifest; `verify` and `restore` (into an empty
+  directory) complete the set (`crates/visionclaw-backup/src/main.rs:19-40`). The server
+  writes its own periodic Oxigraph checkpoint from the open writer, first at start and then
+  every `ONTOLOGY_CHECKPOINT_INTERVAL_SECS` (default 6 hours; `0` disables), into
+  `ONTOLOGY_CHECKPOINT_DIR` (`src/main.rs:750-759`, `src/services/ontology_checkpoint.rs:23,80-95`);
+  this is the live-writer-safe source the tool backs up. Compose turns it on by default
+  (`docker-compose.unified.yml:26-28`, volume `visionclaw-checkpoints` at `:184,327,713`).
+  The repository schedules nothing itself: `scripts/systemd/visionclaw-backup.{service,timer}.example`
+  are templates. On the deployed host a nightly 03:15 user timer runs the tool against the
+  server checkpoint, and a real stopped-server backup restored into an empty directory in
+  19.512 s (2,093,326 quads) on 2026-11-16
+  (`docs/estate-closeout/2026-11-16/deployment-rollout.md:60-86`). That figure is restore
+  execution time, not an incident RTO. The receipt puts the worst-case Oxigraph age at
+  roughly 30 hours (6-hour checkpoints, nightly runs) before a failure or delay shows; the
+  tool refuses a checkpoint older than 24 hours. There is still no cross-store consistent restore and no
+  ratified RPO/RTO; ADR-2103 stays proposed with partial implementation.
 - **Graph shares persist, and hold the creator's private nodes.** A share is a file
   of the creator's view at share time (`get_current_graph`, ADR-060), so it can carry
   the creator's own private nodes. Until 2026-11-06 the share record lived in a map per
