@@ -4,15 +4,17 @@ title: Give Oxigraph a point-in-time backup with a declared RPO and RTO
 date: 2026-09-05
 decision_status: proposed
 implementation_status: partial
-activation_status: inactive
+activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2671bdb5f08c642bfb7a5b78da228e2851018930
+verified_commit: c7c1437959f65e8fe9e45e2a29d568b38d5a4e4a
 verified_paths: [crates/visionclaw-backup/src/run.rs, crates/visionclaw-backup/src/checkpoint.rs, crates/visionclaw-backup/tests/restore_roundtrip.rs, src/services/ontology_checkpoint.rs, src/services/data_reconciliation.rs, docs/how-to/store-backup-restore.md]
 owner: jjohare
 review_trigger: an Oxigraph/RocksDB data-loss incident, a restore drill, or any change to scripts/backup-sqlite.sh's membership contract
 repo: visionclaw
 domain: DATA-authority-erasure
+evidence_class: deployment+runtime
+acceptance_boundary: "Establishes that on the deployed dev host the server writes a six-hourly Oxigraph checkpoint (two complete checkpoints observed 2026-11-23, 03:17 and 09:17 UTC) and that on 2026-11-16 the nightly user timer was enabled, its service backed up a live checkpoint, and a cold backup restored into an empty directory in 19.512 s. Does not establish that the nightly timer has run since 2026-11-16, a per-graph GRAPH_PROVENANCE count or append_only_verified check after restore, the per-graph restore policy (Decision item 4), declared RPO/RTO figures, cross-store consistency, or owner acceptance of this record."
 lineage: extends ADR-2017 (SQLite-only online backup, no PITR for Oxigraph); ADR-2069 (required/optional backup membership contract); DATA-authority-erasure "Backup coverage is partial — Oxigraph only"
 ---
 
@@ -200,3 +202,36 @@ stays `partial`: built and tested on a branch; not merged. `activation_status` s
 running, nothing has been written to `/mnt/dell`, and no restore has been timed on live
 data (acceptance items 1 live-writer variant and 3 remain unmet). Steps to switch it on
 are in `docs/how-to/store-backup-restore.md`.
+
+## Re-verification and activation — 2026-11-23
+
+Re-verified at `c7c1437959f65e8fe9e45e2a29d568b38d5a4e4a`. The only governed-path change since `2671bdb5f` is
+`docs/how-to/store-backup-restore.md` (checklist step 1 now says to build from `main` at or
+after merge `4f02b817c`, which carries the checkpoint task, instead of merging the branch).
+`git diff 2671bdb5f..c7c1437959f65e8fe9e45e2a29d568b38d5a4e4a` over the other verified paths (`crates/visionclaw-backup/src/run.rs`,
+`checkpoint.rs`, `tests/restore_roundtrip.rs`, `src/services/ontology_checkpoint.rs`,
+`src/services/data_reconciliation.rs`) is empty, so the code claims above still hold.
+
+The "Not merged, not scheduled, not running" statements in the two 2026-11-16 sections are
+superseded by the facts below; the sections stay as the record of that day.
+
+- **On main.** Merge `4f02b817c` (2026-11-16) brought `crates/visionclaw-backup` (workspace
+  member, `Cargo.toml:21`) and the checkpoint task (`src/main.rs:750-759`) to `main`.
+  Compose sets `ONTOLOGY_CHECKPOINT_DIR=/app/checkpoints` and a 21600 s interval by default
+  (`docker-compose.unified.yml:26-28`) on its own volume (`:184,327,713`).
+- **Running (runtime, read-only check 2026-11-23).** In `visionclaw_container` (up 3 days),
+  `/app/checkpoints` holds `checkpoint-20261123T031715826Z` and
+  `checkpoint-20261123T091722716Z`: six hours apart, the keep-two rule in effect. The latest
+  `checkpoint.json` records 3,561,085 triples, format `oxigraph-0.4-rocksdb-checkpoint`.
+- **Scheduled (deployment record).** `docs/estate-closeout/2026-11-16/deployment-rollout.md:60-86`:
+  the nightly 03:15 user timer was enabled, the service backed up a live checkpoint (run
+  `20261116T212245Z`), and a cold stopped-server backup restored into an empty directory in
+  19.512 s with 2,093,326 quads. The timer runs in the host's user systemd, which this check
+  could not reach, so that it has run since 2026-11-16 is not re-observed here.
+
+**Status.** `activation_status` moves from `inactive` to `live` on that evidence
+(`evidence_class: deployment+runtime`). `implementation_status` stays `partial`: acceptance
+item 2's `GRAPH_PROVENANCE` count and `append_only_verified` check after restore, item 3's
+declared RPO/RTO figures in `docs/DATA-authority-erasure.md`, and item 5's per-graph
+restore policy are not done. `decision_status` stays `proposed`: accepting the record is
+the owner's call.
