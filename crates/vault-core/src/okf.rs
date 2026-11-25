@@ -512,8 +512,18 @@ impl OkfBlock {
     /// the move from `human:<npub>` to `did:nostr:`).
     #[must_use]
     pub fn is_human_verified_with(&self, roster: &crate::roster::Roster) -> bool {
-        self.verified.iter().any(|s| roster.is_human(&s.by))
+        self.verified
+            .iter()
+            .any(|s| stamp_time_is_valid(&s.at) && roster.is_human(&s.by))
     }
+}
+
+/// Whether a stamp's `at` is an RFC 3339 instant. Certification needs a real
+/// time (a stamp that says nothing about when cannot attest a review); the
+/// published corpus writes milliseconds (`2026-10-05T18:59:14.000Z`), so this is
+/// the lenient RFC 3339 reading, not the contract's whole-second form.
+fn stamp_time_is_valid(at: &str) -> bool {
+    time::OffsetDateTime::parse(at.trim(), &time::format_description::well_known::Rfc3339).is_ok()
 }
 
 #[cfg(test)]
@@ -716,5 +726,28 @@ mod tests {
         assert!(!okf_by(SWARM).is_human_verified_with(&roster), "swarm");
         assert!(okf_by(B41).is_human_verified_with(&roster), "canonical key");
         assert!(okf_by(ALSO).is_human_verified_with(&roster), "also key");
+    }
+
+    #[test]
+    fn a_verified_stamp_with_no_real_time_does_not_certify() {
+        let roster = crate::roster::Roster::from_yaml_str(&format!(
+            "principals:\n  - did: did:nostr:{B41}\n    label: j\n    kind: human\n"
+        ));
+        let page = |at: &str| {
+            OkfBlock::from_frontmatter(
+                &Frontmatter::parse(&format!(
+                    "verified:\n  - {{ by: did:nostr:{B41}, at: '{at}' }}\n"
+                ))
+                .unwrap(),
+            )
+        };
+        assert!(
+            page("2026-10-05T18:59:14.000Z").is_human_verified_with(&roster),
+            "millis, as the corpus writes"
+        );
+        assert!(page("2026-11-02T00:00:00Z").is_human_verified_with(&roster));
+        for bad in ["", "yesterday", "2026-11-02", "tomorrow-ish"] {
+            assert!(!page(bad).is_human_verified_with(&roster), "{bad:?}");
+        }
     }
 }

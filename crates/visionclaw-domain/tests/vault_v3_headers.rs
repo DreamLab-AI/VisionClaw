@@ -90,6 +90,44 @@ fn explicit_public_false_is_only_the_public_key_under_vocabulary_2() {
 }
 
 #[test]
+fn a_migrated_page_with_a_class_marker_keeps_the_adr_2014_semantics() {
+    // m0002 gives every non-public working page an explicit `visibility:
+    // shared`. That is the same declaration as `public: false` (ADR-2014): the
+    // formal class is still admitted to the graph (it is structural), is not
+    // publishable, and is labelled as included despite the explicit "no".
+    use visionclaw_domain::vault::InclusionReason::{FormalClass, FormalClassDespitePublicFalse};
+    for visibility in ["shared", "private"] {
+        let page = format!("---\ntype: Note\nowl-class: mv:Foo\nvisibility: {visibility}\n---\n");
+        let migrated = parse(&page, WORKING_V3);
+        assert!(
+            migrated.is_kg_included() && !migrated.is_publishable(),
+            "{visibility}"
+        );
+        assert_eq!(migrated.inclusion_reason(), FormalClassDespitePublicFalse);
+        // Before migration the same intent was `public: false`: same answers.
+        let before = parse(
+            "---\ntype: Note\nowl-class: mv:Foo\npublic: false\n---\n",
+            WORKING_V2,
+        );
+        assert_eq!(
+            (
+                before.is_kg_included(),
+                before.is_publishable(),
+                before.inclusion_reason()
+            ),
+            (true, false, FormalClassDespitePublicFalse)
+        );
+        // Under vocabulary 2 `visibility` is not a key: no explicit "no" there.
+        let v2 = parse(&page, WORKING_V2);
+        assert_eq!(v2.inclusion_reason(), FormalClass);
+        assert!(v2.is_kg_included() && !v2.is_publishable());
+    }
+    // A migrated PUBLIC page with a class marker is public and formal.
+    let page = "---\ntype: Note\nowl-class: mv:Foo\nvisibility: public\n---\n";
+    assert!(parse(page, WORKING_V3).is_publishable());
+}
+
+#[test]
 fn rendering_a_v3_page_does_not_bring_public_back() {
     let meta = parse(V3, WORKING_V3);
     let out = render_page(&meta, "body\n");

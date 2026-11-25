@@ -94,7 +94,10 @@ pub struct PageMeta {
     /// True when the `public` key was present and explicitly false, as opposed
     /// to simply absent. ADR-2014/2040 require the public-false-plus-class case
     /// to be explicit rather than inferred, and it cannot be inferred from a
-    /// plain `bool`.
+    /// plain `bool`. Under [`Rules::Visibility`] an explicit `visibility: shared`
+    /// or `private` (what the vocabulary 3 migration writes on every non-public
+    /// working page) is the same declaration. Its only consumer is
+    /// [`PageMeta::inclusion_reason`], a label; the gate itself never reads it.
     pub public_declared_false: bool,
     /// `source-domain` — the domain prefix (ai/bc/mv/rb/tc/ngm).
     pub source_domain: Option<String>,

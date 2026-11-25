@@ -38,10 +38,15 @@ pub fn did_body(did: &str) -> Option<&str> {
 /// Decode a bech32 `npub` into the 64-hex key it spells.
 ///
 /// # Errors
-/// A message when `npub` is not valid bech32, does not carry the `npub` prefix
+/// A message when `npub` is not valid Bech32 (a Bech32m checksum is refused), does not carry the `npub` prefix
 /// or does not hold exactly 32 bytes.
 pub fn npub_to_hex(npub: &str) -> Result<String, String> {
-    let (hrp, data) = bech32::decode(npub).map_err(|e| format!("{npub:?} is not bech32: {e}"))?;
+    // NIP-19 is Bech32 (BIP-173) only. `bech32::decode` accepts a Bech32m
+    // checksum too, so check the checksum variant explicitly.
+    let checked = bech32::primitives::decode::CheckedHrpstring::new::<bech32::Bech32>(npub)
+        .map_err(|e| format!("{npub:?} is not bech32: {e}"))?;
+    let hrp = checked.hrp();
+    let data: Vec<u8> = checked.byte_iter().collect();
     if hrp.as_str() != "npub" {
         return Err(format!("{npub:?} has the prefix {hrp}, not npub"));
     }
@@ -134,5 +139,21 @@ mod tests {
             did_body(&format!("did:nostr:{}", PAIRS[0].1.to_uppercase())),
             None
         );
+    }
+
+    #[test]
+    fn a_bech32m_checksum_is_refused() {
+        // Same hrp and 32 bytes as a real npub, encoded with the Bech32m
+        // checksum: the `bech32` crate's plain `decode` would accept it.
+        let bytes = hex::decode(PAIRS[0].1).unwrap();
+        let hrp = Hrp::parse("npub").unwrap();
+        let m = bech32::encode::<bech32::Bech32m>(hrp, &bytes).unwrap();
+        assert!(
+            bech32::decode(&m).is_ok(),
+            "the crate's decode accepts Bech32m"
+        );
+        let err = npub_to_hex(&m).unwrap_err();
+        assert!(err.contains("not bech32"), "{err}");
+        assert_eq!(npub_to_hex(PAIRS[0].0).unwrap(), PAIRS[0].1);
     }
 }

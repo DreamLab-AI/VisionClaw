@@ -24,7 +24,7 @@ use vault_core::visibility::{self, Rules};
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     let root = std::path::Path::new(&a[1]);
-    let roster = Roster::discover(std::path::Path::new(a.get(3).unwrap_or(&a[1])));
+    let roster = Roster::load(std::path::Path::new(a.get(3).unwrap_or(&a[1]))).unwrap();
     let mut out = std::io::BufWriter::new(std::fs::File::create(&a[2]).unwrap());
     let mut files = Vec::new();
     for vault in ["knowledge", "working"] {

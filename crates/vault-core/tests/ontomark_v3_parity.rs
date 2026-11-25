@@ -73,7 +73,7 @@ fn pages() -> BTreeMap<String, Frontmatter> {
 }
 
 fn roster() -> Roster {
-    Roster::discover(&fixture())
+    Roster::load(&fixture()).unwrap()
 }
 
 fn is_exception(page: &str, field: &str) -> bool {
@@ -272,13 +272,29 @@ fn unreadable_stamps_are_surfaced_where_ontomark_cannot_read_them() {
     }
 }
 
+/// Pages ontomark's vendored golden certifies as human under vocabulary 3 and
+/// VisionClaw does not, with the reason. The golden is to be re-vendored once
+/// ontomark's own fix (ruling 2: `human:` certifies nobody under 3) lands; until
+/// then the expectation is pinned here, never loosened in the code.
+const NOT_CERTIFIED_HERE: &[(&str, &str)] = &[(
+    "knowledge/VcVerifiedNpub",
+    "its only `verified` stamp is `by: human:npub1…`, the vocabulary 2 spelling. Ruling 2 makes that an error under vocabulary 3 and it certifies nobody; the vendored golden (ontomark 1c1ec51, before its fix) still says certified.",
+)];
+
 #[test]
 fn human_certification_matches_ontomark() {
-    let (g, roster) = (golden(), roster());
+    let (g, roster) = (golden(), roster().under_vocabulary(Some(3)));
     for (id, fm) in pages() {
         let okf = OkfBlock::from_frontmatter(&fm);
         let want = g["pages"][&id]["v3"]["human_certified"].as_bool().unwrap();
-        assert_eq!(okf.is_human_verified_with(&roster), want, "{id}");
+        let ours = okf.is_human_verified_with(&roster);
+        assert!(!ours || want, "{id}: certified here, not by ontomark");
+        if ours != want {
+            assert!(
+                NOT_CERTIFIED_HERE.iter().any(|(p, _)| *p == id),
+                "{id}: ontomark {want}, VisionClaw {ours}"
+            );
+        }
     }
 }
 

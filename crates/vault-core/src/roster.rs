@@ -128,20 +128,34 @@ struct RawGenerator {
 pub struct Roster {
     principals: Vec<Principal>,
     generators: HashMap<String, GeneratorFacts>,
+    /// Under vocabulary 3 the `human:` spelling names nobody (ruling 2): it no
+    /// longer certifies. Off by default, which is the vocabulary 2 rule.
+    human_prefix_refused: bool,
 }
 
 impl Roster {
-    /// Load `ontology/attribution.yaml` beneath `repo_root`. An absent or
-    /// unreadable file is an empty roster, which resolves nothing.
-    #[must_use]
-    pub fn discover(repo_root: &Path) -> Self {
-        std::fs::read_to_string(repo_root.join("ontology").join("attribution.yaml"))
-            .map(|t| Self::from_yaml_str(&t))
-            .unwrap_or_default()
+    /// Load `ontology/attribution.yaml` beneath `repo_root`.
+    ///
+    /// A file that does not exist is an empty roster (a vault with no roster:
+    /// no `did:nostr:` key resolves to a principal, so none certifies). A file
+    /// that **exists** but cannot be read or parsed is an error, never an empty
+    /// roster: a typo must not silently uncertify, or mis-certify, every page.
+    ///
+    /// # Errors
+    /// A message naming the file when it exists and is unreadable or invalid.
+    pub fn load(repo_root: &Path) -> Result<Self, String> {
+        let path = repo_root.join("ontology").join("attribution.yaml");
+        match std::fs::read_to_string(&path) {
+            Ok(text) => Self::parse(&text)
+                .map_err(|e| format!("{} is not a valid roster: {e}", path.display())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(e) => Err(format!("cannot read {}: {e}", path.display())),
+        }
     }
 
     /// Parse a roster; text that is not a YAML mapping gives an empty roster.
-    /// Use [`Roster::parse`] to learn why.
+    /// For test fixtures and literals: a file on disk goes through
+    /// [`Roster::load`], which reports the error.
     #[must_use]
     pub fn from_yaml_str(text: &str) -> Self {
         Self::parse(text).unwrap_or_default()
@@ -178,7 +192,18 @@ impl Roster {
                     )
                 })
                 .collect(),
+            human_prefix_refused: false,
         })
+    }
+
+    /// The roster as read under a vocabulary of `version`. From version 3 a
+    /// `human:<anything>` actor is not human (ruling 2: it is an error there,
+    /// and m0002 rewrites it to a `did:nostr:`); before that, or with no
+    /// vocabulary, the vocabulary 2 prefix rule stands.
+    #[must_use]
+    pub fn under_vocabulary(mut self, version: Option<u32>) -> Self {
+        self.human_prefix_refused = version.is_some_and(|v| v >= 3);
+        self
     }
 
     /// The registry principals, in file order.
@@ -286,7 +311,7 @@ impl Roster {
     #[must_use]
     pub fn is_human(&self, actor: &Actor) -> bool {
         match actor {
-            Actor::Human(_) => true,
+            Actor::Human(_) => !self.human_prefix_refused,
             Actor::Did(_) => self
                 .resolve(actor)
                 .is_some_and(|r| r.kind == PrincipalKind::Human),
@@ -319,6 +344,35 @@ mod tests {
 
     fn actor(s: &str) -> Actor {
         s.parse().unwrap()
+    }
+
+    #[test]
+    fn a_missing_roster_is_empty_and_a_broken_one_is_an_error() {
+        let dir = std::env::temp_dir().join(format!("roster-load-{}", std::process::id()));
+        let onto = dir.join("ontology");
+        std::fs::create_dir_all(&onto).unwrap();
+        assert!(Roster::load(&dir).unwrap().is_empty(), "absent file");
+        std::fs::write(onto.join("attribution.yaml"), "principals: [unclosed\n").unwrap();
+        let err = Roster::load(&dir).unwrap_err();
+        assert!(err.contains("attribution.yaml"), "{err}");
+        std::fs::write(
+            onto.join("attribution.yaml"),
+            format!("principals:\n  - did: {B41}\n    kind: human\n"),
+        )
+        .unwrap();
+        assert!(Roster::load(&dir).unwrap().is_human(&actor(B41)));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_human_prefix_certifies_under_vocabulary_2_and_not_under_3() {
+        let h = actor("human:npub1kst9anything");
+        let r = registry();
+        assert!(r.clone().under_vocabulary(Some(2)).is_human(&h));
+        assert!(r.clone().under_vocabulary(None).is_human(&h));
+        assert!(!r.clone().under_vocabulary(Some(3)).is_human(&h));
+        // did:nostr keys are unaffected.
+        assert!(r.under_vocabulary(Some(3)).is_human(&actor(B41)));
     }
 
     #[test]

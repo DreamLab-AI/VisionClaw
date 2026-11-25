@@ -365,6 +365,9 @@ pub fn validate_with(
         ..Report::default()
     };
     let strict_keys = vault.kind.rejects_unknown_keys();
+    // Under vocabulary 3 the `human:` spelling names nobody, so it never
+    // certifies (and is an error where it is written; see `validate_okf`).
+    let roster = &roster.clone().under_vocabulary(Some(vocab.version));
 
     // `domain` is free text with a documented `observed:` census and six
     // `roots:`, so the check is "did the census ever see this value?" rather
@@ -735,6 +738,33 @@ fn validate_okf(
     record: &ClassRecord,
 ) {
     let knowledge = kind == VaultKind::Knowledge;
+
+    // Ruling 2: under vocabulary 3 `by` names a principal as `did:nostr:`, never
+    // with the vocabulary 2 `human:` spelling, which m0002 rewrites.
+    if vocab.is_v3() {
+        for (field, stamp) in okf
+            .generated
+            .iter()
+            .map(|s| ("generated".to_owned(), s))
+            .chain(
+                okf.verified
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| (format!("verified[{i}]"), s)),
+            )
+        {
+            if let vault_core::okf::Actor::Human(name) = &stamp.by {
+                report.push(
+                    path,
+                    Severity::Error,
+                    "INVALID_STAMP",
+                    format!(
+                        "`{field}.by: human:{name}` is the vocabulary 2 spelling and certifies nobody under vocabulary 3; name the principal as did:nostr:<64 hex>"
+                    ),
+                );
+            }
+        }
+    }
 
     // A stamp or source that cannot be read is reported, never dropped. It is a
     // warning under vocabulary 2 (where the reader used to discard it without a
@@ -1560,7 +1590,30 @@ working_types:
         };
         let old = page("human:npub1kst9");
         let new = page(&format!("did:nostr:{B41}"));
-        assert!(!unverified(&old, &Roster::default()));
+        // Under vocabulary 3 the `human:` spelling is an error and certifies
+        // nobody (ruling 2) ...
+        assert!(unverified(&old, &Roster::default()));
+        let r = run_v3(vec![("A", &old)], VaultKind::Knowledge, &Roster::default());
+        assert!(
+            r.issues
+                .iter()
+                .any(|i| i.code == "INVALID_STAMP" && i.severity == Severity::Error),
+            "{:?}",
+            codes(&r)
+        );
+        // ... under vocabulary 2 the prefix rule still stands.
+        let v2 = Vocabulary::from_yaml_str(
+            "version: 2\nnamespace: \"urn:ngm:class:\"\ntypes:\n  Class: { owl: \"owl:Class\", required: [resource, status] }\n",
+        )
+        .unwrap();
+        let vault = vault_of(vec![("A", &old)], VaultKind::Knowledge);
+        let corpus = Corpus::build(&vault, &v2);
+        let r2 = validate_with(&vault, &corpus, &v2, &Roster::default());
+        assert!(
+            !codes(&r2).contains(&"UNVERIFIED_STABLE".to_owned()),
+            "{:?}",
+            codes(&r2)
+        );
         assert!(
             unverified(&new, &Roster::default()),
             "no roster, no human did"

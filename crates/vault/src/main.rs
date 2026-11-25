@@ -407,14 +407,10 @@ fn run() -> anyhow::Result<ExitCode> {
         Command::Validate(args) => {
             let mut failed = false;
             let mut reports = serde_json::Map::new();
+            let roster = vault_core::roster::Roster::load(&root).map_err(anyhow::Error::msg)?;
             for vault in load(&root, &args.selector.kinds())? {
                 let corpus = Corpus::build(&vault, &vocab);
-                let report = validate::validate_with(
-                    &vault,
-                    &corpus,
-                    &vocab,
-                    &vault_core::roster::Roster::discover(&root),
-                );
+                let report = validate::validate_with(&vault, &corpus, &vocab, &roster);
                 failed |=
                     !report.errors().is_empty() || (args.strict && !report.warnings().is_empty());
                 if !cli.json {
@@ -649,12 +645,8 @@ fn run() -> anyhow::Result<ExitCode> {
                 .next()
                 .context("no vault selected")?;
             let corpus = Corpus::build(&vault, &vocab);
-            let report = validate::validate_with(
-                &vault,
-                &corpus,
-                &vocab,
-                &vault_core::roster::Roster::discover(&root),
-            );
+            let roster = vault_core::roster::Roster::load(&root).map_err(anyhow::Error::msg)?;
+            let report = validate::validate_with(&vault, &corpus, &vocab, &roster);
             let graph = (tier == gate::Tier::Full && report.errors().is_empty())
                 .then(|| build::turtle::build_graph(&corpus, &vocab, false));
             let verdict = gate::run(&report, &corpus, graph.as_ref(), tier);

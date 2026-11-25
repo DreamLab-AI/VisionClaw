@@ -321,11 +321,12 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
     publish_vaults.extend(working.as_ref());
     let staging = publish::stage(&publish_vaults, Some(vocab.version))?;
 
-    let principals = options
-        .vault_root
-        .parent()
-        .map(vault_core::roster::Roster::discover)
-        .unwrap_or_default();
+    // A roster that exists but will not parse stops the build: an empty one
+    // would silently uncertify every page.
+    let principals = match options.vault_root.parent() {
+        Some(repo) => vault_core::roster::Roster::load(repo).map_err(anyhow::Error::msg)?,
+        None => vault_core::roster::Roster::default(),
+    };
     let report = validate::validate_with(&vault, &raw, vocab, &principals);
     anyhow::ensure!(
         report.errors().is_empty(),
