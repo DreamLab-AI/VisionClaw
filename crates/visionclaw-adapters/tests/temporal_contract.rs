@@ -13,15 +13,13 @@ use oxigraph::store::Store;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use crate::handlers::api_handler::ontology::{
-    build_state_at_sparql, build_state_at_subjects_sparql,
-};
-use crate::services::provenance_writer::{
-    build_assertion_version, state_at, AssertionInput, AssertionVersion,
+use visionclaw_adapters::provenance_writer::{
+    build_assertion_version, build_state_at_sparql, build_state_at_subjects_sparql, state_at,
+    AssertionInput, AssertionVersion,
 };
 
 /// Vendored copy of ontomark `conformance/temporal/vectors.json`.
-const VECTORS: &str = include_str!("../../tests/fixtures/temporal/estate-temporal-v1.json");
+const VECTORS: &str = include_str!("fixtures/temporal/estate-temporal-v1.json");
 /// The SHA-256 ontomark publishes for that file; a drifted copy fails here.
 const VECTORS_SHA256: &str = "6973aeef35e538412375dd6e4a9d9539f12f88fa7513d237371098da3bc46f75";
 

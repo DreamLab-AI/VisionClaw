@@ -27,6 +27,11 @@ use crate::handlers::api_handler::analytics::FEATURE_FLAGS;
 use crate::services::owl_validator::{PropertyGraph, RdfTriple, ValidationConfig};
 use crate::AppState;
 
+// Moved to visionclaw-adapters so CI compiles and tests them; re-exported to keep this path stable.
+pub use visionclaw_adapters::provenance_writer::{
+    build_state_at_sparql, build_state_at_subjects_sparql, state_at_iso_utc,
+};
+
 // ============================================================================
 // REQUEST/RESPONSE DTOs
 // ============================================================================
@@ -1446,95 +1451,12 @@ pub struct StateAtParams {
     pub view: Option<String>,
 }
 
-/// Canonical UTC RFC-3339, second precision, `Z` suffix — the timestamp form
-/// `provenance_writer` writes into the `dl:validFrom`/`dl:validTo`/
-/// `prov:generatedAtTime` `xsd:dateTime` literals. Using the same form for the
-/// query literals keeps the comparison boundary aligned with stored values.
-fn state_at_iso_utc(dt: &DateTime<Utc>) -> String {
-    dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
-}
-
 /// Parse an RFC3339 timestamp into a UTC instant, returning the offending value
 /// on failure so the caller can emit a precise 400.
 fn parse_rfc3339_utc(raw: &str) -> Result<DateTime<Utc>, String> {
     DateTime::parse_from_rfc3339(raw)
         .map(|dt| dt.with_timezone(&Utc))
         .map_err(|e| format!("'{raw}' is not a valid RFC3339 timestamp: {e}"))
-}
-
-/// Build the bi-temporal `state_at(t)` SPARQL SELECT over
-/// `urn:ngm:graph:provenance` (ADR-049 portable reification, PRD-022 WS-2 unified).
-///
-/// Joins the reified statement (`rdf:subject`/`rdf:predicate`/`rdf:object`), the
-/// valid-time start (`dl:validFrom`), recorded time (`prov:generatedAtTime`), the
-/// generating activity (`prov:wasGeneratedBy`) and the attributed agent
-/// (`prov:wasAttributedTo`), with an OPTIONAL `dl:validTo`.
-///
-/// The valid-time filter is the half-open interval predicate — start inclusive
-/// (`?validFrom <= t`), end exclusive (`!BOUND(?validTo) || t < ?validTo`) —
-/// byte-matching `provenance_writer::state_at` semantics. When `recorded_as_of`
-/// is `Some`, an additional `?generatedAt <= recorded` conjunct restricts the
-/// result to the point-in-time-of-knowledge view. `t`/`recorded` are bound as
-/// `xsd:dateTime` literals in canonical UTC form.
-pub fn build_state_at_sparql(t: DateTime<Utc>, recorded_as_of: Option<DateTime<Utc>>) -> String {
-    format!(
-        "{}SELECT ?subject ?predicate ?object ?validFrom ?validTo ?generatedAt ?activity ?agent\n{}",
-        state_at_prologue(),
-        state_at_where(t, recorded_as_of)
-    )
-}
-
-/// The `view=subjects` form of [`build_state_at_sparql`]: the same half-open,
-/// optionally knowledge-cut filter, grouped to one row per subject with the
-/// earliest `validFrom` of its valid versions.
-pub fn build_state_at_subjects_sparql(
-    t: DateTime<Utc>,
-    recorded_as_of: Option<DateTime<Utc>>,
-) -> String {
-    format!(
-        "{}SELECT ?subject (MIN(?validFrom) AS ?earliest)\n{}\nGROUP BY ?subject",
-        state_at_prologue(),
-        state_at_where(t, recorded_as_of)
-    )
-}
-
-fn state_at_prologue() -> String {
-    format!(
-        "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n\
-         PREFIX prov: <http://www.w3.org/ns/prov#>\n\
-         PREFIX dl: <{}>\n\
-         PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n",
-        crate::services::provenance_writer::DL_NS
-    )
-}
-
-fn state_at_where(t: DateTime<Utc>, recorded_as_of: Option<DateTime<Utc>>) -> String {
-    let t_lit = state_at_iso_utc(&t);
-    let recorded_clause = match recorded_as_of {
-        Some(r) => format!(
-            "\n             && ?generatedAt <= \"{}\"^^xsd:dateTime",
-            state_at_iso_utc(&r)
-        ),
-        None => String::new(),
-    };
-    format!(
-        r#"WHERE {{
-  GRAPH <{GRAPH_PROVENANCE}> {{
-    ?entity a prov:Entity ;
-            rdf:subject ?subject ;
-            rdf:predicate ?predicate ;
-            rdf:object ?object ;
-            dl:validFrom ?validFrom ;
-            prov:generatedAtTime ?generatedAt ;
-            prov:wasGeneratedBy ?activity ;
-            prov:wasAttributedTo ?agent .
-    OPTIONAL {{ ?entity dl:validTo ?validTo }}
-    FILTER ( ?validFrom <= "{t_lit}"^^xsd:dateTime
-             && ( !BOUND(?validTo) || "{t_lit}"^^xsd:dateTime < ?validTo ){recorded_clause} )
-  }}
-}}"#,
-        GRAPH_PROVENANCE = crate::services::provenance_writer::GRAPH_PROVENANCE,
-    )
 }
 
 /// Map a `view=subjects` result into `(subjects, earliest validFrom)`.

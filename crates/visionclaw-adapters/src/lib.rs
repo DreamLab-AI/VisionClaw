@@ -7,6 +7,7 @@
 //! ## What lives here
 //! - `oxigraph_ontology_repository` — OWL ontology persistence over Oxigraph quad-store
 //! - `whelk_inference_engine` — EL reasoning via horned-owl + whelk-rs
+//! - `provenance_writer` — ADR-049 assertion-version quad builders, pure `state_at`, state-at SPARQL builders
 //! - `messages` — Actix actor message types for GPU adapter bridging
 //!
 //! ## What stayed in webxr (blocked on actor extraction — ADR-090 Realisation)
@@ -32,6 +33,7 @@ pub use whelk_inference_engine::WhelkInferenceEngine;
 // GraphData/Node/Edge, GpuPhysicsAdapter, GpuSemanticAnalyzer, OntologyRepository).
 pub mod messages;
 pub mod oxigraph_ontology_repository;
+pub mod provenance_writer;
 pub use oxigraph_ontology_repository::OxigraphOntologyRepository;
 
 // ADR-101 — versioned, idempotent SPARQL migration framework for the Oxigraph
