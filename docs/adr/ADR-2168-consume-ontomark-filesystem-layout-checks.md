@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 5e88e613e516dc4d9af76399a267ef6c5e0f7612
+verified_commit: 1f9e79db7a68231b4bdab7af617098b353276a47
 verified_paths: [Cargo.toml, Cargo.lock, crates/vault/Cargo.toml, crates/vault/src/main.rs, crates/vault/tests/shared_layout.rs, src/services/corpus_source/local.rs]
 owner: jjohare
 review_trigger: a layout or discovery change, Ontomark dependency upgrade, or producer cutover

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 5e88e613e516dc4d9af76399a267ef6c5e0f7612
+verified_commit: 91fac7731cfb35d4348db3198a8ccb357ee34efe
 verified_paths: [crates/vault-core/src/definition.rs, crates/vault-core/src/lib.rs, crates/vault-core/src/vocabulary.rs, crates/vault/src/whelk.rs, crates/vault/src/build/turtle.rs, crates/vault/src/build/mod.rs, crates/vault/src/validate.rs, crates/vault/src/model.rs, crates/vault/src/projection.rs, crates/vault/tests/defined_classes.rs]
 owner: jjohare
 review_trigger: the first `defines-as` key accepted into ontology/vocabulary.yaml; a corpus build whose wall time with Restrictions::Relevant exceeds the CI budget; any proposal to emit a non-EL class expression

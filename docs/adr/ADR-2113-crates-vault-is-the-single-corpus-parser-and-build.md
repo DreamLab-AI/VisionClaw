@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: [ADR-2042]
 superseded_by: []
-verified_commit: 5e88e613e516dc4d9af76399a267ef6c5e0f7612
+verified_commit: 91fac7731cfb35d4348db3198a8ccb357ee34efe
 verified_paths: [crates/vault/src/build/mod.rs, crates/vault/src/build/rvdb.rs, crates/vault/src/nostr.rs, crates/vault/tests/golden_parity.rs]
 owner: jjohare
 review_trigger: "`vault build --with-rvdb` run against the live Xinference endpoint, and `vault propose` posting a signed 31402 to the local forum relay (the WS-F end-to-end test); at that point implementation_status moves to complete"

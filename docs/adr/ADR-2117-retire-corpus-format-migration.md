@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 5e88e613e516dc4d9af76399a267ef6c5e0f7612
+verified_commit: 91fac7731cfb35d4348db3198a8ccb357ee34efe
 verified_paths: [crates/vault/src/main.rs, crates/vault-core/Cargo.toml]
 owner: jjohare
 review_trigger: "any reintroduction of a corpus-format converter, a JSON-LD fence reader or migration mapping types; a second supported authored format"

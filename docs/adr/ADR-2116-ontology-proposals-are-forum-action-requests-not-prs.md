@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 5e88e613e516dc4d9af76399a267ef6c5e0f7612
+verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
 verified_paths: [src/handlers/ontology_agent_handler.rs, tests/rec1_route_guard.rs, crates/vault/src/main.rs, crates/vault/src/propose.rs]
 owner: jjohare
 review_trigger: "the first caller reported still POSTing to /api/ontology-agent/propose; any change to the 410 body, or any new HTTP ontology write route"

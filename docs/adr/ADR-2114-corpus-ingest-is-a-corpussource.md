@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: [ADR-2096]
 superseded_by: []
-verified_commit: 5e88e613e516dc4d9af76399a267ef6c5e0f7612
+verified_commit: 809a859aae9e3d96d4d6b99690378018e48e3ad8
 verified_paths: [src/services/page_parser.rs, src/services/corpus_source/mod.rs, src/services/corpus_source/local.rs, crates/visionclaw-domain/src/vault/mod.rs]
 owner: jjohare
 review_trigger: "a second CorpusSource becoming the default; any change to services::page_parser::parse_page delegating to vault_core::page::parse_page; a request to read `key:: value` metadata again"

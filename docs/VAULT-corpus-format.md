@@ -381,12 +381,15 @@ Rules:
 3. **Human certification follows the roster kind.** A `verified` entry is human
    if its `by` is a `human:` actor, or a `did:nostr:` principal the roster says is
    a human. An organisation, an unknown key, an agent and a process are not.
-   A page's `verified` therefore keeps its weight when its stamp is rewritten.
+   A page's `verified` therefore keeps its weight when its stamp is rewritten,
+   and the promotion state machine (`PromotionState::of_with`,
+   `promotion::apply_with`) accepts a human's `did:nostr:` approval and refuses an
+   organisation's.
 4. **Nothing is dropped silently.** A `generated`, `verified` or `sources` value
    the reader cannot parse stays out of the typed fields and is listed in
    `OkfBlock::problems` (and `PageMeta::stamp_problems`); `vault validate`
-   reports it as `INVALID_STAMP` (a warning under vocabulary 2, an error under
-   3). `via`, `rel`, `at`, `locator`, pins and unknown keys survive a read and a
+   reports it as `INVALID_STAMP` or `INVALID_SOURCE` (a warning under vocabulary 2,
+   an error under 3). `via`, `rel`, `at`, `locator`, pins and unknown keys survive a read and a
    write.
 5. **Current recall is one function.** `lifecycle::is_recallable` returns true
    only for an `approved` `Episode`, `Belief` or `Procedure` whose `valid-from`

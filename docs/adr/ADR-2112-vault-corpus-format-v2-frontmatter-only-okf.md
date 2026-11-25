@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: [ADR-2040]
 superseded_by: []
-verified_commit: 5e88e613e516dc4d9af76399a267ef6c5e0f7612
+verified_commit: 91fac7731cfb35d4348db3198a8ccb357ee34efe
 verified_paths: [crates/vault/src/validate.rs, crates/vault-core/src/vocabulary.rs, crates/vault/tests/golden_parity.rs]
 owner: jjohare
 review_trigger: "Activation (staged → live): PRD acceptance 2, one class count across Loom, VisionClaw and `vault build --stats` for the same generation; or the first Schema-level proposal against ontology/vocabulary.yaml, whichever is earlier"
