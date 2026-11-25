@@ -10,7 +10,7 @@ superseded_by: []
 verified_commit: 407d7d16326de969bd3af2fafa4fc85e440a6459
 verified_paths: [crates/visionclaw-adapters/src/provenance_writer.rs, crates/visionclaw-adapters/src/corpus_history.rs, crates/visionclaw-adapters/src/temporal_refit.rs, crates/visionclaw-adapters/tests/temporal_contract.rs]
 owner: jjohare
-review_trigger: the live-store refit being run (record its date and figures below), or a change to the contract in ontomark conformance/temporal
+review_trigger: the refitted store being confirmed in place on the live volume (the copy run is recorded below), or a change to the contract in ontomark conformance/temporal
 repo: visionclaw
 domain: DATA-authority-erasure
 lineage: VisionFlow ADR-2022 (the contract and the corpus-history writer), VisionClaw ADR-2016 (append-only provenance, reworded here), ADR-049 (portable reification, legacy), ontomark conformance/temporal (vectors-v2.json)
@@ -48,16 +48,28 @@ Out of the contract: federation tombstones (cache eviction of received copies, n
 
 The two clock concepts (`memory:ValidTime`, `memory:RecordedTime`, `http://nova.dev/memory#`) and the version clock property names (`temporal:validFrom`, `temporal:recordedFrom`, `http://nova.dev/temporal#`) are taken from [eljeffeg/memory-ontology](https://github.com/eljeffeg/memory-ontology), licensed CC BY 4.0. See `NOTICE`.
 
-## Refit of the live store — pending the operator
+## Refit of the live store — applied to a copy on 2026-11-25; the live volume is the operator's step
 
-The code and tool are on branch `feat/temporal-contract-v2`; **the live store has not been refitted and nothing has been deployed.** Procedure, application stopped, from the host shell:
+The code and tool are on branch `feat/temporal-contract-v2`. The refit has been applied to a **copy** of the live store (record below); **nothing has been deployed, and this record does not confirm that the refitted store has been copied into place on the live volume. That step is the operator's.** Procedure, application stopped, from the host shell:
 
 1. Copy a checkpoint: `cp -a <data>/oxigraph <scratch>/oxigraph-refit-trial` and keep one pre-refit checkpoint outside the volume.
 2. Dry run on the copy (never boot the application on it): `temporal-refit <scratch>/oxigraph-refit-trial --expect-versions 158635 --expect-closes 15 --expect-other-activities 209 --expect-residue 10`. (`--apply` is refused unless all four counts are given; the path must be an existing store, and the tool never creates one.) It must end `DRY RUN` with no `[FAIL]` line and report 158,635 versions, 15 bare closes, two corpus-sync activities (2026-11-19T13:26:13Z, 2026-11-20T08:55:06Z) and, for a generated cut between the two syncs, 158,635 with the later closes not applied and 158,620 without a cut. (The literal case t = 2026-11-21, r = 2026-11-19T20:00Z is asserted only by the ignored production-size rehearsal test; the tool's own check uses the equivalent cut r = the midpoint of the two syncs.)
 3. Apply to the copy (`--apply`, with the same four counts), confirm `REFIT COMPLETE`, then run again to see `nothing to do`. That line now also prints the number of corpus-sync activities and v2 versions found and appears only for a store that has both; an empty, mistyped or foreign store is refused (exit 1), and a path that is not an existing store is an error (exit 2), so "nothing to do" on the wrong path can no longer pass for success.
 4. Only then repeat steps 2 and 3 on the live volume, and start the v2 binary. `--apply` holds its transaction (about 2.5 million quad operations at the live size) in memory: run the copy trial on the same host first and watch its resident memory.
 
-**Record here when done:** date, tool commit, store, before and after counts, and the verify output. (Rehearsed so far only on synthetic stores, including one at the live size: 158,635 versions and 15 closes replay and verify in 41 s in memory.)
+**Record of the copy run, 2026-11-25.** `temporal-refit` was built from commit `cfb8ffc13` and applied (`--apply`) to a copy of the live store, not to the live volume. Figures verified after the apply:
+
+- 158,635 versions re-minted, each with a distinct id.
+- 15 closure records, each linked to its closing sync.
+- No `dl:validTo` or `dl:validFrom` left on any version.
+- 2 corpus-sync activities, with the same ids as before; 210 other activities kept.
+- 391 timestamp literals normalised.
+- 10 residue versions removed from `urn:agentbox:graph:provenance`.
+- The open-set digest is unchanged: 158,620 open triples.
+- The knowledge cut t = 2026-11-21T08:55:06Z with r = 2026-11-19T23:10:39Z gives 158,635.
+- A second run found nothing to do.
+
+The operator copies the refitted store into place. This record does not confirm that step: until it is done and checked, the live volume is unrefitted, and the warnings above (never boot a v2 binary on an unrefitted or restored store; never boot a pre-v2 binary on a refit one) stand. The refit is a one-off against the live store and is recorded here only; it is written into no data file. (Earlier rehearsals: synthetic stores, including one at the live size, 158,635 versions and 15 closes, replayed and verified in 41 s in memory.)
 
 ## Verification
 
