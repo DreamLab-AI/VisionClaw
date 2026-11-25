@@ -61,7 +61,7 @@
 //! ```
 //!
 //! where the `sha256-12` local id is the first 12 lowercase-hex chars of
-//! `SHA-256( stableStringify({subject, predicate, object, validFrom}) )` and
+//! `SHA-256( stableStringify({subject, predicate, object, validFrom, generatedAt}) )` and
 //! `stableStringify` is uris.js `_stableStringify` (sorted keys, `JSON.stringify`
 //! primitives). The scope segment is the authenticated principal's BIP-340 x-only
 //! pubkey hex (the `did:nostr:` prefix is stripped, exactly as uris.js
@@ -477,7 +477,10 @@ fn dt_literal(dt: &DateTime<Utc>) -> Literal {
 }
 
 /// `xsd:dateTimeStamp` in canonical form (always carries the `Z`): for
-/// `temporal:validFrom`, `temporal:recordedFrom` and `dl:validUntil`.
+/// `temporal:validFrom`, `temporal:recordedFrom` and `dl:validUntil`. This is
+/// the literal the builders emit. A store built on Oxigraph 0.4 keeps no
+/// distinct `xsd:dateTimeStamp` type and hands it back as `xsd:dateTime` (pinned
+/// by `temporal_vocab` tests; ADR-2219); the instant and its ordering are the same.
 fn stamp_literal(dt: &DateTime<Utc>) -> Literal {
     Literal::new_typed_literal(iso_utc(dt), xsd::DATE_TIME_STAMP)
 }
@@ -616,7 +619,7 @@ pub fn build_assertion_version(
 ///
 /// Emits, in [`GRAPH_PROVENANCE`]: `<closure> a dl:Closure`,
 /// `dl:closesVersion <version>`, one `dl:closes <clock>` per clock,
-/// `dl:validUntil` iff valid time is closed (`xsd:dateTimeStamp`), `prov:generatedAtTime`,
+/// `dl:validUntil` iff valid time is closed (built as `xsd:dateTimeStamp`), `prov:generatedAtTime`,
 /// `prov:wasGeneratedBy <activity>`, `prov:wasAttributedTo <agent>`, an
 /// optional `dl:reason`, and the activity's own `a prov:Activity` /
 /// `prov:wasAssociatedWith`. A closure has no `rdf:subject`/`predicate`/
