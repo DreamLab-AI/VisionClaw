@@ -7,7 +7,7 @@ implementation_status: none
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: c7c1437959f65e8fe9e45e2a29d568b38d5a4e4a
+verified_commit: 41fcccb6efb6bb7f12551909f2e741a1d055f7d4
 relates: [ADR-2174, ADR-2139, ADR-2157, ADR-2160, ADR-2170, ADR-2022, ADR-2115]
 verified_paths: [crates/relational-field/src/lib.rs, crates/relational-field/src/bin/h1.rs, crates/relational-field/results/h1/summary.json, crates/relational-field/Cargo.toml, crates/relational-field/PREREGISTRATION.md, crates/relational-field/PREREGISTRATION-D2.md, src/services/semantic_type_registry.rs, crates/visionclaw-domain/src/utils/visibility_filter.rs, src/handlers/api_handler/graph/mod.rs, docs/DATA-authority-erasure.md]
 owner: jjohare
@@ -124,3 +124,7 @@ Oxigraph backup tool and periodic checkpoint as on `main` since `4f02b817c`, and
 0.2.3. The relational-field crate, `semantic_type_registry.rs`, `visibility_filter.rs` and
 `graph/mod.rs` are unchanged. Nothing this record decides depends on backup coverage;
 proposed/none/inactive stands. `verified_commit` is bumped on that basis.
+
+## Re-verification — 2026-11-25 (temporal contract v2)
+
+Re-verified at `41fcccb6efb6bb7f12551909f2e741a1d055f7d4`. The only governed path that changed since `c7c1437959f` is `docs/DATA-authority-erasure.md`, in two places by `5c0d13ff0` (ADR-2219): the event-journal / provenance row and invariant 3 now say "append-only in operation" with two named exceptions, and that corpus closes are closure records. This record's claims rest on none of them: I2 names "VisionClaw's knowledge-graph parser and corpus history service", which still exist (the history core now lives in `crates/visionclaw-adapters/src/corpus_history.rs`), and the record makes no claim about append-only or about how a version is closed. The relational-field crate, `semantic_type_registry.rs`, `visibility_filter.rs` and `graph/mod.rs` are unchanged (`git diff c7c1437959f HEAD --stat` over those paths is empty). Decision unaffected; checked by reading the diff.

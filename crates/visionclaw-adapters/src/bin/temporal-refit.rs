@@ -3,13 +3,18 @@
 //!
 //! ```text
 //! temporal-refit <STORE_PATH> [--apply]
-//!                [--expect-versions N] [--expect-closes N] [--expect-other-activities N]
+//!                [--expect-versions N] [--expect-closes N]
+//!                [--expect-other-activities N] [--expect-residue N]
 //! ```
 //!
+//! `--apply` is refused unless all four `--expect-*` counts are given: run
+//! without it first and pass the figures the dry run printed. `STORE_PATH` must
+//! be an existing RocksDB store; the tool never creates one.
 //! Run it on a checkpoint copy first, then (application stopped) on the live
 //! volume. It never touches a running store: RocksDB's lock refuses a second
-//! opener. Exit status: 0 done or nothing to do, 1 refused or verification
-//! failed, 2 usage or store error.
+//! opener. Exit status: 0 done, or the store is verifiably already refitted;
+//! 1 refused or verification failed (this includes an empty or foreign store);
+//! 2 usage or store error (including a path that is not an existing store).
 
 use std::process::ExitCode;
 
@@ -17,7 +22,8 @@ use oxigraph::store::Store;
 use visionclaw_adapters::temporal_refit::{run, Options, RefitError};
 
 const USAGE: &str = "usage: temporal-refit <STORE_PATH> [--apply] \
-[--expect-versions N] [--expect-closes N] [--expect-other-activities N]";
+[--expect-versions N] [--expect-closes N] [--expect-other-activities N] [--expect-residue N] \
+(--apply needs all four --expect-* counts)";
 
 fn count(flag: &str, value: Option<String>) -> Result<usize, String> {
     value
@@ -38,6 +44,7 @@ fn parse(args: impl Iterator<Item = String>) -> Result<(String, Options), String
             "--expect-other-activities" => {
                 opts.expect_other_activities = Some(count(&arg, args.next())?)
             }
+            "--expect-residue" => opts.expect_residue = Some(count(&arg, args.next())?),
             "-h" | "--help" => return Err(String::new()),
             flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
             _ if path.is_none() => path = Some(arg),
@@ -45,6 +52,21 @@ fn parse(args: impl Iterator<Item = String>) -> Result<(String, Options), String
         }
     }
     Ok((path.ok_or("a store path is required")?, opts))
+}
+
+/// `Store::open` creates a store at any path. The refit must only ever open one
+/// that exists: a RocksDB directory always holds a `CURRENT` file.
+fn existing_store(path: &str) -> Result<(), String> {
+    let dir = std::path::Path::new(path);
+    if !dir.is_dir() {
+        return Err(format!("{path} is not an existing directory"));
+    }
+    if !dir.join("CURRENT").is_file() {
+        return Err(format!(
+            "{path} holds no RocksDB store (no CURRENT file); the tool never creates one"
+        ));
+    }
+    Ok(())
 }
 
 fn main() -> ExitCode {
@@ -58,6 +80,10 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    if let Err(e) = existing_store(&path) {
+        eprintln!("{e}");
+        return ExitCode::from(2);
+    }
     // A dry run opens read-only, so it cannot write even by mistake.
     let store = if opts.apply {
         Store::open(&path)
@@ -80,7 +106,7 @@ fn main() -> ExitCode {
             report.lines.iter().for_each(|l| println!("{l}"));
             ExitCode::SUCCESS
         }
-        Err(e @ RefitError::Store(_)) => {
+        Err(e @ (RefitError::Store(_) | RefitError::Usage(_))) => {
             eprintln!("{e}");
             ExitCode::from(2)
         }

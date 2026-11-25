@@ -10,9 +10,10 @@ pub const TEMPORAL_NS: &str = "http://nova.dev/temporal#";
 /// memory-ontology `memory:` namespace.
 pub const MEMORY_NS: &str = "http://nova.dev/memory#";
 
-/// A version's valid-time start (`xsd:dateTimeStamp`).
+/// A version's valid-time start (built as `xsd:dateTimeStamp`; stored and read back as `xsd:dateTime`, see the
+/// tests below).
 pub const TEMPORAL_VALID_FROM: &str = "http://nova.dev/temporal#validFrom";
-/// A version's recorded-time start (`xsd:dateTimeStamp`).
+/// A version's recorded-time start (built as `xsd:dateTimeStamp`; stored and read back as `xsd:dateTime`).
 pub const TEMPORAL_RECORDED_FROM: &str = "http://nova.dev/temporal#recordedFrom";
 
 /// Class of a closure record.
@@ -21,7 +22,7 @@ pub const DL_CLOSURE: &str = "https://narrativegoldmine.com/ns/dl#Closure";
 pub const DL_CLOSES_VERSION: &str = "https://narrativegoldmine.com/ns/dl#closesVersion";
 /// Closure → a clock it closes.
 pub const DL_CLOSES: &str = "https://narrativegoldmine.com/ns/dl#closes";
-/// Exclusive valid end of a valid-time closure (`xsd:dateTimeStamp`).
+/// Exclusive valid end of a valid-time closure (built as `xsd:dateTimeStamp`; stored and read back as `xsd:dateTime`).
 pub const DL_VALID_UNTIL: &str = "https://narrativegoldmine.com/ns/dl#validUntil";
 /// Optional application-policy reason on a closure.
 pub const DL_REASON: &str = "https://narrativegoldmine.com/ns/dl#reason";
@@ -54,6 +55,32 @@ mod tests {
         ] {
             assert!(t.starts_with(DL_NS), "{t}");
         }
+    }
+
+    /// The pinned Oxigraph (0.4.11) does not keep `xsd:dateTimeStamp` as a
+    /// distinct datatype: `numeric_encoder.rs` encodes both types as one
+    /// date-time value and decodes it as `xsd:dateTime`. A literal written as
+    /// `xsd:dateTimeStamp` therefore reads back (query, export, dump) as
+    /// `xsd:dateTime`. ADR-2219 records this; if an Oxigraph upgrade starts
+    /// keeping the datatype, this test flips and the ADR wording changes with it.
+    #[test]
+    fn date_time_stamp_is_stored_and_read_back_as_date_time() {
+        let store = Store::new().unwrap();
+        let (s, p) = (
+            NamedNode::new_unchecked("urn:t:s"),
+            NamedNode::new_unchecked(TEMPORAL_VALID_FROM),
+        );
+        let written = Literal::new_typed_literal("2026-11-19T13:26:13Z", xsd::DATE_TIME_STAMP);
+        assert_eq!(written.datatype(), xsd::DATE_TIME_STAMP);
+        store
+            .insert(&Quad::new(s, p, written, GraphName::DefaultGraph))
+            .unwrap();
+        let read = store.iter().next().unwrap().unwrap();
+        let oxigraph::model::Term::Literal(read) = read.object else {
+            panic!("not a literal");
+        };
+        assert_eq!(read.datatype(), xsd::DATE_TIME, "read back as xsd:dateTime");
+        assert_eq!(read.value(), "2026-11-19T13:26:13Z");
     }
 
     /// An `xsd:dateTimeStamp` literal compares by value, against both

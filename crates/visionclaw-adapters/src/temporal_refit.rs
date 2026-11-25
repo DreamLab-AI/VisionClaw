@@ -70,6 +70,29 @@ pub struct Options {
     /// Refuse unless exactly this many activities other than the corpus
     /// syncs' are found (they are kept; only their timestamps are normalised).
     pub expect_other_activities: Option<usize>,
+    /// Refuse unless exactly this many residue versions (subjects with
+    /// `rdf:subject` in [`RESIDUE_GRAPH`]) are found; they are deleted.
+    pub expect_residue: Option<usize>,
+}
+
+impl Options {
+    /// A write must be count-checked: `--apply` is refused unless every
+    /// `expect_*` count was given, so the operator has looked at the figures
+    /// the dry run printed before the store changes.
+    fn missing_for_apply(&self) -> Vec<&'static str> {
+        [
+            ("--expect-versions", self.expect_versions.is_none()),
+            ("--expect-closes", self.expect_closes.is_none()),
+            (
+                "--expect-other-activities",
+                self.expect_other_activities.is_none(),
+            ),
+            ("--expect-residue", self.expect_residue.is_none()),
+        ]
+        .into_iter()
+        .filter_map(|(flag, missing)| missing.then_some(flag))
+        .collect()
+    }
 }
 
 /// What a run did, for the operator.
@@ -96,6 +119,9 @@ pub enum RefitError {
     Refused(Vec<String>),
     /// The store could not be read or written.
     Store(String),
+    /// The options are not enough for what was asked (an `--apply` without its
+    /// counts). Nothing was read or written.
+    Usage(String),
     /// A verify step failed. Before the write, nothing was changed; after it,
     /// restore the pre-refit checkpoint.
     VerifyFailed {
@@ -114,6 +140,7 @@ impl std::fmt::Display for RefitError {
                 why.iter().try_for_each(|w| write!(f, "\n  - {w}"))
             }
             RefitError::Store(e) => write!(f, "store error: {e}"),
+            RefitError::Usage(e) => write!(f, "{e}"),
             RefitError::VerifyFailed {
                 after_write,
                 failures,
@@ -290,6 +317,56 @@ pub fn preflight(store: &Store, opts: &Options) -> Result<Option<Preflight>, Ref
         });
     }
 
+    // Every entity the old form would leave behind must have been read above.
+    // The version query is a join, so an entity missing any one predicate is
+    // silently absent from it; it would then pass the dry run and trip the
+    // post-write form check. Count the wider shapes and refuse on any gap.
+    let unread_of = |shape: &str, what: &str| -> Result<Vec<String>, RefitError> {
+        Ok(q(
+            store,
+            &format!("{prefixes}SELECT DISTINCT ?x WHERE {{ GRAPH {graph} {{ {shape} }} }}"),
+            what,
+        )?
+        .iter()
+        .filter_map(|r| text(r, "x"))
+        .collect())
+    };
+    let ended: HashSet<&str> = versions
+        .iter()
+        .filter(|v| v.closed_at.is_some())
+        .map(|v| v.entity.as_str())
+        .collect();
+    for (shape, what, read, label) in [
+        (
+            "?x rdf:subject ?s ; dl:validFrom ?vf",
+            "read v1-shaped entities",
+            seen.iter().map(String::as_str).collect::<HashSet<_>>(),
+            "carry rdf:subject and dl:validFrom but are not complete, readable versions \
+             (missing a predicate, or a second value)",
+        ),
+        (
+            "?x dl:validTo ?y",
+            "read dl:validTo subjects",
+            ended,
+            "carry dl:validTo but are not versions the tool can read",
+        ),
+    ] {
+        let mut unread: Vec<String> = unread_of(shape, what)?
+            .into_iter()
+            .filter(|x| !read.contains(x.as_str()))
+            .collect();
+        if !unread.is_empty() {
+            unread.sort();
+            let shown = unread
+                .iter()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ");
+            why.push(format!("{} entities {label}, e.g. {shown}", unread.len()));
+        }
+    }
+
     if versions.is_empty() && !forms.any() {
         return Ok(None);
     }
@@ -456,18 +533,37 @@ pub fn preflight(store: &Store, opts: &Options) -> Result<Option<Preflight>, Ref
         }
     }
 
-    // Residue versions in the other provenance graph.
-    let residue_versions: Vec<String> = q(
+    // Residue versions in the other provenance graph: counted, shape-checked
+    // (a version has a subject, predicate and object), and deleted whole.
+    let residue_rows = q(
         store,
         &format!(
             "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-             SELECT DISTINCT ?e WHERE {{ GRAPH <{RESIDUE_GRAPH}> {{ ?e rdf:subject ?s }} }}"
+             SELECT ?e (COUNT(?p) AS ?np) (COUNT(?o) AS ?no) WHERE {{ GRAPH <{RESIDUE_GRAPH}> {{
+               ?e rdf:subject ?s .
+               OPTIONAL {{ ?e rdf:predicate ?p }} OPTIONAL {{ ?e rdf:object ?o }} }} }} GROUP BY ?e"
         ),
         "read residue",
-    )?
-    .iter()
-    .filter_map(|r| text(r, "e"))
-    .collect();
+    )?;
+    let mut residue_versions: Vec<String> = Vec::new();
+    for row in &residue_rows {
+        let Some(e) = text(row, "e") else { continue };
+        let has = |k: &str| text(row, k).is_some_and(|n| n != "0");
+        if !has("np") || !has("no") {
+            why.push(format!(
+                "{e} in {RESIDUE_GRAPH} has rdf:subject but no rdf:predicate and rdf:object: not a version, will not be deleted"
+            ));
+        }
+        residue_versions.push(e);
+    }
+    if let Some(want) = opts.expect_residue {
+        if residue_versions.len() != want {
+            why.push(format!(
+                "expected {want} residue versions, found {}",
+                residue_versions.len()
+            ));
+        }
+    }
 
     // Quads per graph (recorded for the operator; the refit changes only
     // the provenance and residue graphs).
@@ -497,9 +593,19 @@ pub fn preflight(store: &Store, opts: &Options) -> Result<Option<Preflight>, Ref
         ) {
             let quad = quad.map_err(|e| store_err("read timestamps", e))?;
             let Term::Literal(lit) = &quad.object else {
+                // The post-write check counts a non-literal as not canonical.
+                let subject = quad.subject.to_string();
+                let subject = subject.trim_matches(|c| c == '<' || c == '>');
+                if !(corpus_urns.contains(subject) || seen.contains(subject)) {
+                    why.push(format!("{subject}: a timestamp that is not a literal"));
+                }
                 continue;
             };
-            if is_canonical_timestamp(lit.value()) {
+            // Skip only what the post-write check accepts: canonical text AND
+            // `xsd:dateTime` (a string-typed canonical literal must be retyped).
+            if is_canonical_timestamp(lit.value())
+                && lit.datatype() == oxigraph::model::vocab::xsd::DATE_TIME
+            {
                 continue;
             }
             let subject = quad.subject.to_string();
@@ -867,16 +973,64 @@ fn verify(
     failures
 }
 
+/// How many corpus-sync activities and v2 versions the provenance graph holds.
+fn current_form_counts(store: &Store) -> Result<(usize, usize), RefitError> {
+    let one = |body: &str, var: &str| -> Result<usize, RefitError> {
+        let rows = q(
+            store,
+            &format!(
+                "PREFIX prov: <http://www.w3.org/ns/prov#>\nPREFIX temporal: <{TEMPORAL_NS}>\n\
+                 SELECT (COUNT(DISTINCT ?x) AS ?n) WHERE {{ GRAPH <{GRAPH_PROVENANCE}> {{ {body} }} }}"
+            ),
+            var,
+        )?;
+        Ok(rows
+            .first()
+            .and_then(|r| text(r, "n"))
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(0))
+    };
+    Ok((
+        one(
+            &format!("?x <{CORPUS_SYNC_WRITER_PREDICATE}> \"{CORPUS_SYNC_WRITER}\""),
+            "count corpus syncs",
+        )?,
+        one("?x temporal:validFrom ?v", "count v2 versions")?,
+    ))
+}
+
 /// Run the refit: preflight, replay, verify and, with [`Options::apply`], write.
 ///
-/// A store already in the current form returns a report with
+/// `--apply` ([`Options::apply`]) is refused with [`RefitError::Usage`] unless
+/// all four `expect_*` counts are given. A store already in the current form
+/// (it has corpus-sync activities and v2 versions) returns a report with
 /// [`Report::already_current`] set and writes nothing, which makes a second run
-/// a no-op.
+/// a no-op; an empty or foreign store is [`RefitError::Refused`] instead.
 pub fn run(store: &Store, opts: &Options) -> Result<Report, RefitError> {
     let mut report = Report::default();
+    if opts.apply {
+        let missing = opts.missing_for_apply();
+        if !missing.is_empty() {
+            return Err(RefitError::Usage(format!(
+                "--apply needs the counts the dry run printed: {} (run without --apply first)",
+                missing.join(", ")
+            )));
+        }
+    }
     let Some(pre) = preflight(store, opts)? else {
+        // "Nothing to do" is only true of a store that is demonstrably in the
+        // current form. An empty, mistyped or foreign store must not look the same.
+        let (syncs, versions) = current_form_counts(store)?;
+        if syncs == 0 || versions == 0 {
+            return Err(RefitError::Refused(vec![format!(
+                "the store holds no pre-v2 form, but it is not a refitted VisionClaw provenance store either \
+                 ({syncs} corpus-sync activities, {versions} v2 versions in <{GRAPH_PROVENANCE}>): wrong or empty store path?"
+            )]));
+        }
         report.already_current = true;
-        report.say("The store holds no pre-v2 temporal form: nothing to do.");
+        report.say(format!(
+            "The store is already in the current form ({syncs} corpus-sync activities, {versions} v2 versions): nothing to do."
+        ));
         return Ok(report);
     };
 
@@ -1141,6 +1295,11 @@ mod tests {
                 rdf("subject"),
                 NamedNode::new_unchecked("urn:ngm:class:r").into(),
             ),
+            (rdf("predicate"), NamedNode::new_unchecked(SUB).into()),
+            (
+                rdf("object"),
+                NamedNode::new_unchecked("urn:ngm:class:o").into(),
+            ),
             (dl("validFrom"), lit(&t1()).into()),
         ]) {
             store
@@ -1161,6 +1320,7 @@ mod tests {
             expect_versions: Some(n),
             expect_closes: Some(closes),
             expect_other_activities: Some(2),
+            expect_residue: Some(1),
         }
     }
 
@@ -1370,9 +1530,186 @@ mod tests {
     }
 
     #[test]
-    fn a_store_already_in_the_current_form_is_left_alone() {
-        let store = Store::new().unwrap();
+    fn a_refitted_store_is_left_alone() {
+        let store = v1_store(5, 1);
+        let mut opts = expect(5, 1);
+        opts.apply = true;
+        run(&store, &opts).unwrap();
         let report = run(&store, &Options::default()).unwrap();
         assert!(report.already_current);
+        let said = report.lines.join("\n");
+        assert!(
+            said.contains("2 corpus-sync activities, 5 v2 versions"),
+            "{said}"
+        );
+    }
+
+    #[test]
+    fn an_empty_store_is_refused_not_reported_as_nothing_to_do() {
+        let store = Store::new().unwrap();
+        let why = refused(&store, &Options::default());
+        assert!(why.contains("wrong or empty store path"), "{why}");
+        assert_eq!(store.len().unwrap(), 0);
+    }
+
+    #[test]
+    fn a_foreign_store_is_refused_not_reported_as_nothing_to_do() {
+        let store = Store::new().unwrap();
+        store
+            .insert(&Quad::new(
+                NamedNode::new_unchecked("urn:x:a"),
+                NamedNode::new_unchecked("urn:x:b"),
+                NamedNode::new_unchecked("urn:x:c"),
+                oxigraph::model::GraphName::DefaultGraph,
+            ))
+            .unwrap();
+        let why = refused(&store, &Options::default());
+        assert!(
+            why.contains("0 corpus-sync activities, 0 v2 versions"),
+            "{why}"
+        );
+    }
+
+    fn v1_entity_without_an_agent(store: &Store) -> NamedNode {
+        let g = NamedNode::new_unchecked(GRAPH_PROVENANCE);
+        let e = NamedNode::new_unchecked(format!(
+            "urn:agentbox:event:{}:sha256-12-ffffffffffff",
+            &AGENT[10..]
+        ));
+        let rdf = |t: &str| {
+            NamedNode::new_unchecked(format!("http://www.w3.org/1999/02/22-rdf-syntax-ns#{t}"))
+        };
+        let prov = |t: &str| NamedNode::new_unchecked(format!("http://www.w3.org/ns/prov#{t}"));
+        for (p, o) in po([
+            (rdf("subject"), NamedNode::new_unchecked("urn:x:s").into()),
+            (rdf("predicate"), NamedNode::new_unchecked(SUB).into()),
+            (rdf("object"), NamedNode::new_unchecked("urn:x:o").into()),
+            (
+                NamedNode::new_unchecked(format!("{DL_NS}validFrom")),
+                lit(&t1()).into(),
+            ),
+            (prov("generatedAtTime"), lit(&t1()).into()),
+            (
+                prov("wasGeneratedBy"),
+                NamedNode::new_unchecked(corpus_sync_activity_urn(&t1())).into(),
+            ),
+            // no prov:wasAttributedTo
+        ]) {
+            store
+                .insert(&Quad::new(e.clone(), p, o, g.clone()))
+                .unwrap();
+        }
+        e
+    }
+
+    #[test]
+    fn it_refuses_a_v1_entity_it_cannot_fully_read() {
+        // The version join is inner, so this entity is invisible to it: it would
+        // pass the dry run and trip the form check after the write.
+        let store = v1_store(10, 2);
+        let e = v1_entity_without_an_agent(&store);
+        let before = store.len().unwrap();
+        let why = refused(&store, &expect(10, 2));
+        assert!(
+            why.contains("not complete, readable versions") && why.contains(e.as_str()),
+            "{why}"
+        );
+        assert_eq!(store.len().unwrap(), before);
+    }
+
+    #[test]
+    fn it_refuses_a_valid_to_on_something_that_is_not_a_version() {
+        let store = v1_store(10, 2);
+        store
+            .insert(&Quad::new(
+                NamedNode::new_unchecked("urn:x:not-a-version"),
+                NamedNode::new_unchecked(format!("{DL_NS}validTo")),
+                lit(&t2()),
+                NamedNode::new_unchecked(GRAPH_PROVENANCE),
+            ))
+            .unwrap();
+        let why = refused(&store, &expect(10, 2));
+        assert!(
+            why.contains("carry dl:validTo but are not versions") && why.contains("not-a-version"),
+            "{why}"
+        );
+    }
+
+    #[test]
+    fn apply_is_refused_without_every_count_and_writes_nothing() {
+        let store = v1_store(10, 2);
+        let before = store.len().unwrap();
+        for drop in 0..4 {
+            let mut opts = expect(10, 2);
+            opts.apply = true;
+            match drop {
+                0 => opts.expect_versions = None,
+                1 => opts.expect_closes = None,
+                2 => opts.expect_other_activities = None,
+                _ => opts.expect_residue = None,
+            }
+            match run(&store, &opts) {
+                Err(RefitError::Usage(m)) => assert!(m.contains("--expect-"), "{m}"),
+                other => panic!("expected a usage error, got {other:?}"),
+            }
+        }
+        assert_eq!(store.len().unwrap(), before);
+    }
+
+    #[test]
+    fn residue_deletion_is_count_checked() {
+        let store = v1_store(10, 2);
+        let mut opts = expect(10, 2);
+        opts.expect_residue = Some(10);
+        let why = refused(&store, &opts);
+        assert!(
+            why.contains("expected 10 residue versions, found 1"),
+            "{why}"
+        );
+    }
+
+    #[test]
+    fn it_refuses_a_residue_subject_that_is_not_a_version() {
+        let store = v1_store(10, 2);
+        store
+            .insert(&Quad::new(
+                NamedNode::new_unchecked("urn:agentbox:event:residue:odd"),
+                NamedNode::new_unchecked("http://www.w3.org/1999/02/22-rdf-syntax-ns#subject"),
+                NamedNode::new_unchecked("urn:x:s"),
+                NamedNode::new_unchecked(RESIDUE_GRAPH),
+            ))
+            .unwrap();
+        let mut opts = expect(10, 2);
+        opts.expect_residue = Some(2);
+        let why = refused(&store, &opts);
+        assert!(why.contains("not a version, will not be deleted"), "{why}");
+    }
+
+    #[test]
+    fn a_string_typed_timestamp_is_retyped_before_the_write_not_failed_after_it() {
+        // Canonical text, wrong datatype: preflight used to skip it (text only)
+        // and the post-write check then failed the finished refit.
+        let store = v1_store(5, 1);
+        store
+            .insert(&Quad::new(
+                NamedNode::new_unchecked("urn:visionclaw:execution:sha256-12-00000000000a"),
+                NamedNode::new_unchecked(PROV_STARTED),
+                Literal::new_simple_literal("2026-11-12T10:00:00Z"),
+                NamedNode::new_unchecked(GRAPH_PROVENANCE),
+            ))
+            .unwrap();
+        store
+            .insert(&Quad::new(
+                NamedNode::new_unchecked("urn:visionclaw:execution:sha256-12-00000000000a"),
+                NamedNode::new_unchecked("http://www.w3.org/1999/02/22-rdf-syntax-ns#type"),
+                NamedNode::new_unchecked("http://www.w3.org/ns/prov#Activity"),
+                NamedNode::new_unchecked(GRAPH_PROVENANCE),
+            ))
+            .unwrap();
+        let mut opts = expect(5, 1);
+        opts.expect_other_activities = Some(3);
+        opts.apply = true;
+        let said = run(&store, &opts).expect("a retyped literal must not fail the refit");
+        assert!(said.lines.join("\n").contains("REFIT COMPLETE"));
     }
 }
