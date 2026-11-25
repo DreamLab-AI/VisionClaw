@@ -1,13 +1,13 @@
 ---
 id: ADR-2016
-title: GRAPH_PROVENANCE is append-only (INSERT DATA only)
+title: GRAPH_PROVENANCE is append-only in operation; it changes otherwise only by a recorded contract refit or by erasure
 date: 2026-08-31
 decision_status: accepted
 implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b188b0397756517fda22fb67d17222d4cec46579
+verified_commit: 136db765e42515883a03c6d4307136da17206c77
 verified_paths: [src/services/data_reconciliation.rs, crates/visionclaw-adapters/src/provenance_emitter.rs, crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs, src/services/ontology_mutation_service.rs]
 owner: jjohare
 review_trigger: a GDPR/right-to-erasure obligation landing on provenance-recorded subjects, or introduction of a redaction/crypto-shred mechanism
@@ -16,7 +16,7 @@ domain: DATA-authority-erasure
 lineage: legacy ADR-033 (git-bead provenance), ADR-034 (needle-bead), ADR-124/ADR-128 (web-contract / gitmark blocktrails)
 ---
 
-# ADR-2016 — GRAPH_PROVENANCE is append-only (INSERT DATA only)
+# ADR-2016 — GRAPH_PROVENANCE is append-only in operation; it changes otherwise only by a recorded contract refit or by erasure
 
 ## Context
 
@@ -31,7 +31,18 @@ in tension with data-erasure duties: an append-only log cannot honour a delete.
 Every governed event writes a full PROV-O `prov:Entity` / `prov:Activity` /
 `prov:Agent` triad (plus `wasGeneratedBy` / `wasAttributedTo`) into
 `GRAPH_PROVENANCE` via **insert-only quad writes**. `DELETE`, `DROP`, and
-`CLEAR` are never issued against this graph. All emission funnels through the
+`CLEAR` are never issued against this graph **by any runtime path**: runtime
+writers insert only. (The decision was always insert-only quad writes, not
+"`INSERT DATA` only"; the old title and the `0003` migration header said the
+latter, and the header is left as written because an applied migration is
+checksummed.) Exactly two things may otherwise change the graph: **an
+operator-approved contract refit**, run offline with the application stopped on
+a checkpoint copy first, whose result must equal what the current writer would
+have produced (proved by its verify step) and which is recorded in the ADR that
+introduced the contract (date, tool commit, store, before and after counts,
+verify output) and never in the data; and **erasure** under ADR-2102. The store
+holds only the current contract form, and no reader carries legacy forms. All
+emission funnels through the
 single `reify_activity` primitive (called via the async `emit_activity` /
 `emit_activity_nonfatal` wrappers), whether invoked through
 `OxigraphOntologyRepository::emit_provenance` or directly by a caller such as
@@ -42,8 +53,9 @@ exist.
 
 ## Consequences
 
-- The provenance graph grows monotonically; there is no compaction and no
-  built-in retention trim. Storage cost is unbounded over time.
+- The provenance graph grows monotonically in operation; there is no compaction and no
+  built-in retention trim. It records history under the current contract and is
+  not tamper-evident: a refit replaces earlier history (ADR-2219). Storage cost is unbounded over time.
 - There is a real erasure gap: a right-to-be-forgotten request against a
   subject recorded here cannot be satisfied today. This interacts with the
   backup / write-master posture in ADR-2017 (no PITR, no consistent restore).
@@ -265,3 +277,7 @@ Re-verified 2026-11-17 at c143ef890: `oxigraph_ontology_repository.rs`: `clear_d
 ## Re-verification — 2026-11-20
 
 Re-verified 2026-11-20 at b188b0397: `git diff c143ef890..b188b0397 -- crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs`. The change is read-only: the inferred-graph read becomes paged (`read_inferred_graph_page`, `DEFAULT_INFERRED_PAGE` 500, `MAX_INFERRED_PAGE` 2000, and `read_inferred_graph_all`) over `urn:ngm:graph:ontology:inferred`, plus an `OWL_DISJOINT_WITH` constant. Grepping the added and removed lines for `DELETE`, `CLEAR`, `DROP` and `PROVENANCE` finds nothing, so nothing writes to or clears `GRAPH_PROVENANCE`. Append-only holds.
+
+## Amendment — 2026-11-25 (ADR-2219)
+
+The rule is restated above: append-only in operation, no runtime delete path, two named exceptions (a recorded contract refit; ADR-2102 erasure). The substance is unchanged (the Decision already said "insert-only quad writes"); what changed is the title and the wording that over-claimed ("INSERT DATA only"), the `provenance_emitter.rs` header comment (corrected in the same change), and the explicit refit exception that temporal contract v2 needs. Corpus closes are now closure records inserted beside the versions they close, not a `dl:validTo` added to them; the closing record is still an insert. Governed-path change since the last stamp: `provenance_emitter.rs` (the header comment, and activity timestamps now written in the canonical wire form). `verified_commit` moved to `136db765e`. Checked by reading the diff and `cargo test -p visionclaw-adapters`.

@@ -41,3 +41,9 @@ are adapted from Open Ontologies v2.0.1 by Fabio Rovai, MIT; that notice
 travels inside the crate as LICENSE-UPSTREAM.txt. The upstream Lean 4 checker
 (`oo-cert`, theorem `OOCert.certificate_sound`) is never vendored: its
 independence from the engine is the warrant.
+
+Temporal contract v2 (ADR-2219) uses the clock concepts memory:ValidTime and
+memory:RecordedTime (http://nova.dev/memory#) and the version clock property
+names temporal:validFrom and temporal:recordedFrom (http://nova.dev/temporal#)
+from eljeffeg/memory-ontology (https://github.com/eljeffeg/memory-ontology),
+licensed under Creative Commons Attribution 4.0 International (CC BY 4.0).

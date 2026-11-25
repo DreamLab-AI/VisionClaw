@@ -40,7 +40,7 @@ The [historical closeout routing note](../adr-history-closeout.md) points each f
 
 The [estate status/evidence contract](../../../VisionFlow/docs/architecture/adr-status-contract.md) defines the independent decision, implementation and activation axes and distinguishes lineage from supersession (2026-09-07).
 
-_165 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
+_166 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 
 | ID | Title | Domain | Date | Decision | Impl | Activation | Supersedes | Superseded by | Owner | Repo |
 |----|-------|--------|------|----------|------|------------|------------|---------------|-------|------|
@@ -59,7 +59,7 @@ _165 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2013](ADR-2013-federation-delegation-deferred.md) | Enterprise federation and delegated-user authority are deferred; public-key identity supports multiple request credentials | IDENTITY-authority-chain | 2026-08-31 | accepted | none | inactive | — | — | jjohare | visionclaw |
 | [ADR-2014](ADR-2014-public-kg-inclusion-gate.md) | GitHub `public:: true` gates KG inclusion; `owl:class::` bypasses it | DATA-authority-erasure | 2026-08-31 | accepted | complete | live | — | ADR-2040 | jjohare | visionclaw |
 | [ADR-2015](ADR-2015-derived-writeback-fence.md) | Derived-writeback fence — only `:summary`/`:observed` are writable | DATA-authority-erasure | 2026-08-31 | accepted | complete | live | — | — | jjohare | visionclaw |
-| [ADR-2016](ADR-2016-provenance-append-only.md) | GRAPH_PROVENANCE is append-only (INSERT DATA only) | DATA-authority-erasure | 2026-08-31 | accepted | partial | live | — | — | jjohare | visionclaw |
+| [ADR-2016](ADR-2016-provenance-append-only.md) | GRAPH_PROVENANCE is append-only in operation; it changes otherwise only by a recorded contract refit or by erasure | DATA-authority-erasure | 2026-08-31 | accepted | partial | live | — | — | jjohare | visionclaw |
 | [ADR-2017](ADR-2017-write-master-backup-posture.md) | One write-master per data class; disposable derived projections; SQLite-only online backup | DATA-authority-erasure | 2026-08-31 | accepted | partial | live | — | — | jjohare | visionclaw |
 | [ADR-2018](ADR-2018-frozen-52-byte-v3-record-v5-envelope.md) | The graph frame is a frozen 52-byte inline-analytics V3 record wrapped additively by the V5 sequence envelope | PROTOCOL-registry | 2026-08-31 | accepted | complete | live | — | — | jjohare | visionclaw |
 | [ADR-2019](ADR-2019-tag-byte-registry-governed-dispatch.md) | Tag byte 0 is registry-governed — it selects the codec, rejects unknown tags, and is allocated across disjoint per-socket spaces | PROTOCOL-registry | 2026-08-31 | accepted | complete | live | — | — | jjohare | visionclaw |
@@ -209,3 +209,4 @@ _165 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2204](ADR-2204-relations-have-one-declarative-schema-and-one-weighting-stage.md) | Relations have one declarative schema and one weighting stage, from corpus to pixels | — | 2026-11-19 | proposed | partial | inactive | — | — | jjohare | visionclaw |
 | [ADR-2205](ADR-2205-browser-session-key-binding.md) | A browser binds an ephemeral session key with one real signature and signs requests with it | — | 2026-11-19 | proposed | partial | inactive | — | — | jjohare | visionclaw |
 | [ADR-2206](ADR-2206-community-hulls-show-cores-bridges-and-grounded-labels.md) | Community hulls show cores, bridges and grounded labels | — | 2026-11-20 | proposed | partial | inactive | — | — | jjohare | visionclaw |
+| [ADR-2219](ADR-2219-estate-temporal-contract-v2-closure-records.md) | Temporal contract v2 — versions never carry an end; closing is a closure record | DATA-authority-erasure | 2026-11-25 | accepted | partial | inactive | — | — | jjohare | visionclaw |

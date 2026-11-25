@@ -46,7 +46,7 @@ running code reads back as truth, regardless of what legacy ADR prose claims.
 | Operational state | SQLite (WAL) | `data/{kpi,enrichment,settings,liveness}.sqlite3` | SQLite commit |
 | Graph shares (a snapshot of the creator's view, ADR-060) | SQLite share store + the share file | `data/shares.sqlite3` (`src/adapters/sqlite_share_repository.rs`), file under `data/shared/` | SQLite commit; the file is written first and removed if the row is not |
 | Vector / agent memory | RuVector (external Postgres) | `mcp__claude-flow__memory_*` → `ruvector-postgres:5432` | Embedding-pipeline insert |
-| Event journal / provenance | Oxigraph append-only | `GRAPH_PROVENANCE` (PROV-O reification), `oxigraph_ontology_repository.rs:55,641,2568` | Append; never mutated in place. Since VisionFlow ADR-2022 it also holds corpus history: each full sync appends assertion-versions for public class typing and class relations (`src/services/corpus_history.rs`) |
+| Event journal / provenance | Oxigraph append-only | `GRAPH_PROVENANCE` (PROV-O reification), `oxigraph_ontology_repository.rs:55,641,2568` | Append-only in operation (no runtime delete path; exceptions: a recorded contract refit, ADR-2102 erasure; ADR-2016). Since VisionFlow ADR-2022 it also holds corpus history: each full sync appends assertion-versions for public class typing and class relations, and closes a version that left the corpus by appending a closure record, never an end on the version (`crates/visionclaw-adapters/src/corpus_history.rs`, ADR-2219) |
 | Audit evidence (RBAC/auth) | SQLite role store | `src/services/role_store.rs` | Role-store write |
 | Credentials | `.env` plaintext | filesystem | N/A — see divergences (SOPS never executed) |
 
@@ -206,7 +206,10 @@ These must not silently change:
    write-master without an explicit conflict-resolution rule in this table.
 2. **`:assert` / `:inferred` / `:provenance` are never writable through the
    derived-writeback path.** Only `:summary` / `:observed` accept writeback.
-3. **`GRAPH_PROVENANCE` is append-only.** Erasure of provenance must be by an
+3. **`GRAPH_PROVENANCE` is append-only in operation.** Runtime writers insert
+   only; there is no runtime delete path. It changes otherwise only by an
+   operator-approved, offline contract refit recorded in an ADR (never in the
+   data; ADR-2016, ADR-2219) or by erasure. Erasure of provenance must be by an
    explicit, documented redaction mechanism — never in-place mutation.
    Corpus history enters this graph only from pages marked `public: true`,
    and only as IRI triples (no labels or other literals), so until ADR-2102

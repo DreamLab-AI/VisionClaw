@@ -25,7 +25,7 @@ erasure or corpus-consistency orchestration spans the estate's five stores: GitH
 content, Oxigraph graphs, SQLite state, RuVector vectors and the append-only provenance
 graph. **VC-22.4** (`:230`) records the sharper half — `GRAPH_PROVENANCE` is append-only
 by design (`provenance_emitter.rs:32-33`, test `append_only_verified` at `:917`;
-retraction only *adds* `dl:validTo`, `provenance_writer.rs:218,478-502`), so no deletion
+closing a version only *adds* a closure record, `build_closure` in `provenance_writer.rs` (ADR-2219; before it added a `dl:validTo`)), so no deletion
 mechanism exists for it at all. ADR-2017 forecloses cross-store 2PC and states there are
 no tombstones. agentbox ADR-2060 designs the RuVector half only, and is the **origin**
 statement of that gap rather than its closure. Today a "delete my data" request cannot be
