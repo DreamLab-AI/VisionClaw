@@ -409,7 +409,12 @@ fn run() -> anyhow::Result<ExitCode> {
             let mut reports = serde_json::Map::new();
             for vault in load(&root, &args.selector.kinds())? {
                 let corpus = Corpus::build(&vault, &vocab);
-                let report = validate::validate(&vault, &corpus, &vocab);
+                let report = validate::validate_with(
+                    &vault,
+                    &corpus,
+                    &vocab,
+                    &vault_core::roster::Roster::discover(&root),
+                );
                 failed |=
                     !report.errors().is_empty() || (args.strict && !report.warnings().is_empty());
                 if !cli.json {
@@ -644,7 +649,12 @@ fn run() -> anyhow::Result<ExitCode> {
                 .next()
                 .context("no vault selected")?;
             let corpus = Corpus::build(&vault, &vocab);
-            let report = validate::validate(&vault, &corpus, &vocab);
+            let report = validate::validate_with(
+                &vault,
+                &corpus,
+                &vocab,
+                &vault_core::roster::Roster::discover(&root),
+            );
             let graph = (tier == gate::Tier::Full && report.errors().is_empty())
                 .then(|| build::turtle::build_graph(&corpus, &vocab, false));
             let verdict = gate::run(&report, &corpus, graph.as_ref(), tier);

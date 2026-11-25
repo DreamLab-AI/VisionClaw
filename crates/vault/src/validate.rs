@@ -19,6 +19,7 @@ use serde::Serialize;
 use vault_core::code::CodeMap;
 use vault_core::okf::{OkfBlock, Status};
 use vault_core::page::{Page, Vault, VaultKind};
+use vault_core::roster::Roster;
 use vault_core::slug::slugify;
 use vault_core::vocabulary::{ScalarDef, ScalarType, Vocabulary};
 
@@ -339,10 +340,24 @@ fn page_level_checks(
     }
 }
 
-/// Validate a loaded vault against its vocabulary.
+/// Validate a loaded vault against its vocabulary, with no principal roster.
+/// A `did:nostr:` stamp is then not known to be human; use [`validate_with`].
+#[must_use]
+pub fn validate(vault: &Vault, corpus: &Corpus, vocab: &Vocabulary) -> Report {
+    validate_with(vault, corpus, vocab, &Roster::default())
+}
+
+/// Validate a loaded vault against its vocabulary and the principal roster
+/// (`ontology/attribution.yaml`). The roster decides whether a `did:nostr:`
+/// entry in `verified` is a human's (ruling B8).
 #[must_use]
 #[allow(clippy::too_many_lines)] // One check per rule; splitting hides the list.
-pub fn validate(vault: &Vault, corpus: &Corpus, vocab: &Vocabulary) -> Report {
+pub fn validate_with(
+    vault: &Vault,
+    corpus: &Corpus,
+    vocab: &Vocabulary,
+    roster: &Roster,
+) -> Report {
     let mut report = Report {
         total_pages: vault.pages.len(),
         total_journals: vault.journals.len(),
@@ -453,7 +468,7 @@ pub fn validate(vault: &Vault, corpus: &Corpus, vocab: &Vocabulary) -> Report {
 
         // --- OKF conformance -------------------------------------------------
         let okf = OkfBlock::from_frontmatter(&page.frontmatter);
-        validate_okf(&mut report, path, &okf, vault.kind, vocab, record);
+        validate_okf(&mut report, path, &okf, vault.kind, vocab, roster, record);
 
         if !record.has_ontology {
             continue;
@@ -714,9 +729,30 @@ fn validate_okf(
     okf: &OkfBlock,
     kind: VaultKind,
     vocab: &Vocabulary,
+    roster: &Roster,
     record: &ClassRecord,
 ) {
     let knowledge = kind == VaultKind::Knowledge;
+
+    // A stamp or source that cannot be read is reported, never dropped. It is a
+    // warning under vocabulary 2 (where the reader used to discard it without a
+    // word) and an error under vocabulary 3, which has one grammar.
+    for problem in &okf.problems {
+        report.push(
+            path,
+            if vocab.is_v3() {
+                Severity::Error
+            } else {
+                Severity::Warning
+            },
+            "INVALID_STAMP",
+            format!("`{}` is unreadable: {}", problem.field, problem.reason),
+        );
+    }
+    // Per-type status under vocabulary 3 (ruling B6): memory kinds take the
+    // ADR-VG-013 lifecycle, the rest keep draft, stable and deprecated unless the
+    // vocabulary states a set for the type.
+    let per_type_status = vocab.is_v3() && !knowledge;
 
     match &okf.type_name {
         None if knowledge => report.push(
@@ -760,7 +796,24 @@ fn validate_okf(
         None => {}
     }
 
+    let ty = okf.type_name.as_deref().unwrap_or_default();
+    let declared = vocab.working_type(ty).status;
     match (&okf.status_raw, okf.status) {
+        (Some(raw), _)
+            if per_type_status && vault_core::lifecycle::status_is_valid(ty, raw, &declared) => {}
+        (Some(raw), _) if per_type_status => report.push(
+            path,
+            Severity::Error,
+            "INVALID_STATUS",
+            format!(
+                "`status: {raw}` is not allowed for `type: {ty}`; expected one of {}",
+                if declared.is_empty() {
+                    vault_core::lifecycle::builtin_statuses(ty).join(", ")
+                } else {
+                    declared.join(", ")
+                }
+            ),
+        ),
         (Some(raw), None) => report.push(
             path,
             Severity::Error,
@@ -776,7 +829,7 @@ fn validate_okf(
         _ => {}
     }
 
-    if okf.status == Some(Status::Stable) && !okf.is_human_verified() {
+    if okf.status == Some(Status::Stable) && !okf.is_human_verified_with(roster) {
         report.push(
             path,
             Severity::Warning,
@@ -1367,5 +1420,148 @@ relations:
             "{}",
             found[0].message
         );
+    }
+
+    // ---- vocabulary 3 headers ------------------------------------------------
+
+    const B41: &str = "b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a";
+
+    fn v3_vocab() -> Vocabulary {
+        Vocabulary::from_yaml_str(
+            r#"
+version: 3
+namespace: "urn:ngm:class:"
+types:
+  Class: { owl: "owl:Class", required: [resource, status] }
+working_types:
+  Note: { status: [draft, final] }
+  Episode: { memory: true }
+  Brief: {}
+  Proposal: {}
+  Belief: { memory: true }
+  Procedure: { memory: true }
+"#,
+        )
+        .unwrap()
+    }
+
+    fn run_v3(pages: Vec<(&str, &str)>, kind: VaultKind, roster: &Roster) -> Report {
+        let vault = vault_of(pages, kind);
+        let vocab = v3_vocab();
+        let corpus = Corpus::build(&vault, &vocab);
+        validate_with(&vault, &corpus, &vocab, roster)
+    }
+
+    fn human_roster() -> Roster {
+        Roster::from_yaml_str(&format!(
+            "principals:\n  - did: did:nostr:{B41}\n    label: jjohare\n    kind: human\n"
+        ))
+    }
+
+    #[test]
+    fn the_new_working_kinds_and_their_statuses_are_recognised() {
+        let page = |ty: &str, status: &str| {
+            format!("---\ntype: {ty}\nstatus: {status}\nvisibility: shared\n---\n")
+        };
+        let pages = [
+            ("Ep", page("Episode", "approved")),
+            ("Be", page("Belief", "superseded")),
+            ("Pr", page("Procedure", "invalidated")),
+            ("Br", page("Brief", "stable")),
+            ("Pp", page("Proposal", "draft")),
+            ("No", page("Note", "final")),
+        ];
+        let borrowed: Vec<(&str, &str)> = pages.iter().map(|(i, t)| (*i, t.as_str())).collect();
+        let r = run_v3(borrowed, VaultKind::Working, &Roster::default());
+        let bad: Vec<_> = r
+            .issues
+            .iter()
+            .filter(|i| matches!(i.code.as_str(), "INVALID_TYPE" | "INVALID_STATUS"))
+            .collect();
+        assert!(bad.is_empty(), "{bad:?}");
+    }
+
+    #[test]
+    fn a_status_from_the_wrong_lifecycle_is_still_an_error() {
+        let r = run_v3(
+            vec![
+                ("A", "---\ntype: Brief\nstatus: approved\n---\n"),
+                ("B", "---\ntype: Belief\nstatus: stable\n---\n"),
+                ("C", "---\ntype: Note\nstatus: stable\n---\n"),
+            ],
+            VaultKind::Working,
+            &Roster::default(),
+        );
+        let paths: Vec<&str> = r
+            .issues
+            .iter()
+            .filter(|i| i.code == "INVALID_STATUS")
+            .map(|i| i.path.as_str())
+            .collect();
+        assert_eq!(paths, ["A", "B", "C"], "Note declares its own set");
+    }
+
+    #[test]
+    fn vocabulary_2_keeps_its_three_statuses() {
+        let r = run(
+            vec![("A", "---\ntype: Note\nstatus: approved\n---\n")],
+            VaultKind::Working,
+        );
+        assert!(codes(&r).contains(&"INVALID_STATUS".to_owned()));
+    }
+
+    #[test]
+    fn a_v3_knowledge_page_with_a_did_stamp_validates() {
+        let page = format!(
+            "---\ntype: Class\npublic: true\nresource: urn:ngm:class:a\nstatus: draft\nvalid-from: '2026-11-01T00:00:00Z'\ngenerated: {{ by: did:nostr:{B41}, via: agent:swarm/1, at: 2026-11-01T00:00:00Z }}\n---\n"
+        );
+        let r = run_v3(vec![("A", &page)], VaultKind::Knowledge, &Roster::default());
+        let c = codes(&r);
+        assert!(!c.contains(&"UNKNOWN_KEY".to_owned()), "{c:?}");
+        assert!(!c.contains(&"MISSING_GENERATED".to_owned()), "{c:?}");
+        assert!(!c.contains(&"INVALID_STAMP".to_owned()), "{c:?}");
+    }
+
+    #[test]
+    fn an_unreadable_stamp_is_reported_under_both_vocabularies() {
+        let page = "---\ntype: Class\nresource: urn:ngm:class:a\nstatus: draft\ngenerated: { by: 'did:nostr:not-hex', at: 2026-11-01T00:00:00Z }\n---\n";
+        let v2 = run(vec![("A", page)], VaultKind::Knowledge);
+        let warn: Vec<_> = v2
+            .issues
+            .iter()
+            .filter(|i| i.code == "INVALID_STAMP")
+            .collect();
+        assert_eq!(warn.len(), 1);
+        assert_eq!(warn[0].severity, Severity::Warning);
+        let v3 = run_v3(vec![("A", page)], VaultKind::Knowledge, &Roster::default());
+        let err: Vec<_> = v3
+            .issues
+            .iter()
+            .filter(|i| i.code == "INVALID_STAMP")
+            .collect();
+        assert_eq!(err[0].severity, Severity::Error);
+    }
+
+    #[test]
+    fn a_stable_page_keeps_its_human_certification_after_its_stamp_becomes_a_did() {
+        let page = |by: &str| {
+            format!("---\ntype: Class\nresource: urn:ngm:class:a\nstatus: stable\nverified: [{{ by: {by}, at: 2026-11-02T00:00:00Z }}]\n---\n")
+        };
+        let unverified = |p: &str, roster: &Roster| {
+            codes(&run_v3(vec![("A", p)], VaultKind::Knowledge, roster))
+                .contains(&"UNVERIFIED_STABLE".to_owned())
+        };
+        let old = page("human:npub1kst9");
+        let new = page(&format!("did:nostr:{B41}"));
+        assert!(!unverified(&old, &Roster::default()));
+        assert!(
+            unverified(&new, &Roster::default()),
+            "no roster, no human did"
+        );
+        assert!(!unverified(&new, &human_roster()), "the roster says human");
+        let org = Roster::from_yaml_str(&format!(
+            "principals:\n  - did: did:nostr:{B41}\n    label: acme\n    kind: organisation\n"
+        ));
+        assert!(unverified(&new, &org));
     }
 }

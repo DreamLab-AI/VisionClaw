@@ -317,7 +317,12 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
     publish_vaults.extend(working.as_ref());
     let staging = publish::stage(&publish_vaults)?;
 
-    let report = validate::validate(&vault, &raw, vocab);
+    let principals = options
+        .vault_root
+        .parent()
+        .map(vault_core::roster::Roster::discover)
+        .unwrap_or_default();
+    let report = validate::validate_with(&vault, &raw, vocab, &principals);
     anyhow::ensure!(
         report.errors().is_empty(),
         "validation rejected {} error(s); no bundle written. First: {}",

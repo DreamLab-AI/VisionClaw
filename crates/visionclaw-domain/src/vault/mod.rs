@@ -76,6 +76,11 @@ pub struct PageMeta {
     /// page is not public in any of those cases; the reason is kept so an
     /// author can see it instead of finding the page silently excluded.
     pub visibility_problem: Option<vault_core::visibility::Problem>,
+    /// Every `generated` or `verified` value that was present and is not a
+    /// readable OKF stamp (an unparseable `by`, a missing `at`). Nothing about
+    /// such a stamp is dropped: it stays in [`PageMeta::raw`] and a render
+    /// writes it back as authored; this list is how a caller learns of it.
+    pub stamp_problems: Vec<vault_core::okf::Problem>,
     /// True when the `public` key was present and explicitly false, as opposed
     /// to simply absent. ADR-2014/2040 require the public-false-plus-class case
     /// to be explicit rather than inferred, and it cannot be inferred from a
@@ -292,6 +297,11 @@ impl PageMeta {
                 }
             }
             map.insert(key("generated"), Value::Mapping(stamp));
+        } else if let Some(original) = raw_get("generated") {
+            // A `generated` value the typed field could not hold (no `at`, an
+            // unreadable `by`) is not the writer's to discard: it goes back as
+            // authored, and `stamp_problems` has already reported it.
+            map.insert(key("generated"), original.clone());
         }
         // A list-valued key wins over the comma-joined shadow in `extra`: the
         // join is a lossy read-side convenience, the list is the authored form.
@@ -629,8 +639,37 @@ fn parse_frontmatter(yaml: &str) -> Option<PageMeta> {
     meta.public = reading.public;
     meta.public_declared_false = reading.declared_not_public && !reading.public;
     meta.visibility_problem = reading.problem;
+    meta.stamp_problems = stamp_problems(mapping);
 
     Some(meta)
+}
+
+/// The `generated` and `verified` values that are not readable stamps, by the
+/// same reading the `vault` crates use ([`vault_core::okf::Stamp::read`]), so
+/// the two parsers agree on what a bad stamp is.
+fn stamp_problems(mapping: &serde_yaml::Mapping) -> Vec<vault_core::okf::Problem> {
+    let get = |k: &str| mapping.get(serde_yaml::Value::String(k.to_string()));
+    let mut problems = Vec::new();
+    if let Some(Err(reason)) = get("generated").map(vault_core::okf::Stamp::read) {
+        problems.push(vault_core::okf::Problem {
+            field: "generated".to_string(),
+            reason,
+        });
+    }
+    let verified: Vec<&serde_yaml::Value> = match get("verified") {
+        Some(serde_yaml::Value::Sequence(items)) => items.iter().collect(),
+        Some(other) => vec![other],
+        None => Vec::new(),
+    };
+    for (i, item) in verified.into_iter().enumerate() {
+        if let Err(reason) = vault_core::okf::Stamp::read(item) {
+            problems.push(vault_core::okf::Problem {
+                field: format!("verified[{i}]"),
+                reason,
+            });
+        }
+    }
+    problems
 }
 
 /// Is `s` a well-formed class marker — a CURIE (`prefix:LocalName`) or an
@@ -1080,6 +1119,7 @@ mod tests {
             raw: None,
             owl_class_rejected: None,
             public_declared_false: false,
+            stamp_problems: Vec::new(),
             visibility: None,
             visibility_problem: None,
             page_type: Some("Class".to_string()),

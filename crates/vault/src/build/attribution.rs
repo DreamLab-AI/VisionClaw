@@ -46,6 +46,7 @@ impl Roster {
                      keys: &mut Vec<(String, usize)>| {
             if let Some((did, label, npub, process)) = cur.take() {
                 let idx = gens.len();
+                keys.push((did.clone(), idx));
                 gens.push(Generator {
                     did,
                     label: label.clone(),
@@ -100,6 +101,8 @@ impl Roster {
     pub fn resolve(&self, actor: &Actor) -> Option<&Generator> {
         match actor {
             Actor::Human(npub) => self.by_actor.get(&format!("human:{npub}")),
+            // A principal key: the generator filed under exactly that DID.
+            Actor::Did(_) => self.by_actor.get(&actor.as_string()),
             Actor::Agent { producer, .. } => self
                 .by_actor
                 .get(&format!("agent:{producer}/0"))

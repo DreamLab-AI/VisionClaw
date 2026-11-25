@@ -629,9 +629,9 @@ dependencies = [
 
 [[package]]
 name = "bech32"
-version = "0.11.0"
+version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d965446196e3b7decd44aa7ee49e31d630118f90ef12f97900f262eb915c951d"
+checksum = "32637268377fc7b10a8c6d51de3e7fba1ce5dd371a96e342b34e6078db558e7f"
 
 [[package]]
 name = "bindgen"
@@ -7251,6 +7251,7 @@ dependencies = [
 name = "vault-core"
 version = "0.1.0"
 dependencies = [
+ "bech32",
  "hex",
  "indexmap 2.10.0",
  "ontomark-parse",

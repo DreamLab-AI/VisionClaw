@@ -49,3 +49,64 @@ fn rendering_a_v3_page_does_not_bring_public_back() {
     assert!(!out.contains("public: "), "{out}");
     assert!(parse(&out).is_kg_included());
 }
+
+// ---- stamps, sources and the rest of a v3 header survive a round trip --------
+
+const B41: &str = "b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a";
+
+fn v3_header() -> String {
+    format!(
+        "---\ntype: Brief\nstatus: draft\nvisibility: public\npage_resource: urn:visionflow:page:abc\n\
+valid-from: '2026-11-01T00:00:00Z'\n\
+generated:\n  by: did:nostr:{B41}\n  via: process:podcast-promote/1.0\n  at: '2026-11-01T00:00:00Z'\n\
+verified:\n  - by: did:nostr:{B41}\n    at: '2026-11-02T00:00:00Z'\n    scope: body\n\
+supersedes:\n  - resource: '[[Old]]'\n    reason: corrected\n    at: '2026-11-03T00:00:00Z'\n\
+sources:\n  - id: origin\n    resource: '[[Ep]]'\n    rel: origin\n  - id: d\n    resource: '[[B]]'\n    rel: derived-from\n    locator: 'sha256-v1:{h}'\n\
+statements:\n  - predicate: requires\n    object: '[[X]]'\n---\nbody\n",
+        h = "0123456789abcdef".repeat(4)
+    )
+}
+
+#[test]
+fn a_v3_header_round_trips_with_nothing_lost() {
+    let src = v3_header();
+    let meta = parse(&src);
+    assert!(meta.stamp_problems.is_empty());
+    let out = render_page(&meta, "body\n");
+    let (a, b) = (parse(&src).raw.unwrap(), parse(&out).raw.unwrap());
+    for key in a.keys() {
+        assert_eq!(
+            a.get(key),
+            b.get(key),
+            "{key:?} changed in the round trip\n{out}"
+        );
+    }
+    assert_eq!(a.len(), b.len(), "{out}");
+    assert!(!out.contains("public:"), "{out}");
+}
+
+#[test]
+fn an_unreadable_stamp_is_reported_and_written_back_as_authored() {
+    let src = "---\ntype: Note\nvisibility: shared\ngenerated:\n  by: 'did:nostr:not-hex'\n  at: '2026-11-01T00:00:00Z'\nverified:\n  - by: who:knows\n    at: '2026-11-02T00:00:00Z'\n---\n";
+    let meta = parse(src);
+    let fields: Vec<&str> = meta
+        .stamp_problems
+        .iter()
+        .map(|p| p.field.as_str())
+        .collect();
+    assert_eq!(fields, ["generated", "verified[0]"]);
+    let out = render_page(&meta, "");
+    assert!(
+        out.contains("did:nostr:not-hex") && out.contains("who:knows"),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_page_built_in_code_still_writes_public() {
+    let meta = visionclaw_domain::vault::PageMeta {
+        public: true,
+        ..Default::default()
+    };
+    assert!(render_page(&meta, "").contains("public: true"));
+}

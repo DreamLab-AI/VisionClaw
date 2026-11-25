@@ -379,6 +379,68 @@ impl ScalarDef {
     }
 }
 
+/// What the vocabulary says about one working type (vocabulary 3,
+/// ADR-VG-010 §6, ADR-VG-013 §1).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkingTypeDef {
+    /// Keys a page of this type must carry, over the working-wide ones.
+    #[serde(default)]
+    pub required: Vec<String>,
+    /// The closed `status` set for this type. Empty means the built-in set for
+    /// the type ([`crate::lifecycle`]).
+    #[serde(default)]
+    pub status: Vec<String>,
+    /// A durable memory kind: ADR-VG-013's lifecycle applies and current recall
+    /// may return it.
+    #[serde(default)]
+    pub memory: bool,
+}
+
+/// The `working_types` key in either spelling: a list of names, or a map of
+/// name to rules. Only the names are kept here; [`Vocabulary::from_yaml_str`]
+/// reads the rules.
+fn de_working_type_names<'de, D>(d: D) -> std::result::Result<IndexSet<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    match serde_yaml::Value::deserialize(d)? {
+        serde_yaml::Value::Null => Ok(IndexSet::new()),
+        serde_yaml::Value::Sequence(items) => items
+            .into_iter()
+            .map(|v| {
+                v.as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| D::Error::custom("working_types entries are names"))
+            })
+            .collect(),
+        serde_yaml::Value::Mapping(map) => map
+            .keys()
+            .map(|k| {
+                k.as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| D::Error::custom("working_types keys are names"))
+            })
+            .collect(),
+        _ => Err(D::Error::custom(
+            "working_types is a list of names or a map of name to rules",
+        )),
+    }
+}
+
+/// Keys a vocabulary of version 3 or later adds to the knowledge grammar
+/// (ADR-VG-010 §2-§4). Under version 2 they are undeclared, hence `UNKNOWN_KEY`.
+const V3_KNOWLEDGE_KEYS: &[&str] = &[
+    "valid-from",
+    "valid-to",
+    "supersedes",
+    "superseded-by",
+    "statements",
+];
+
+/// The first vocabulary version with the v3 header grammar.
+pub const V3: u32 = 3;
+
 /// The parsed `ontology/vocabulary.yaml`.
 ///
 /// Informational keys the census carries (`count_2026_09_22`, `note`,
@@ -406,9 +468,19 @@ pub struct Vocabulary {
     /// OKF types permitted in `knowledge/`.
     #[serde(default)]
     pub types: IndexMap<String, TypeDef>,
-    /// OKF types permitted in `working/`.
-    #[serde(default)]
+    /// OKF types permitted in `working/`. Vocabulary 2 lists the names;
+    /// vocabulary 3 maps each name to its rules ([`WorkingTypeDef`]). Either
+    /// way this is the set of names.
+    #[serde(default, deserialize_with = "de_working_type_names")]
     pub working_types: IndexSet<String>,
+    /// Per-type rules read from the map form of `working_types` (vocabulary
+    /// 3); empty for the list form. Use [`Vocabulary::working_type`].
+    #[serde(skip)]
+    pub working_type_defs: IndexMap<String, WorkingTypeDef>,
+    /// Keys every `working/` page must carry under vocabulary 3. Absent means
+    /// the ADR-VG-012 contract: `page_resource`, `visibility`, `generated`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub working_required: Option<Vec<String>>,
     /// Documented episodic extensions of `working/`.
     #[serde(default)]
     pub working_extensions: IndexMap<String, ScalarDef>,
@@ -433,6 +505,26 @@ pub struct Vocabulary {
     /// Keys that are always legal: Obsidian's own plus the OKF block.
     #[serde(default = "default_reserved")]
     pub reserved: IndexSet<String>,
+}
+
+/// The per-type rules of the map form of `working_types`.
+fn working_type_defs(yaml: &str) -> std::result::Result<IndexMap<String, WorkingTypeDef>, String> {
+    let root: serde_yaml::Value = serde_yaml::from_str(yaml).map_err(|e| e.to_string())?;
+    let Some(serde_yaml::Value::Mapping(map)) = root.get("working_types") else {
+        return Ok(IndexMap::new());
+    };
+    map.iter()
+        .map(|(k, v)| {
+            let name = k.as_str().unwrap_or_default().to_owned();
+            let def = if v.is_null() {
+                WorkingTypeDef::default()
+            } else {
+                serde_yaml::from_value(v.clone())
+                    .map_err(|e| format!("working_types.{name}: {e}"))?
+            };
+            Ok((name, def))
+        })
+        .collect()
 }
 
 fn default_reserved() -> IndexSet<String> {
@@ -504,7 +596,8 @@ impl Vocabulary {
     /// OWL 2 EL (a message starting [`NON_EL_VOCABULARY`]; see
     /// [`NON_EL_OWL_TERMS`]).
     pub fn from_yaml_str(yaml: &str) -> std::result::Result<Self, String> {
-        let vocab: Self = serde_yaml::from_str(yaml).map_err(|e| e.to_string())?;
+        let mut vocab: Self = serde_yaml::from_str(yaml).map_err(|e| e.to_string())?;
+        vocab.working_type_defs = working_type_defs(yaml)?;
         vocab.check()?;
         Ok(vocab)
     }
@@ -673,6 +766,28 @@ impl Vocabulary {
         self.relations.contains_key(key)
             || self.scalars.contains_key(key)
             || self.reserved.contains(key)
+            || (self.is_v3() && V3_KNOWLEDGE_KEYS.contains(&key))
+    }
+
+    /// `true` for a vocabulary of version 3 or later.
+    #[must_use]
+    pub fn is_v3(&self) -> bool {
+        self.version >= V3
+    }
+
+    /// The rules for working type `name`, with the built-in memory kinds filled
+    /// in when the vocabulary names them without rules.
+    #[must_use]
+    pub fn working_type(&self, name: &str) -> WorkingTypeDef {
+        let mut def = self
+            .working_type_defs
+            .get(name)
+            .cloned()
+            .unwrap_or_default();
+        if crate::lifecycle::is_memory_kind(name) {
+            def.memory = true;
+        }
+        def
     }
 
     /// `true` when `key` is legal in `working/` frontmatter.
@@ -1276,5 +1391,51 @@ relations:
         );
         assert_eq!(v.expand("urn:ngm:class:x"), "urn:ngm:class:x");
         assert_eq!(v.expand("nope:thing"), "nope:thing");
+    }
+
+    #[test]
+    fn a_vocabulary_3_working_types_map_loads_with_its_rules() {
+        let v = Vocabulary::from_yaml_str(
+            "version: 3\nworking_types:\n  Note: { status: [draft, final] }\n  Belief: { memory: true, required: [about] }\n  Brief: {}\nworking_required: [page_resource, visibility, generated]\n",
+        )
+        .unwrap();
+        assert!(v.is_v3());
+        assert_eq!(
+            v.working_types.iter().collect::<Vec<_>>(),
+            ["Note", "Belief", "Brief"]
+        );
+        assert_eq!(v.working_type("Note").status, ["draft", "final"]);
+        assert_eq!(v.working_type("Belief").required, ["about"]);
+        assert!(
+            v.working_type("Episode").memory,
+            "memory kinds are built in"
+        );
+        assert!(!v.working_type("Brief").memory);
+        assert_eq!(v.working_required.as_deref().map(<[String]>::len), Some(3));
+    }
+
+    #[test]
+    fn the_list_form_still_loads() {
+        let v = Vocabulary::from_yaml_str("version: 2\nworking_types: [Note, Episode]\n").unwrap();
+        assert_eq!(v.working_types.len(), 2);
+        assert!(v.working_type_defs.is_empty());
+        assert!(!v.is_v3());
+    }
+
+    #[test]
+    fn the_v3_knowledge_keys_are_known_only_from_version_3() {
+        let v2 = Vocabulary::from_yaml_str("version: 2\n").unwrap();
+        let v3 = Vocabulary::from_yaml_str("version: 3\n").unwrap();
+        for k in [
+            "valid-from",
+            "valid-to",
+            "supersedes",
+            "superseded-by",
+            "statements",
+        ] {
+            assert!(!v2.is_known_key(k), "{k}");
+            assert!(v3.is_known_key(k), "{k}");
+        }
+        assert!(!v3.is_known_key("owl-class"));
     }
 }
