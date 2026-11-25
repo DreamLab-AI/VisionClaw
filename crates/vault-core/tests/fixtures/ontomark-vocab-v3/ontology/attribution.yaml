@@ -6,3 +6,10 @@ principals:
   - did: did:nostr:ea3d03d62a8eb3ce6364c0dd02f239a16fa22956a9f31626619f330361be9c00
     label: acme
     kind: organisation
+generators:
+  # B1: a process swarm filed under the human principal. It canonicalises to
+  # the principal but is never human itself.
+  - did: did:nostr:94773a699927da1ef879b90843890b1fe0e671ae898163f4337dcbe5f96992c0
+    label: enrichment-swarm
+    kind: process
+    principal: did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a

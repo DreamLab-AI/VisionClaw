@@ -1,6 +1,6 @@
 {
  "now": 1794961600,
- "ontomark": "1c1ec51e846f6b00d7dcb15f9ae0271c24464f6c",
+ "ontomark": "79ffafbf24a3f0432c43ab08d9da5a3dfb8ab7a4",
  "pages": {
   "knowledge/BadTime": {
    "v2": {
@@ -76,6 +76,26 @@
     "generated_readable": true,
     "human_certified": false,
     "principal": "did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a",
+    "public": true,
+    "recallable": false,
+    "verified_principals": [],
+    "verified_readable": 0
+   }
+  },
+  "knowledge/EmptyStamp": {
+   "v2": {
+    "generated_readable": false,
+    "human_certified": false,
+    "principal": null,
+    "public": true,
+    "recallable": false,
+    "verified_principals": [],
+    "verified_readable": 0
+   },
+   "v3": {
+    "generated_readable": false,
+    "human_certified": false,
+    "principal": null,
     "public": true,
     "recallable": false,
     "verified_principals": [],
@@ -160,6 +180,30 @@
     "recallable": false,
     "verified_principals": [],
     "verified_readable": 0
+   }
+  },
+  "knowledge/OperatorVerified": {
+   "v2": {
+    "generated_readable": true,
+    "human_certified": true,
+    "principal": "did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a",
+    "public": true,
+    "recallable": false,
+    "verified_principals": [
+     "did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a"
+    ],
+    "verified_readable": 1
+   },
+   "v3": {
+    "generated_readable": true,
+    "human_certified": true,
+    "principal": "did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a",
+    "public": true,
+    "recallable": false,
+    "verified_principals": [
+     "did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a"
+    ],
+    "verified_readable": 1
    }
   },
   "knowledge/Range": {
@@ -268,6 +312,30 @@
     "recallable": false,
     "verified_principals": [],
     "verified_readable": 0
+   }
+  },
+  "knowledge/SwarmVerified": {
+   "v2": {
+    "generated_readable": true,
+    "human_certified": false,
+    "principal": "did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a",
+    "public": true,
+    "recallable": false,
+    "verified_principals": [
+     "did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a"
+    ],
+    "verified_readable": 1
+   },
+   "v3": {
+    "generated_readable": true,
+    "human_certified": false,
+    "principal": "did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a",
+    "public": true,
+    "recallable": false,
+    "verified_principals": [
+     "did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a"
+    ],
+    "verified_readable": 1
    }
   },
   "knowledge/VcKnowledgePublicAndVisible": {

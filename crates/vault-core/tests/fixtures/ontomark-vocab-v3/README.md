@@ -1,8 +1,8 @@
 # ontomark vocabulary 3 fixture, shared with VisionClaw
 
 Upstream: `crates/ontomark-cli/tests/vocab-v3-vault` of DreamLab-AI/ontomark at
-`1c1ec51e846f6b00d7dcb15f9ae0271c24464f6c` (branch `feat/vocabulary-v3`, not yet
-released). The 33 upstream files are vendored byte-for-byte; `UPSTREAM.sha256`
+`79ffafbf24a3f0432c43ab08d9da5a3dfb8ab7a4` (branch `release/v3`, not yet
+released). The 36 upstream files are vendored byte-for-byte; `UPSTREAM.sha256`
 lists their hashes and `tests/ontomark_v3_parity.rs` fails if one is edited. To
 update, replace the whole tree from a newer ontomark commit and regenerate
 `golden.json`.
@@ -30,3 +30,5 @@ without a disagreeing `public`) were added with the visibility fix; their
 entries in `golden.json` were produced by the oracle at ontomark `1bbf86b`,
 which also reproduced every earlier entry unchanged (the `ontomark` field above
 still names the commit the original entries came from).
+
+Re-vendored at `79ffafb` (2026-11-25): three pages added (`SwarmVerified`: not certified; `OperatorVerified`: certified; `EmptyStamp`) and `ontology/attribution.yaml` gained a generator filed under the operator. `golden.json` was regenerated with the oracle against that checkout; no earlier entry changed.

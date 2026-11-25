@@ -95,7 +95,7 @@ fn the_upstream_fixture_is_vendored_unchanged() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 33, "ontomark's fixture has 33 files");
+    assert_eq!(checked, 36, "ontomark's fixture has 36 files");
 }
 
 #[test]
@@ -278,7 +278,7 @@ fn unreadable_stamps_are_surfaced_where_ontomark_cannot_read_them() {
 /// then the expectation is pinned here, never loosened in the code.
 const NOT_CERTIFIED_HERE: &[(&str, &str)] = &[(
     "knowledge/VcVerifiedNpub",
-    "its only `verified` stamp is `by: human:npub1…`, the vocabulary 2 spelling. Ruling 2 makes that an error under vocabulary 3 and it certifies nobody; the vendored golden (ontomark 1c1ec51, before its fix) still says certified.",
+    "its only `verified` stamp is `by: human:npub1…`, the vocabulary 2 spelling. Ruling 2 makes that an error under vocabulary 3 and it certifies nobody; ontomark 79ffafb (release/v3), which the golden was regenerated from, still certifies it (`human:` names nobody to it, but its `is_human_verified_with` accepts the prefix); report to ontomark, not a VisionClaw bug.",
 )];
 
 #[test]
