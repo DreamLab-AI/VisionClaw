@@ -44,7 +44,8 @@ use crate::corpus_history::{
     apply_history, corpus_sync_activity_urn, legacy_forms, open_corpus_versions, plan_history,
     triple_digest, Triple, CORPUS_SYNC_WRITER, CORPUS_SYNC_WRITER_PREDICATE,
 };
-use crate::provenance_writer::{build_state_at_sparql, DL_NS, GRAPH_PROVENANCE};
+use crate::provenance_writer::{build_state_at_sparql, GRAPH_PROVENANCE};
+use crate::temporal_vocab::{DL_NS, MEMORY_NS, TEMPORAL_NS};
 
 /// The graph the 2026-11 refit also found test residue in: assertion versions
 /// minted before PRD-022 WS-2 unified the provenance graphs.
@@ -304,7 +305,7 @@ pub fn preflight(store: &Store, opts: &Options) -> Result<Option<Preflight>, Ref
     let v2_versions = q(
         store,
         &format!(
-            "{prefixes}PREFIX temporal: <http://nova.dev/temporal#>
+            "{prefixes}PREFIX temporal: <{TEMPORAL_NS}>
              SELECT ?e WHERE {{ GRAPH {graph} {{ ?e temporal:validFrom ?x }} }} LIMIT 1"
         ),
         "read v2 versions",
@@ -604,7 +605,7 @@ fn verify(
     let prefixes = format!(
         "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n\
          PREFIX prov: <http://www.w3.org/ns/prov#>\nPREFIX dl: <{DL_NS}>\n\
-         PREFIX temporal: <http://nova.dev/temporal#>\nPREFIX memory: <http://nova.dev/memory#>\n"
+         PREFIX temporal: <{TEMPORAL_NS}>\nPREFIX memory: <{MEMORY_NS}>\n"
     );
     let graph = format!("<{GRAPH_PROVENANCE}>");
     let run = |sparql: &str| q(store, sparql, "verify").unwrap_or_default();

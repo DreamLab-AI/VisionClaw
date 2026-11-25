@@ -118,6 +118,10 @@ const PROV_WAS_GENERATED_BY: &str = "http://www.w3.org/ns/prov#wasGeneratedBy";
 const PROV_WAS_ATTRIBUTED_TO: &str = "http://www.w3.org/ns/prov#wasAttributedTo";
 const PROV_WAS_ASSOCIATED_WITH: &str = "http://www.w3.org/ns/prov#wasAssociatedWith";
 
+use crate::temporal_vocab::{
+    DL_CLOSES, DL_CLOSES_VERSION, DL_CLOSURE, DL_REASON, DL_VALID_UNTIL, MEMORY_RECORDED_TIME,
+    MEMORY_VALID_TIME, TEMPORAL_RECORDED_FROM, TEMPORAL_VALID_FROM,
+};
 /// Decision-layer / bi-temporal vocabulary base (ADR-048/ADR-049 `dl:`).
 ///
 /// **Cross-track contract.** The `dl:` prefix is defined in ADR-048 §Ontology
@@ -127,25 +131,7 @@ const PROV_WAS_ASSOCIATED_WITH: &str = "http://www.w3.org/ns/prov#wasAssociatedW
 /// classifies, whose base is `https://narrativegoldmine.com/ns/v1#`). Any track
 /// emitting `dl:` terms (T4 decisions: `dl:caused`/`dl:precedentFor`) MUST use
 /// the same base so the asserted graph stays join-consistent.
-pub const DL_NS: &str = "https://narrativegoldmine.com/ns/dl#";
-
-/// memory-ontology's `temporal:` namespace (eljeffeg/memory-ontology, CC BY 4.0).
-/// A version carries its two clocks as `temporal:validFrom` and
-/// `temporal:recordedFrom`, both `xsd:dateTimeStamp`.
-pub const TEMPORAL_NS: &str = "http://nova.dev/temporal#";
-const TEMPORAL_VALID_FROM: &str = "http://nova.dev/temporal#validFrom";
-const TEMPORAL_RECORDED_FROM: &str = "http://nova.dev/temporal#recordedFrom";
-const DL_CLOSURE: &str = "https://narrativegoldmine.com/ns/dl#Closure";
-const DL_CLOSES_VERSION: &str = "https://narrativegoldmine.com/ns/dl#closesVersion";
-const DL_CLOSES: &str = "https://narrativegoldmine.com/ns/dl#closes";
-const DL_VALID_UNTIL: &str = "https://narrativegoldmine.com/ns/dl#validUntil";
-const DL_REASON: &str = "https://narrativegoldmine.com/ns/dl#reason";
-
-/// memory-ontology (eljeffeg/memory-ontology, CC BY 4.0) namespace: the two
-/// clock concepts a closure closes.
-pub const MEMORY_NS: &str = "http://nova.dev/memory#";
-const MEMORY_VALID_TIME: &str = "http://nova.dev/memory#ValidTime";
-const MEMORY_RECORDED_TIME: &str = "http://nova.dev/memory#RecordedTime";
+pub use crate::temporal_vocab::{DL_NS, MEMORY_NS, TEMPORAL_NS};
 
 /// URN kind + prefix for the assertion-version entity (uris.js `event` kind:
 /// owner-scoped, content-addressed).

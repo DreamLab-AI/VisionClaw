@@ -774,8 +774,8 @@ SELECT ?c ?v ?k ?u ?g WHERE {{ GRAPH <{GRAPH_PROVENANCE}> {{
             let r = r.unwrap();
             let id = term_str(r.get("c")).unwrap();
             let clock = match term_str(r.get("k")).unwrap().as_str() {
-                "http://nova.dev/memory#ValidTime" => Clock::ValidTime,
-                "http://nova.dev/memory#RecordedTime" => Clock::RecordedTime,
+                crate::temporal_vocab::MEMORY_VALID_TIME => Clock::ValidTime,
+                crate::temporal_vocab::MEMORY_RECORDED_TIME => Clock::RecordedTime,
                 other => panic!("unknown clock {other}"),
             };
             by_closure

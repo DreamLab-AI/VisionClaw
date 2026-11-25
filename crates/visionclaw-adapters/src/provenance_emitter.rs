@@ -45,6 +45,7 @@ use oxigraph::store::{StorageError, Store};
 use visionclaw_domain::models::metadata::wire_timestamp;
 
 use super::oxigraph_ontology_repository::GRAPH_PROVENANCE;
+use crate::temporal_vocab::TEMPORAL_NS;
 
 const PROV_NS: &str = "http://www.w3.org/ns/prov#";
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
@@ -524,7 +525,7 @@ fn fetch_provenance_node(store: &Store, entity: &str) -> Result<ProvenanceNode, 
         PREFIX prov: <http://www.w3.org/ns/prov#>
         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
         PREFIX vc: <{VC_NS}>
-        PREFIX temporal: <http://nova.dev/temporal#>
+        PREFIX temporal: <{TEMPORAL_NS}>
         SELECT ?subject ?activity ?agent ?generatedAt ?action ?derivation ?parent
         FROM <{graph}>
         WHERE {{
