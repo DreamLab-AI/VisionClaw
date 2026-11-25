@@ -26,10 +26,7 @@ ontomark's predicates, not by reading the pages:
 The harness and the exact commands to regenerate `golden.json` are in `ORACLE.md`.
 
 The four `VcKnowledge*` pages (a knowledge page carrying `visibility`, with and
-without a disagreeing `public`) were added with the visibility fix; their
-entries in `golden.json` were produced by the oracle at ontomark `1bbf86b`,
-which also reproduced every earlier entry unchanged (the `ontomark` field above
-still names the commit the original entries came from).
+without a disagreeing `public`) were added with the visibility fix. Since the v0.10.0 re-vendoring every entry was regenerated, so the `ontomark` field names that one commit.
 
 Re-vendored at `79ffafb` (2026-11-25): three pages added (`SwarmVerified`: not certified; `OperatorVerified`: certified; `EmptyStamp`) and `ontology/attribution.yaml` gained a generator filed under the operator. `golden.json` was regenerated with the oracle against that checkout; no earlier entry changed.
 
