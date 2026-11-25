@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 136db765e42515883a03c6d4307136da17206c77
+verified_commit: 41fcccb6efb6bb7f12551909f2e741a1d055f7d4
 verified_paths: [src/services/data_reconciliation.rs, crates/visionclaw-adapters/src/provenance_emitter.rs, crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs, src/services/ontology_mutation_service.rs]
 owner: jjohare
 review_trigger: a GDPR/right-to-erasure obligation landing on provenance-recorded subjects, or introduction of a redaction/crypto-shred mechanism
@@ -281,3 +281,7 @@ Re-verified 2026-11-20 at b188b0397: `git diff c143ef890..b188b0397 -- crates/vi
 ## Amendment — 2026-11-25 (ADR-2219)
 
 The rule is restated above: append-only in operation, no runtime delete path, two named exceptions (a recorded contract refit; ADR-2102 erasure). The substance is unchanged (the Decision already said "insert-only quad writes"); what changed is the title and the wording that over-claimed ("INSERT DATA only"), the `provenance_emitter.rs` header comment (corrected in the same change), and the explicit refit exception that temporal contract v2 needs. Corpus closes are now closure records inserted beside the versions they close, not a `dl:validTo` added to them; the closing record is still an insert. Governed-path change since the last stamp: `provenance_emitter.rs` (the header comment, and activity timestamps now written in the canonical wire form). `verified_commit` moved to `136db765e`. Checked by reading the diff and `cargo test -p visionclaw-adapters`.
+
+## Re-verification — 2026-11-25 (after the temporal v2 review)
+
+Re-verified at `41fcccb6efb6bb7f12551909f2e741a1d055f7d4`. Governed-path change since the previous stamp (`136db765e`): `provenance_emitter.rs` only, two lines: the `temporal:` prefix in `fetch_provenance_node` now reads `TEMPORAL_NS` from `temporal_vocab` and that constant is imported. No write path changed. Checked by reading the diff and by grep: `grep -cE 'DELETE |DROP |CLEAR ' crates/visionclaw-adapters/src/provenance_emitter.rs` returns 0; the header at `:32-36` states the reworded rule (append-only in operation, two named exceptions); `oxigraph_ontology_repository.rs:659` (`emit_provenance`) still wraps `emit_activity` (`:663`), and `ontology_mutation_service.rs:216` still calls `emit_activity_nonfatal`. **Line numbers moved since the 2026-09-05 table above:** `build_activity_quads` is at `:149`, `commit_quads_with` at `:304`, `reify_activity` at `:328`, `find_incomplete_activities` at `:353`, `emit_activity` at `:454`, `emit_activity_nonfatal` at `:467`, `MANDATORY_ACTIVITY_PREDICATES` at `:129`; the table's `:307` and `:223` are historical. The decision holds. Not re-run here: the root crate's mutation-service tests (they cannot be compiled in this container).
