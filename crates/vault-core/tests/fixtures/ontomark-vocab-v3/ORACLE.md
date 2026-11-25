@@ -8,7 +8,8 @@ prints JSON. Nothing from VisionClaw is involved, which is the point.
 
 1. Make a scratch directory with the two files below (`Cargo.toml`, `src/main.rs`)
    and copy ontomark's `Cargo.lock` next to `Cargo.toml` so the dependency
-   versions match ontomark's. Edit the `ontomark-compile` path to the checkout.
+   versions match ontomark's. Replace `<ontomark checkout at v0.10.0>` in the `ontomark-compile` path with the
+   checkout's directory.
 2. Build and run it against this fixture, once per vocabulary version, at the
    fixed clock used by the tests (`now = 1794961600`, 2026-11-18T00:26:40Z):
 
@@ -20,7 +21,11 @@ om-oracle <this fixture dir> 2 1794961600 > g2.json
 
 3. Merge into `golden.json` as `{"now": 1794961600, "ontomark": "<commit>",
    "pages": {"<vault>/<page id>": {"v2": <g2 entry>, "v3": <g3 entry>}}}`,
-   keys sorted. (`golden.json` was produced from ontomark `1c1ec51`.)
+   keys sorted. (`golden.json` was produced from ontomark `v0.10.0`, commit
+   `fa173a183e65a29944becb6eb4d55b52b9ba6b06`. A journal's key is `working/<date>`.)
+   The `human_certified` line must call `is_human_verified_under(&vocab, …)`: the
+   older `is_human_verified_with` is the vocabulary 2 reading and still accepts
+   the `human:` prefix under 3.
 4. `cargo test -p vault-core --test ontomark_v3_parity -p visionclaw-domain --test ontomark_v3_parity`.
    A difference that is not a bug in VisionClaw goes into `EXCEPTIONS` in the
    vault-core test with its reason.
@@ -35,7 +40,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-ontomark-compile = { path = "/home/devuser/workspace/wt/ontomark-vocab-v3/crates/ontomark-compile" }
+ontomark-compile = { path = "<ontomark checkout at v0.10.0>/crates/ontomark-compile" }
 serde_json = "1"
 
 [workspace]
@@ -49,7 +54,6 @@ serde_json = "1"
 //! Usage: om-oracle <repo> <version 2|3> <now-unix>
 use ontomark_compile::build::attribution::Roster;
 use ontomark_compile::check::v3::state::{is_public_under, is_recallable};
-use ontomark_compile::input::okf::OkfBlock;
 use ontomark_compile::input::page::{Vault, VaultKind};
 use ontomark_compile::input::vocabulary::Vocabulary;
 
@@ -93,7 +97,7 @@ fn main() {
                     "generated_readable": okf.generated.is_some(),
                     "verified_readable": okf.verified.len(),
                     "verified_principals": verified_principals,
-                    "human_certified": okf.is_human_verified_with(Some(&roster)),
+                    "human_certified": okf.is_human_verified_under(&vocab, Some(&roster)),
                     "recallable": is_recallable(page, &vocab, now),
                 }),
             );

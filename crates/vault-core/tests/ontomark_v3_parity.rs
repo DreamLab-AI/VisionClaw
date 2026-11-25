@@ -3,12 +3,12 @@
 //! The vault is read by two independent toolchains, so every rule that a
 //! header carries can drift between them. This test pins the two together over
 //! a shared fixture vault: ontomark's own vocabulary-3 fixture
-//! (`tests/vocab-v3-vault` at ontomark `1c1ec51`, vendored byte-for-byte; see
+//! (`crates/ontomark-cli/tests/vocab-v3-vault` at ontomark `v0.10.0`, vendored byte-for-byte; see
 //! `tests/fixtures/ontomark-vocab-v3/README.md`) plus pages VisionClaw added for
 //! the cases the fixture does not reach. `golden.json` holds **ontomark's**
 //! answers for every page, produced by calling its predicates
 //! (`is_public_under`, `Roster::resolve_principal`,
-//! `OkfBlock::is_human_verified_with`, `is_recallable`), not by reading them
+//! `OkfBlock::is_human_verified_under`, `is_recallable`), not by reading them
 //! off the page. The test asserts VisionClaw's readers return the same.
 //!
 //! Where VisionClaw is deliberately different, the difference is named in
@@ -52,11 +52,13 @@ fn golden() -> Value {
     serde_json::from_str(&std::fs::read_to_string(fixture().join("golden.json")).unwrap()).unwrap()
 }
 
-/// Every page of the fixture, as `knowledge/Name` -> frontmatter.
+/// Every page of the fixture, as `knowledge/Name` -> frontmatter. A page of
+/// `working/journals/` is keyed by its date (`working/2026-11-25`), the id
+/// ontomark's oracle and `Vault::load` both give a journal.
 fn pages() -> BTreeMap<String, Frontmatter> {
     let mut out = BTreeMap::new();
-    for dir in ["knowledge", "working"] {
-        for entry in std::fs::read_dir(fixture().join(dir)).unwrap() {
+    for (dir, sub) in [("knowledge", ""), ("working", ""), ("working", "journals")] {
+        for entry in std::fs::read_dir(fixture().join(dir).join(sub)).unwrap() {
             let path = entry.unwrap().path();
             if path.extension().is_some_and(|e| e == "md") {
                 let text = std::fs::read_to_string(&path).unwrap();
@@ -95,7 +97,7 @@ fn the_upstream_fixture_is_vendored_unchanged() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 36, "ontomark's fixture has 36 files");
+    assert_eq!(checked, 39, "ontomark's fixture has 39 files");
 }
 
 #[test]
@@ -272,15 +274,6 @@ fn unreadable_stamps_are_surfaced_where_ontomark_cannot_read_them() {
     }
 }
 
-/// Pages ontomark's vendored golden certifies as human under vocabulary 3 and
-/// VisionClaw does not, with the reason. The golden is to be re-vendored once
-/// ontomark's own fix (ruling 2: `human:` certifies nobody under 3) lands; until
-/// then the expectation is pinned here, never loosened in the code.
-const NOT_CERTIFIED_HERE: &[(&str, &str)] = &[(
-    "knowledge/VcVerifiedNpub",
-    "its only `verified` stamp is `by: human:npub1…`, the vocabulary 2 spelling. Ruling 2 makes that an error under vocabulary 3 and it certifies nobody; ontomark 79ffafb (release/v3), which the golden was regenerated from, still certifies it (`human:` names nobody to it, but its `is_human_verified_with` accepts the prefix); report to ontomark, not a VisionClaw bug.",
-)];
-
 #[test]
 fn human_certification_matches_ontomark() {
     let (g, roster) = (golden(), roster().under_vocabulary(Some(3)));
@@ -288,13 +281,70 @@ fn human_certification_matches_ontomark() {
         let okf = OkfBlock::from_frontmatter(&fm);
         let want = g["pages"][&id]["v3"]["human_certified"].as_bool().unwrap();
         let ours = okf.is_human_verified_with(&roster);
-        assert!(!ours || want, "{id}: certified here, not by ontomark");
-        if ours != want {
-            assert!(
-                NOT_CERTIFIED_HERE.iter().any(|(p, _)| *p == id),
-                "{id}: ontomark {want}, VisionClaw {ours}"
-            );
-        }
+        assert_eq!(ours, want, "{id}: ontomark {want}, VisionClaw {ours}");
+    }
+}
+
+#[test]
+fn the_old_human_spelling_certifies_under_version_2_only() {
+    let (g, roster) = (golden(), roster().under_vocabulary(Some(2)));
+    let all = pages();
+    for (id, fm) in &all {
+        let okf = OkfBlock::from_frontmatter(fm);
+        let want = g["pages"][id]["v2"]["human_certified"].as_bool().unwrap();
+        assert_eq!(okf.is_human_verified_with(&roster), want, "{id}: version 2");
+    }
+    // The two pages that carry only the `human:<npub>` spelling: certified under 2,
+    // never under 3 (the golden above pins both from ontomark's own answer).
+    for id in ["knowledge/HumanPrefixVerified", "knowledge/VcVerifiedNpub"] {
+        assert_eq!(g["pages"][id]["v2"]["human_certified"], true, "{id}");
+        assert_eq!(g["pages"][id]["v3"]["human_certified"], false, "{id}");
+    }
+}
+
+/// What VisionClaw does with a journal named as a source target. ontomark
+/// (v0.10.0) resolves `urn:visionflow:page:<id>` and `[[2026-11-25]]` to the
+/// journal; VisionClaw has no source-target resolution at all. A journal is
+/// `journals/` furniture: [`Vault::load`] keeps it in `journals`, outside the
+/// ontology `pages`, so it has no id a link or an urn could reach, and nothing
+/// in VisionClaw looks a `sources` entry up. The page that cites it is read as
+/// any working page: both typed sources parse, with `resource`, `rel` and
+/// `locator` kept as written.
+#[test]
+fn a_journal_is_furniture_and_a_source_citing_it_is_kept_not_resolved() {
+    use vault_core::page::{Vault, VaultKind};
+    let vault = Vault::load(fixture().join("working"), VaultKind::Working).unwrap();
+    assert_eq!(
+        vault
+            .journals
+            .iter()
+            .map(|j| j.id.as_str())
+            .collect::<Vec<_>>(),
+        ["2026-11-25"],
+        "the journal is read, in its own tree"
+    );
+    for id in ["2026-11-25", "journals/2026-11-25"] {
+        assert!(vault.get(id).is_none(), "{id} is not an ontology page");
+    }
+    assert!(vault.get("JournalProposal").is_some());
+
+    let fm = &pages()["working/JournalProposal"];
+    let okf = OkfBlock::from_frontmatter(fm);
+    assert!(okf.problems.is_empty(), "{:?}", okf.problems);
+    let by_id: BTreeMap<_, _> = okf.sources.iter().map(|s| (s.id.as_str(), s)).collect();
+    assert_eq!(by_id.len(), 2);
+    assert_eq!(by_id["day"].rel.as_deref(), Some("origin"));
+    assert!(by_id["day"]
+        .resource
+        .as_deref()
+        .is_some_and(|r| r.starts_with("urn:visionflow:page:")));
+    assert_eq!(by_id["day-link"].rel.as_deref(), Some("evidence"));
+    assert_eq!(by_id["day-link"].locator.as_deref(), Some("line 1"));
+    assert_eq!(by_id["day-link"].link().unwrap().target, "2026-11-25");
+    // Neither the proposal nor the journal is public, as in ontomark's golden.
+    for id in ["working/JournalProposal", "working/2026-11-25"] {
+        let rules = Rules::for_path(id, Some(3));
+        assert!(!visibility::is_public(&pages()[id].map, rules), "{id}");
     }
 }
 

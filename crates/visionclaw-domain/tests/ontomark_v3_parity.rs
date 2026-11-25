@@ -18,8 +18,9 @@ fn fixture() -> PathBuf {
 
 fn pages() -> Vec<(String, String)> {
     let mut out = Vec::new();
-    for dir in ["knowledge", "working"] {
-        for entry in std::fs::read_dir(fixture().join(dir)).unwrap() {
+    // `working/journals/<date>` is keyed `working/<date>`, as ontomark's oracle does.
+    for (dir, sub) in [("knowledge", ""), ("working", ""), ("working", "journals")] {
+        for entry in std::fs::read_dir(fixture().join(dir).join(sub)).unwrap() {
             let path = entry.unwrap().path();
             if path.extension().is_some_and(|e| e == "md") {
                 let id = format!("{dir}/{}", path.file_stem().unwrap().to_string_lossy());
