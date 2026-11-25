@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 7da4c17988f10181878db6a311606d6ad36a5014
+verified_commit: 37a08cf116d94973d44fe904e24954f10143ab60
 verified_paths: [crates/vault/src/build/turtle.rs, crates/vault/src/build/generation.rs, crates/vault/src/build/mod.rs, crates/vault-core/src/vocabulary.rs, crates/vault/tests/golden_parity.rs, crates/vault/tests/golden/README.md]
 owner: jjohare
 review_trigger: the first consumer pinning a versionIRI (agentbox ADR-2129); the first property given a non-Thing domain or range; any change to the ontology IRI itself
@@ -81,3 +81,7 @@ review contract is recorded in VisionFlow ADR-2024 and Ontomark ADR-OM-013.
 ## Re-verification — 2026-11-25 (vocabulary 3 readers, review fixes)
 
 Re-verified at `7da4c1798` (`git diff 91fac7731..7da4c1798` over the governed paths). `vocabulary.rs` and `build/mod.rs`: The changes are additive: the vocabulary 3 `working_types` map form and per-type rules in `vocabulary.rs`, the roster-aware `validate_with` (with `validate` kept) and the `INVALID_*` checks in `validate.rs`, the `Rules` argument threaded into `model.rs`, `projection.rs` (the census) and `build/mod.rs`, and the new `vault-core` modules exported from `lib.rs`. Under vocabulary 2 nothing new is an error; one thing is new as a warning: an unreadable `generated`, `verified` or `sources` value, which the old reader discarded without a word, is now reported (`INVALID_STAMP`, `INVALID_SOURCE`; 0 such values in the real corpus, measured read-only). The version IRI and the per-property signatures are emitted by `turtle.rs` and `generation.rs`, which did not change; `golden_parity` still passes byte for byte. `cargo test -p vault-core -p visionclaw-domain -p vault` passes at `bb686f270` (1,027 passed, 0 failed, 22 ignored; every `vault` test target, including `golden_parity`, `el_profile`, `defined_classes`, `probe_consistency`, `propose_cli`, `certificate_oo_cert` and `publish_gate`), and a read-only run over the 11,649 real pages with the real (vocabulary 2) vocabulary gives the same publication answer as the code before the branch for every page.
+
+## Re-verification — 2026-11-25 (roster, stamps, second pass)
+
+Re-verified at `37a08cf11` (`git diff 7da4c1798..37a08cf11` over the governed paths). `crates/vault/src/build/mod.rs`: roster loading as for ADR-2113; version IRI and property signatures are emitted by files that did not change, and `golden_parity` passes. `cargo test -p vault-core -p visionclaw-domain -p vault` passes at `37a08cf11` (1,034 passed, 0 failed, 22 ignored).
