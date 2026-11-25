@@ -78,6 +78,7 @@ pub mod promotion;
 pub mod proposal;
 pub mod secrets;
 pub mod slug;
+pub mod visibility;
 pub mod vocabulary;
 
 pub use code::CodeMap;

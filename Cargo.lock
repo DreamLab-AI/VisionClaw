@@ -7383,6 +7383,7 @@ dependencies = [
  "tungstenite 0.21.0",
  "uuid",
  "validator",
+ "vault-core",
 ]
 
 [[package]]

@@ -255,10 +255,12 @@ impl Page {
             .unwrap_or_else(|| format!("{namespace}{}", self.slug()))
     }
 
-    /// `public: true`? Absent means private — the gate fails closed.
+    /// Public under either header form: `public: true` (vocabulary 2) or
+    /// `visibility: public` (vocabulary 3)? Absent, unknown or contradictory
+    /// means not public — the gate fails closed. See [`crate::visibility`].
     #[must_use]
     pub fn is_public(&self) -> bool {
-        self.frontmatter.boolean("public").unwrap_or(false)
+        crate::visibility::is_public(&self.frontmatter.map)
     }
 
     /// The OKF lifecycle and trust block.

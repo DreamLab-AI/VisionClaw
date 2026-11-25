@@ -17,6 +17,9 @@ serde_json = "1.0"
 # ADR-2040 — the authored corpus is an Obsidian vault; `vault::parse` reads its
 # YAML frontmatter. Same 0.9 line the server crate already pins.
 serde_yaml = "0.9"
+# One visibility / stamp / recall reading shared with the `vault` crates, so the
+# two parsers cannot drift (ADR-VG-010..013, ADR-2220).
+vault-core = { path = "../vault-core" }
 
 # Pure-Rust helpers
 chrono = { version = "0.4", default-features = false, features = ["serde", "clock"] }

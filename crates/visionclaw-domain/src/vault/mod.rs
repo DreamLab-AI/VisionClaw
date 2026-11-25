@@ -12,7 +12,9 @@
 //! # The inclusion gate (§V4)
 //!
 //! A page is ingested as a knowledge-graph node iff **either** its frontmatter
-//! carries `public: true`, **or** it carries a non-empty `owl-class` (formal
+//! says it is public (`public: true`, or `visibility: public` under
+//! vocabulary 3 — one reading, [`vault_core::visibility`], so a page answers
+//! the same before and after its migration), **or** it carries a non-empty `owl-class` (formal
 //! data ingests unconditionally). Absence of both means private — the gate is
 //! fail-closed, and anchors on parsed metadata, never on the file path. See
 //! [`PageMeta::is_kg_included`].
@@ -62,6 +64,18 @@ pub struct PageMeta {
     /// a class IRI at all. Such a value now lands here instead, leaving
     /// [`PageMeta::owl_class`] `None` and the gate shut.
     pub owl_class_rejected: Option<String>,
+    /// `visibility` as authored (vocabulary 3: `private`, `shared` or `public`),
+    /// when the page carries the key. [`PageMeta::public`] is already the
+    /// combined answer of `visibility` and `public` (see
+    /// [`vault_core::visibility`]); this field only records which spelling the
+    /// author used, so a re-render writes the same key back instead of
+    /// resurrecting `public`.
+    pub visibility: Option<String>,
+    /// Why the `public` / `visibility` pair could not be read cleanly (an
+    /// unknown value, a non-boolean `public`, or two keys that disagree). The
+    /// page is not public in any of those cases; the reason is kept so an
+    /// author can see it instead of finding the page silently excluded.
+    pub visibility_problem: Option<vault_core::visibility::Problem>,
     /// True when the `public` key was present and explicitly false, as opposed
     /// to simply absent. ADR-2014/2040 require the public-false-plus-class case
     /// to be explicit rather than inferred, and it cannot be inferred from a
@@ -217,7 +231,24 @@ impl PageMeta {
         if let Some(ref status) = self.status {
             map.insert(key("status"), Value::String(status.clone()));
         }
-        map.insert(key("public"), Value::Bool(self.public));
+        // The key the page was authored with is the key written back: a page
+        // that says `visibility` keeps it and never gains a `public` beside it
+        // (that pair could contradict). A page built in code, or authored
+        // under vocabulary 2, keeps `public`.
+        match self.visibility.as_deref() {
+            Some(authored) => {
+                let written = match (self.public, authored) {
+                    (true, _) => "public",
+                    // A page that was public and no longer is, falls to the default.
+                    (false, "public") => "shared",
+                    (false, other) => other,
+                };
+                map.insert(key("visibility"), Value::String(written.to_string()));
+            }
+            None => {
+                map.insert(key("public"), Value::Bool(self.public));
+            }
+        }
         if let Some(ref owl_class) = self.owl_class {
             map.insert(key("owl-class"), Value::String(owl_class.clone()));
         }
@@ -550,14 +581,11 @@ fn parse_frontmatter(yaml: &str) -> Option<PageMeta> {
     for (key, value) in mapping {
         let Some(key) = key.as_str() else { continue };
         match key {
-            // A real YAML boolean, never the string "true" (§V2).
-            "public" => {
-                meta.public = value.as_bool().unwrap_or(false);
-                // ADR-2014: an explicit `public: false` is a different fact
-                // from an absent key, and the class-marker interaction turns
-                // on the difference.
-                meta.public_declared_false = value.as_bool() == Some(false);
-            }
+            // `public` (vocabulary 2) and `visibility` (vocabulary 3) are one
+            // fact in two spellings; both are read together below, through
+            // the one shared function.
+            "public" => {}
+            "visibility" => meta.visibility = yaml_non_empty_string(value),
             // ADR-2040: typed and IRI-shaped, or not a class marker at all.
             "owl-class" | "owl:class" => {
                 let (accepted, rejected) = yaml_class_marker(value);
@@ -592,6 +620,15 @@ fn parse_frontmatter(yaml: &str) -> Option<PageMeta> {
             }
         }
     }
+
+    // One reading for both spellings (ADR-VG-012 §5, ruling B9): a real YAML
+    // boolean `public`, or `visibility: public`. ADR-2014: an explicit
+    // "not public" is a different fact from an absent key, and the
+    // class-marker interaction turns on the difference.
+    let reading = vault_core::visibility::read(mapping);
+    meta.public = reading.public;
+    meta.public_declared_false = reading.declared_not_public && !reading.public;
+    meta.visibility_problem = reading.problem;
 
     Some(meta)
 }
@@ -711,6 +748,7 @@ fn is_typed_key(key: &str) -> bool {
     matches!(
         key,
         "public"
+            | "visibility"
             | "owl-class"
             | "owl:class"
             | "source-domain"
@@ -1042,6 +1080,8 @@ mod tests {
             raw: None,
             owl_class_rejected: None,
             public_declared_false: false,
+            visibility: None,
+            visibility_problem: None,
             page_type: Some("Class".to_string()),
             resource: Some("urn:ngm:class:foo".to_string()),
             status: Some("draft".to_string()),

@@ -106,11 +106,15 @@ pub fn inspect_inputs(pages_dir: impl AsRef<Path>) -> Result<Census, Publication
             continue;
         };
         // Never coerce a string or a number into publication permission: only a
-        // real YAML boolean counts, and anything else refuses the build.
-        match fm.get("public") {
-            Some(serde_yaml::Value::Bool(true)) => bump("included_public"),
-            None | Some(serde_yaml::Value::Bool(false)) => bump("included_private"),
+        // real YAML boolean `public` or `visibility: public` counts (the one
+        // shared reading, `vault_core::visibility`), and anything unreadable
+        // refuses the build. Two keys that disagree also refuse it.
+        let reading = vault_core::visibility::read(&fm.map);
+        match reading.problem {
+            Some(vault_core::visibility::Problem::Conflict) => bump("conflicting_publication_flag"),
             Some(_) => bump("invalid_publication_flag"),
+            None if reading.public => bump("included_public"),
+            None => bump("included_private"),
         }
     }
 
@@ -651,5 +655,40 @@ mod tests {
             inspect_inputs(&pages),
             Err(PublicationBlocked::Census(_))
         ));
+    }
+
+    #[test]
+    fn the_census_reads_visibility_and_public_as_one_fact() {
+        let dir = tempfile::tempdir().unwrap();
+        let pages = dir.path().join("working");
+        std::fs::create_dir_all(&pages).unwrap();
+        std::fs::write(pages.join("V2.md"), "---\npublic: true\n---\n").unwrap();
+        std::fs::write(pages.join("V3.md"), "---\nvisibility: public\n---\n").unwrap();
+        std::fs::write(pages.join("S.md"), "---\nvisibility: shared\n---\n").unwrap();
+        let census = inspect_inputs(&pages).unwrap();
+        assert_eq!((census.public_pages, census.non_public_pages), (2, 1));
+        assert!(census.balanced);
+    }
+
+    #[test]
+    fn contradictory_or_unknown_visibility_refuses_the_build() {
+        let dir = tempfile::tempdir().unwrap();
+        let pages = dir.path().join("working");
+        std::fs::create_dir_all(&pages).unwrap();
+        for (name, header) in [
+            ("a", "public: true\nvisibility: shared"),
+            ("b", "visibility: world"),
+        ] {
+            std::fs::write(
+                pages.join(format!("{name}.md")),
+                format!("---\n{header}\n---\n"),
+            )
+            .unwrap();
+            assert!(
+                matches!(inspect_inputs(&pages), Err(PublicationBlocked::Census(_))),
+                "{header}"
+            );
+            std::fs::remove_file(pages.join(format!("{name}.md"))).unwrap();
+        }
     }
 }
