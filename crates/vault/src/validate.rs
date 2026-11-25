@@ -723,6 +723,7 @@ fn check_disjointness(
     }
 }
 
+#[allow(clippy::too_many_lines)] // One check per OKF rule; splitting hides the list.
 fn validate_okf(
     report: &mut Report,
     path: &str,

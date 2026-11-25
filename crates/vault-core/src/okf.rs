@@ -492,7 +492,7 @@ impl OkfBlock {
             status: status_raw.as_deref().and_then(|s| s.parse().ok()),
             status_raw,
             stale_after: fm.text("stale_after"),
-            generated: generated.and_then(|r| r.ok()),
+            generated: generated.and_then(Result::ok),
             verified,
             sources,
             problems,
@@ -625,7 +625,7 @@ mod tests {
         assert_eq!(stamp.via().unwrap().as_string(), "agent:enrichment-swarm/6");
         assert_eq!(Stamp::from_yaml(&stamp.to_yaml()).unwrap(), stamp);
         assert!(stamp.extensions.contains_key("receipt"));
-        assert!(okf.problems.is_empty());
+        assert_eq!(okf.problems, vec![]);
     }
 
     #[test]
