@@ -36,6 +36,8 @@ bcrypt = "0.15"
 specta = { version = "2.0.0-rc.22", features = ["derive", "export"] }
 validator = { version = "0.20", features = ["derive"] }
 thiserror = "2.0"
+sha2 = "0.10"
+hex = "0.4"
 
 # Settings validation (validation.rs in config module)
 lazy_static = "1.4"

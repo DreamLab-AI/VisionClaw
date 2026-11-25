@@ -34,7 +34,6 @@
 //! the typed constructors below. Ad-hoc `format!()` construction is prohibited,
 //! mirroring the `uris.js` mandate on the agentbox side.
 
-use sha2::{Digest, Sha256};
 use std::fmt;
 
 /// URN namespace prefix for all converged VisionClaw identifiers.
@@ -174,26 +173,7 @@ fn require_content_address(s: &str) -> Result<(), UriError> {
     }
 }
 
-/// `sha256-12-<12 lowercase hex>` content address over `input` bytes.
-/// Matches the agentbox `sha12()` helper byte-for-byte.
-pub fn content_address(input: impl AsRef<[u8]>) -> String {
-    let digest = Sha256::digest(input.as_ref());
-    let mut hex = String::with_capacity(12);
-    for b in digest.iter().take(6) {
-        // each byte → two lowercase hex chars; 6 bytes = 12 chars.
-        hex.push(nibble(b >> 4));
-        hex.push(nibble(b & 0x0f));
-    }
-    format!("{CONTENT_ADDR_PREFIX}{hex}")
-}
-
-#[inline]
-fn nibble(n: u8) -> char {
-    match n {
-        0..=9 => (b'0' + n) as char,
-        _ => (b'a' + (n - 10)) as char,
-    }
-}
+pub use visionclaw_domain::uri::content_address;
 
 /// Lowercase, collapse non-`[a-z0-9._-]` runs to `-`, trim leading/trailing `-`.
 /// Matches the agentbox `slugify()`.
@@ -289,10 +269,9 @@ pub fn bead_with_address(owner_pubkey: &str, content_addr: &str) -> Result<Strin
     Ok(format!("{NS}:{}:{owner_pubkey}:{content_addr}", Kind::Bead))
 }
 
-/// Mint `urn:visionclaw:execution:<sha256-12>` (unscoped; owner in `owner_did`).
-pub fn execution(content: impl AsRef<[u8]>) -> String {
-    format!("{NS}:{}:{}", Kind::Execution, content_address(content))
-}
+/// Mint `urn:visionclaw:execution:<sha256-12>` (unscoped; owner in `owner_did`);
+/// defined in `visionclaw-domain` so the adapters crate mints the same bytes.
+pub use visionclaw_domain::uri::execution;
 
 /// Mint `urn:visionclaw:group:<team>#members` (team-scoped membership ref).
 pub fn group_members(team: &str) -> Result<String, UriError> {

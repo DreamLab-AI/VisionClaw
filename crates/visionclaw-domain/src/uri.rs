@@ -12,6 +12,26 @@
 //! use them.** New durable identifiers go through the converged
 //! `urn:visionclaw:*` kinds.
 
+/// URN namespace prefix for all converged VisionClaw identifiers.
+pub const NS: &str = "urn:visionclaw";
+/// Content-address prefix (`sha256-12-<12 hex>`).
+pub const CONTENT_ADDR_PREFIX: &str = "sha256-12-";
+
+/// `sha256-12-<12 lowercase hex>` content address over `input` bytes: the first
+/// 6 bytes of the SHA-256 digest. Matches the agentbox `sha12()` helper
+/// byte-for-byte. The server crate's `uri` module re-exports this, so there is
+/// one definition.
+pub fn content_address(input: impl AsRef<[u8]>) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(input.as_ref());
+    format!("{CONTENT_ADDR_PREFIX}{}", hex::encode(&digest[..6]))
+}
+
+/// Mint `urn:visionclaw:execution:<sha256-12>` (unscoped; owner in `owner_did`).
+pub fn execution(content: impl AsRef<[u8]>) -> String {
+    format!("{NS}:execution:{}", content_address(content))
+}
+
 /// Legacy `urn:ngm:*` identifier constructors and parsers.
 pub mod ngm {
     /// `urn:ngm:class:<slug>` — the canonical legacy OWL class IRI prefix.

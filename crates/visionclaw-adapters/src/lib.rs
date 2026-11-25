@@ -31,6 +31,7 @@ pub use whelk_inference_engine::WhelkInferenceEngine;
 
 // ADR-090 Phase A1+ — adapters unblocked by Phase 1b (domain now owns
 // GraphData/Node/Edge, GpuPhysicsAdapter, GpuSemanticAnalyzer, OntologyRepository).
+pub mod corpus_history;
 pub mod messages;
 pub mod oxigraph_ontology_repository;
 pub mod provenance_writer;
