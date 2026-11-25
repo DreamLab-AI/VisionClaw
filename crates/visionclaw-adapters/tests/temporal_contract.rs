@@ -18,10 +18,16 @@ use visionclaw_adapters::provenance_writer::{
     AssertionInput, AssertionVersion,
 };
 
-/// Vendored copy of ontomark `conformance/temporal/vectors.json`.
+/// Vendored copy of ontomark `conformance/temporal/vectors.json` (contract v1).
 const VECTORS: &str = include_str!("fixtures/temporal/estate-temporal-v1.json");
 /// The SHA-256 ontomark publishes for that file; a drifted copy fails here.
 const VECTORS_SHA256: &str = "6973aeef35e538412375dd6e4a9d9539f12f88fa7513d237371098da3bc46f75";
+
+/// Vendored copy of ontomark `conformance/temporal/vectors-v2.json` (contract v2,
+/// ontomark commit ce0d30b): versions never carry an end; closures do.
+const VECTORS_V2: &str = include_str!("fixtures/temporal/estate-temporal-v2.json");
+/// The SHA-256 ontomark publishes for that file.
+const VECTORS_V2_SHA256: &str = "afd2bca7acfadbe455abf5f834e5069133c6f8f7b6229044031be42881b8c134";
 
 const AGENT: &str = "did:nostr:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 
@@ -30,7 +36,20 @@ const AGENT: &str = "did:nostr:ccccccccccccccccccccccccccccccccccccccccccccccccc
 struct Vectors {
     contract: String,
     versions: Vec<VectorVersion>,
+    #[serde(default)]
+    closures: Vec<VectorClosure>,
     cases: Vec<Case>,
+}
+
+/// A closure record of the v2 file: names a version and the clock(s) it closes.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VectorClosure {
+    id: String,
+    version: String,
+    closes: Vec<String>,
+    valid_until: Option<DateTime<Utc>>,
+    recorded_at: DateTime<Utc>,
 }
 
 #[derive(Deserialize)]
@@ -70,6 +89,52 @@ fn vendored_vectors_match_the_published_pin() {
         "re-vendor from ontomark and update the pin"
     );
     assert_eq!(load().contract, "estate-temporal-v1");
+}
+
+#[test]
+fn vendored_v2_vectors_match_the_published_pin_and_are_well_formed() {
+    let digest = hex::encode(Sha256::digest(VECTORS_V2.as_bytes()));
+    assert_eq!(
+        digest, VECTORS_V2_SHA256,
+        "re-vendor from ontomark and update the pin"
+    );
+    let v: Vectors = serde_json::from_str(VECTORS_V2).expect("v2 vectors parse");
+    assert_eq!(v.contract, "estate-temporal-v2");
+    assert_eq!(
+        (v.versions.len(), v.closures.len(), v.cases.len()),
+        (12, 10, 35)
+    );
+    let ids: BTreeSet<&str> = v.versions.iter().map(|x| x.id.as_str()).collect();
+    for c in &v.closures {
+        assert!(
+            ids.contains(c.version.as_str()),
+            "{}: unknown version",
+            c.id
+        );
+        // A closure cannot be recorded before the version it closes.
+        let generated = v
+            .versions
+            .iter()
+            .find(|x| x.id == c.version)
+            .unwrap()
+            .generated_at;
+        assert!(c.recorded_at >= generated, "{}: recorded early", c.id);
+        // A2: a closure closes at least one clock, and carries validUntil iff it
+        // closes valid time.
+        assert!(!c.closes.is_empty(), "{}: closes no clock", c.id);
+        assert!(c.closes.iter().all(|k| k == "valid" || k == "recorded"));
+        assert_eq!(
+            c.closes.iter().any(|k| k == "valid"),
+            c.valid_until.is_some(),
+            "{}: validUntil iff valid time is closed",
+            c.id
+        );
+    }
+    // v2 versions carry no end, apart from v1's inline shorthand.
+    assert_eq!(
+        v.versions.iter().filter(|x| x.valid_to.is_some()).count(),
+        1
+    );
 }
 
 #[test]
@@ -210,4 +275,167 @@ fn state_at_subjects_view_conforms() {
         }
         assert_eq!(got, want, "state-at subjects view: {}", case.name);
     }
+}
+
+// ── Knowledge-cut regression and scale (contract v2; enabled by the reader) ─
+
+/// The v1 defect measured on the live store: 15 of 158,635 corpus versions were
+/// closed by a bare end recorded on 2026-11-20, yet a query as of 2026-11-19T20:00Z
+/// (before that close was recorded) still dropped them, giving 158,620 where
+/// the knowledge at that instant was 158,635. A close recorded after the cut
+/// must not apply.
+#[test]
+#[ignore = "red until step 3 (closure-aware reader); run with --ignored"]
+fn a_close_recorded_after_the_cut_must_not_apply() {
+    let day = |d, h| chrono::TimeZone::with_ymd_and_hms(&Utc, 2026, 11, d, h, 0, 0).unwrap();
+    let store = Store::new().unwrap();
+    for i in 0..20u32 {
+        let from = day(19, 13);
+        let closed = i < 3;
+        let q = build_assertion_version(&AssertionInput {
+            subject: format!("urn:ngm:class:s{i}"),
+            predicate: "http://www.w3.org/2000/01/rdf-schema#subClassOf".into(),
+            object: "urn:ngm:class:o".into(),
+            valid_from: from,
+            valid_to: closed.then(|| day(20, 8)),
+            generated_at: from,
+            activity_urn: "urn:visionclaw:execution:cut".into(),
+            agent_iri: AGENT.into(),
+        })
+        .unwrap();
+        store.extend(q.provenance_quads).unwrap();
+    }
+    let count = |t, r| {
+        let QueryResults::Solutions(rows) = store.query(&build_state_at_sparql(t, r)).unwrap()
+        else {
+            panic!("SELECT")
+        };
+        rows.count()
+    };
+    assert_eq!(
+        count(day(21, 0), Some(day(19, 20))),
+        20,
+        "the cut predates the close"
+    );
+    assert_eq!(count(day(21, 0), None), 17, "full knowledge: 3 closed");
+    assert_eq!(count(day(19, 20), None), 20);
+}
+
+/// Production scale: ~20k versions, 1k valid-time closures. The reader must
+/// stay in the region of a second, not the 12 s of the multi-pattern
+/// `FILTER NOT EXISTS` form nor the 299 s of `OPTIONAL` + `GROUP BY` measured
+/// on the real store. Closures are written as raw A2 quads here so the test
+/// reads the reader alone; the production builders are covered elsewhere.
+#[test]
+#[ignore = "red until step 3 (closure-aware reader); run with --ignored"]
+fn the_reader_stays_fast_at_production_scale() {
+    use oxigraph::model::{vocab::xsd, GraphName, Literal, NamedNode, Quad};
+    const VERSIONS: u32 = 20_000;
+    const CLOSURES: u32 = 1_000;
+    let dl = |s: &str| NamedNode::new_unchecked(format!("https://narrativegoldmine.com/ns/dl#{s}"));
+    let prov = |s: &str| NamedNode::new_unchecked(format!("http://www.w3.org/ns/prov#{s}"));
+    let g = GraphName::NamedNode(NamedNode::new_unchecked("urn:ngm:graph:provenance"));
+    let t0 = chrono::TimeZone::with_ymd_and_hms(&Utc, 2026, 11, 19, 13, 0, 0).unwrap();
+    let t1 = chrono::TimeZone::with_ymd_and_hms(&Utc, 2026, 11, 20, 8, 0, 0).unwrap();
+    let dt = |d: DateTime<Utc>| {
+        Literal::new_typed_literal(
+            d.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            xsd::DATE_TIME,
+        )
+    };
+    let store = Store::new().unwrap();
+    let activity = NamedNode::new_unchecked("urn:visionclaw:execution:scale");
+    let agent = NamedNode::new_unchecked(AGENT);
+    let rdf = |s: &str| {
+        NamedNode::new_unchecked(format!("http://www.w3.org/1999/02/22-rdf-syntax-ns#{s}"))
+    };
+    let mut quads = Vec::new();
+    for i in 0..VERSIONS {
+        let e = NamedNode::new_unchecked(format!("urn:agentbox:event:scale:v{i}"));
+        quads.push(Quad::new(e.clone(), rdf("type"), prov("Entity"), g.clone()));
+        quads.push(Quad::new(
+            e.clone(),
+            rdf("subject"),
+            NamedNode::new_unchecked(format!("urn:ngm:class:s{i}")),
+            g.clone(),
+        ));
+        quads.push(Quad::new(
+            e.clone(),
+            rdf("predicate"),
+            NamedNode::new_unchecked("http://www.w3.org/2000/01/rdf-schema#subClassOf"),
+            g.clone(),
+        ));
+        quads.push(Quad::new(
+            e.clone(),
+            rdf("object"),
+            NamedNode::new_unchecked("urn:ngm:class:o"),
+            g.clone(),
+        ));
+        quads.push(Quad::new(e.clone(), dl("validFrom"), dt(t0), g.clone()));
+        quads.push(Quad::new(
+            e.clone(),
+            prov("generatedAtTime"),
+            dt(t0),
+            g.clone(),
+        ));
+        quads.push(Quad::new(
+            e.clone(),
+            prov("wasGeneratedBy"),
+            activity.clone(),
+            g.clone(),
+        ));
+        quads.push(Quad::new(
+            e.clone(),
+            prov("wasAttributedTo"),
+            agent.clone(),
+            g.clone(),
+        ));
+    }
+    for i in 0..CLOSURES {
+        let c = NamedNode::new_unchecked(format!("urn:agentbox:event:scale:c{i}"));
+        quads.push(Quad::new(c.clone(), rdf("type"), dl("Closure"), g.clone()));
+        quads.push(Quad::new(
+            c.clone(),
+            dl("closesVersion"),
+            NamedNode::new_unchecked(format!("urn:agentbox:event:scale:v{i}")),
+            g.clone(),
+        ));
+        quads.push(Quad::new(
+            c.clone(),
+            dl("closes"),
+            NamedNode::new_unchecked("http://nova.dev/memory#ValidTime"),
+            g.clone(),
+        ));
+        quads.push(Quad::new(c.clone(), dl("validUntil"), dt(t1), g.clone()));
+        quads.push(Quad::new(
+            c.clone(),
+            prov("generatedAtTime"),
+            dt(t1),
+            g.clone(),
+        ));
+    }
+    store.extend(quads).unwrap();
+
+    let run = |t, r| {
+        let start = std::time::Instant::now();
+        let QueryResults::Solutions(rows) = store.query(&build_state_at_sparql(t, r)).unwrap()
+        else {
+            panic!("SELECT")
+        };
+        let n = rows.filter(|r| r.is_ok()).count();
+        (n, start.elapsed())
+    };
+    let after = t1 + chrono::Duration::days(1);
+    let (n, took) = run(after, None);
+    assert_eq!(n, (VERSIONS - CLOSURES) as usize, "full knowledge");
+    assert!(took.as_secs_f64() < 5.0, "state-at took {took:?}");
+    let (n, took) = run(after, Some(t1 - chrono::Duration::hours(1)));
+    assert_eq!(
+        n, VERSIONS as usize,
+        "closures recorded after the cut do not apply"
+    );
+    assert!(
+        took.as_secs_f64() < 5.0,
+        "state-at with a cut took {took:?}"
+    );
 }
