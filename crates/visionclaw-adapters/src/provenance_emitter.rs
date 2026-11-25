@@ -34,9 +34,13 @@
 
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
+
 use oxigraph::model::vocab::xsd;
 use oxigraph::model::{GraphName, Literal, NamedNode, NamedNodeRef, Quad};
 use oxigraph::store::{StorageError, Store};
+
+use visionclaw_domain::models::metadata::wire_timestamp;
 
 use super::oxigraph_ontology_repository::GRAPH_PROVENANCE;
 
@@ -87,6 +91,8 @@ pub struct ActivityRecord {
 pub enum ProvenanceError {
     Store(String),
     InvalidIri(String),
+    /// The record's timestamp is not RFC 3339.
+    InvalidTimestamp(String),
 }
 
 impl std::fmt::Display for ProvenanceError {
@@ -94,6 +100,9 @@ impl std::fmt::Display for ProvenanceError {
         match self {
             ProvenanceError::Store(e) => write!(f, "provenance store error: {e}"),
             ProvenanceError::InvalidIri(e) => write!(f, "invalid IRI in provenance record: {e}"),
+            ProvenanceError::InvalidTimestamp(e) => {
+                write!(f, "invalid timestamp in provenance record: {e}")
+            }
         }
     }
 }
@@ -138,6 +147,15 @@ pub fn build_activity_quads(record: &ActivityRecord) -> Result<Vec<Quad>, Proven
     // Phase 1 — resolve and validate every named node up front. Any failure
     // here happens before the caller has written anything at all.
     let graph: GraphName = make_named_node(GRAPH_PROVENANCE)?.into();
+    // One canonical form for every stored timestamp: UTC, whole seconds, `Z`
+    // (`wire_timestamp`). Callers hand over `to_rfc3339()` strings with
+    // sub-second digits and offsets; the store holds the canonical form so a
+    // literal compares and prints the same wherever it was written.
+    let stamp = wire_timestamp(
+        &DateTime::parse_from_rfc3339(&record.timestamp)
+            .map_err(|e| ProvenanceError::InvalidTimestamp(format!("{}: {e}", record.timestamp)))?
+            .with_timezone(&Utc),
+    );
     let subject = make_named_node(&record.activity_urn)?;
     let agent = make_named_node(&record.agent_did)?;
     let used_node = record.used.as_deref().map(make_named_node).transpose()?;
@@ -187,7 +205,7 @@ pub fn build_activity_quads(record: &ActivityRecord) -> Result<Vec<Quad>, Proven
     quads.push(Quad::new(
         subject.clone(),
         p_started,
-        Literal::new_typed_literal(&record.timestamp, xsd::DATE_TIME),
+        Literal::new_typed_literal(&stamp, xsd::DATE_TIME),
         graph.clone(),
     ));
 
@@ -241,7 +259,7 @@ pub fn build_activity_quads(record: &ActivityRecord) -> Result<Vec<Quad>, Proven
         quads.push(Quad::new(
             gen_node.clone(),
             NamedNodeRef::new_unchecked(PROV_GENERATED_AT_TIME),
-            Literal::new_typed_literal(&record.timestamp, xsd::DATE_TIME),
+            Literal::new_typed_literal(&stamp, xsd::DATE_TIME),
             graph.clone(),
         ));
         // <generated> prov:wasDerivedFrom <used> — only when a concrete
@@ -888,6 +906,38 @@ mod tests {
         store.extend(v.provenance_quads).unwrap();
         let node = fetch_provenance_node(&store, &v.entity_iri).unwrap();
         assert_eq!(node.generated_at.as_deref(), Some("2026-11-19T13:26:13Z"));
+    }
+
+    /// Stored timestamps are canonical whatever the caller formatted: whole
+    /// seconds, UTC, `Z`. A garbage timestamp is rejected before any quad exists.
+    #[test]
+    fn timestamps_are_normalised_to_the_canonical_wire_form() {
+        let mut record = test_record();
+        record.timestamp = "2026-11-19T14:26:13.123456+01:00".to_string();
+        record.generated = Some("urn:visionclaw:concept:a:b".to_string());
+        let quads = build_activity_quads(&record).unwrap();
+        let stamps: Vec<String> = quads
+            .iter()
+            .filter(|q| {
+                matches!(
+                    q.predicate.as_str(),
+                    PROV_STARTED_AT_TIME | PROV_GENERATED_AT_TIME
+                )
+            })
+            .map(|q| q.object.to_string())
+            .collect();
+        assert_eq!(stamps.len(), 2, "startedAtTime and generatedAtTime");
+        for s in stamps {
+            assert_eq!(
+                s,
+                "\"2026-11-19T13:26:13Z\"^^<http://www.w3.org/2001/XMLSchema#dateTime>"
+            );
+        }
+        record.timestamp = "yesterday".to_string();
+        assert!(matches!(
+            build_activity_quads(&record),
+            Err(ProvenanceError::InvalidTimestamp(_))
+        ));
     }
 
     #[test]
