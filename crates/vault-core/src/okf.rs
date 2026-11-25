@@ -698,4 +698,23 @@ mod tests {
         ));
         assert!(!okf.is_human_verified_with(&org));
     }
+    #[test]
+    fn a_page_verified_only_by_a_swarm_key_is_not_certified() {
+        const SWARM: &str = "94773a699927da1ef879b90843890b1fe0e671ae898163f4337dcbe5f96992c0";
+        const ALSO: &str = "d598abc6edefc37e10523aec4c00f8d9674a93791aa34a1db03bfa9b60b9f246";
+        let roster = crate::roster::Roster::from_yaml_str(&format!(
+            "principals:\n  - did: did:nostr:{B41}\n    label: jjohare\n    kind: human\n    also: [did:nostr:{ALSO}]\ngenerators:\n  - did: did:nostr:{SWARM}\n    label: enrichment-swarm\n    kind: process\n    principal: did:nostr:{B41}\n"
+        ));
+        let okf_by = |key: &str| {
+            OkfBlock::from_frontmatter(
+                &Frontmatter::parse(&format!(
+                    "verified:\n  - {{ by: did:nostr:{key}, at: 2026-11-02T00:00:00Z }}\n"
+                ))
+                .unwrap(),
+            )
+        };
+        assert!(!okf_by(SWARM).is_human_verified_with(&roster), "swarm");
+        assert!(okf_by(B41).is_human_verified_with(&roster), "canonical key");
+        assert!(okf_by(ALSO).is_human_verified_with(&roster), "also key");
+    }
 }

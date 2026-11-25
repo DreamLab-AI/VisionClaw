@@ -195,8 +195,9 @@ impl Roster {
 
     /// Resolve a `did:nostr:` DID to its canonical principal and kind. A
     /// registry entry (canonical, or listed under `also`) wins; a generator
-    /// filed under a registry principal takes that principal's kind; any other
-    /// generator is its own principal with the kind it states. `None` when the
+    /// filed under a registry principal resolves to that principal but keeps its own kind (an
+    /// instrument is never human); any other generator is its own principal with
+    /// the kind it states. `None` when the
     /// roster knows nothing of the key.
     #[must_use]
     pub fn resolve_did(&self, did: &str) -> Option<Resolved> {
@@ -216,11 +217,15 @@ impl Roster {
         match &g.principal {
             Some(principal) => Some(Resolved {
                 canonical: principal.clone(),
-                kind: self
-                    .principals
-                    .iter()
-                    .find(|q| &q.did == principal)
-                    .map_or(g.kind, |q| q.kind),
+                // Only a principal's OWN keys (its canonical key and `also`)
+                // carry its kind, and those were matched above. A generator
+                // filed under the principal is an instrument acting for it:
+                // it keeps the kind it states, so a swarm is never human.
+                kind: if g.kind == PrincipalKind::Human {
+                    PrincipalKind::Other
+                } else {
+                    g.kind
+                },
                 label,
             }),
             None => Some(Resolved {
@@ -369,10 +374,21 @@ mod tests {
     }
 
     #[test]
-    fn a_generator_filed_under_a_principal_takes_its_kind() {
+    fn a_generator_filed_under_a_principal_acts_for_it_but_is_never_human() {
         let r = registry();
         let g = r.resolve(&actor(SWARM)).unwrap();
-        assert_eq!((g.canonical.as_str(), g.kind), (B41, PrincipalKind::Human));
+        assert_eq!((g.canonical.as_str(), g.kind), (B41, PrincipalKind::Other));
+        assert!(!r.is_human(&actor(SWARM)));
+        // The principal's own keys still are.
+        assert!(r.is_human(&actor(B41)) && r.is_human(&actor(D59)));
+    }
+
+    #[test]
+    fn a_generator_with_no_stated_kind_is_not_human_either() {
+        let r = Roster::from_yaml_str(&format!(
+            "principals:\n  - did: {B41}\n    label: j\n    kind: human\ngenerators:\n  - did: {SWARM}\n    label: s\n    principal: {B41}\n"
+        ));
+        assert!(!r.is_human(&actor(SWARM)));
     }
 
     #[test]
