@@ -238,7 +238,9 @@ fn page_is_visible(file_name: &str, content: &str, caller: Option<&str>) -> bool
         return false;
     };
     let mut node = visionclaw_domain::models::node::Node::default();
-    if page.is_public() {
+    // The flat markdown mirror has no vault layout and no vocabulary: the same
+    // `public: true` reading as `FileService`'s gate, never `visibility`.
+    if page.is_public(vault_core::visibility::Rules::PublicFlag) {
         node.metadata
             .insert("public".to_string(), "true".to_string());
     }

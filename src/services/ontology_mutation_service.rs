@@ -492,7 +492,8 @@ impl OntologyMutationService {
         // ADR-2040 Invariant 1 forbids — and which landed AFTER the body, well
         // outside the leading block the gate now reads.
         let existing_markdown = existing.markdown_content.clone().unwrap_or_default();
-        let (mut meta, body) = vault::split(&existing_markdown);
+        // The page being mutated is a knowledge page: `public:` alone decides.
+        let (mut meta, body) = vault::split(&existing_markdown, vault::Rules::PublicFlag);
 
         if let Some(ref new_def) = amendment.update_definition {
             meta.extra.insert("definition".to_string(), new_def.clone());
@@ -1213,7 +1214,7 @@ mod vault_writer_tests {
             "ADR-2040 Invariant 1: no writer emits `key:: value` lines"
         );
 
-        let meta = vault::parse(&markdown);
+        let meta = vault::parse(&markdown, vault::Rules::PublicFlag);
         assert_eq!(meta.format, PageFormat::Obsidian);
         assert!(meta.is_kg_included());
         assert!(meta.public);
@@ -1228,7 +1229,7 @@ mod vault_writer_tests {
     #[test]
     fn generated_page_preserves_the_ontology_properties_verbatim() {
         let markdown = generate_vault_markdown(&proposal(), "MV-0042", "did:nostr:abc");
-        let meta = vault::parse(&markdown);
+        let meta = vault::parse(&markdown, vault::Rules::PublicFlag);
 
         assert_eq!(
             meta.extra.get("term-id").map(String::as_str),
@@ -1260,7 +1261,7 @@ mod vault_writer_tests {
     #[test]
     fn the_body_carries_the_heading_and_definition() {
         let markdown = generate_vault_markdown(&proposal(), "MV-0042", "did:nostr:abc");
-        let (_, body) = vault::split(&markdown);
+        let (_, body) = vault::split(&markdown, vault::Rules::PublicFlag);
         assert!(body.contains("# Arbitration Decision Engine"));
         assert!(body.contains("Resolves competing claims: deterministically."));
     }

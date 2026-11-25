@@ -89,7 +89,7 @@ pub use error::{Result, VaultError};
 pub use frontmatter::{Frontmatter, Wikilink};
 pub use graph::VaultGraph;
 pub use okf::{Actor, OkfBlock, Source, Stamp, Status};
-pub use page::{load_vault, parse_page, Page, Vault, VaultKind};
+pub use page::{load_vault, parse_page, vault_kind_of, Page, Vault, VaultKind};
 pub use promotion::{Blocker, PromotionState, Transition};
 pub use proposal::{Level, PatchProposal};
 pub use vocabulary::Vocabulary;

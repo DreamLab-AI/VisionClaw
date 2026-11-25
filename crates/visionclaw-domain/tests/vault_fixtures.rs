@@ -9,7 +9,7 @@
 
 use std::path::PathBuf;
 
-use visionclaw_domain::vault::{self, PageFormat};
+use visionclaw_domain::vault::{self, PageFormat, Rules};
 
 fn fixture(name: &str) -> String {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -20,23 +20,23 @@ fn fixture(name: &str) -> String {
 }
 
 fn is_kg_included(name: &str) -> bool {
-    vault::parse(&fixture(name)).is_kg_included()
+    vault::parse(&fixture(name), Rules::PublicFlag).is_kg_included()
 }
 
 #[test]
 fn exp_v01_publish_gate() {
-    let meta = vault::parse(&fixture("obsidian-public.md"));
+    let meta = vault::parse(&fixture("obsidian-public.md"), Rules::PublicFlag);
     assert!(meta.public);
     assert!(meta.is_kg_included());
     assert_eq!(meta.format, PageFormat::Obsidian);
 
     assert!(!is_kg_included("obsidian-private.md"));
-    assert!(!vault::parse("# Untitled\n\nJust prose.\n").is_kg_included());
+    assert!(!vault::parse("# Untitled\n\nJust prose.\n", Rules::PublicFlag).is_kg_included());
 }
 
 #[test]
 fn exp_v02_owl_class_bypasses_the_publish_gate() {
-    let meta = vault::parse(&fixture("obsidian-owl-class.md"));
+    let meta = vault::parse(&fixture("obsidian-owl-class.md"), Rules::PublicFlag);
     assert!(!meta.public);
     assert!(meta.is_kg_included());
     assert_eq!(meta.owl_class.as_deref(), Some("mv:Foo"));
@@ -47,7 +47,7 @@ fn exp_v02_owl_class_bypasses_the_publish_gate() {
 fn exp_v03_key_lines_are_body_text() {
     let leading = fixture("legacy-public.md");
     assert!(leading.starts_with("public:: true"));
-    let meta = vault::parse(&leading);
+    let meta = vault::parse(&leading, Rules::PublicFlag);
     assert!(
         !meta.is_kg_included(),
         "a leading `key::` block is not metadata"
@@ -57,7 +57,7 @@ fn exp_v03_key_lines_are_body_text() {
 
     let midbody = fixture("legacy-midbody-public.md");
     assert!(midbody.contains("public:: true"));
-    assert!(!vault::parse(&midbody).is_kg_included());
+    assert!(!vault::parse(&midbody, Rules::PublicFlag).is_kg_included());
 }
 
 #[test]

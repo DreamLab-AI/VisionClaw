@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
-use visionclaw_domain::vault::parse;
+use visionclaw_domain::vault::{parse, Rules};
 
 fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../vault-core/tests/fixtures/ontomark-vocab-v3")
@@ -35,27 +35,43 @@ fn golden() -> Value {
     serde_json::from_str(&std::fs::read_to_string(fixture().join("golden.json")).unwrap()).unwrap()
 }
 
+/// `(page, vocabulary version, reason)` where VisionClaw reads a page as NOT
+/// public although ontomark reads it as public. The reverse is never allowed.
+const FAIL_CLOSED: &[(&str, u32)] = &[("working/VcConflictPublic", 3)];
+
 #[test]
 fn the_kg_gate_and_the_publisher_predicate_match_ontomark() {
     let g = golden();
     let mut public = 0;
     for (id, text) in pages() {
-        let meta = parse(&text);
-        // Judged under the vocabulary the page's own form belongs to.
-        let version = if text.contains("\nvisibility:") {
-            "v3"
-        } else {
-            "v2"
-        };
-        let want = g["pages"][&id][version]["public"].as_bool().unwrap();
-        // None of the fixture's pages carries an `owl-class`, so the gate is
-        // the publication answer; both predicates read the one function.
-        assert_eq!(meta.is_publishable(), want, "{id} publishable");
-        assert_eq!(meta.is_kg_included(), want, "{id} kg gate");
-        public += usize::from(want);
+        for version in [2u32, 3] {
+            let meta = parse(&text, Rules::for_path(&id, Some(version)));
+            let want = g["pages"][&id][format!("v{version}")]["public"]
+                .as_bool()
+                .unwrap();
+            // None of the fixture's pages carries an `owl-class`, so the gate
+            // is the publication answer; both predicates read the one function.
+            assert_eq!(
+                meta.is_publishable(),
+                meta.is_kg_included(),
+                "{id} v{version}"
+            );
+            let ours = meta.is_kg_included();
+            assert!(
+                !ours || want,
+                "{id} under vocabulary {version}: VisionClaw publishes a page ontomark keeps private"
+            );
+            if ours != want {
+                assert!(
+                    FAIL_CLOSED.contains(&(id.as_str(), version)),
+                    "{id} under vocabulary {version}: ontomark {want}, VisionClaw {ours}"
+                );
+            }
+            public += usize::from(ours);
+        }
     }
     assert!(
-        public >= 8,
+        public >= 16,
         "the fixture must exercise the public path, got {public}"
     );
 }
@@ -64,7 +80,7 @@ fn the_kg_gate_and_the_publisher_predicate_match_ontomark() {
 fn unreadable_stamps_are_reported_not_discarded() {
     let g = golden();
     for (id, text) in pages() {
-        let meta = parse(&text);
+        let meta = parse(&text, Rules::for_path(&id, Some(3)));
         let want = &g["pages"][&id]["v3"];
         let raw = meta.raw.clone().unwrap_or_default();
         let has = |k: &str| raw.contains_key(serde_yaml::Value::String(k.into()));

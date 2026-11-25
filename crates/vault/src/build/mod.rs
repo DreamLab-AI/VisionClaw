@@ -292,7 +292,11 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
     // Pages sit at the vault root; the census and the held-identity scan walk
     // it with the furniture folders excluded, exactly as `load_vault` does.
     let pages_dir = options.vault_root.clone();
-    let census = projection::inspect_inputs(&pages_dir)?;
+    let rules = vault_core::visibility::Rules::for_page(
+        vault_core::page::vault_kind_of(&pages_dir),
+        Some(vocab.version),
+    );
+    let census = projection::inspect_inputs(&pages_dir, rules)?;
 
     let vault = load_vault(&options.vault_root)?;
     let aliases = alias_map(&vault);
@@ -315,7 +319,7 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
     };
     let mut publish_vaults: Vec<&Vault> = vec![&vault];
     publish_vaults.extend(working.as_ref());
-    let staging = publish::stage(&publish_vaults)?;
+    let staging = publish::stage(&publish_vaults, Some(vocab.version))?;
 
     let principals = options
         .vault_root

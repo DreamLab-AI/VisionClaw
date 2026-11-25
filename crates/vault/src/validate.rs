@@ -402,10 +402,11 @@ pub fn validate_with(
         .iter()
         .map(|p| p.title().to_lowercase())
         .collect();
+    let rules = vault.rules(Some(vocab.version));
     let private_ids: HashSet<&str> = vault
         .pages
         .iter()
-        .filter(|p| !p.is_public())
+        .filter(|p| !p.is_public(rules))
         .map(|p| p.id.as_str())
         .collect();
 

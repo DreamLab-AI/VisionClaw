@@ -324,6 +324,7 @@ impl Corpus {
     #[allow(clippy::too_many_lines)] // One pass over the vault, in corpus order.
     pub fn build(vault: &Vault, vocab: &Vocabulary) -> Self {
         let names = NameIndex::build(&vault.pages);
+        let rules = vault.rules(Some(vocab.version));
         let resources: Vec<String> = vault
             .pages
             .iter()
@@ -381,7 +382,7 @@ impl Corpus {
                     .filter(|l| !l.trim().is_empty())
                     .unwrap_or_else(|| title.clone()),
                 title,
-                public: page.is_public(),
+                public: page.is_public(rules),
                 page_iri: fm
                     .text("page_resource")
                     .unwrap_or_else(|| resources[i].clone()),

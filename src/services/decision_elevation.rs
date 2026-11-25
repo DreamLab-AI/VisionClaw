@@ -358,7 +358,9 @@ pub struct ParsedDecision {
 /// or non-decision `resource` — so class pages and ordinary individuals are
 /// left to the class-rebuild path untouched.
 pub fn parse_decision_page(markdown: &str) -> Option<ParsedDecision> {
-    let meta = vault::parse(markdown);
+    // A knowledge page the elevation writes: public by `public:` alone at every
+    // vocabulary version, so no vocabulary is needed.
+    let meta = vault::parse(markdown, vault::Rules::PublicFlag);
 
     if meta.page_type.as_deref() != Some(DECISION_PAGE_TYPE) {
         return None;
@@ -584,7 +586,7 @@ mod tests {
 
         // Q4: the node typing is frontmatter, and there is no fence to read.
         assert!(!markdown.contains("```"), "no json-ld fence: {markdown}");
-        let meta = vault::parse(&markdown);
+        let meta = vault::parse(&markdown, vault::Rules::PublicFlag);
         assert_eq!(meta.page_type.as_deref(), Some(DECISION_PAGE_TYPE));
         assert_eq!(meta.resource.as_deref(), Some(dec.decision_urn.as_str()));
         assert_eq!(meta.status.as_deref(), Some("draft"));
@@ -640,7 +642,7 @@ mod tests {
             ..Default::default()
         });
         let (_, markdown) = draft_decision_page(&dec);
-        let meta = vault::parse(&markdown);
+        let meta = vault::parse(&markdown, vault::Rules::PublicFlag);
         for key in DECISION_RELATION_KEYS {
             assert!(
                 !meta.extra_lists.contains_key(key),
@@ -725,7 +727,7 @@ mod tests {
             "a ```json-ld fence is a vocabulary `rejected_construct` (PRD Q4)"
         );
 
-        let meta = vault::parse(&markdown);
+        let meta = vault::parse(&markdown, vault::Rules::PublicFlag);
         assert!(meta.public);
         assert!(meta.is_kg_included());
         assert_eq!(meta.title.as_deref(), Some("merge duplicate concepts"));
@@ -749,7 +751,7 @@ mod tests {
             governed_by: vec![],
         });
         let (_, markdown) = draft_decision_page(&dec);
-        let meta = vault::parse(&markdown);
+        let meta = vault::parse(&markdown, vault::Rules::PublicFlag);
 
         assert!(meta.public, "still ingests");
         // `title` is a required knowledge key, so the placeholder is written —
@@ -799,7 +801,7 @@ mod tests {
             ..Default::default()
         });
         let (_, markdown) = draft_decision_page(&dec);
-        let (meta, _) = vault::split(&markdown);
+        let (meta, _) = vault::split(&markdown, vault::Rules::PublicFlag);
 
         // No frontmatter VALUE is an environment value. Exact equality, not a
         // substring scan: the ambient environment of this estate holds short
@@ -933,7 +935,7 @@ mod vocabulary_conformance {
         declared.extend(["type", "resource", "status", "generated"].map(String::from));
 
         for (name, markdown) in sample_pages() {
-            let meta = vault::parse(&markdown);
+            let meta = vault::parse(&markdown, vault::Rules::PublicFlag);
             let emitted: Vec<String> = meta
                 .extra
                 .keys()

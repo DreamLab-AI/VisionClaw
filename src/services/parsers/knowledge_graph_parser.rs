@@ -144,7 +144,9 @@ impl KnowledgeGraphParser {
     /// untouched; only `source_file` changes shape, to the vault-relative path
     /// with `/` namespaces (`A/B Testing.md`, was `A___B Testing.md`).
     fn create_page_node(&self, page_name: &str, content: &str) -> Node {
-        let meta = vault::parse(content);
+        // Fields only: publication was decided by the caller's gate under the
+        // page's own rules (the flag below is the constant that gate implies).
+        let meta = vault::parse(content, vault::Rules::PublicFlag);
 
         let mut metadata = HashMap::new();
         metadata.insert("type".to_string(), "page".to_string());

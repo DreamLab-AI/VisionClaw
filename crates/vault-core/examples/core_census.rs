@@ -19,7 +19,7 @@ use vault_core::frontmatter::{self, Frontmatter};
 use vault_core::lifecycle::is_recallable;
 use vault_core::okf::OkfBlock;
 use vault_core::roster::Roster;
-use vault_core::visibility;
+use vault_core::visibility::{self, Rules};
 
 fn main() {
     let a: Vec<String> = std::env::args().collect();
@@ -45,17 +45,24 @@ fn main() {
         }
     }
     files.sort();
+    // The vault's own vocabulary decides which key publishes a working page.
+    let vocab_version = std::fs::read_to_string(root.join("ontology/vocabulary.yaml"))
+        .ok()
+        .and_then(|t| vault_core::vocabulary::Vocabulary::from_yaml_str(&t).ok())
+        .map(|v| v.version);
+    eprintln!("vocabulary version: {vocab_version:?}");
     let now = 1_794_961_600; // 2026-11-18T00:26:40Z, fixed so runs compare
     for p in files {
         let rel = p.strip_prefix(root).unwrap().to_string_lossy().into_owned();
         let text = std::fs::read_to_string(&p).unwrap_or_default();
         let split = frontmatter::split(&text);
         let fm = split.yaml.and_then(|y| Frontmatter::parse(y).ok());
+        let rules = Rules::for_path(&rel, vocab_version);
         let line = match fm {
             None => serde_json::json!({"path": rel, "frontmatter": false}),
             Some(fm) => {
                 let okf = OkfBlock::from_frontmatter(&fm);
-                let reading = visibility::read(&fm.map);
+                let reading = visibility::read(&fm.map, rules);
                 let raw_verified = match fm.get("verified") {
                     Some(serde_yaml::Value::Sequence(s)) => s.len(),
                     Some(_) => 1,

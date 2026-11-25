@@ -270,6 +270,86 @@
     "verified_readable": 0
    }
   },
+  "knowledge/VcKnowledgePublicAndVisible": {
+   "v2": {
+    "generated_readable": true,
+    "human_certified": false,
+    "principal": "did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a",
+    "public": true,
+    "recallable": false,
+    "verified_principals": [],
+    "verified_readable": 0
+   },
+   "v3": {
+    "generated_readable": true,
+    "human_certified": false,
+    "principal": "did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a",
+    "public": true,
+    "recallable": false,
+    "verified_principals": [],
+    "verified_readable": 0
+   }
+  },
+  "knowledge/VcKnowledgePublicShared": {
+   "v2": {
+    "generated_readable": true,
+    "human_certified": false,
+    "principal": "did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a",
+    "public": true,
+    "recallable": false,
+    "verified_principals": [],
+    "verified_readable": 0
+   },
+   "v3": {
+    "generated_readable": true,
+    "human_certified": false,
+    "principal": "did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a",
+    "public": true,
+    "recallable": false,
+    "verified_principals": [],
+    "verified_readable": 0
+   }
+  },
+  "knowledge/VcKnowledgeVisibilityConflict": {
+   "v2": {
+    "generated_readable": true,
+    "human_certified": false,
+    "principal": "did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a",
+    "public": false,
+    "recallable": false,
+    "verified_principals": [],
+    "verified_readable": 0
+   },
+   "v3": {
+    "generated_readable": true,
+    "human_certified": false,
+    "principal": "did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a",
+    "public": false,
+    "recallable": false,
+    "verified_principals": [],
+    "verified_readable": 0
+   }
+  },
+  "knowledge/VcKnowledgeVisibilityOnly": {
+   "v2": {
+    "generated_readable": true,
+    "human_certified": false,
+    "principal": "did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a",
+    "public": false,
+    "recallable": false,
+    "verified_principals": [],
+    "verified_readable": 0
+   },
+   "v3": {
+    "generated_readable": true,
+    "human_certified": false,
+    "principal": "did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a",
+    "public": false,
+    "recallable": false,
+    "verified_principals": [],
+    "verified_readable": 0
+   }
+  },
   "knowledge/VcVerifiedAlsoHuman": {
    "v2": {
     "generated_readable": true,

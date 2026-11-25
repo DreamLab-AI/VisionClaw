@@ -4,6 +4,12 @@ fn main() {
     let a: Vec<String> = std::env::args().collect();
     let root = std::path::Path::new(&a[1]);
     let mut out = std::io::BufWriter::new(std::fs::File::create(&a[2]).unwrap());
+    // The vault's own vocabulary decides which key publishes a working page.
+    let version = std::fs::read_to_string(root.join("ontology/vocabulary.yaml"))
+        .ok()
+        .and_then(|t| vault_core::vocabulary::Vocabulary::from_yaml_str(&t).ok())
+        .map(|v| v.version);
+    eprintln!("vocabulary version: {version:?}");
     let mut files = Vec::new();
     for vault in ["knowledge", "working"] {
         let mut stack = vec![root.join(vault)];
@@ -32,7 +38,8 @@ fn main() {
     for p in files {
         let rel = p.strip_prefix(root).unwrap().to_string_lossy().into_owned();
         let text = std::fs::read_to_string(&p).unwrap_or_default();
-        let m = visionclaw_domain::vault::parse(&text);
+        let rules = visionclaw_domain::vault::Rules::for_path(&rel, version);
+        let m = visionclaw_domain::vault::parse(&text, rules);
         let line = serde_json::json!({
             "path": rel,
             "kg_included": m.is_kg_included(),

@@ -24,3 +24,9 @@ ontomark's predicates, not by reading the pages:
 * `generated_readable`, `verified_readable`: how many stamps `OkfBlock` parsed
 
 The harness and the exact commands to regenerate `golden.json` are in `ORACLE.md`.
+
+The four `VcKnowledge*` pages (a knowledge page carrying `visibility`, with and
+without a disagreeing `public`) were added with the visibility fix; their
+entries in `golden.json` were produced by the oracle at ontomark `1bbf86b`,
+which also reproduced every earlier entry unchanged (the `ontomark` field above
+still names the commit the original entries came from).

@@ -167,13 +167,14 @@ fn render(page: &Page) -> String {
 }
 
 /// Stage the publish tree for every vault given, scanning each staged page for
-/// credentials.
+/// credentials. A page is published by the key its vault's rules name under the
+/// vocabulary `vocabulary_version`.
 ///
 /// # Errors
 /// [`SecretsFound`] when any page selected for publication carries a
 /// credential. Nothing is staged in that case: the caller must not write a
 /// partial bundle.
-pub fn stage(vaults: &[&Vault]) -> Result<Staging, SecretsFound> {
+pub fn stage(vaults: &[&Vault], vocabulary_version: Option<u32>) -> Result<Staging, SecretsFound> {
     let mut staging = Staging::default();
     let mut findings: Vec<SecretFinding> = Vec::new();
 
@@ -184,12 +185,13 @@ pub fn stage(vaults: &[&Vault]) -> Result<Staging, SecretsFound> {
         // nothing in the estate consumes it. It is still scanned by
         // `vault validate`.
         let tree = tree_dir(vault.kind);
+        let rules = vault.rules(vocabulary_version);
         for page in &vault.pages {
             if held_back(&page.rel_path) {
                 continue;
             }
             counts.considered += 1;
-            if !page.is_public() {
+            if !page.is_public(rules) {
                 continue;
             }
             counts.published += 1;
@@ -356,7 +358,7 @@ mod tests {
                 ("Private Note", "---\ntype: Note\n---\nProse.\n"),
             ],
         );
-        let staging = stage(&[&knowledge, &working]).unwrap();
+        let staging = stage(&[&knowledge, &working], Some(2)).unwrap();
         let paths: Vec<&str> = staging.files.iter().map(|f| f.path.as_str()).collect();
         assert!(
             paths.contains(&"publish/pages/Public Class.md"),
@@ -396,7 +398,7 @@ mod tests {
             vec![("Held", "---\ntype: Class\npublic: true\n---\nProse.\n")],
         );
         knowledge.pages[0].rel_path = std::path::PathBuf::from("_misc/Held.md");
-        let staging = stage(&[&knowledge]).unwrap();
+        let staging = stage(&[&knowledge], Some(2)).unwrap();
         assert!(
             staging.files.iter().all(|f| !f.path.contains("Held")),
             "{:?}",
@@ -422,7 +424,7 @@ mod tests {
                 ),
             ],
         );
-        let staging = stage(&[&working]).unwrap();
+        let staging = stage(&[&working], Some(2)).unwrap();
         let paths: Vec<&str> = staging.files.iter().map(|f| f.path.as_str()).collect();
         assert_eq!(
             paths,
@@ -443,7 +445,7 @@ mod tests {
                 "---\ntype: Class\npublic: true\n---\nkey: sk-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n",
             )],
         );
-        let err = stage(&[&knowledge]).unwrap_err();
+        let err = stage(&[&knowledge], Some(2)).unwrap_err();
         assert_eq!(err.findings.len(), 1);
         assert_eq!(err.findings[0].kind, CredentialKind::OpenAiKey);
         // `---`, `type`, `public`, `---` then the body: file line 5.
@@ -468,7 +470,7 @@ mod tests {
                 "---\ntype: Class\npublic: false\n---\nkey: sk-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n",
             )],
         );
-        assert!(stage(&[&knowledge]).is_ok());
+        assert!(stage(&[&knowledge], Some(2)).is_ok());
     }
 
     #[test]
@@ -477,7 +479,7 @@ mod tests {
             VaultKind::Knowledge,
             vec![("A", "---\ntype: Class\npublic: true\n---\nProse.\n")],
         );
-        let staging = stage(&[&knowledge]).unwrap();
+        let staging = stage(&[&knowledge], Some(2)).unwrap();
         let index = staging
             .files
             .iter()

@@ -764,7 +764,7 @@ impl FileService {
     /// Frontmatter `owl-class` (ADR-2040 §V2) is the only carrier: the corpus
     /// is frontmatter-only (ADR-2112), so an `owl:class::` body line is text.
     fn extract_owl_class_iri(content: &str) -> Option<String> {
-        vault::parse(content).owl_class
+        vault::parse(content, vault::Rules::PublicFlag).owl_class
     }
 
     /// The ADR-2040 §V4 inclusion gate: frontmatter `public: true`, or a
@@ -773,8 +773,15 @@ impl FileService {
     /// Delegates to `visionclaw_domain::vault` — the single parsing entry
     /// point. Only frontmatter counts: a `public:: true` line anywhere in the
     /// body is text, so a page that merely quotes the marker cannot leak.
+    ///
+    /// This is the flat legacy fallback (one markdown directory, no `working/`
+    /// or `knowledge/` split and no vocabulary), so it reads `public: true`
+    /// alone, the reading of every knowledge page and of vocabulary 2. It never
+    /// reads `visibility`: a page that says only `visibility: public` is not
+    /// admitted here. The corpus sync, which has the vault layout and the
+    /// vocabulary, applies the vocabulary 3 rule (ADR-2221).
     fn page_is_kg_included(content: &str) -> bool {
-        vault::parse(content).is_kg_included()
+        vault::parse(content, vault::Rules::PublicFlag).is_kg_included()
     }
 
     /// Extract ontology data from markdown content.
@@ -784,7 +791,7 @@ impl FileService {
     /// inclusion gate; the gate is `page_is_kg_included`.
     fn extract_ontology_data(content: &str) -> OntologyData {
         let mut data = OntologyData::default();
-        let meta = vault::parse(content);
+        let meta = vault::parse(content, vault::Rules::PublicFlag);
 
         for (key, value) in &meta.extra {
             let value = value.as_str();

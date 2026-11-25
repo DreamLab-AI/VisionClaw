@@ -31,7 +31,7 @@ fn fixture(name: &str) -> String {
 
 /// The gate as the sync applies it to a plain page.
 fn is_kg_included(content: &str) -> bool {
-    vault::parse(content).is_kg_included()
+    vault::parse(content, vault::Rules::PublicFlag).is_kg_included()
 }
 
 // ---------------------------------------------------------------------------
@@ -41,7 +41,7 @@ fn is_kg_included(content: &str) -> bool {
 #[test]
 fn exp_v01_frontmatter_public_true_ingests() {
     let content = fixture("obsidian-public.md");
-    let meta = vault::parse(&content);
+    let meta = vault::parse(&content, vault::Rules::PublicFlag);
 
     assert!(meta.public);
     assert!(is_kg_included(&content));
@@ -73,7 +73,7 @@ fn exp_v01_a_page_with_no_frontmatter_does_not_ingest() {
 #[test]
 fn exp_v02_owl_class_ingests_and_types_the_node() {
     let content = fixture("obsidian-owl-class.md");
-    let meta = vault::parse(&content);
+    let meta = vault::parse(&content, vault::Rules::PublicFlag);
 
     assert!(!meta.public, "the fixture carries no `public` key");
     assert!(is_kg_included(&content));
@@ -96,7 +96,7 @@ fn exp_v02_owl_class_ingests_and_types_the_node() {
 #[test]
 fn exp_v02_elevated_from_resolves_to_the_bare_page_name() {
     // The provenance bridge the sync turns into an `elevated_from` edge.
-    let meta = vault::parse(&fixture("obsidian-owl-class.md"));
+    let meta = vault::parse(&fixture("obsidian-owl-class.md"), vault::Rules::PublicFlag);
     assert_eq!(meta.elevated_from.as_deref(), Some("Working Page"));
 }
 
@@ -108,7 +108,7 @@ fn exp_v02_elevated_from_resolves_to_the_bare_page_name() {
 fn exp_v03_a_leading_key_block_is_body_text_and_the_page_is_private() {
     let content = fixture("legacy-public.md");
     assert!(content.starts_with("public:: true"));
-    let meta = vault::parse(&content);
+    let meta = vault::parse(&content, vault::Rules::PublicFlag);
 
     assert!(!meta.public);
     assert!(!is_kg_included(&content));
@@ -125,7 +125,10 @@ fn exp_v03_legacy_marker_after_a_heading_or_in_a_fence_does_not_ingest() {
         "fixture must contain the marker it is not allowed to honour"
     );
     assert!(!is_kg_included(&content));
-    assert_eq!(vault::parse(&content).format, PageFormat::None);
+    assert_eq!(
+        vault::parse(&content, vault::Rules::PublicFlag).format,
+        PageFormat::None
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -201,7 +204,7 @@ fn logseq_format_data_model_fixtures_are_private() {
     ] {
         let content = std::fs::read_to_string(dir.join(name)).expect("fixture readable");
         assert!(content.contains(":: "), "{name} is a `key::` fixture");
-        let meta = vault::parse(&content);
+        let meta = vault::parse(&content, vault::Rules::PublicFlag);
         assert!(!meta.is_kg_included(), "{name} must not ingest");
         assert_eq!(meta.format, PageFormat::None, "{name}");
     }

@@ -12,10 +12,12 @@
 //! # The inclusion gate (§V4)
 //!
 //! A page is ingested as a knowledge-graph node iff **either** its frontmatter
-//! says it is public (`public: true`, or `visibility: public` under
-//! vocabulary 3 — one reading, [`vault_core::visibility`], so a page answers
-//! the same before and after its migration), **or** it carries a non-empty `owl-class` (formal
-//! data ingests unconditionally). Absence of both means private — the gate is
+//! says it is public, **or** it carries a non-empty `owl-class` (formal
+//! data ingests unconditionally). "Public" has no context-free reading: it is
+//! `public: true` for every knowledge page and under vocabulary 2, and
+//! `visibility: public` for a working page under vocabulary 3 or later, so
+//! [`parse`] takes the [`Rules`] of the page's vault and vocabulary
+//! ([`vault_core::visibility`]) and the answer matches ontomark's. Absence of both means private — the gate is
 //! fail-closed, and anchors on parsed metadata, never on the file path. See
 //! [`PageMeta::is_kg_included`].
 //!
@@ -26,6 +28,8 @@
 //! `review_trigger` when the last such page was migrated, and is gone: a
 //! `key:: value` line anywhere in a page, `public:: true` included, is body
 //! text and carries no metadata. A page without frontmatter is private.
+
+pub use vault_core::visibility::Rules;
 
 pub mod link;
 
@@ -49,9 +53,15 @@ pub enum PageFormat {
 /// system acts on, plus every other leading-block key preserved verbatim.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PageMeta {
-    /// `public` — the publish half of the inclusion gate. A real YAML boolean
-    /// in frontmatter; the string `"true"` does **not** count (§V2).
+    /// The publish half of the inclusion gate, read under the [`Rules`] the
+    /// page was parsed with: `public: true` (a real YAML boolean; the string
+    /// `"true"` does **not** count, §V2), or `visibility: public` for a working
+    /// page under vocabulary 3 or later. Fails closed.
     pub public: bool,
+    /// The `public` key as authored, when it is a YAML boolean. Kept so a
+    /// re-render writes back what the author wrote rather than a value derived
+    /// from the other key.
+    pub public_declared: Option<bool>,
     /// `owl-class` — a formal class IRI (e.g. `mv:Foo`), accepted only when it
     /// satisfies [`is_class_marker`]. A class marker admits the page to the
     /// knowledge graph; it never makes the page publicly publishable.
@@ -64,16 +74,16 @@ pub struct PageMeta {
     /// a class IRI at all. Such a value now lands here instead, leaving
     /// [`PageMeta::owl_class`] `None` and the gate shut.
     pub owl_class_rejected: Option<String>,
-    /// `visibility` as authored (vocabulary 3: `private`, `shared` or `public`),
-    /// when the page carries the key. [`PageMeta::public`] is already the
-    /// combined answer of `visibility` and `public` (see
-    /// [`vault_core::visibility`]); this field only records which spelling the
-    /// author used, so a re-render writes the same key back instead of
-    /// resurrecting `public`.
+    /// `visibility` as authored (`private`, `shared` or `public`), when the
+    /// page carries the key, **whatever the rules**: under
+    /// [`Rules::PublicFlag`] it does not decide publication, but it is still
+    /// the author's text and a re-render writes it back verbatim.
+    /// [`PageMeta::public`] is the answer under the parse rules.
     pub visibility: Option<String>,
-    /// Why the `public` / `visibility` pair could not be read cleanly (an
-    /// unknown value, a non-boolean `public`, or two keys that disagree). The
-    /// page is not public in any of those cases; the reason is kept so an
+    /// Why the `public` / `visibility` pair could not be read cleanly under the
+    /// parse rules: an unreadable `visibility`, a non-boolean `public`, or (under
+    /// [`Rules::Visibility`]) two keys that disagree. The page is not public when
+    /// two keys disagree or a value is unreadable; the reason is kept so an
     /// author can see it instead of finding the page silently excluded.
     pub visibility_problem: Option<vault_core::visibility::Problem>,
     /// Every `generated` or `verified` value that was present and is not a
@@ -236,23 +246,30 @@ impl PageMeta {
         if let Some(ref status) = self.status {
             map.insert(key("status"), Value::String(status.clone()));
         }
-        // The key the page was authored with is the key written back: a page
-        // that says `visibility` keeps it and never gains a `public` beside it
-        // (that pair could contradict). A page built in code, or authored
-        // under vocabulary 2, keeps `public`.
-        match self.visibility.as_deref() {
-            Some(authored) => {
-                let written = match (self.public, authored) {
-                    (true, _) => "public",
-                    // A page that was public and no longer is, falls to the default.
-                    (false, "public") => "shared",
-                    (false, other) => other,
+        // Each key the page was authored with is written back as authored, and
+        // neither is ever derived from the other: a conflicting pair keeps both
+        // keys, so a re-render cannot resolve a conflict by deleting the
+        // evidence. A page built in code (no `visibility`) gets `public`.
+        if let Some(ref authored) = self.visibility {
+            map.insert(key("visibility"), Value::String(authored.clone()));
+        }
+        match (self.public_declared, self.visibility.is_some()) {
+            // Authored: while the pair is unreadable or in conflict keep the
+            // author's value; otherwise it follows `self.public`, which a
+            // writer may have set.
+            (Some(declared), _) => {
+                let value = if self.visibility_problem.is_some() {
+                    declared
+                } else {
+                    self.public
                 };
-                map.insert(key("visibility"), Value::String(written.to_string()));
+                map.insert(key("public"), Value::Bool(value));
             }
-            None => {
+            (None, false) => {
                 map.insert(key("public"), Value::Bool(self.public));
             }
+            // Authored with `visibility` only: no `public` is introduced.
+            (None, true) => {}
         }
         if let Some(ref owl_class) = self.owl_class {
             map.insert(key("owl-class"), Value::String(owl_class.clone()));
@@ -376,8 +393,11 @@ fn string_sequence(items: &[String]) -> serde_yaml::Value {
 /// block is not a YAML mapping — yields
 /// `PageMeta { format: PageFormat::None, .. }`: every field at its default,
 /// which the gate reads as private. `key:: value` lines are body text.
-pub fn parse(content: &str) -> PageMeta {
-    split(content).0
+///
+/// `rules` says which key publishes the page (see [`Rules`]); a writer that
+/// emits knowledge pages passes [`Rules::PublicFlag`].
+pub fn parse(content: &str, rules: Rules) -> PageMeta {
+    split(content, rules).0
 }
 
 /// Parse a page and return its metadata alongside the body that follows the
@@ -386,9 +406,9 @@ pub fn parse(content: &str) -> PageMeta {
 /// The body is everything after the closing `---` of a frontmatter block, or
 /// the whole page when there is none. Writers use this to edit a page's
 /// metadata without disturbing its prose (§V5).
-pub fn split(content: &str) -> (PageMeta, &str) {
+pub fn split(content: &str, rules: Rules) -> (PageMeta, &str) {
     if let Some((yaml, body)) = split_frontmatter(content) {
-        if let Some(meta) = parse_frontmatter(yaml) {
+        if let Some(meta) = parse_frontmatter(yaml, rules) {
             return (meta, body);
         }
         // Delimiters present but the block is not a YAML mapping: no metadata,
@@ -578,7 +598,7 @@ fn split_frontmatter(content: &str) -> Option<(&str, &str)> {
     None
 }
 
-fn parse_frontmatter(yaml: &str) -> Option<PageMeta> {
+fn parse_frontmatter(yaml: &str, rules: Rules) -> Option<PageMeta> {
     let value: serde_yaml::Value = serde_yaml::from_str(yaml).ok()?;
     let mapping = value.as_mapping()?;
 
@@ -631,12 +651,15 @@ fn parse_frontmatter(yaml: &str) -> Option<PageMeta> {
         }
     }
 
-    // One reading for both spellings (ADR-VG-012 §5, ruling B9): a real YAML
-    // boolean `public`, or `visibility: public`. ADR-2014: an explicit
-    // "not public" is a different fact from an absent key, and the
-    // class-marker interaction turns on the difference.
-    let reading = vault_core::visibility::read(mapping);
+    // One reading for both spellings under the page's rules (ADR-VG-012 §5,
+    // ruling B9). ADR-2014: an explicit "not public" is a different fact from
+    // an absent key, and the class-marker interaction turns on the difference.
+    let reading = vault_core::visibility::read(mapping, rules);
     meta.public = reading.public;
+    meta.public_declared = match mapping.get(serde_yaml::Value::String("public".to_string())) {
+        Some(serde_yaml::Value::Bool(b)) => Some(*b),
+        _ => None,
+    };
     meta.public_declared_false = reading.declared_not_public && !reading.public;
     meta.visibility_problem = reading.problem;
     meta.stamp_problems = stamp_problems(mapping);
@@ -926,7 +949,10 @@ mod tests {
 
     #[test]
     fn exp_v01_frontmatter_public_true_is_included() {
-        let meta = parse("---\npublic: true\n---\n\n# Page\n\nBody.\n");
+        let meta = parse(
+            "---\npublic: true\n---\n\n# Page\n\nBody.\n",
+            Rules::PublicFlag,
+        );
         assert!(meta.public);
         assert!(meta.is_kg_included());
         assert_eq!(meta.format, PageFormat::Obsidian);
@@ -934,7 +960,7 @@ mod tests {
 
     #[test]
     fn exp_v01_frontmatter_public_false_is_excluded() {
-        let meta = parse("---\npublic: false\n---\n\n# Page\n");
+        let meta = parse("---\npublic: false\n---\n\n# Page\n", Rules::PublicFlag);
         assert!(!meta.public);
         assert!(!meta.is_kg_included());
         assert_eq!(meta.format, PageFormat::Obsidian);
@@ -942,7 +968,10 @@ mod tests {
 
     #[test]
     fn exp_v01_no_frontmatter_is_excluded() {
-        let meta = parse("# Page\n\nJust prose, no metadata anywhere.\n");
+        let meta = parse(
+            "# Page\n\nJust prose, no metadata anywhere.\n",
+            Rules::PublicFlag,
+        );
         assert!(!meta.is_kg_included());
         assert_eq!(meta.format, PageFormat::None);
     }
@@ -951,7 +980,7 @@ mod tests {
 
     #[test]
     fn exp_v02_owl_class_without_public_is_included() {
-        let meta = parse("---\nowl-class: mv:Foo\n---\n\n# Foo\n");
+        let meta = parse("---\nowl-class: mv:Foo\n---\n\n# Foo\n", Rules::PublicFlag);
         assert_eq!(meta.owl_class.as_deref(), Some("mv:Foo"));
         assert!(!meta.public);
         assert!(meta.is_kg_included());
@@ -959,7 +988,10 @@ mod tests {
 
     #[test]
     fn owl_class_with_public_false_is_still_included() {
-        let meta = parse("---\npublic: false\nowl-class: mv:Foo\n---\n\n# Foo\n");
+        let meta = parse(
+            "---\npublic: false\nowl-class: mv:Foo\n---\n\n# Foo\n",
+            Rules::PublicFlag,
+        );
         assert!(!meta.public);
         assert_eq!(meta.owl_class.as_deref(), Some("mv:Foo"));
         assert!(meta.is_kg_included());
@@ -967,7 +999,7 @@ mod tests {
 
     #[test]
     fn empty_owl_class_does_not_open_the_gate() {
-        let meta = parse("---\nowl-class: \"\"\n---\n\n# Foo\n");
+        let meta = parse("---\nowl-class: \"\"\n---\n\n# Foo\n", Rules::PublicFlag);
         assert_eq!(meta.owl_class, None);
         assert!(!meta.is_kg_included());
     }
@@ -977,7 +1009,7 @@ mod tests {
     #[test]
     fn exp_v03_a_leading_logseq_block_is_body_text_not_metadata() {
         let page = "public:: true\nsource-domain:: mv\nowl:class:: mv:Foo\n\n# Page\n\nBody.\n";
-        let (meta, body) = split(page);
+        let (meta, body) = split(page, Rules::PublicFlag);
         assert!(!meta.public, "`public:: true` is not the publish gate");
         assert_eq!(meta.owl_class, None, "`owl:class::` is not a class marker");
         assert_eq!(meta.source_domain, None);
@@ -995,7 +1027,7 @@ mod tests {
             "Some prose first.\n\npublic:: true\n",
             "- public:: true\n- owl:class:: mv:Foo\n\n# Page\n",
         ] {
-            let meta = parse(page);
+            let meta = parse(page, Rules::PublicFlag);
             assert!(!meta.is_kg_included(), "{page:?}");
             assert_eq!(meta.format, PageFormat::None, "{page:?}");
         }
@@ -1003,7 +1035,10 @@ mod tests {
 
     #[test]
     fn a_key_line_below_frontmatter_does_not_override_it() {
-        let meta = parse("---\npublic: false\n---\n\npublic:: true\nowl:class:: mv:Foo\n");
+        let meta = parse(
+            "---\npublic: false\n---\n\npublic:: true\nowl:class:: mv:Foo\n",
+            Rules::PublicFlag,
+        );
         assert!(!meta.public);
         assert!(meta.public_declared_false);
         assert_eq!(meta.owl_class, None);
@@ -1014,7 +1049,7 @@ mod tests {
 
     #[test]
     fn frontmatter_public_as_a_string_does_not_count() {
-        let meta = parse("---\npublic: \"true\"\n---\n\n# Page\n");
+        let meta = parse("---\npublic: \"true\"\n---\n\n# Page\n", Rules::PublicFlag);
         assert!(!meta.public, "the string \"true\" is not a YAML boolean");
         assert!(!meta.is_kg_included());
         assert_eq!(meta.format, PageFormat::Obsidian);
@@ -1025,13 +1060,19 @@ mod tests {
 
     #[test]
     fn frontmatter_elevated_from_strips_brackets_and_alias() {
-        let meta = parse("---\npublic: true\nelevatedFrom: \"[[Working Page|alias]]\"\n---\n");
+        let meta = parse(
+            "---\npublic: true\nelevatedFrom: \"[[Working Page|alias]]\"\n---\n",
+            Rules::PublicFlag,
+        );
         assert_eq!(meta.elevated_from.as_deref(), Some("Working Page"));
     }
 
     #[test]
     fn frontmatter_elevated_from_without_an_alias() {
-        let meta = parse("---\nelevatedFrom: \"[[Working Page]]\"\n---\n");
+        let meta = parse(
+            "---\nelevatedFrom: \"[[Working Page]]\"\n---\n",
+            Rules::PublicFlag,
+        );
         assert_eq!(meta.elevated_from.as_deref(), Some("Working Page"));
     }
 
@@ -1041,6 +1082,7 @@ mod tests {
     fn frontmatter_aliases_and_tags_accept_yaml_lists() {
         let meta = parse(
             "---\npublic: true\naliases:\n  - One\n  - Two\ntags:\n  - alpha\n  - beta\n---\n",
+            Rules::PublicFlag,
         );
         assert_eq!(meta.aliases, vec!["One", "Two"]);
         assert_eq!(meta.tags, vec!["alpha", "beta"]);
@@ -1048,7 +1090,10 @@ mod tests {
 
     #[test]
     fn frontmatter_aliases_and_tags_accept_comma_separated_scalars() {
-        let meta = parse("---\npublic: true\naliases: One, Two\ntags: alpha, beta\n---\n");
+        let meta = parse(
+            "---\npublic: true\naliases: One, Two\ntags: alpha, beta\n---\n",
+            Rules::PublicFlag,
+        );
         assert_eq!(meta.aliases, vec!["One", "Two"]);
         assert_eq!(meta.tags, vec!["alpha", "beta"]);
     }
@@ -1057,7 +1102,10 @@ mod tests {
 
     #[test]
     fn frontmatter_unrecognised_keys_are_preserved_in_extra() {
-        let meta = parse("---\npublic: true\nquality-score: 0.6\nmaturity: draft\n---\n");
+        let meta = parse(
+            "---\npublic: true\nquality-score: 0.6\nmaturity: draft\n---\n",
+            Rules::PublicFlag,
+        );
         assert_eq!(
             meta.extra.get("maturity").map(String::as_str),
             Some("draft")
@@ -1072,27 +1120,36 @@ mod tests {
 
     #[test]
     fn frontmatter_not_at_the_start_of_the_file_is_not_frontmatter() {
-        let meta = parse("\n---\npublic: true\n---\n\n# Page\n");
+        let meta = parse("\n---\npublic: true\n---\n\n# Page\n", Rules::PublicFlag);
         assert!(!meta.public, "a blank first line disqualifies the block");
         assert_eq!(meta.format, PageFormat::None);
     }
 
     #[test]
     fn unterminated_frontmatter_is_not_frontmatter() {
-        let meta = parse("---\npublic: true\n\n# Page with no closing delimiter\n");
+        let meta = parse(
+            "---\npublic: true\n\n# Page with no closing delimiter\n",
+            Rules::PublicFlag,
+        );
         assert!(!meta.public);
         assert!(!meta.is_kg_included());
     }
 
     #[test]
     fn malformed_frontmatter_yaml_fails_closed() {
-        let meta = parse("---\n\tpublic: [unclosed\n---\n\n# Page\n");
+        let meta = parse(
+            "---\n\tpublic: [unclosed\n---\n\n# Page\n",
+            Rules::PublicFlag,
+        );
         assert!(!meta.is_kg_included());
     }
 
     #[test]
     fn crlf_frontmatter_is_accepted() {
-        let meta = parse("---\r\npublic: true\r\n---\r\n\r\n# Page\r\n");
+        let meta = parse(
+            "---\r\npublic: true\r\n---\r\n\r\n# Page\r\n",
+            Rules::PublicFlag,
+        );
         assert!(meta.public);
         assert_eq!(meta.format, PageFormat::Obsidian);
     }
@@ -1118,6 +1175,7 @@ mod tests {
             format: PageFormat::Obsidian,
             raw: None,
             owl_class_rejected: None,
+            public_declared: Some(true),
             public_declared_false: false,
             stamp_problems: Vec::new(),
             visibility: None,
@@ -1134,7 +1192,7 @@ mod tests {
         };
         let page = render_page(&meta, "# Foo\n\nBody prose.\n");
         // A parsed page also carries the mapping it was read from.
-        let mut back = parse(&page);
+        let mut back = parse(&page, Rules::PublicFlag);
         assert!(back.raw.is_some());
         back.raw = None;
         assert_eq!(back, meta);
@@ -1149,7 +1207,7 @@ mod tests {
 
     #[test]
     fn rendering_an_untouched_page_loses_nothing() {
-        let meta = parse(RICH);
+        let meta = parse(RICH, Rules::PublicFlag);
         let before = fm_of(RICH);
         let after = fm_of(&render_page(&meta, "Body.\n"));
         for (k, v) in &before {
@@ -1160,7 +1218,7 @@ mod tests {
 
     #[test]
     fn a_typed_edit_keeps_verified_and_restamping_drops_stale_process() {
-        let mut meta = parse(RICH);
+        let mut meta = parse(RICH, Rules::PublicFlag);
         meta.status = Some("deprecated".into());
         let after = fm_of(&render_page(&meta, "Body.\n"));
         let key = |k: &str| serde_yaml::Value::String(k.into());
@@ -1210,7 +1268,7 @@ mod tests {
                     continue;
                 };
                 let before: serde_yaml::Mapping = serde_yaml::from_str(&rest[..end]).unwrap();
-                let after = fm_of(&render_page(&parse(&text), "x\n"));
+                let after = fm_of(&render_page(&parse(&text, Rules::PublicFlag), "x\n"));
                 pages += 1;
                 // A typed key whose authored value is a nested list (an
                 // unquoted `[[wikilink]]` in YAML) is a corpus defect no
@@ -1241,7 +1299,7 @@ mod tests {
 
     #[test]
     fn a_cleared_extra_key_stays_cleared() {
-        let mut meta = parse(RICH);
+        let mut meta = parse(RICH, Rules::PublicFlag);
         meta.extra.remove("quality");
         meta.extra.remove("is-a");
         meta.extra_lists.remove("is-a");
@@ -1249,7 +1307,7 @@ mod tests {
         assert!(after.get("quality").is_none());
         assert!(after.get("is-a").is_none());
         // A changed extra value is written as the writer set it.
-        let mut meta = parse(RICH);
+        let mut meta = parse(RICH, Rules::PublicFlag);
         meta.extra.insert("quality".into(), "0.9".into());
         let after = fm_of(&render_page(&meta, "Body.\n"));
         assert_eq!(after["quality"], serde_yaml::Value::String("0.9".into()));
@@ -1280,7 +1338,7 @@ mod tests {
         // Emitted as a genuine YAML sequence, not `is-a: '[[Device]], [[Sensor]]'`.
         assert!(page.contains("- '[[Device]]'") || page.contains("- \"[[Device]]\""));
 
-        let reparsed = parse(&page);
+        let reparsed = parse(&page, Rules::PublicFlag);
         assert_eq!(
             reparsed.extra_lists.get("is-a"),
             Some(&vec!["[[Device]]".to_string(), "[[Sensor]]".to_string()])
@@ -1291,15 +1349,24 @@ mod tests {
             Some("[[Device]], [[Sensor]]")
         );
         // …and it does not cause a duplicate key on re-render.
-        assert_eq!(parse(&render_page(&reparsed, "# Camera\n")), reparsed);
+        assert_eq!(
+            parse(&render_page(&reparsed, "# Camera\n"), Rules::PublicFlag),
+            reparsed
+        );
     }
 
     #[test]
     fn a_half_written_generated_stamp_is_not_a_trust_record() {
         // Defaulting the missing half would forge provenance.
-        let only_by = parse("---\ntype: Class\ngenerated:\n  by: process:visionclaw/0.1.0\n---\n");
+        let only_by = parse(
+            "---\ntype: Class\ngenerated:\n  by: process:visionclaw/0.1.0\n---\n",
+            Rules::PublicFlag,
+        );
         assert_eq!(only_by.generated, None);
-        let only_at = parse("---\ntype: Class\ngenerated:\n  at: 2026-09-22T00:00:00Z\n---\n");
+        let only_at = parse(
+            "---\ntype: Class\ngenerated:\n  at: 2026-09-22T00:00:00Z\n---\n",
+            Rules::PublicFlag,
+        );
         assert_eq!(only_at.generated, None);
     }
 
@@ -1312,7 +1379,7 @@ mod tests {
             ..PageMeta::default()
         };
         let page = render_page(&meta, "# Foo\n");
-        let reparsed = parse(&page);
+        let reparsed = parse(&page, Rules::PublicFlag);
         assert_eq!(reparsed.owl_class.as_deref(), Some("mv:Foo"));
         assert_eq!(reparsed.elevated_from.as_deref(), Some("Working Page"));
         assert!(reparsed.is_kg_included());
@@ -1326,20 +1393,23 @@ mod tests {
             ..PageMeta::default()
         };
         let once = render_page(&meta, "# Foo\n");
-        let (reparsed, body) = split(&once);
+        let (reparsed, body) = split(&once, Rules::PublicFlag);
         assert_eq!(render_page(&reparsed, body), once);
     }
 
     #[test]
     fn split_returns_the_body_after_frontmatter() {
-        let (meta, body) = split("---\npublic: true\n---\n\n# Page\n\nBody.\n");
+        let (meta, body) = split(
+            "---\npublic: true\n---\n\n# Page\n\nBody.\n",
+            Rules::PublicFlag,
+        );
         assert!(meta.public);
         assert_eq!(body, "\n# Page\n\nBody.\n");
     }
 
     #[test]
     fn split_returns_the_whole_page_when_there_is_no_carrier() {
-        let (meta, body) = split("# Page\n\nBody.\n");
+        let (meta, body) = split("# Page\n\nBody.\n", Rules::PublicFlag);
         assert_eq!(meta.format, PageFormat::None);
         assert_eq!(body, "# Page\n\nBody.\n");
     }
@@ -1552,7 +1622,7 @@ mod tests {
             "---\npublic: false\nowl-class: 42\n---\nbody\n",
             "---\npublic: false\nowl-class: 3.14\n---\nbody\n",
         ] {
-            let meta = parse(raw);
+            let meta = parse(raw, Rules::PublicFlag);
             assert_eq!(
                 meta.owl_class, None,
                 "a non-string owl-class must not be a class marker: {raw:?}"
@@ -1580,7 +1650,7 @@ mod tests {
             "---\nowl-class: \"just a phrase\"\n---\nbody\n",
             "---\nowl-class: \"NoColonHere\"\n---\nbody\n",
         ] {
-            let meta = parse(raw);
+            let meta = parse(raw, Rules::PublicFlag);
             assert_eq!(meta.owl_class, None, "{raw:?}");
             assert!(meta.owl_class_rejected.is_some(), "{raw:?}");
             assert!(!meta.is_kg_included(), "{raw:?}");
@@ -1606,7 +1676,7 @@ mod tests {
                 "urn:ngm:class:thing",
             ),
         ] {
-            let meta = parse(raw);
+            let meta = parse(raw, Rules::PublicFlag);
             assert_eq!(meta.owl_class.as_deref(), Some(expected), "{raw:?}");
             assert_eq!(meta.owl_class_rejected, None, "{raw:?}");
             assert!(meta.is_kg_included(), "{raw:?}");
@@ -1661,7 +1731,10 @@ mod tests {
     /// and the reason says so rather than leaving it as a silent bypass.
     #[test]
     fn public_false_plus_class_is_included_but_never_publishable() {
-        let meta = parse("---\npublic: false\nowl-class: mv:Foo\n---\nbody\n");
+        let meta = parse(
+            "---\npublic: false\nowl-class: mv:Foo\n---\nbody\n",
+            Rules::PublicFlag,
+        );
         assert!(meta.is_kg_included(), "a formal class is structural");
         assert!(
             !meta.is_publishable(),
@@ -1677,11 +1750,14 @@ mod tests {
     /// An absent `public` key is a different fact from an explicit false.
     #[test]
     fn absent_public_is_distinguished_from_explicit_false() {
-        let absent = parse("---\nowl-class: mv:Foo\n---\nbody\n");
+        let absent = parse("---\nowl-class: mv:Foo\n---\nbody\n", Rules::PublicFlag);
         assert!(!absent.public_declared_false);
         assert_eq!(absent.inclusion_reason(), InclusionReason::FormalClass);
 
-        let explicit = parse("---\npublic: false\nowl-class: mv:Foo\n---\nbody\n");
+        let explicit = parse(
+            "---\npublic: false\nowl-class: mv:Foo\n---\nbody\n",
+            Rules::PublicFlag,
+        );
         assert!(explicit.public_declared_false);
         assert_eq!(
             explicit.inclusion_reason(),
@@ -1697,19 +1773,23 @@ mod tests {
     #[test]
     fn inclusion_reasons_cover_every_route() {
         assert_eq!(
-            parse("---\npublic: true\n---\nbody\n").inclusion_reason(),
+            parse("---\npublic: true\n---\nbody\n", Rules::PublicFlag).inclusion_reason(),
             InclusionReason::Public
         );
         assert_eq!(
-            parse("---\npublic: true\nowl-class: mv:Foo\n---\nbody\n").inclusion_reason(),
+            parse(
+                "---\npublic: true\nowl-class: mv:Foo\n---\nbody\n",
+                Rules::PublicFlag
+            )
+            .inclusion_reason(),
             InclusionReason::PublicAndFormalClass
         );
         assert_eq!(
-            parse("---\nowl-class: mv:Foo\n---\nbody\n").inclusion_reason(),
+            parse("---\nowl-class: mv:Foo\n---\nbody\n", Rules::PublicFlag).inclusion_reason(),
             InclusionReason::FormalClass
         );
         assert_eq!(
-            parse("---\ntitle: Nothing\n---\nbody\n").inclusion_reason(),
+            parse("---\ntitle: Nothing\n---\nbody\n", Rules::PublicFlag).inclusion_reason(),
             InclusionReason::Excluded
         );
     }
@@ -1724,7 +1804,7 @@ mod tests {
             "---\npublic: false\nowl-class: mv:Foo\n---\nbody\n",
             "---\ntitle: x\n---\nbody\n",
         ] {
-            let meta = parse(raw);
+            let meta = parse(raw, Rules::PublicFlag);
             if meta.is_publishable() {
                 assert!(
                     meta.is_kg_included(),
@@ -1732,7 +1812,7 @@ mod tests {
                 );
             }
         }
-        let class_only = parse("---\nowl-class: mv:Foo\n---\nbody\n");
+        let class_only = parse("---\nowl-class: mv:Foo\n---\nbody\n", Rules::PublicFlag);
         assert!(class_only.is_kg_included() && !class_only.is_publishable());
     }
 
@@ -1745,7 +1825,7 @@ mod tests {
             "public-access:: true\n\nbody\n",
             "title:: Private Notes\n\nbody\n",
         ] {
-            let meta = parse(page);
+            let meta = parse(page, Rules::PublicFlag);
             assert_eq!(meta.owl_class, None, "{page:?}");
             assert_eq!(meta.title, None, "{page:?}");
             assert!(!meta.is_kg_included(), "{page:?}");
@@ -1757,7 +1837,7 @@ mod tests {
     /// rewritten page cannot smuggle the bad value back in.
     #[test]
     fn a_rejected_marker_is_not_re_emitted() {
-        let meta = parse("---\nowl-class: true\n---\nbody\n");
+        let meta = parse("---\nowl-class: true\n---\nbody\n", Rules::PublicFlag);
         assert_eq!(meta.owl_class, None);
         let yaml = meta.to_frontmatter_yaml();
         assert!(

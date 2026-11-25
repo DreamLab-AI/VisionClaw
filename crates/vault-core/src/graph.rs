@@ -123,6 +123,7 @@ impl VaultGraph {
     #[must_use]
     pub fn build(vault: &Vault, vocab: &Vocabulary) -> Self {
         let relation_keys: Vec<&str> = vocab.relations.keys().map(String::as_str).collect();
+        let rules = vault.rules(Some(vocab.version));
         let mut nodes = IndexMap::new();
         let mut by_name = HashMap::new();
         for page in &vault.pages {
@@ -146,7 +147,7 @@ impl VaultGraph {
                     title,
                     node_type: page.frontmatter.text("type"),
                     aliases,
-                    public: page.is_public(),
+                    public: page.is_public(rules),
                 },
             );
         }

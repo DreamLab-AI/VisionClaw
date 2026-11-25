@@ -93,7 +93,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match parse_page(&content, &page.path, source.base_paths()) {
             // The same §V4 gate the sync applies, and the same public boundary
             // `vault build` projects the ontology through.
-            Ok(Some(parsed)) if visionclaw_domain::vault::parse(&content).is_kg_included() => {
+            Ok(Some(parsed))
+                if visionclaw_domain::vault::parse(
+                    &content,
+                    visionclaw_domain::vault::Rules::for_path(&page.path, Some(vocabulary.version)),
+                )
+                .is_kg_included() =>
+            {
                 ontology_pages.push(parsed)
             }
             Ok(Some(_)) => stats.private_skipped += 1,

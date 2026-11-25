@@ -719,7 +719,8 @@ fn parse_draft_axioms_against(
     draft: &str,
     base: &BaseClassIndex,
 ) -> (Vec<OwlClass>, Vec<OwlAxiom>) {
-    let meta = visionclaw_domain::vault::parse(draft);
+    // An elevated draft is a knowledge page: `public:` alone decides, at every version.
+    let meta = visionclaw_domain::vault::parse(draft, visionclaw_domain::vault::Rules::PublicFlag);
     if meta.page_type.as_deref() != Some("Class") {
         return (Vec::new(), Vec::new());
     }
@@ -2047,7 +2048,8 @@ mod tests {
         assert!(!content.contains("```"), "no fence of any kind: {content}");
         assert!(!content.contains(":: "), "no Logseq property lines");
 
-        let meta = visionclaw_domain::vault::parse(&content);
+        let meta =
+            visionclaw_domain::vault::parse(&content, visionclaw_domain::vault::Rules::PublicFlag);
         assert_eq!(meta.page_type.as_deref(), Some("Class"));
         assert_eq!(
             meta.resource.as_deref(),

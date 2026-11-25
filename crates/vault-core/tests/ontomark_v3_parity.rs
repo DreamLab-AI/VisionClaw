@@ -22,7 +22,7 @@ use vault_core::frontmatter::{self, Frontmatter};
 use vault_core::lifecycle::is_recallable;
 use vault_core::okf::OkfBlock;
 use vault_core::roster::Roster;
-use vault_core::visibility;
+use vault_core::visibility::{self, Rules};
 
 /// A page where VisionClaw's answer for one field is intentionally not
 /// ontomark's, with the reason. `(page, field)`.
@@ -32,6 +32,16 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[(
     "`human:jjohare` is a name, not a key. ontomark's reader leaves it unresolved until m0002 \
      rewrites it; VisionClaw resolves it through the roster label (as m0002 will), so the page \
      names the same principal before and after the migration.",
+)];
+
+/// Pages whose publication VisionClaw reads as NOT public where ontomark reads
+/// them as public. `(page, vocabulary version, reason)`. The reverse (public in
+/// VisionClaw, private in ontomark) is never allowed, with no exception list.
+const FAIL_CLOSED: &[(&str, u32, &str)] = &[(
+    "working/VcConflictPublic",
+    3,
+    "`public: false` with `visibility: public`: ontomark lets `visibility` decide; \
+         VisionClaw fails closed and reports a conflict.",
 )];
 
 fn fixture() -> PathBuf {
@@ -105,23 +115,88 @@ fn golden_covers_every_page_and_only_those() {
 }
 
 #[test]
-fn visibility_matches_ontomark_for_both_header_forms() {
+fn visibility_is_never_public_where_ontomark_keeps_a_page_private() {
+    // Every page, under each vocabulary version, in its own vault: the reader
+    // is given the rules ontomark's `is_public_under` applies, and must not
+    // read as public anything ontomark does not. Where it reads LESS (the
+    // fail-closed conflict) the page is named in FAIL_CLOSED.
     let g = golden();
+    let mut compared = 0;
     for (id, fm) in pages() {
-        // A page written in the vocabulary 3 form is judged by ontomark under
-        // version 3; a page still in the vocabulary 2 form, under version 2.
-        let version = if fm.has("visibility") { "v3" } else { "v2" };
-        let want = g["pages"][&id][version]["public"].as_bool().unwrap();
-        assert_eq!(visibility::is_public(&fm.map), want, "{id} ({version})");
+        for version in [2u32, 3] {
+            let rules = Rules::for_path(&id, Some(version));
+            let ours = visibility::is_public(&fm.map, rules);
+            let want = g["pages"][&id][format!("v{version}")]["public"]
+                .as_bool()
+                .unwrap();
+            assert!(
+                !ours || want,
+                "{id} under vocabulary {version}: VisionClaw reads it as public, ontomark does not"
+            );
+            if ours != want {
+                assert!(
+                    FAIL_CLOSED
+                        .iter()
+                        .any(|(p, v, _)| *p == id && *v == version),
+                    "{id} under vocabulary {version}: ontomark says {want}, VisionClaw {ours}"
+                );
+            }
+            compared += 1;
+        }
+    }
+    assert_eq!(compared, pages().len() * 2);
+}
+
+#[test]
+fn the_reviews_probe_pages_are_not_public_under_vocabulary_2() {
+    // A working page with `public: false` + `visibility: public`, and one with
+    // `visibility: public` and no `public`, in a vault whose vocabulary is 2.
+    let fm = pages();
+    for id in ["working/VcConflictPublic", "working/VcPublicV3"] {
+        let rules = Rules::for_path(id, Some(2));
+        assert_eq!(rules, Rules::PublicFlag);
+        assert!(!visibility::is_public(&fm[id].map, rules), "{id}");
+        assert!(!visibility::read(&fm[id].map, rules).public);
+    }
+    // Under vocabulary 3 the second is public and the first fails closed.
+    assert!(visibility::is_public(
+        &fm["working/VcPublicV3"].map,
+        Rules::for_path("working/VcPublicV3", Some(3))
+    ));
+    let conflict = visibility::read(
+        &fm["working/VcConflictPublic"].map,
+        Rules::for_path("working/VcConflictPublic", Some(3)),
+    );
+    assert!(!conflict.public);
+    assert_eq!(conflict.problem, Some(visibility::Problem::Conflict));
+}
+
+#[test]
+fn a_knowledge_page_ignores_visibility_under_every_vocabulary() {
+    let fm = pages();
+    for version in [2u32, 3] {
+        let rules = |id: &str| Rules::for_path(id, Some(version));
+        let is = |id: &str| visibility::is_public(&fm[id].map, rules(id));
+        assert!(!is("knowledge/VcKnowledgeVisibilityOnly"), "v{version}");
+        assert!(!is("knowledge/VcKnowledgeVisibilityConflict"), "v{version}");
+        assert!(is("knowledge/VcKnowledgePublicShared"), "v{version}");
+        assert!(is("knowledge/VcKnowledgePublicAndVisible"), "v{version}");
     }
 }
 
 #[test]
 fn a_page_answers_alike_in_either_form_where_ontomark_does() {
-    // The same fact in both spellings is public in both tools.
+    // The same fact in both spellings is public in both tools, each under the
+    // vocabulary that reads it.
     let fm = pages();
-    assert!(visibility::is_public(&fm["working/VcPublicV2"].map));
-    assert!(visibility::is_public(&fm["working/VcPublicV3"].map));
+    assert!(visibility::is_public(
+        &fm["working/VcPublicV2"].map,
+        Rules::for_path("working/VcPublicV2", Some(2))
+    ));
+    assert!(visibility::is_public(
+        &fm["working/VcPublicV3"].map,
+        Rules::for_path("working/VcPublicV3", Some(3))
+    ));
     let g = golden();
     assert!(g["pages"]["working/VcPublicV2"]["v2"]["public"]
         .as_bool()

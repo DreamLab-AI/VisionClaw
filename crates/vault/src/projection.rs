@@ -62,12 +62,17 @@ pub struct Census {
     pub balanced: bool,
 }
 
-/// Walk `pages_dir` and account for every markdown file.
+/// Walk `pages_dir` and account for every markdown file. `rules` says which
+/// key publishes a page of this vault under its vocabulary (see
+/// [`vault_core::visibility::Rules`]).
 ///
 /// # Errors
 /// [`PublicationBlocked::Census`] when any file has an invalid or conflicting
 /// publication flag, or cannot be read.
-pub fn inspect_inputs(pages_dir: impl AsRef<Path>) -> Result<Census, PublicationBlocked> {
+pub fn inspect_inputs(
+    pages_dir: impl AsRef<Path>,
+    rules: vault_core::visibility::Rules,
+) -> Result<Census, PublicationBlocked> {
     let pages_dir = pages_dir.as_ref();
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
     let mut bump = |k: &str| *counts.entry(k.to_owned()).or_insert(0) += 1;
@@ -109,7 +114,7 @@ pub fn inspect_inputs(pages_dir: impl AsRef<Path>) -> Result<Census, Publication
         // real YAML boolean `public` or `visibility: public` counts (the one
         // shared reading, `vault_core::visibility`), and anything unreadable
         // refuses the build. Two keys that disagree also refuse it.
-        let reading = vault_core::visibility::read(&fm.map);
+        let reading = vault_core::visibility::read(&fm.map, rules);
         match reading.problem {
             Some(vault_core::visibility::Problem::Conflict) => bump("conflicting_publication_flag"),
             Some(_) => bump("invalid_publication_flag"),
@@ -638,7 +643,7 @@ mod tests {
             "---\npublic: \"true\"\n---\n",
         )
         .unwrap();
-        let census = inspect_inputs(&pages).unwrap();
+        let census = inspect_inputs(&pages, vault_core::visibility::Rules::PublicFlag).unwrap();
         assert_eq!(census.public_pages, 1);
         assert_eq!(census.non_public_pages, 1);
         assert_eq!(census.excluded, 3);
@@ -652,7 +657,7 @@ mod tests {
         std::fs::create_dir_all(&pages).unwrap();
         std::fs::write(pages.join("A.md"), "---\npublic: \"true\"\n---\n").unwrap();
         assert!(matches!(
-            inspect_inputs(&pages),
+            inspect_inputs(&pages, vault_core::visibility::Rules::PublicFlag),
             Err(PublicationBlocked::Census(_))
         ));
     }
@@ -665,9 +670,26 @@ mod tests {
         std::fs::write(pages.join("V2.md"), "---\npublic: true\n---\n").unwrap();
         std::fs::write(pages.join("V3.md"), "---\nvisibility: public\n---\n").unwrap();
         std::fs::write(pages.join("S.md"), "---\nvisibility: shared\n---\n").unwrap();
-        let census = inspect_inputs(&pages).unwrap();
-        assert_eq!((census.public_pages, census.non_public_pages), (2, 1));
+        // Under vocabulary 3 a working page is public by `visibility` alone.
+        let census = inspect_inputs(&pages, vault_core::visibility::Rules::Visibility).unwrap();
+        assert_eq!((census.public_pages, census.non_public_pages), (1, 2));
         assert!(census.balanced);
+        // Under vocabulary 2 it is the other way round: `public: true` alone.
+        let census = inspect_inputs(&pages, vault_core::visibility::Rules::PublicFlag).unwrap();
+        assert_eq!((census.public_pages, census.non_public_pages), (1, 2));
+        std::fs::write(
+            pages.join("Both.md"),
+            "---\npublic: false\nvisibility: public\n---\n",
+        )
+        .unwrap();
+        // `visibility` is not a key of vocabulary 2: no conflict, not public.
+        let census = inspect_inputs(&pages, vault_core::visibility::Rules::PublicFlag).unwrap();
+        assert_eq!((census.public_pages, census.non_public_pages), (1, 3));
+        // Under vocabulary 3 the same page is a conflict and refuses the build.
+        assert!(matches!(
+            inspect_inputs(&pages, vault_core::visibility::Rules::Visibility),
+            Err(PublicationBlocked::Census(_))
+        ));
     }
 
     #[test]
@@ -685,7 +707,10 @@ mod tests {
             )
             .unwrap();
             assert!(
-                matches!(inspect_inputs(&pages), Err(PublicationBlocked::Census(_))),
+                matches!(
+                    inspect_inputs(&pages, vault_core::visibility::Rules::Visibility),
+                    Err(PublicationBlocked::Census(_))
+                ),
                 "{header}"
             );
             std::fs::remove_file(pages.join(format!("{name}.md"))).unwrap();

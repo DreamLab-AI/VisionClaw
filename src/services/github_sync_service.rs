@@ -390,8 +390,9 @@ impl GitHubSyncService {
         let vault_ctx = visionclaw_domain::vault::VaultContext::new(&vault_index, &base_paths);
 
         // The relation vocabulary: frontmatter relation key -> OWL property.
-        // A source that cannot supply one still ingests pages and wikilinks;
-        // a vocabulary that exists but will not load is a sync error.
+        // A source that cannot supply one still ingests pages and wikilinks
+        // (publication then reads as vocabulary 2); a vocabulary that exists
+        // but will not load stops the sync.
         let vocabulary = match self.source.vocabulary().await {
             Ok(Some(vocab)) => {
                 info!(
@@ -407,9 +408,12 @@ impl GitHubSyncService {
                 None
             }
             Err(e) => {
+                // Which key publishes a working page depends on the vocabulary
+                // version, so a vocabulary that will not load stops the sync:
+                // guessing a version could publish a page ontomark keeps private.
                 error!("Corpus vocabulary failed to load: {}", e);
-                stats.errors.push(format!("vocabulary: {}", e));
-                None
+                stats.duration = start_time.elapsed();
+                return Err(format!("Corpus sync failed: vocabulary: {}", e));
             }
         };
         // Node ids with a `knowledge/` page behind them, from the FULL listing:
@@ -1975,7 +1979,7 @@ impl GitHubSyncService {
                 // gate admitted and that declares no `type`. After the node is
                 // built and independent of it: the result is never read back.
                 if let Some(jev) = scope.jev {
-                    if page_is_kg_included(content) {
+                    if page_is_kg_included(content, scope.rules_for(&file.path)) {
                         if let Some(facts) = crate::services::jev_ingest::page_facts(
                             content,
                             &file.path,
@@ -1998,7 +2002,7 @@ impl GitHubSyncService {
         // §V4: the one publication gate, shared with the plain path. A class
         // page is published iff its frontmatter says `public: true`, which is
         // the boundary `vault build` projects the ontology through too.
-        if !page_is_kg_included(content) {
+        if !page_is_kg_included(content, scope.rules_for(&file.path)) {
             debug!(
                 "Skipped non-public {} page: {}",
                 parsed.ontology_type, file.name
@@ -2068,7 +2072,10 @@ impl GitHubSyncService {
         // edge from the class node to its working-graph origin page. Targets
         // that are not authored nodes fold to weight at the deferred pass like
         // any dangling link.
-        if let Some(name) = visionclaw_domain::vault::parse(content).elevated_from {
+        // Only `elevatedFrom` is read here, not publication; the page has passed the gate.
+        if let Some(name) =
+            visionclaw_domain::vault::parse(content, scope.rules_for(&file.path)).elevated_from
+        {
             let resolved = scope.vault.resolve(&name, &identity);
             let target_id = self.kg_parser.page_name_to_id(resolved.target());
             if target_id != source_id {
@@ -2200,7 +2207,7 @@ impl GitHubSyncService {
         scope: SyncScope<'_>,
     ) {
         // §V4 gate: frontmatter `public: true` (or a valid `owl-class`).
-        if !page_is_kg_included(content) {
+        if !page_is_kg_included(content, scope.rules_for(&file.path)) {
             debug!(
                 "Skipped non-public page: {} (no frontmatter `public: true`/`owl-class`)",
                 file.name
@@ -2452,8 +2459,10 @@ fn cocite_metadata(mut targets: Vec<(u32, usize)>) -> std::collections::HashMap<
     )])
 }
 
-fn page_is_kg_included(content: &str) -> bool {
-    visionclaw_domain::vault::parse(content).is_kg_included()
+/// The §V4 gate over one page under the rules of its vault and vocabulary
+/// ([`SyncScope::rules_for`]). There is no context-free reading of "public".
+fn page_is_kg_included(content: &str, rules: visionclaw_domain::vault::Rules) -> bool {
+    visionclaw_domain::vault::parse(content, rules).is_kg_included()
 }
 
 /// Node-metadata key carrying the page's declared OKF ontology type.
@@ -2494,6 +2503,15 @@ struct SyncScope<'a> {
 }
 
 impl SyncScope<'_> {
+    /// The publication rules for the page at `repo_path`: `visibility` for a
+    /// `working/` page when the corpus vocabulary is version 3 or later,
+    /// `public: true` alone otherwise (ontomark's `is_public_in`). A source that
+    /// supplies no vocabulary reads as version 2; one whose vocabulary will not
+    /// load never reaches here, the sync stops first.
+    fn rules_for(&self, repo_path: &str) -> visionclaw_domain::vault::Rules {
+        visionclaw_domain::vault::Rules::for_path(repo_path, self.vocabulary.map(|v| v.version))
+    }
+
     /// A page outside `knowledge/` whose node id a knowledge page also owns
     /// yields to it: the knowledge page is the governed record of that
     /// identity (PRD-sovereign-corpus Q16).
@@ -3640,7 +3658,7 @@ mod sovereign_corpus_scope_tests {
         // It IS admitted to the knowledge graph: `public: true` opens the §V4
         // gate, and the graph ingest keeps BOTH base paths.
         assert!(
-            page_is_kg_included(episode),
+            page_is_kg_included(episode, visionclaw_domain::vault::Rules::PublicFlag),
             "a public working page is still a graph node"
         );
 

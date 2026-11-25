@@ -142,7 +142,9 @@ fn canonical_entity(page: &Page, ontology_type: &str, source_path: &str) -> Cano
         page_iri: page.frontmatter.text("page_resource").unwrap_or_default(),
         class_iri: Some(page.resource(namespace)),
         title: page.title(),
-        public: page.is_public(),
+        // Only a `knowledge/` page reaches here (`declared_ontology_type`), and a
+        // knowledge page is public by `public: true` at every vocabulary version.
+        public: page.is_public(vault_core::visibility::Rules::PublicFlag),
         kind,
         outbound_links,
         source_path: source_path.to_string(),

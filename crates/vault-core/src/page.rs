@@ -255,12 +255,15 @@ impl Page {
             .unwrap_or_else(|| format!("{namespace}{}", self.slug()))
     }
 
-    /// Public under either header form: `public: true` (vocabulary 2) or
-    /// `visibility: public` (vocabulary 3)? Absent, unknown or contradictory
-    /// means not public — the gate fails closed. See [`crate::visibility`].
+    /// Is the page public under `rules`? There is no context-free answer:
+    /// `public: true` decides for knowledge pages and under vocabulary 2,
+    /// `visibility: public` for working pages under vocabulary 3 or later
+    /// (see [`crate::visibility::Rules`]). Absent, unknown or contradictory
+    /// means not public: under `visibility` rules a `public` that disagrees
+    /// with `visibility` is a conflict and the page is not public.
     #[must_use]
-    pub fn is_public(&self) -> bool {
-        crate::visibility::is_public(&self.frontmatter.map)
+    pub fn is_public(&self, rules: crate::visibility::Rules) -> bool {
+        crate::visibility::is_public(&self.frontmatter.map, rules)
     }
 
     /// The OKF lifecycle and trust block.
@@ -518,9 +521,17 @@ impl Vault {
         self.pages.iter().chain(&self.journals)
     }
 
-    /// Only the pages with `public: true`.
-    pub fn public(&self) -> impl Iterator<Item = &Page> {
-        self.pages.iter().filter(|p| p.is_public())
+    /// The visibility rules for this vault's pages under a vocabulary of
+    /// `version` (`None`: no vocabulary, read as version 2).
+    #[must_use]
+    pub fn rules(&self, version: Option<u32>) -> crate::visibility::Rules {
+        crate::visibility::Rules::for_page(self.kind, version)
+    }
+
+    /// Only the public pages, under the vocabulary `version`.
+    pub fn public(&self, version: Option<u32>) -> impl Iterator<Item = &Page> {
+        let rules = self.rules(version);
+        self.pages.iter().filter(move |p| p.is_public(rules))
     }
 }
 
@@ -648,12 +659,18 @@ pub fn parse_page(
 /// As [`Vault::load`].
 pub fn load_vault(root: impl AsRef<Path>) -> Result<Vault> {
     let root = root.as_ref();
-    let kind = if root.file_name().and_then(|n| n.to_str()) == Some("working") {
+    Vault::load(root, vault_kind_of(root))
+}
+
+/// The kind of the vault rooted at `root`: a directory named `working` is the
+/// working vault, anything else is the knowledge vault.
+#[must_use]
+pub fn vault_kind_of(root: &Path) -> VaultKind {
+    if root.file_name().and_then(|n| n.to_str()) == Some("working") {
         VaultKind::Working
     } else {
         VaultKind::Knowledge
-    };
-    Vault::load(root, kind)
+    }
 }
 
 #[cfg(test)]
@@ -679,7 +696,7 @@ mod tests {
             p.resource("urn:ngm:class:"),
             "urn:ngm:class:knowledge-graph"
         );
-        assert!(p.is_public());
+        assert!(p.is_public(crate::visibility::Rules::PublicFlag));
     }
 
     #[test]
@@ -693,7 +710,7 @@ mod tests {
     #[test]
     fn a_page_with_no_frontmatter_is_private() {
         let p = page("# Just a body\n");
-        assert!(!p.is_public());
+        assert!(!p.is_public(crate::visibility::Rules::PublicFlag));
         assert!(p.frontmatter.map.is_empty());
     }
 
