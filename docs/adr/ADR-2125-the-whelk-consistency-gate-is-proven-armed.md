@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: b188b0397756517fda22fb67d17222d4cec46579
+verified_commit: 5e88e613e516dc4d9af76399a267ef6c5e0f7612
 verified_paths: [crates/vault-core/src/consistency.rs, crates/vault-core/src/lib.rs, crates/vault/src/model.rs, crates/vault/src/build/turtle.rs, crates/vault/src/whelk.rs, crates/vault/src/validate.rs, crates/vault/src/build/mod.rs, crates/vault/src/propose.rs, crates/vault/tests/probe_consistency.rs, src/actors/elevation_actor.rs]
 owner: jjohare
 review_trigger: the `disjoint-with` key entering ontology/vocabulary.yaml; any proposal to re-enable domain-root disjointness; a WHELK_INCONSISTENT blocker firing on a real proposal

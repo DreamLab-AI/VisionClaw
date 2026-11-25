@@ -1,12 +1,12 @@
 ---
 title: VAULT — authored corpus format (Obsidian vault)
-version: 3.0.0
+version: 3.1.0
 status: living
 verified_commit: 6775a789cbbf3b56d645bcee7dc08815fbe18548
-verification_scope: ADR-2168 shared filesystem checks in V1; other sections retain their existing evidence
+verification_scope: ADR-2168 shared filesystem checks in V1; V10 (vocabulary 3 readers, ADR-2220) is verified by the vault-core and visionclaw-domain tests named there; other sections retain their existing evidence
 owner: jjohare
 domain: VAULT-corpus-format
-ledger: [ADR-2112, ADR-2113, ADR-2114, ADR-2115, ADR-2116, ADR-2117, ADR-2118, ADR-2124, ADR-2125, ADR-2128, ADR-2168]
+ledger: [ADR-2112, ADR-2113, ADR-2114, ADR-2115, ADR-2116, ADR-2117, ADR-2118, ADR-2124, ADR-2125, ADR-2128, ADR-2168, ADR-2220]
 agentbox_ledger: [ADR-2107, ADR-2108, ADR-2109, ADR-2129]
 proposed: [ADR-2126, ADR-2127]
 ---
@@ -93,7 +93,7 @@ call it; nothing else parses the corpus.
 
 | Component | Role | Contract |
 |---|---|---|
-| `vault-core::parse` | the one parser: frontmatter → `Page { type, title, resource, public, status, generated, verified, sources, relations, scalars }` | ADR-2113 |
+| `vault-core::parse` | the one parser: frontmatter → `Page { type, title, resource, public, status, generated, verified, sources, relations, scalars }`. Visibility, stamps, the principal roster and recall are read by `vault_core::{visibility, okf, roster, lifecycle}`, which `visionclaw-domain` calls too, so the two parsers share one reading of both vocabulary 2 and vocabulary 3 headers (V10) | ADR-2113, ADR-2220 |
 | `vault validate` | OKF conformance + `vocabulary.yaml` + `types.json` agreement + link integrity + public gate | C2 |
 | `ontomark find / retrieve / tree` | graph over frontmatter wikilinks, per-edge-type expansion depth, `max_documents` cap (ported from `vault`, ADR-OM-005) | C2 |
 | `ontomark edit --expect docs=N blocks=M` / `create` / `apply` | guarded mutation; refused without a declared blast radius (ported from `vault`, ADR-OM-005) | C2 |
@@ -103,7 +103,7 @@ call it; nothing else parses the corpus.
 | `vault build` | the bundle (C3), Quartz `static/`, the Loom bundle | C3 |
 | `CorpusSource::LocalDirectory` | VisionClaw ingest over the mounted named volume, via `vault-core` | ADR-2114 |
 | Loom | consumes the `vault build` bundle; generation `visionGraph@<sha>` | Loom ADR-141 |
-| Quartz v4 | renders narrativegoldmine.com from `knowledge/`, ExplicitPublish ⇐ `public` | PRD Q13 |
+| Quartz v4 | renders narrativegoldmine.com from `knowledge/`, ExplicitPublish ⇐ `public` (the working half is staged by ontomark, which reads `visibility` under vocabulary 3) | PRD Q13 |
 | agentbox skills (`ontology-augment`, `podcast-knowledge-ingest`, `ontology-curator`) | read and write via the `vault` binary; **no MCP server** | ADR-2107 |
 
 Deleted by this change: `pipeline/*.py`, `publishing-tools/`,
@@ -194,18 +194,18 @@ the *shape*:
 | Group | Keys | Type | Source of truth |
 |---|---|---|---|
 | Identity | `type`, `title`, `resource` | text | `vocabulary.types`, `vocabulary.identity` |
-| Gate | `public` | boolean | `vocabulary.scalars.public` |
+| Gate | `public` (vocabulary 2); `visibility` (vocabulary 3, working pages) | boolean; `private` \| `shared` \| `public` | `vocabulary.scalars.public`, V10 |
 | Classification | `domain`, `maturity`, `quality`, `authority`, `gloss`, `aliases`, `tags`, `legacy-term-id` | per vocabulary | `vocabulary.scalars` |
 | Relations | `is-a`, `requires`, `enables`, `uses`, `supports`, `has-part`, `part-of`, `related-to`, `depends-on`, `bridges-to`, `contrasts-with`, `implements`, `standardized-by`, `same-as`, + 35 provisional | list of wikilink strings | `vocabulary.relations` |
 | OKF lifecycle | `status`, `stale_after` | text, date | `vocabulary.okf.lifecycle` |
-| OKF trust | `generated {by, at, rule}`, `verified [{by, at}]` | mapping, list | `vocabulary.okf.trust` |
-| OKF provenance | `sources [{id, resource}]` | list | `vocabulary.okf.sources` |
+| OKF trust | `generated {by, at, rule}`, `verified [{by, at}]`; vocabulary 3 adds `via` and a `did:nostr:` `by` (V10) | mapping, list | `vocabulary.okf.trust` |
+| OKF provenance | `sources [{id, resource}]`; vocabulary 3 adds `rel`, `at`, `locator` (V10) | list | `vocabulary.okf.sources` |
 
 Rules:
 
 1. **Every relation value is a list of wikilink strings**, even a single target:
    `is-a: ["[[Algorithm]]"]`. Wikilinks in property values are quoted.
-2. `public` is a real YAML boolean, never `"true"`.
+2. `public` is a real YAML boolean, never `"true"`. Under vocabulary 3 a working page says `visibility: public` instead, and both spellings are the same fact (V10).
 3. `resource` is minted once from `namespace + slug(title)` and is **immutable
    thereafter**. It is never recomputed: 412 existing IRIs come from a
    case/digit-boundary slugifier (`3D Asset` → `3-d-asset`), they are the subject
@@ -258,7 +258,9 @@ Two gates, and they are now the same gate:
    and published at once. `type` and `resource` make a page a class; `public`
    decides only whether it is *published*.
 2. **Publish.** A page publishes to narrativegoldmine.com iff `public: true`
-   (Quartz ExplicitPublish). Fail-closed: absent means private.
+   (Quartz ExplicitPublish) or, for a working page under vocabulary 3,
+   `visibility: public` — one reading, V10. Fail-closed: absent, unknown or
+   unreadable means private.
 
 `working/` is never ingested into the governed graph and never published. It is
 read by `vault propose` to build proposals and by the curator in Obsidian.
@@ -321,7 +323,7 @@ that disagrees with `vocabulary.yaml` is a validation failure.
 
 | | `knowledge/` | `working/` |
 |---|---|---|
-| Types | `Class`, `Property`, `Individual` | `Note`, `Episode`, `Transcript`, `Draft Concept`, `Journal`, `Canvas` |
+| Types | `Class`, `Property`, `Individual` | `Note`, `Episode`, `Transcript`, `Draft Concept`, `Journal`, `Canvas`; vocabulary 3 adds `Brief`, `Proposal`, `Belief`, `Procedure` (V10) |
 | Unknown keys | fail | allow |
 | Required | `type`, `title`, `resource`, `public`, `status`, `generated` | `type`, `title` |
 | Reasoned | yes (Whelk EL++) | no |
@@ -340,6 +342,67 @@ the alternative — an independent copy per vault, as the v1 converter did — p
 two divergent multi-hundred-megabyte trees. `vault validate` follows the symlink
 for link integrity, `vault build` resolves it, Quartz copies through it, and asset
 links are always vault-root-relative `assets/<file>`.
+
+### V10 — Vocabulary 3 headers (decided, being rolled out)
+
+Vocabulary 3 is decided (visionGraph ADR-VG-010 to ADR-VG-013, ruled on in the
+estate plan of 2026-11-25) and is **being rolled out**: ontomark's reader and
+the migration (`m0002`) are built on a branch and unreleased, and the corpus is
+still written in vocabulary 2. This section records what VisionClaw's readers do
+now, so that they accept both forms and give the same answer for a page before
+and after it is migrated (ADR-2220). It is not a statement that the corpus has
+moved.
+
+| Fact | Vocabulary 2 | Vocabulary 3 | One reading |
+|---|---|---|---|
+| Public | `public: true` | working pages: `visibility: public` (`private`, `shared`, default `shared`) | `vault_core::visibility::read` |
+| Who answers for a stamp | `by: human:<npub>`, `process:`, `agent:` | `by: did:nostr:<64 lowercase hex>`; the instrument that did the work is `via: agent:…` or `process:…` | `vault_core::okf::{Actor, Stamp}` |
+| Who is human | the `human:` prefix | the roster: a `did:nostr:` principal of `kind: human`, canonical or listed under `also` | `vault_core::roster::Roster::is_human` |
+| Sources | `{id, resource}` | `{id, resource?, rel, at, locator}`, `locator` carrying `fp:` or `sha256-v1:` pins | `vault_core::okf::Source` |
+| Working types | `Note`, `Episode`, `Transcript`, `Draft Concept`, `Journal`, `Canvas` | adds `Brief`, `Proposal`, `Belief`, `Procedure` | `vault_core::lifecycle` |
+| `status` | `draft`, `stable`, `deprecated` | memory kinds (`Episode`, `Belief`, `Procedure`): `draft`, `approved`, `superseded`, `invalidated`, `archived`; the rest as before unless the vocabulary states a set for the type | `lifecycle::status_is_valid` |
+
+Rules:
+
+1. **Both spellings of visibility are one fact.** `public: true` is
+   `visibility: public`. Where `visibility` is present and readable it decides;
+   an unknown `visibility`, or a `public` that is not a YAML boolean where
+   `visibility` is absent, is not public. Two keys that disagree are reported
+   (`Problem::Conflict`) and the publication census refuses to build over them.
+   The KG gate (`is_kg_included`), `is_publishable`, `Page::is_public` and the
+   census all call `vault_core::visibility`. A writer that re-renders a page
+   writes the key the page was authored with and never adds `public` beside
+   `visibility`.
+2. **Both stamp grammars name one principal.** `human:<npub>` and
+   `did:nostr:<hex>` spell the same key; the roster
+   (`ontology/attribution.yaml`: `principals` with `kind` and `also`, and the
+   vocabulary 2 `generators`) resolves either, and an `also` key, to the canonical
+   DID. A `human:<name>` resolves through the label of a human principal.
+3. **Human certification follows the roster kind.** A `verified` entry is human
+   if its `by` is a `human:` actor, or a `did:nostr:` principal the roster says is
+   a human. An organisation, an unknown key, an agent and a process are not.
+   A page's `verified` therefore keeps its weight when its stamp is rewritten.
+4. **Nothing is dropped silently.** A `generated`, `verified` or `sources` value
+   the reader cannot parse stays out of the typed fields and is listed in
+   `OkfBlock::problems` (and `PageMeta::stamp_problems`); `vault validate`
+   reports it as `INVALID_STAMP` (a warning under vocabulary 2, an error under
+   3). `via`, `rel`, `at`, `locator`, pins and unknown keys survive a read and a
+   write.
+5. **Current recall is one function.** `lifecycle::is_recallable` returns true
+   only for an `approved` `Episode`, `Belief` or `Procedure` whose `valid-from`
+   is not after now (absent reads as started, never back-filled) and whose
+   `valid-to` is after now. Briefs, proposals and every `draft`, `superseded`,
+   `invalidated` or `archived` page are excluded.
+6. **Drift from ontomark is a test failure.** `vault-core/tests/ontomark_v3_parity.rs`
+   and `visionclaw-domain/tests/ontomark_v3_parity.rs` assert the readers equal
+   ontomark's answers over its vocabulary 3 fixture vault, vendored with a hash
+   manifest. The one difference, a `human:<name>` resolved through the roster
+   label, is named in the test.
+
+What the readers do **not** yet do: the corpus sync does not honour the authored
+clocks of a page (`world-changed` / `corrected` / `withdrawn`); that is the
+planned ADR-2022 P2 amendment, scoped in ADR-2220. When the vault is fully on
+vocabulary 3 the vocabulary 2 reading paths listed in ADR-2220 are deleted.
 
 ## Worked example
 
@@ -397,8 +460,10 @@ leading paragraph. `resource` was copied from the fence's `@id`, not recomputed.
    surface, as is the per-generation `owl:versionIRI` header (ADR-2128); a
    property emits `rdfs:domain`/`rdfs:range` only when its vocabulary entry
    declares one.
-7. **Fail-closed publish.** `public` absent or false means the page does not
-   reach narrativegoldmine.com.
+7. **Fail-closed publish.** `public` absent or false (under vocabulary 3,
+   `visibility` absent, `shared`, `private` or unreadable) means the page does
+   not reach narrativegoldmine.com. Removing `public` from a page that says
+   `visibility: public` does not unpublish it.
 8. **Derived data is never stored in a page.** Inferred closure, backlinks,
    outbound wikilinks, link resolutions and the OKF index are build outputs.
 9. **Blockers are never approvable.** Whelk inconsistency, subclass cycles,
@@ -490,6 +555,7 @@ decision (V7).
 
 | Version | Date | Change |
 |---|---|---|
+| 3.1.0 | 2026-11-25 | ADR-2220: V10 records vocabulary 3 (decided, being rolled out) and how VisionClaw reads both header forms: one visibility reading, `did:nostr:` stamps with `via`, the roster and human certification by kind, typed sources, the new working kinds and per-type statuses, one recall rule, and the ontomark parity fixture. The corpus is still written in vocabulary 2; no rule of vocabulary 2 was loosened. |
 | 3.0.0 | 2026-11-01 | ADR-2168: shared Ontomark filesystem checks reject ambiguous or escaping roots; local child symlinks are skipped. Default crate features enable the checks; runtime deployment is separate. |
 | 2.4.0 | 2026-10-20 | ADR-2147: Invariant 12 (derivation certificates and the consequence delta); `vault certify` and `vault propose --certificate-dir` added to the readers/writers table. No rule was loosened. |
 | 2.3.0 | 2026-10-19 | ADR-2124, ADR-2125 and ADR-2128 re-verified at b4a175412 and moved from "proposed, not ratified" to accepted: Invariant 6 names the `defines-as` / `disjoint-with` keys and the version IRI; Invariant 9 records the armed-gate probe. No rule was loosened. |

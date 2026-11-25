@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
+verified_commit: 5e88e613e516dc4d9af76399a267ef6c5e0f7612
 verified_paths: [crates/vault-core/src/vocabulary.rs, crates/vault/tests/el_profile.rs]
 owner: jjohare
 review_trigger: "Activation (staged → live): a green ontology-publish.yml run whose vault build gates the published generation through the closed-world validator. Review: any proposal to emit owl:allValuesFrom, a cardinality restriction or owl:hasValue; a request to validate the Oxigraph store (not the vault) against shapes; the reasoner changing from Whelk to a DL reasoner"
