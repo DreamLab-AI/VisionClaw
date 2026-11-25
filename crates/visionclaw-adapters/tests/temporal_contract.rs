@@ -33,10 +33,10 @@ const VECTORS_V1: &str = include_str!("fixtures/temporal/estate-temporal-v1.json
 const VECTORS_V1_SHA256: &str = "6973aeef35e538412375dd6e4a9d9539f12f88fa7513d237371098da3bc46f75";
 
 /// Vendored copy of ontomark `conformance/temporal/vectors-v2.json` (contract v2,
-/// ontomark commit ce0d30b): versions never carry an end; closures do.
+/// ontomark commit 66fcacf): versions never carry an end; closures do.
 const VECTORS_V2: &str = include_str!("fixtures/temporal/estate-temporal-v2.json");
 /// The SHA-256 ontomark publishes for that file.
-const VECTORS_V2_SHA256: &str = "afd2bca7acfadbe455abf5f834e5069133c6f8f7b6229044031be42881b8c134";
+const VECTORS_V2_SHA256: &str = "334425f34523d63224fff92cde1c4268c18cdb989b479c731d271516c905a873";
 
 const AGENT: &str = "did:nostr:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 
@@ -83,6 +83,10 @@ struct Case {
     t: DateTime<Utc>,
     recorded_as_of: Option<DateTime<Utc>>,
     expect: Vec<String>,
+    /// Optional: version id -> the reported effective end under this cut
+    /// (`null` = open). Only the listed ids are pinned.
+    #[serde(default)]
+    expect_valid_to: HashMap<String, Option<DateTime<Utc>>>,
 }
 
 fn load(raw: &str) -> Vectors {
@@ -204,7 +208,7 @@ fn the_v2_vectors_are_well_formed() {
     let v = load(VECTORS_V2);
     assert_eq!(
         (v.versions.len(), v.closures.len(), v.cases.len()),
-        (12, 10, 35)
+        (17, 12, 41)
     );
     let ids: BTreeSet<&str> = v.versions.iter().map(|x| x.id.as_str()).collect();
     for c in &v.closures {
@@ -267,6 +271,23 @@ fn pure_state_at_conforms() {
                 v.contract,
                 case.name
             );
+            // The reported end, by the pure evaluator.
+            let by_vid: HashMap<&str, &AssertionVersion> = v
+                .versions
+                .iter()
+                .map(|x| x.id.as_str())
+                .zip(&w.versions)
+                .collect();
+            for (id, end) in &case.expect_valid_to {
+                let ver = by_vid[id.as_str()];
+                assert_eq!(
+                    effective_valid_to(&ver.entity_iri, &w.closures, case.recorded_as_of),
+                    *end,
+                    "{}: pure validTo of {id}: {}",
+                    v.contract,
+                    case.name
+                );
+            }
         }
     }
 }
@@ -304,7 +325,18 @@ fn state_at_sparql_conforms() {
                         .with_timezone(&Utc)
                 });
                 assert_eq!(got_end, want_end, "{}: validTo of {entity}", case.name);
+                if let Some(end) = case.expect_valid_to.get(&w.ids[&entity]) {
+                    assert_eq!(got_end, *end, "{}: pinned validTo of {entity}", case.name);
+                }
                 got_ids.push(w.ids[&entity].clone());
+            }
+            // Every pinned id that is in the state must have been reported.
+            for id in case.expect_valid_to.keys() {
+                assert!(
+                    case.expect.contains(id) || case.expect_valid_to[id].is_none(),
+                    "{}: {id} pinned with an end but not in the state",
+                    case.name
+                );
             }
             let got: BTreeSet<String> = got_ids.iter().cloned().collect();
             assert_eq!(got_ids.len(), got.len(), "{}: duplicate rows", case.name);
