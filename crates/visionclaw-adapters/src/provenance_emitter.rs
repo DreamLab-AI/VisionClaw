@@ -29,8 +29,10 @@
 //! reified graph and the URN records agree — the RDF is a queryable projection
 //! of the same identifiers, never a fork.
 //!
-//! The graph is append-only: only `INSERT DATA` is permitted. No
-//! `DELETE`, `DROP`, or `CLEAR` operations are accepted.
+//! The graph is append-only in operation (ADR-2016, ADR-2219): runtime writers
+//! only insert quads and no runtime path issues `DELETE`, `DROP` or `CLEAR`
+//! against it. It changes otherwise only by an operator-approved contract
+//! refit (see `temporal_refit`) or by erasure (ADR-2102).
 
 use std::sync::Arc;
 

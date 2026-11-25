@@ -514,8 +514,11 @@ impl From<StorageError> for TxError {
 /// `store.transaction(..)` is the real atomicity guarantee — the write-ahead
 /// intent log is only the deterministic fallback for a future store split.
 ///
-/// This is the SINGLE write door into the asserted ontology graph: no caller
-/// inserts into `urn:ngm:graph:ontology:assert` outside this stage.
+/// This is the single *governed* write door into the asserted ontology graph:
+/// a governed commit inserts into `urn:ngm:graph:ontology:assert` only through
+/// this stage. It is not the only writer of that graph: the full corpus sync
+/// rebuilds it (`save_ontology_graph`: `CLEAR` then insert) and re-materialises
+/// decision instances into it.
 pub fn commit_quads(
     store: &Store,
     provenance_quads: &[Quad],
