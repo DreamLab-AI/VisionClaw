@@ -23,6 +23,4 @@ ontomark's predicates, not by reading the pages:
 * `recallable`: `check::v3::state::is_recallable`
 * `generated_readable`, `verified_readable`: how many stamps `OkfBlock` parsed
 
-A harness crate with a path dependency on the ontomark checkout prints the two
-JSON maps (`om-oracle <fixture> <2|3> 1794961600`); `golden.json` merges them as
-`{"now", "ontomark", "pages": {id: {"v2": .., "v3": ..}}}`.
+The harness and the exact commands to regenerate `golden.json` are in `ORACLE.md`.

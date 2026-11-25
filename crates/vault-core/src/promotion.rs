@@ -23,6 +23,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::okf::{Actor, OkfBlock, Stamp, Status};
+use crate::roster::Roster;
 
 /// Where a page sits in the governance loop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -68,10 +69,18 @@ impl PromotionState {
     /// reported as `draft` — the attestation, not the label, is the evidence.
     #[must_use]
     pub fn of(okf: &OkfBlock) -> Self {
+        Self::of_with(okf, &Roster::default())
+    }
+
+    /// [`PromotionState::of`] with the principal roster, so a `did:nostr:`
+    /// attestation by a principal of kind human counts as a human's
+    /// (vocabulary 3, ruling B8). With an empty roster this is `of`.
+    #[must_use]
+    pub fn of_with(okf: &OkfBlock, roster: &Roster) -> Self {
         if okf.status == Some(Status::Deprecated) {
             return Self::Deprecated;
         }
-        if okf.is_human_verified() {
+        if okf.is_human_verified_with(roster) {
             Self::HumanReviewed
         } else if okf.verified.is_empty() {
             Self::Draft
@@ -247,12 +256,29 @@ pub fn apply(
     transition: &Transition,
     blockers: &[Blocker],
 ) -> Result<Outcome, PromotionError> {
+    apply_with(from, transition, blockers, &Roster::default())
+}
+
+/// [`apply`] with the principal roster: a `did:nostr:` signer is human only if
+/// the roster resolves it to a principal of kind human (an organisation, an
+/// unknown key, an agent and a process are not), so a human's approval signed
+/// with their canonical key is accepted and an organisation's is refused. With
+/// an empty roster this is [`apply`], the vocabulary 2 rule.
+///
+/// # Errors
+/// [`PromotionError`], as for [`apply`].
+pub fn apply_with(
+    from: PromotionState,
+    transition: &Transition,
+    blockers: &[Blocker],
+    roster: &Roster,
+) -> Result<Outcome, PromotionError> {
     if !blockers.is_empty() {
         return Err(PromotionError::Blocked(blockers.to_vec()));
     }
 
     let require_human = |by: &Actor, name: &'static str| -> Result<(), PromotionError> {
-        if by.is_human() {
+        if roster.is_human(by) {
             Ok(())
         } else {
             Err(PromotionError::NotHuman {
@@ -264,7 +290,7 @@ pub fn apply(
 
     let state = match (from, transition) {
         (PromotionState::Draft, Transition::Propose { by, at }) => {
-            if by.is_human() {
+            if roster.is_human(by) {
                 return Err(PromotionError::IllegalTransition {
                     from,
                     transition: "propose as a human (use approve)",
@@ -457,5 +483,78 @@ mod tests {
         )
         .unwrap();
         assert_eq!(out.state, PromotionState::HumanReviewed);
+    }
+
+    const B41: &str = "b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a";
+    const EA3: &str = "ea3d03d62a8eb3ce6364c0dd02f239a16fa22956a9f31626619f330361be9c00";
+
+    fn roster() -> Roster {
+        Roster::from_yaml_str(&format!(
+            "principals:\n  - did: did:nostr:{B41}\n    label: jjohare\n    kind: human\n  - did: did:nostr:{EA3}\n    label: acme\n    kind: organisation\n"
+        ))
+    }
+
+    fn did(hex: &str) -> Actor {
+        format!("did:nostr:{hex}").parse().unwrap()
+    }
+
+    #[test]
+    fn a_did_nostr_human_verified_page_reads_as_human_reviewed() {
+        let fm = Frontmatter::parse(&format!(
+            "status: stable\nverified: [{{ by: did:nostr:{B41}, at: 2026-11-02T00:00:00Z }}]\n"
+        ))
+        .unwrap();
+        let okf = OkfBlock::from_frontmatter(&fm);
+        assert_eq!(
+            PromotionState::of_with(&okf, &roster()),
+            PromotionState::HumanReviewed
+        );
+        assert_eq!(
+            PromotionState::of(&okf),
+            PromotionState::MachineConfirmed,
+            "without the roster a did is not known to be human"
+        );
+    }
+
+    #[test]
+    fn a_did_nostr_human_approval_is_accepted_and_an_organisations_is_refused() {
+        let approve = |by: Actor| Transition::Approve { by, at: NOW.into() };
+        let out = apply_with(
+            PromotionState::MachineConfirmed,
+            &approve(did(B41)),
+            &[],
+            &roster(),
+        )
+        .unwrap();
+        assert_eq!(out.state, PromotionState::HumanReviewed);
+        assert_eq!(out.stamp.unwrap().by, did(B41));
+        assert!(matches!(
+            apply_with(
+                PromotionState::MachineConfirmed,
+                &approve(did(EA3)),
+                &[],
+                &roster()
+            ),
+            Err(PromotionError::NotHuman { .. })
+        ));
+        assert!(
+            matches!(
+                apply(PromotionState::MachineConfirmed, &approve(did(B41)), &[]),
+                Err(PromotionError::NotHuman { .. })
+            ),
+            "the roster-less entry point keeps the vocabulary 2 rule"
+        );
+    }
+
+    #[test]
+    fn a_did_nostr_human_cannot_propose_as_a_machine() {
+        let propose = Transition::Propose {
+            by: did(B41),
+            at: NOW.into(),
+        };
+        assert!(matches!(
+            apply_with(PromotionState::Draft, &propose, &[], &roster()),
+            Err(PromotionError::IllegalTransition { .. })
+        ));
     }
 }

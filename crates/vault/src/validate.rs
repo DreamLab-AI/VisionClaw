@@ -746,7 +746,12 @@ fn validate_okf(
             } else {
                 Severity::Warning
             },
-            "INVALID_STAMP",
+            // The same codes ontomark reports for the same defects.
+            if problem.field.starts_with("sources") {
+                "INVALID_SOURCE"
+            } else {
+                "INVALID_STAMP"
+            },
             format!("`{}` is unreadable: {}", problem.field, problem.reason),
         );
     }

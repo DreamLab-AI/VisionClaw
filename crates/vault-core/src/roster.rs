@@ -19,7 +19,7 @@
 //! `verified` (which certifies human review) stays human-only (B8).
 //!
 //! The reading mirrors ontomark's (`Roster::resolve_principal`,
-//! `Roster::is_human_actor`); `tests/vocab_v3_fixture.rs` pins the two together.
+//! `Roster::is_human_actor`); `tests/ontomark_v3_parity.rs` pins the two together.
 //!
 //! ```
 //! use vault_core::roster::{PrincipalKind, Roster};

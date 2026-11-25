@@ -23,7 +23,7 @@
 //! ahead, or whose `valid-to` has passed, is excluded too. An absent
 //! `valid-from` reads as already started and is never back-filled (ruling B5).
 //! The rule is the same function ontomark calls, and
-//! `tests/vocab_v3_fixture.rs` pins the two together.
+//! `tests/ontomark_v3_parity.rs` pins the two together.
 //!
 //! ```
 //! use vault_core::lifecycle::is_recallable;

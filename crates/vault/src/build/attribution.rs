@@ -63,10 +63,25 @@ impl Roster {
             }
         };
         let mut keys: Vec<(String, usize)> = Vec::new();
+        // The vocabulary 3 `principals:` registry is read by
+        // `vault_core::roster::Roster`; its `also:` block lists carry
+        // `- did:nostr:…` lines that this scanner would take for generators.
+        let mut in_principals = false;
         for raw in text.lines() {
             let line = raw.trim_end();
             let t = line.trim_start();
             if t.is_empty() || t.starts_with('#') {
+                continue;
+            }
+            if line.len() == t.len() && !t.starts_with('-') {
+                // A top-level key opens or closes a block.
+                in_principals = t == "principals:";
+                if in_principals {
+                    flush(&mut cur, &mut gens, &mut keys);
+                }
+                continue;
+            }
+            if in_principals {
                 continue;
             }
             if let Some(rest) = t.strip_prefix("- did:") {
@@ -148,5 +163,14 @@ mod tests {
         assert!(r
             .resolve(&"process:vault-migrate/1.0".parse().unwrap())
             .is_none());
+    }
+
+    #[test]
+    fn a_principals_block_is_not_read_as_generators() {
+        let text = "principals:\n  - did: did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a\n    label: jjohare\n    kind: human\n    also:\n      - did:nostr:d598abc6edefc37e10523aec4c00f8d9674a93791aa34a1db03bfa9b60b9f246\ngenerators:\n  - did: did:nostr:aa\n    label: swarm\n    kind: process\n";
+        let r = Roster::from_yaml_str(text);
+        let mut keys: Vec<&str> = r.by_actor.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["agent:swarm/0", "did:nostr:aa", "swarm"], "{keys:?}");
     }
 }
