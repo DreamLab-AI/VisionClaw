@@ -1,0 +1,16 @@
+version: 3
+namespace: "urn:ngm:class:"
+types:
+  Class: { owl: "owl:Class", required: [resource, status] }
+working_types:
+  Note: { status: [draft, final] }
+  Episode: { memory: true }
+  Brief: {}
+  Proposal: {}
+  Belief: { memory: true }
+  Procedure: { memory: true }
+relations:
+  is-a:     { owl: "rdfs:subClassOf" }
+  requires: { owl: "vc:requires" }
+working_extensions:
+  promotion-status: { type: text, enum: [candidate, candidate_deferred, candidate_rejected, elevated] }

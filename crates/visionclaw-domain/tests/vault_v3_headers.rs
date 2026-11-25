@@ -34,10 +34,12 @@ fn an_unknown_visibility_is_not_public() {
 }
 
 #[test]
-fn contradictory_keys_fail_closed_and_are_reported() {
-    let page = "---\ntype: Note\npublic: true\nvisibility: shared\n---\n";
-    let meta = parse(page);
+fn visibility_decides_where_the_keys_disagree_and_the_problem_is_reported() {
+    let meta = parse("---\ntype: Note\npublic: true\nvisibility: shared\n---\n");
     assert!(!meta.is_kg_included());
+    assert!(meta.visibility_problem.is_some());
+    let meta = parse("---\ntype: Note\npublic: false\nvisibility: public\n---\n");
+    assert!(meta.is_kg_included(), "ontomark publishes by visibility");
     assert!(meta.visibility_problem.is_some());
 }
 

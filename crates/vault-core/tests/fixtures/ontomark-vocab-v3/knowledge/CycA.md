@@ -1,0 +1,10 @@
+---
+type: Class
+public: true
+resource: urn:ngm:class:cyca
+status: draft
+generated: { by: did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a, at: '2026-11-01T00:00:00Z' }
+supersedes:
+  - { resource: '[[CycB]]', reason: merged, at: '2026-11-21T00:00:00Z', by: did:nostr:b41654017f6850b13857d19d8ae0e3f88f1365600cab0321e8101c9e92682f7a }
+---
+A page.

@@ -11,11 +11,15 @@
 //! | `public: true` | public |
 //! | `visibility: public` | public |
 //! | `public: false`, `visibility: shared`, `visibility: private`, neither key | not public |
-//! | an unknown `visibility`, or a `public` that is not a YAML boolean | not public, with a [`Problem`] |
-//! | both keys, and they disagree | not public, with [`Problem::Conflict`] |
+//! | an unknown `visibility` (whatever `public` says), or a `public` that is not a YAML boolean and no `visibility` | not public, with a [`Problem`] |
+//! | both keys, and they disagree | `visibility` decides, with [`Problem::Conflict`] |
 //!
-//! The gate fails closed: anything unreadable is not public. Removing `public`
-//! from a page that says `visibility: public` therefore does not unpublish it.
+//! `visibility` is the vocabulary 3 key, so where it is present and readable it
+//! decides, exactly as ontomark's publisher does (one answer for the same page
+//! in both tools). The disagreement is still reported so an author sees it, and
+//! the publication census refuses to build over it. The gate fails closed:
+//! anything unreadable is not public. Removing `public` from a page that says
+//! `visibility: public` therefore does not unpublish it.
 //!
 //! ```
 //! use vault_core::visibility::{is_public, read, Visibility};
@@ -151,9 +155,14 @@ pub fn read(map: &Mapping) -> Reading {
         .or(legacy_problem)
         .or(conflict.then_some(Problem::Conflict));
 
-    let (visibility, form, public) = match (vis_parsed, legacy_bool) {
-        (Some(v), _) => (v, Form::Visibility, v == Visibility::Public),
-        (None, Some(b)) => (
+    // `visibility`, when the key is there, decides: a readable value is the
+    // answer and an unreadable one is "not public" whatever `public` says.
+    // Otherwise the vocabulary 2 `public` decides.
+    let (visibility, form, public) = if vis.is_some_and(|v| !v.is_null()) {
+        let v = vis_parsed.unwrap_or(Visibility::Shared);
+        (v, Form::Visibility, v == Visibility::Public)
+    } else if let Some(b) = legacy_bool {
+        (
             if b {
                 Visibility::Public
             } else {
@@ -161,11 +170,11 @@ pub fn read(map: &Mapping) -> Reading {
             },
             Form::LegacyPublic,
             b,
-        ),
-        (None, None) => (Visibility::Shared, Form::Default, false),
+        )
+    } else {
+        (Visibility::Shared, Form::Default, false)
     };
-    // Fail closed: a problem anywhere means not public.
-    let public = public && problem.is_none();
+    // A page whose only key is unreadable is not public, and says why.
     let declared_not_public = legacy_bool == Some(false)
         || matches!(vis_parsed, Some(Visibility::Shared | Visibility::Private));
     Reading {
@@ -245,17 +254,24 @@ mod tests {
     }
 
     #[test]
-    fn disagreeing_keys_fail_closed() {
-        for y in [
-            "public: true\nvisibility: shared",
-            "public: false\nvisibility: public",
-            "public: true\nvisibility: private",
+    fn visibility_decides_where_the_keys_disagree_and_the_conflict_is_reported() {
+        for (y, public) in [
+            ("public: true\nvisibility: shared", false),
+            ("public: true\nvisibility: private", false),
+            ("public: false\nvisibility: public", true),
         ] {
             let x = r(y);
-            assert!(!x.public, "{y}");
+            assert_eq!(x.public, public, "{y}");
             assert_eq!(x.problem, Some(Problem::Conflict), "{y}");
         }
         assert_eq!(r("public: false\nvisibility: shared").problem, None);
+    }
+
+    #[test]
+    fn an_unreadable_visibility_is_not_public_whatever_public_says() {
+        let x = r("public: true\nvisibility: world");
+        assert!(!x.public);
+        assert!(matches!(x.problem, Some(Problem::InvalidVisibility(_))));
     }
 
     #[test]
