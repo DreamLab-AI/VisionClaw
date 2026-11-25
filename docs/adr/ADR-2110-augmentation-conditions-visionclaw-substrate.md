@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: b188b0397756517fda22fb67d17222d4cec46579
+verified_commit: 7da4c17988f10181878db6a311606d6ad36a5014
 verified_paths: [src/services/intent_match.rs, src/services/kpi_compute.rs, src/actors/elevation_actor.rs, src/adapters/sqlite_kpi_repository.rs, src/adapters/sqlite_enrichment_repository.rs, src/handlers/broker_inbox_handler.rs, client/src/features/control-center/governance/brokerCaseQueue.ts, client/src/features/control-center/governance/AcspCaseQueue.tsx]
 owner: jjohare
 review_trigger: The forum half of EXP-AC-002/004/006 landing, or the first live case queue with real decided cases
@@ -369,3 +369,7 @@ Re-verified 2026-11-17 at c143ef890: `elevation_actor.rs` (a forum-contract test
 ## Re-verification — 2026-11-20
 
 Re-verified 2026-11-20 at b188b0397: `git diff c143ef890..b188b0397 -- src/actors/elevation_actor.rs src/adapters/sqlite_enrichment_repository.rs src/adapters/sqlite_kpi_repository.rs`. `elevation_actor.rs` adds `provenance: None` to one test fixture `Edge`. The two repositories change only for the `rusqlite` 0.43 / `tokio-rusqlite` 0.10 upgrade (closure return type, generic `map_db_err`); no query, schema or constraint changes. Decision holds.
+
+## Re-verification — 2026-11-25 (vocabulary 3 readers, review fixes)
+
+Re-verified at `7da4c1798` (`git diff b188b0397..7da4c1798` over the governed paths). `src/actors/elevation_actor.rs`: one `vault::parse` call gains `Rules::PublicFlag` and a comment (an elevated draft is a knowledge page); the drafting code is unchanged. Read the diff; not run.

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 91fac7731cfb35d4348db3198a8ccb357ee34efe
+verified_commit: 7da4c17988f10181878db6a311606d6ad36a5014
 verified_paths: [crates/vault/src/build/turtle.rs, crates/vault/src/build/generation.rs, crates/vault/src/build/mod.rs, crates/vault-core/src/vocabulary.rs, crates/vault/tests/golden_parity.rs, crates/vault/tests/golden/README.md]
 owner: jjohare
 review_trigger: the first consumer pinning a versionIRI (agentbox ADR-2129); the first property given a non-Thing domain or range; any change to the ontology IRI itself
@@ -77,3 +77,7 @@ Generation markers add compiler identity, separate from source and ontology dige
 Evidence: `cargo test -p vault-core -p vault --tests` against published
 ontomark-parse 0.1.4: 520 passed, 5 existing diagnostics ignored. The source
 review contract is recorded in VisionFlow ADR-2024 and Ontomark ADR-OM-013.
+
+## Re-verification — 2026-11-25 (vocabulary 3 readers, review fixes)
+
+Re-verified at `7da4c1798` (`git diff 91fac7731..7da4c1798` over the governed paths). `vocabulary.rs` and `build/mod.rs`: The changes are additive: the vocabulary 3 `working_types` map form and per-type rules in `vocabulary.rs`, the roster-aware `validate_with` (with `validate` kept) and the `INVALID_*` checks in `validate.rs`, the `Rules` argument threaded into `model.rs`, `projection.rs` (the census) and `build/mod.rs`, and the new `vault-core` modules exported from `lib.rs`. The vocabulary 2 paths are unchanged. The version IRI and the per-property signatures are emitted by `turtle.rs` and `generation.rs`, which did not change; `golden_parity` still passes byte for byte. `cargo test -p vault-core -p visionclaw-domain -p vault` passes at `bb686f270` (1,027 passed, 0 failed, 22 ignored; every `vault` test target, including `golden_parity`, `el_profile`, `defined_classes`, `probe_consistency`, `propose_cli`, `certificate_oo_cert` and `publish_gate`), and a read-only run over the 11,649 real pages with the real (vocabulary 2) vocabulary gives the same publication answer as the code before the branch for every page.

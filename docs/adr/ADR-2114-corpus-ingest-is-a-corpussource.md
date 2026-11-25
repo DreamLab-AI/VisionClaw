@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: [ADR-2096]
 superseded_by: []
-verified_commit: 809a859aae9e3d96d4d6b99690378018e48e3ad8
+verified_commit: 7da4c17988f10181878db6a311606d6ad36a5014
 verified_paths: [src/services/page_parser.rs, src/services/corpus_source/mod.rs, src/services/corpus_source/local.rs, crates/visionclaw-domain/src/vault/mod.rs]
 owner: jjohare
 review_trigger: "a second CorpusSource becoming the default; any change to services::page_parser::parse_page delegating to vault_core::page::parse_page; a request to read `key:: value` metadata again"
@@ -144,3 +144,7 @@ pages on every source; nested `journals/` is no longer skipped from GitHub.
 Row-by-row table: `crates/visionclaw-domain/src/vault/mod.rs`
 `the_ingest_exclusion_table`; local walk: `the_walk_uses_the_shared_exclusion_rule`.
 **Decision unaffected:** the port, the two sources and their selection are unchanged.
+
+## Re-verification — 2026-11-25 (vocabulary 3 readers, review fixes)
+
+Re-verified at `7da4c1798` (`git diff 809a859aa..7da4c1798` over the governed paths). `page_parser.rs`: the canonical entity's `public` is read with `Rules::PublicFlag` (only a `knowledge/` page reaches it) and `vault/mod.rs` gains the `Rules` argument on `parse`/`split`. The `CorpusSource` port, `local.rs` and `corpus_source/mod.rs` are unchanged, and the vocabulary the port supplies is now also what chooses a page's publication key. Decision unaffected. `cargo test -p vault-core -p visionclaw-domain -p vault` passes at `bb686f270` (1,027 passed, 0 failed, 22 ignored; every `vault` test target, including `golden_parity`, `el_profile`, `defined_classes`, `probe_consistency`, `propose_cli`, `certificate_oo_cert` and `publish_gate`), and a read-only run over the 11,649 real pages with the real (vocabulary 2) vocabulary gives the same publication answer as the code before the branch for every page.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: b5200feb4c0d89bc5544d78884d9d79fcdfc67b1
+verified_commit: 7da4c17988f10181878db6a311606d6ad36a5014
 verified_paths: [crates/vault-core/src/vocabulary.rs, crates/vault/tests/el_profile.rs]
 owner: jjohare
 review_trigger: "Activation (staged → live): a green ontology-publish.yml run whose vault build gates the published generation through the closed-world validator. Review: any proposal to emit owl:allValuesFrom, a cardinality restriction or owl:hasValue; a request to validate the Oxigraph store (not the vault) against shapes; the reasoner changing from Whelk to a DL reasoner"
@@ -55,3 +55,7 @@ Commands (`CARGO_TARGET_DIR=/home/devuser/workspace/.cargo-target-prd029`):
 At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `crates/vault-core/src/vocabulary.rs`: two test asserts become `assert_eq!(.., [])`. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
 
 Governed-path change since the last stamp (server consolidation, 2026-11-06, `923feef34..b5200feb4`): `crates/vault-core/src/vocabulary.rs` reads `validation.blockers` through `canonical_blocker_code` (the `RESOURCE_MUTATED` alias). The EL-profile check is untouched. **Decision unaffected.** Re-run: `git diff 923feef34..b5200feb4 -- <verified_paths>`.
+
+## Re-verification — 2026-11-25 (vocabulary 3 readers, review fixes)
+
+Re-verified at `7da4c1798` (`git diff b5200feb4..7da4c1798` over the governed paths). `vocabulary.rs`: the vocabulary 3 `working_types` map form and per-type rules; the closed-world validation rules and `el_profile` are untouched. `cargo test -p vault-core -p visionclaw-domain -p vault` passes at `bb686f270` (1,027 passed, 0 failed, 22 ignored; every `vault` test target, including `golden_parity`, `el_profile`, `defined_classes`, `probe_consistency`, `propose_cli`, `certificate_oo_cert` and `publish_gate`), and a read-only run over the 11,649 real pages with the real (vocabulary 2) vocabulary gives the same publication answer as the code before the branch for every page.

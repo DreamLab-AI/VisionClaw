@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 91fac7731cfb35d4348db3198a8ccb357ee34efe
+verified_commit: 7da4c17988f10181878db6a311606d6ad36a5014
 verified_paths: [crates/vault/src/main.rs, crates/vault-core/Cargo.toml]
 owner: jjohare
 review_trigger: "any reintroduction of a corpus-format converter, a JSON-LD fence reader or migration mapping types; a second supported authored format"
@@ -82,3 +82,7 @@ The manifest adds the published portable Ontomark parser for review assessment. 
 Evidence: `cargo test -p vault-core -p vault --tests` against published
 ontomark-parse 0.1.4: 520 passed, 5 existing diagnostics ignored. The source
 review contract is recorded in VisionFlow ADR-2024 and Ontomark ADR-OM-013.
+
+## Re-verification — 2026-11-25 (vocabulary 3 readers, review fixes)
+
+Re-verified at `7da4c1798` (`git diff 91fac7731..7da4c1798` over the governed paths). `vault/src/main.rs` (the roster argument to `validate`) and `vault-core/Cargo.toml` (`bech32 = "=0.11.1"`). The migration remains retired: `main.rs` still accepts no `migrate` subcommand except to refuse `--fences-to-properties` (test at `:952`). `cargo test -p vault-core -p visionclaw-domain -p vault` passes at `bb686f270` (1,027 passed, 0 failed, 22 ignored; every `vault` test target, including `golden_parity`, `el_profile`, `defined_classes`, `probe_consistency`, `propose_cli`, `certificate_oo_cert` and `publish_gate`), and a read-only run over the 11,649 real pages with the real (vocabulary 2) vocabulary gives the same publication answer as the code before the branch for every page.

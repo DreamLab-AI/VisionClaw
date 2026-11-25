@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b188b0397756517fda22fb67d17222d4cec46579
+verified_commit: 7da4c17988f10181878db6a311606d6ad36a5014
 verified_paths: [src/services/data_reconciliation.rs, src/services/github_sync_service.rs, scripts/backup-sqlite.sh, scripts/backup-secrets.sh]
 owner: jjohare
 review_trigger: an Oxigraph/RocksDB PITR or backup requirement, a cross-store consistency incident, or wiring RuVector delete-propagation
@@ -300,3 +300,7 @@ Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `src/
 ## Re-verification — 2026-11-20
 
 Re-verified 2026-11-20 at b188b0397: `git diff e1e9f9891..b188b0397 -- src/services/github_sync_service.rs`. The diff is ADR-2204 S1-S3 (relation schema replaces the predicate constants and the `FANOUT_NODE_THRESHOLD` read, edge provenance, evidence weighting) and the boot-readiness gate; it adds or removes no backup, checkpoint or delete statement. The atomic `CLEAR`+`INSERT` still gates on `force_full_sync`: the binding is at `:426`, the call at `:704`, `save_ontology_graph` at `:1034-1112` (the `:360`, `:944-995`, `:1022` anchors above predate this and earlier shifts). The no-cross-store-2PC and no-tombstone posture is unchanged; the write-master and backup decision holds.
+
+## Re-verification — 2026-11-25 (vocabulary 3 readers, review fixes)
+
+Re-verified at `7da4c1798` (`git diff b188b0397..7da4c1798` over the governed paths). `src/services/github_sync_service.rs`: the §V4 gate takes the page's `Rules` (`SyncScope::rules_for`, from the corpus vocabulary's version and the page path), and a corpus vocabulary that exists but will not load now stops the sync before anything is cleared or written (it used to record an error and continue). No other line of the file changed. Nothing this record decides (one write-master per data class, derived projections, SQLite-only online backup, `clear_graph` on a full sync only) depends on it: a failing vocabulary now fails the sync earlier, before `clear_graph`. Read the diff; not run.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7bd25427e17c9592ef8cb9c07b632005fb10438c
+verified_commit: 7da4c17988f10181878db6a311606d6ad36a5014
 verified_paths: [src/handlers/ontology_agent_handler.rs, tests/rec1_route_guard.rs, crates/vault/src/main.rs, crates/vault/src/propose.rs]
 owner: jjohare
 review_trigger: "the first caller reported still POSTing to /api/ontology-agent/propose; any change to the 410 body, or any new HTTP ontology write route"
@@ -108,3 +108,7 @@ Governed-path changes since `809a859aa`:
 - `src/handlers/ontology_agent_handler.rs` (`57ba04beb`, `1a6dd031f`, `2dc83e43a`, `e913673e7` and their tests): read failures go through `failed()` (`:117-126`). It answers **503** when the caller's view could not be reasoned over, because ADR-2184 Q1 fails closed rather than falling back to the whole-store closure. Most of the +562 lines are the `per_view_reasoning_tests` module (`:849` on). The scope is still six read POSTs plus `GET /status` (`:470-477`), with no auth or rate-limit middleware. `/propose` still answers 410 `route_retired` (`:305-316`, route `:481`). `ontology_propose` is still absent from the status list (`:444-446`).
 
 **Decision unaffected.** Re-run: `git diff 809a859aa..7bd25427e -- <verified_paths>`. Checked by reading that diff; `rec1_route_guard` and `propose_cli` were not re-run for this stamp.
+
+## Re-verification — 2026-11-25 (vocabulary 3 readers, review fixes)
+
+Re-verified at `7da4c1798` (`git diff 7bd25427e..7da4c1798` over the governed paths). `vault/src/main.rs`: `validate` and `build --validate` call `validate_with` with `Roster::discover`. The propose path (`propose.rs`) and the forum ActionRequest route are untouched. `cargo test -p vault-core -p visionclaw-domain -p vault` passes at `bb686f270` (1,027 passed, 0 failed, 22 ignored; every `vault` test target, including `golden_parity`, `el_profile`, `defined_classes`, `probe_consistency`, `propose_cli`, `certificate_oo_cert` and `publish_gate`), and a read-only run over the 11,649 real pages with the real (vocabulary 2) vocabulary gives the same publication answer as the code before the branch for every page.

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 41fcccb6efb6bb7f12551909f2e741a1d055f7d4
+verified_commit: 7da4c17988f10181878db6a311606d6ad36a5014
 verified_paths: [src/services/data_reconciliation.rs, crates/visionclaw-adapters/src/provenance_emitter.rs, crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs, src/services/ontology_mutation_service.rs]
 owner: jjohare
 review_trigger: a GDPR/right-to-erasure obligation landing on provenance-recorded subjects, or introduction of a redaction/crypto-shred mechanism
@@ -285,3 +285,7 @@ The rule is restated above: append-only in operation, no runtime delete path, tw
 ## Re-verification — 2026-11-25 (after the temporal v2 review)
 
 Re-verified at `41fcccb6efb6bb7f12551909f2e741a1d055f7d4`. Governed-path change since the previous stamp (`136db765e`): `provenance_emitter.rs` only, two lines: the `temporal:` prefix in `fetch_provenance_node` now reads `TEMPORAL_NS` from `temporal_vocab` and that constant is imported. No write path changed. Checked by reading the diff and by grep: `grep -cE 'DELETE |DROP |CLEAR ' crates/visionclaw-adapters/src/provenance_emitter.rs` returns 0; the header at `:32-36` states the reworded rule (append-only in operation, two named exceptions); `oxigraph_ontology_repository.rs:659` (`emit_provenance`) still wraps `emit_activity` (`:663`), and `ontology_mutation_service.rs:216` still calls `emit_activity_nonfatal`. **Line numbers moved since the 2026-09-05 table above:** `build_activity_quads` is at `:149`, `commit_quads_with` at `:304`, `reify_activity` at `:328`, `find_incomplete_activities` at `:353`, `emit_activity` at `:454`, `emit_activity_nonfatal` at `:467`, `MANDATORY_ACTIVITY_PREDICATES` at `:129`; the table's `:307` and `:223` are historical. The decision holds. Not re-run here: the root crate's mutation-service tests (they cannot be compiled in this container).
+
+## Re-verification — 2026-11-25 (vocabulary 3 readers, review fixes)
+
+Re-verified at `7da4c1798` (`git diff 41fcccb6e..7da4c1798` over the governed paths). `src/services/ontology_mutation_service.rs`: the two `vault::parse` calls and the `vault::split` call gain a `Rules::PublicFlag` argument and a comment (the page is a knowledge page). `grep -nE 'INSERT DATA|DELETE|DROP|CLEAR'` over the file finds no SPARQL write, and `emit_activity_nonfatal` (`:216`) still resolves to the same insert-only primitive. Append-only holds. Read the diff and grepped; the root crate's tests were not run (they cannot be compiled in this container).

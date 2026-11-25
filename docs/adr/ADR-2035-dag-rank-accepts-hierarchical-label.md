@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b188b0397756517fda22fb67d17222d4cec46579
+verified_commit: 7da4c17988f10181878db6a311606d6ad36a5014
 verified_paths: [src/actors/gpu/force_compute_actor.rs, crates/visionclaw-domain/src/models/edge.rs, src/services/github_sync_service.rs, src/services/inferred_edge_materialiser.rs, src/services/semantic_type_registry.rs]
 owner: jjohare
 review_trigger: a producer that writes a 'hierarchical' subclass edge without rdfs:subClassOf in owl_property_iri (it would silently stop ranking), a store path that drops vc:owlProperty, or a new producer of explicit subclass_of labels
@@ -415,3 +415,7 @@ Governed-path change: `src/services/github_sync_service.rs`, where `plan_domain_
 ## Amendment — 2026-11-20
 
 Amendment 2026-11-20, re-verified at b188b0397 (`git diff 01196ca74..b188b0397` over the governed paths). The ranker decision holds: `hierarchy_pairs` (`force_compute_actor.rs:450`) still filters on `Edge::asserts_subsumption` (`edge.rs:289`, body untouched), so only asserted `rdfs:subClassOf` provenance is layered. **Two things the record names are gone.** (1) `predicate_to_edge_type` (the folding the Context describes at the "Worse than the membership case" paragraph) was deleted by ADR-2204 S2; the same folds now live in `crates/visionclaw-domain/data/relations.yaml` (`kind: hierarchy`, predicates `rdfs:subClassOf`, `owl:equivalentClass`, `owl:sameAs`, `rdfs:subPropertyOf`, `vc:instanceOf`, `vc:sameAs`), so `hierarchical` is still a lossy label and the argument for ranking on provenance rather than label stands. (2) `materialise_domain_roots` is now at `github_sync_service.rs:963` (cited `:919-927`), and its spoke weight comes from `RelationSchema::producer_weight(Producer::DomainSpoke)` instead of a literal; the edge keeps `edge_type` `"hierarchical"` and gains `provenance: Derived`. `Edge` gains an optional `provenance` (`asserted`/`inferred`/`derived`); `semantic_type_registry.rs` keeps its 46 entries and only has a comment and a test changed. Not run: `dag_rank_tests`.
+
+## Re-verification — 2026-11-25 (vocabulary 3 readers, review fixes)
+
+Re-verified at `7da4c1798` (`git diff b188b0397..7da4c1798` over the governed paths). `src/services/github_sync_service.rs`: the §V4 gate takes the page's `Rules` (`SyncScope::rules_for`, from the corpus vocabulary's version and the page path), and a corpus vocabulary that exists but will not load now stops the sync before anything is cleared or written (it used to record an error and continue). No other line of the file changed. `materialise_domain_roots` and `domain_membership_edge` are untouched, and rank provenance is as before. Read the diff; not run.

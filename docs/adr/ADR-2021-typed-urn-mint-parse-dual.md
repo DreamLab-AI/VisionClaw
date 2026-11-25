@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 136db765e42515883a03c6d4307136da17206c77
+verified_commit: 7da4c17988f10181878db6a311606d6ad36a5014
 verified_paths: [src/uri/mod.rs, crates/visionclaw-domain/src/uri.rs, src/services/github_sync_service.rs, src/adapters/oxigraph_graph_repository.rs]
 owner: jjohare
 review_trigger: any new persisted identifier namespace, or a decision to rewrite/retire the legacy urn:ngm:* scheme
@@ -153,3 +153,7 @@ Re-verified 2026-11-20 at b188b0397: `git diff 01196ca74..b188b0397 -- src/servi
 ## Re-verification — 2026-11-25 (ADR-2219)
 
 Governed-path change since `b188b0397`: `uri::content_address` and `uri::execution` moved from `src/uri/mod.rs` into `crates/visionclaw-domain/src/uri.rs` (so the CPU-only adapters crate mints the corpus-sync activity id with the same code); `src/uri/mod.rs` re-exports both, so there is still one definition and the mint output is byte-identical (`sha256-12-` over the same bytes, `urn:visionclaw:execution:<address>`). The adapters test `the_two_production_sync_instants_mint_the_recorded_activity_ids` pins two real activity ids (`…105eab4d0360`, `…bcfdadda87da`) and passes; the domain crate's tests pass. The root crate's own `uri` tests were not run (its test targets do not compile in the build container), only type-checked. **Decision unaffected.**
+
+## Re-verification — 2026-11-25 (vocabulary 3 readers, review fixes)
+
+Re-verified at `7da4c1798` (`git diff 136db765e..7da4c1798` over the governed paths). `src/services/github_sync_service.rs`: the §V4 gate takes the page's `Rules` (`SyncScope::rules_for`, from the corpus vocabulary's version and the page path), and a corpus vocabulary that exists but will not load now stops the sync before anything is cleared or written (it used to record an error and continue). No other line of the file changed. No IRI is minted differently: `domain_root_node` still takes its IRI from `crate::uri::ngm::domain_iri` and no `format!("urn:...")` was added. Read the diff; not run.

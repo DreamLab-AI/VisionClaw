@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: [ADR-2040]
 superseded_by: []
-verified_commit: 91fac7731cfb35d4348db3198a8ccb357ee34efe
+verified_commit: 7da4c17988f10181878db6a311606d6ad36a5014
 verified_paths: [crates/vault/src/validate.rs, crates/vault-core/src/vocabulary.rs, crates/vault/tests/golden_parity.rs]
 owner: jjohare
 review_trigger: "Activation (staged → live): PRD acceptance 2, one class count across Loom, VisionClaw and `vault build --stats` for the same generation; or the first Schema-level proposal against ontology/vocabulary.yaml, whichever is earlier"
@@ -245,3 +245,7 @@ golden scaffold comparison now allows only the explicit provenance fields added
 by VisionFlow ADR-2024, and still compares every legacy payload field. All 15
 golden tests pass; the complete vault/core test run passes 520 tests with 5
 existing diagnostics ignored. No legacy fence reader was reintroduced.
+
+## Re-verification — 2026-11-25 (vocabulary 3 readers, review fixes)
+
+Re-verified at `7da4c1798` (`git diff 91fac7731..7da4c1798` over the governed paths). `vocabulary.rs` and `validate.rs`: The changes are additive: the vocabulary 3 `working_types` map form and per-type rules in `vocabulary.rs`, the roster-aware `validate_with` (with `validate` kept) and the `INVALID_*` checks in `validate.rs`, the `Rules` argument threaded into `model.rs`, `projection.rs` (the census) and `build/mod.rs`, and the new `vault-core` modules exported from `lib.rs`. The vocabulary 2 paths are unchanged. The frontmatter-only OKF contract and the versioned `ontology/vocabulary.yaml` are as decided; vocabulary 2 validates as before. `cargo test -p vault-core -p visionclaw-domain -p vault` passes at `bb686f270` (1,027 passed, 0 failed, 22 ignored; every `vault` test target, including `golden_parity`, `el_profile`, `defined_classes`, `probe_consistency`, `propose_cli`, `certificate_oo_cert` and `publish_gate`), and a read-only run over the 11,649 real pages with the real (vocabulary 2) vocabulary gives the same publication answer as the code before the branch for every page.

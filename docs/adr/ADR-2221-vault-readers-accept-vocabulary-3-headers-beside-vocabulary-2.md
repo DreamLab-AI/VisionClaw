@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 6a946b8bcd97666cdf72c61c0cc4bc2bcb541a51
+verified_commit: 7da4c17988f10181878db6a311606d6ad36a5014
 verified_paths: [crates/vault-core/src/promotion.rs, crates/vault-core/src/visibility.rs, crates/vault-core/src/roster.rs, crates/vault-core/src/lifecycle.rs, crates/vault-core/src/principal.rs, crates/vault-core/tests/ontomark_v3_parity.rs, crates/visionclaw-domain/tests/ontomark_v3_parity.rs]
 owner: jjohare
 review_trigger: ontomark releasing vocabulary 3 and the corpus being migrated (then delete the vocabulary 2 reading paths listed below), or the corpus sync being taught to honour authored clocks
@@ -47,4 +47,4 @@ The sync (`corpus_history::plan_history`) closes every open version whose triple
 
 ## Verification
 
-`cargo test -p vault-core -p visionclaw-domain -p vault` and `cargo clippy` / `cargo fmt --check` on those crates; the parity run over the real corpus (11,649 pages, old reader against new, zero differences) and the before/after migration run are recorded in the delivery report. Source and test only: nothing deployed, no store touched.
+At `bb686f270`: `cargo test -p vault-core -p visionclaw-domain -p vault`: 1,027 passed, 0 failed, 22 ignored; `cargo test -p visionclaw-adapters`: 160 passed, 0 failed, 2 ignored; `cargo fmt --all --check` clean; `cargo clippy --all-targets` on the four crates reports no warning in a file this branch touched (one earlier warning remains in `visionclaw-domain/src/weighting.rs`). The root crate type-checks (`cargo check --lib --no-default-features --features ontology,dev-auth,persistence-oxigraph,solid-pod-embed`, `CUDA_ARCH=86`, with `agentbox/schema/federation-kinds.json` copied in for the check and removed); its **test targets could not be compiled in this container, so the edited root tests (`tests/vault_gate_test.rs`, the unit tests in `github_sync_service.rs`, `decision_elevation.rs`, `ontology_mutation_service.rs`, `elevation_actor.rs`) were read, not run**. The parity run over the real corpus (11,649 pages, real vocabulary version 2, the code before the branch against this code) shows 0 differences in publication (9,766 public both) and in the KG gate; the before/after-migration trial of the earlier delivery was not repeated after the fix. Source and test only: nothing deployed, no store touched.

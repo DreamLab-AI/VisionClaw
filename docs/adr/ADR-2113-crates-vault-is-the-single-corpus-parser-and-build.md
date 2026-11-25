@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: [ADR-2042]
 superseded_by: []
-verified_commit: 91fac7731cfb35d4348db3198a8ccb357ee34efe
+verified_commit: 7da4c17988f10181878db6a311606d6ad36a5014
 verified_paths: [crates/vault/src/build/mod.rs, crates/vault/src/build/rvdb.rs, crates/vault/src/nostr.rs, crates/vault/tests/golden_parity.rs]
 owner: jjohare
 review_trigger: "`vault build --with-rvdb` run against the live Xinference endpoint, and `vault propose` posting a signed 31402 to the local forum relay (the WS-F end-to-end test); at that point implementation_status moves to complete"
@@ -467,3 +467,7 @@ The legacy builder now preserves explicit attestations and adds source review co
 Evidence: `cargo test -p vault-core -p vault --tests` against published
 ontomark-parse 0.1.4: 520 passed, 5 existing diagnostics ignored. The source
 review contract is recorded in VisionFlow ADR-2024 and Ontomark ADR-OM-013.
+
+## Re-verification — 2026-11-25 (vocabulary 3 readers, review fixes)
+
+Re-verified at `7da4c1798` (`git diff 91fac7731..7da4c1798` over the governed paths). `vault/src/build/mod.rs`: the census and the publish staging take the `Rules` of the vault under the vocabulary (`inspect_inputs(dir, rules)`, `stage(vaults, version)`), and validation takes the roster. One parser and one build are still `crates/vault`. `cargo test -p vault-core -p visionclaw-domain -p vault` passes at `bb686f270` (1,027 passed, 0 failed, 22 ignored; every `vault` test target, including `golden_parity`, `el_profile`, `defined_classes`, `probe_consistency`, `propose_cli`, `certificate_oo_cert` and `publish_gate`), and a read-only run over the 11,649 real pages with the real (vocabulary 2) vocabulary gives the same publication answer as the code before the branch for every page.
