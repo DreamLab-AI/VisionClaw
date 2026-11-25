@@ -35,6 +35,7 @@ pub mod corpus_history;
 pub mod messages;
 pub mod oxigraph_ontology_repository;
 pub mod provenance_writer;
+pub mod temporal_refit;
 pub use oxigraph_ontology_repository::OxigraphOntologyRepository;
 
 // ADR-101 — versioned, idempotent SPARQL migration framework for the Oxigraph
