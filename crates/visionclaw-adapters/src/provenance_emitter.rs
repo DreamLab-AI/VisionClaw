@@ -504,6 +504,7 @@ fn fetch_provenance_node(store: &Store, entity: &str) -> Result<ProvenanceNode, 
         PREFIX prov: <http://www.w3.org/ns/prov#>
         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
         PREFIX vc: <{VC_NS}>
+        PREFIX temporal: <http://nova.dev/temporal#>
         SELECT ?subject ?activity ?agent ?generatedAt ?action ?derivation ?parent
         FROM <{graph}>
         WHERE {{
@@ -513,9 +514,11 @@ fn fetch_provenance_node(store: &Store, entity: &str) -> Result<ProvenanceNode, 
                         OPTIONAL {{ ?activity vc:derivation ?derivation }}
                         OPTIONAL {{ ?activity prov:wasAssociatedWith ?actAgent }} }}
             OPTIONAL {{ <{entity}> prov:wasAttributedTo ?entAgent }}
-            OPTIONAL {{ <{entity}> prov:generatedAtTime ?generatedAt }}
+            OPTIONAL {{ <{entity}> temporal:recordedFrom ?recordedFrom }}
+            OPTIONAL {{ <{entity}> prov:generatedAtTime ?proGeneratedAt }}
             OPTIONAL {{ <{entity}> prov:wasDerivedFrom ?parent }}
             BIND(COALESCE(?entAgent, ?actAgent) AS ?agent)
+            BIND(COALESCE(?recordedFrom, ?proGeneratedAt) AS ?generatedAt)
         }}
         "#,
         graph = GRAPH_PROVENANCE,
@@ -859,6 +862,32 @@ mod tests {
         );
         assert!(node.generated_at.is_some());
         assert!(node.derived_from.contains(record.used.as_ref().unwrap()));
+    }
+
+    /// A version's recorded time is `temporal:recordedFrom` (contract v2), and the
+    /// chain still reports it as the node's `generated_at`.
+    #[test]
+    fn a_versions_recorded_time_is_read_from_temporal_recorded_from() {
+        use crate::provenance_writer::{build_assertion_version, AssertionInput};
+        use chrono::TimeZone;
+        let store = mem_store();
+        let at = chrono::Utc
+            .with_ymd_and_hms(2026, 11, 19, 13, 26, 13)
+            .unwrap();
+        let v = build_assertion_version(&AssertionInput {
+            subject: "urn:ngm:class:a".into(),
+            predicate: "http://www.w3.org/2000/01/rdf-schema#subClassOf".into(),
+            object: "urn:ngm:class:b".into(),
+            valid_from: at,
+            generated_at: at,
+            activity_urn: "urn:visionclaw:execution:sha256-12-abcdef012345".into(),
+            agent_iri: "did:nostr:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                .into(),
+        })
+        .unwrap();
+        store.extend(v.provenance_quads).unwrap();
+        let node = fetch_provenance_node(&store, &v.entity_iri).unwrap();
+        assert_eq!(node.generated_at.as_deref(), Some("2026-11-19T13:26:13Z"));
     }
 
     #[test]

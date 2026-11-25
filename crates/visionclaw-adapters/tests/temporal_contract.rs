@@ -280,7 +280,6 @@ fn s(t: Option<&Term>) -> String {
 }
 
 #[test]
-#[ignore = "enabled by step 3 (closure-aware reader)"]
 fn state_at_sparql_conforms() {
     for raw in [VECTORS_V1, VECTORS_V2] {
         let v = load(raw);
@@ -317,7 +316,6 @@ fn state_at_sparql_conforms() {
 }
 
 #[test]
-#[ignore = "enabled by step 3 (closure-aware reader)"]
 fn state_at_subjects_view_conforms() {
     for raw in [VECTORS_V1, VECTORS_V2] {
         let v = load(raw);
@@ -367,7 +365,6 @@ fn day(d: u32, h: u32) -> DateTime<Utc> {
 /// was recorded) still dropped them, giving 158,620 where the knowledge at that
 /// instant was 158,635. A close recorded after the cut must not apply.
 #[test]
-#[ignore = "enabled by step 3 (closure-aware reader)"]
 fn a_close_recorded_after_the_cut_must_not_apply() {
     let store = Store::new().unwrap();
     let agent = AGENT.to_string();
@@ -421,7 +418,6 @@ fn a_close_recorded_after_the_cut_must_not_apply() {
 /// multi-pattern `FILTER NOT EXISTS` form nor the 299 s of `OPTIONAL` +
 /// `GROUP BY` measured on the real store.
 #[test]
-#[ignore = "enabled by step 3 (closure-aware reader)"]
 fn the_reader_stays_fast_at_production_scale() {
     const VERSIONS: u32 = 20_000;
     const CLOSURES: u32 = 1_000;
@@ -468,15 +464,47 @@ fn the_reader_stays_fast_at_production_scale() {
     };
     let (n, took) = run(day(21, 0), None);
     assert_eq!(n, (VERSIONS - CLOSURES) as usize, "full knowledge");
-    assert!(took.as_secs_f64() < 5.0, "state-at took {took:?}");
+    assert!(took.as_secs_f64() < 3.0, "state-at took {took:?}");
     let (n, took) = run(day(21, 0), Some(day(19, 20)));
     assert_eq!(
         n, VERSIONS as usize,
         "closures recorded after the cut do not apply"
     );
     assert!(
-        took.as_secs_f64() < 5.0,
+        took.as_secs_f64() < 3.0,
         "state-at with a cut took {took:?}"
     );
-    eprintln!("scale: {VERSIONS} versions, {CLOSURES} closures, last query {took:?}");
+
+    // Hardware-independent guard: the same question asked in the rejected
+    // `FILTER NOT EXISTS` form (1.45 s here, 12 s at the real store's size) must
+    // be markedly slower than the production form.
+    let reference = format!(
+        "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> \
+         PREFIX prov: <http://www.w3.org/ns/prov#> \
+         PREFIX dl: <https://narrativegoldmine.com/ns/dl#> \
+         PREFIX temporal: <http://nova.dev/temporal#> \
+         PREFIX memory: <http://nova.dev/memory#> \
+         PREFIX xsd: <http://www.w3.org/2001/XMLSchema#> \
+         SELECT ?entity WHERE {{ GRAPH <urn:ngm:graph:provenance> {{ \
+           ?entity a prov:Entity ; temporal:validFrom ?validFrom ; temporal:recordedFrom ?generatedAt . \
+           FILTER (?validFrom <= \"{t}\"^^xsd:dateTime && ?generatedAt <= \"{r}\"^^xsd:dateTime) \
+           FILTER NOT EXISTS {{ ?vc dl:closesVersion ?entity ; dl:closes memory:ValidTime ; \
+             dl:validUntil ?vEnd ; prov:generatedAtTime ?vcAt . \
+             FILTER (?vEnd <= \"{t}\"^^xsd:dateTime && ?vcAt <= \"{r}\"^^xsd:dateTime) }} }} }}",
+        t = "2026-11-21T00:00:00Z",
+        r = "2026-11-19T20:00:00Z"
+    );
+    let start = Instant::now();
+    let QueryResults::Solutions(rows) = store.query(&reference).unwrap() else {
+        panic!("SELECT")
+    };
+    assert_eq!(rows.filter(|r| r.is_ok()).count(), VERSIONS as usize);
+    let slow = start.elapsed();
+    eprintln!(
+        "scale: {VERSIONS} versions, {CLOSURES} closures: MINUS form {took:?}, NOT EXISTS form {slow:?}"
+    );
+    assert!(
+        took * 2 < slow,
+        "the production reader ({took:?}) must be well under the NOT EXISTS form ({slow:?})"
+    );
 }

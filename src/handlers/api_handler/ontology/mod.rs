@@ -1440,7 +1440,8 @@ pub async fn websocket_handler(
 #[derive(Debug, Clone, Deserialize)]
 pub struct StateAtParams {
     /// Valid-time point (RFC3339). The projection returns assertion-versions
-    /// whose half-open `[validFrom, validTo)` interval contains this instant.
+    /// that are valid at this instant: recorded and started by it, and not ended by a
+    /// closure record (the half-open `[validFrom, validUntil)` interval).
     pub t: Option<String>,
     /// Optional recorded-time bound (RFC3339). When present, only versions
     /// `generatedAt <= recorded_as_of` are returned (as-of-knowledge view).
@@ -1494,7 +1495,7 @@ fn binding_value<'a>(row: &'a serde_json::Value, var: &str) -> Option<&'a str> {
 
 /// Map a `sparql_select_json` result document into the `assertions[]` contract
 /// shape. Rows missing any required binding are skipped (fail-graceful); an
-/// absent `?validTo` becomes JSON `null` (open interval).
+/// absent `?validTo` (no applicable valid-time closure) becomes JSON `null`.
 fn map_state_at_rows(sparql_json: &serde_json::Value) -> Vec<serde_json::Value> {
     let bindings = sparql_json
         .get("results")
@@ -1916,19 +1917,24 @@ mod tests {
             "rdf:subject ?subject",
             "rdf:predicate ?predicate",
             "rdf:object ?object",
-            "dl:validFrom ?validFrom",
-            "prov:generatedAtTime ?generatedAt",
+            "temporal:validFrom ?validFrom",
+            "temporal:recordedFrom ?generatedAt",
             "prov:wasGeneratedBy ?activity",
             "prov:wasAttributedTo ?agent",
-            "OPTIONAL { ?entity dl:validTo ?validTo }",
+            // Closure records: two MINUS groups and the effective-end sub-select.
+            "MINUS {",
+            "dl:closes memory:RecordedTime",
+            "dl:closes memory:ValidTime",
+            "MIN(?end) AS ?validTo",
         ] {
             assert!(q.contains(needle), "missing clause: {needle}");
         }
-        // Half-open interval: start inclusive (<=), end exclusive (<) with unbound tolerance.
+        // Half-open interval: start inclusive (<=), a closure's end exclusive (<=
+        // on the closing side, so the instant itself is excluded).
         assert!(q.contains(r#"?validFrom <= "2026-08-07T00:00:00Z"^^xsd:dateTime"#));
-        assert!(
-            q.contains(r#"!BOUND(?validTo) || "2026-08-07T00:00:00Z"^^xsd:dateTime < ?validTo"#)
-        );
+        assert!(q.contains(r#"?vEnd <= "2026-08-07T00:00:00Z"^^xsd:dateTime"#));
+        // The v1 forms are gone.
+        assert!(!q.contains("dl:validTo") && !q.contains("FILTER NOT EXISTS"));
         // It is a read — never a mutation of the classified graph.
         assert!(q.trim_start().contains("SELECT"));
         assert!(!q.to_uppercase().contains("INSERT"));
@@ -1938,17 +1944,26 @@ mod tests {
     #[::core::prelude::v1::test]
     fn build_state_at_sparql_omits_recorded_clause_when_none() {
         let q = build_state_at_sparql(ts("2026-08-07T00:00:00Z"), None);
-        assert!(
-            !q.contains("?generatedAt <="),
-            "no recorded-time conjunct without recorded_as_of"
-        );
+        for needle in ["?generatedAt <=", "?rcAt <=", "?vcAt <=", "?endAt <="] {
+            assert!(
+                !q.contains(needle),
+                "no recorded-time conjunct without recorded_as_of: {needle}"
+            );
+        }
     }
 
     #[::core::prelude::v1::test]
     fn build_state_at_sparql_adds_recorded_clause_when_some() {
         let q = build_state_at_sparql(ts("2026-08-07T00:00:00Z"), Some(ts("2026-08-06T12:00:00Z")));
         // Recorded-time (point-in-time-of-knowledge) conjunct present and bounded.
-        assert!(q.contains(r#"?generatedAt <= "2026-08-06T12:00:00Z"^^xsd:dateTime"#));
+        for needle in ["?generatedAt", "?rcAt", "?vcAt", "?endAt"] {
+            assert!(
+                q.contains(&format!(
+                    r#"{needle} <= "2026-08-06T12:00:00Z"^^xsd:dateTime"#
+                )),
+                "missing cut on {needle}"
+            );
+        }
         // Valid-time predicate is still present and unchanged.
         assert!(q.contains(r#"?validFrom <= "2026-08-07T00:00:00Z"^^xsd:dateTime"#));
         assert!(!q.to_uppercase().contains("INSERT"));

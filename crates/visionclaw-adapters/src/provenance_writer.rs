@@ -841,38 +841,39 @@ pub fn state_at<'a>(
 // ── state-at SPARQL builders (moved from api_handler/ontology) ───────────────
 
 /// Canonical UTC RFC-3339, second precision, `Z` suffix — the timestamp form
-/// `provenance_writer` writes into the `dl:validFrom`/`dl:validTo`/
-/// `prov:generatedAtTime` `xsd:dateTime` literals. Using the same form for the
-/// query literals keeps the comparison boundary aligned with stored values.
+/// `provenance_writer` writes into every temporal literal. Using the same form
+/// for the query literals keeps the comparison boundary aligned with stored
+/// values.
 pub fn state_at_iso_utc(dt: &DateTime<Utc>) -> String {
     dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
-/// Build the bi-temporal `state_at(t)` SPARQL SELECT over
+/// Build the bi-temporal `state_at(t, r)` SPARQL SELECT over
 /// `urn:ngm:graph:provenance` (ADR-049 portable reification, PRD-022 WS-2 unified).
 ///
-/// Joins the reified statement (`rdf:subject`/`rdf:predicate`/`rdf:object`), the
-/// valid-time start (`dl:validFrom`), recorded time (`prov:generatedAtTime`), the
-/// generating activity (`prov:wasGeneratedBy`) and the attributed agent
-/// (`prov:wasAttributedTo`), with an OPTIONAL `dl:validTo`.
-///
-/// The valid-time filter is the half-open interval predicate — start inclusive
-/// (`?validFrom <= t`), end exclusive (`!BOUND(?validTo) || t < ?validTo`) —
-/// byte-matching [`state_at`] semantics. When `recorded_as_of`
-/// is `Some`, an additional `?generatedAt <= recorded` conjunct restricts the
-/// result to the point-in-time-of-knowledge view. `t`/`recorded` are bound as
+/// Selects the versions in the state of the contract rule (see [`state_at`]):
+/// recorded by `r`, valid from `t`, with no applicable recorded-time closure and
+/// no applicable valid-time closure ending at or before `t`. Closures are
+/// excluded with two `MINUS` groups and the reported `?validTo` is the
+/// **effective end**, the minimum `dl:validUntil` among the valid-time closures
+/// recorded by `r`, read by an aggregating sub-select so each version yields
+/// exactly one row. This is the only form that scales: the multi-pattern
+/// `FILTER NOT EXISTS` took 12 s and `OPTIONAL` + `GROUP BY` 299 s on the
+/// production store, against 1.6 s for this one. The `r` conjuncts are omitted
+/// when `recorded_as_of` is `None` (every closure applies). Each group and the
+/// sub-select use their own variable names (`?rcAt`, `?vcAt`, `?endAt`), so
+/// nothing leaks into the outer solution. `t` and `r` are bound as
 /// `xsd:dateTime` literals in canonical UTC form.
 pub fn build_state_at_sparql(t: DateTime<Utc>, recorded_as_of: Option<DateTime<Utc>>) -> String {
     format!(
-        "{}SELECT ?subject ?predicate ?object ?validFrom ?validTo ?generatedAt ?activity ?agent\n{}",
+        "{}SELECT ?entity ?subject ?predicate ?object ?validFrom ?validTo ?generatedAt ?activity ?agent\n{}",
         state_at_prologue(),
-        state_at_where(t, recorded_as_of)
+        state_at_where(t, recorded_as_of, true)
     )
 }
 
-/// The `view=subjects` form of [`build_state_at_sparql`]: the same half-open,
-/// optionally knowledge-cut filter, grouped to one row per subject with the
-/// earliest `validFrom` of its valid versions.
+/// The `view=subjects` form of [`build_state_at_sparql`]: the same rule, grouped
+/// to one row per subject with the earliest `validFrom` of its valid versions.
 pub fn build_state_at_subjects_sparql(
     t: DateTime<Utc>,
     recorded_as_of: Option<DateTime<Utc>>,
@@ -880,7 +881,7 @@ pub fn build_state_at_subjects_sparql(
     format!(
         "{}SELECT ?subject (MIN(?validFrom) AS ?earliest)\n{}\nGROUP BY ?subject",
         state_at_prologue(),
-        state_at_where(t, recorded_as_of)
+        state_at_where(t, recorded_as_of, false)
     )
 }
 
@@ -888,20 +889,52 @@ fn state_at_prologue() -> String {
     format!(
         "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n\
          PREFIX prov: <http://www.w3.org/ns/prov#>\n\
-         PREFIX dl: <{}>\n\
-         PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n",
-        DL_NS
+         PREFIX dl: <{DL_NS}>\n\
+         PREFIX temporal: <{TEMPORAL_NS}>\n\
+         PREFIX memory: <{MEMORY_NS}>\n\
+         PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
     )
 }
 
-fn state_at_where(t: DateTime<Utc>, recorded_as_of: Option<DateTime<Utc>>) -> String {
-    let t_lit = state_at_iso_utc(&t);
-    let recorded_clause = match recorded_as_of {
-        Some(r) => format!(
-            "\n             && ?generatedAt <= \"{}\"^^xsd:dateTime",
-            state_at_iso_utc(&r)
-        ),
-        None => String::new(),
+fn state_at_where(
+    t: DateTime<Utc>,
+    recorded_as_of: Option<DateTime<Utc>>,
+    with_end: bool,
+) -> String {
+    let t_lit = format!("\"{}\"^^xsd:dateTime", state_at_iso_utc(&t));
+    let r_lit = recorded_as_of.map(|r| format!("\"{}\"^^xsd:dateTime", state_at_iso_utc(&r)));
+    let recorded_filter = r_lit
+        .as_ref()
+        .map(|r| format!(" && ?generatedAt <= {r}"))
+        .unwrap_or_default();
+    let recorded_close_filter = r_lit
+        .as_ref()
+        .map(|r| format!("\n            FILTER ( ?rcAt <= {r} )"))
+        .unwrap_or_default();
+    let valid_close_filter = r_lit
+        .as_ref()
+        .map(|r| format!(" && ?vcAt <= {r}"))
+        .unwrap_or_default();
+    let end = if with_end {
+        let end_filter = r_lit
+            .as_ref()
+            .map(|r| format!("\n      FILTER ( ?endAt <= {r} )"))
+            .unwrap_or_default();
+        format!(
+            r#"
+  OPTIONAL {{
+    SELECT ?entity (MIN(?end) AS ?validTo) WHERE {{
+      GRAPH <{GRAPH_PROVENANCE}> {{
+        ?ec dl:closesVersion ?entity ;
+            dl:closes memory:ValidTime ;
+            dl:validUntil ?end ;
+            prov:generatedAtTime ?endAt .{end_filter}
+      }}
+    }} GROUP BY ?entity
+  }}"#
+        )
+    } else {
+        String::new()
     };
     format!(
         r#"WHERE {{
@@ -910,16 +943,25 @@ fn state_at_where(t: DateTime<Utc>, recorded_as_of: Option<DateTime<Utc>>) -> St
             rdf:subject ?subject ;
             rdf:predicate ?predicate ;
             rdf:object ?object ;
-            dl:validFrom ?validFrom ;
-            prov:generatedAtTime ?generatedAt ;
+            temporal:validFrom ?validFrom ;
+            temporal:recordedFrom ?generatedAt ;
             prov:wasGeneratedBy ?activity ;
             prov:wasAttributedTo ?agent .
-    OPTIONAL {{ ?entity dl:validTo ?validTo }}
-    FILTER ( ?validFrom <= "{t_lit}"^^xsd:dateTime
-             && ( !BOUND(?validTo) || "{t_lit}"^^xsd:dateTime < ?validTo ){recorded_clause} )
-  }}
-}}"#,
-        GRAPH_PROVENANCE = GRAPH_PROVENANCE,
+    FILTER ( ?validFrom <= {t_lit}{recorded_filter} )
+    MINUS {{
+      ?rc dl:closesVersion ?entity ;
+          dl:closes memory:RecordedTime ;
+          prov:generatedAtTime ?rcAt .{recorded_close_filter}
+    }}
+    MINUS {{
+      ?vc dl:closesVersion ?entity ;
+          dl:closes memory:ValidTime ;
+          dl:validUntil ?vEnd ;
+          prov:generatedAtTime ?vcAt .
+      FILTER ( ?vEnd <= {t_lit}{valid_close_filter} )
+    }}
+  }}{end}
+}}"#
     )
 }
 
@@ -1299,6 +1341,25 @@ mod tests {
         );
         for quad in q {
             assert_eq!(quad.graph_name.to_string(), format!("<{GRAPH_PROVENANCE}>"));
+        }
+    }
+
+    /// ADR-060: a closure names only its version, a clock, an activity and an
+    /// agent. It never repeats the version's subject, predicate or object, so a
+    /// hidden class cannot leak through a closure that a scrubbed version row
+    /// would have hidden.
+    #[test]
+    fn a_closure_carries_no_class_iri() {
+        let v = a_version();
+        let end = t(2026, 9, 1, 0, 0, 0);
+        let c = build_closure(&v, &closure_input(&[Clock::ValidTime], Some(end), end)).unwrap();
+        for quad in &c.provenance_quads {
+            for term in [quad.subject.to_string(), quad.object.to_string()] {
+                assert!(
+                    !term.contains(SUBJECT) && !term.contains(OBJECT),
+                    "a closure repeated the statement: {term}"
+                );
+            }
         }
     }
 
