@@ -1,5 +1,5 @@
 ---
-id: ADR-2220
+id: ADR-2221
 title: The vault readers accept vocabulary 3 headers beside vocabulary 2, through one shared reading
 date: 2026-11-25
 decision_status: accepted
@@ -16,7 +16,7 @@ domain: VAULT-corpus-format
 lineage: visionGraph ADR-VG-010 (time, supersession, typed sources, memory kinds), ADR-VG-011 (stamps name a principal key and the instrument), ADR-VG-012 (identity and visibility), ADR-VG-013 (review lifecycle); VisionClaw ADR-2113 (one parser), ADR-2112 (frontmatter-only), VisionFlow ADR-2022 (corpus history); estate plan of 2026-11-25
 ---
 
-# ADR-2220 — The vault readers accept vocabulary 3 headers beside vocabulary 2, through one shared reading
+# ADR-2221 — The vault readers accept vocabulary 3 headers beside vocabulary 2, through one shared reading
 
 ## Context
 

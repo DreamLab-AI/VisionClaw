@@ -3,10 +3,10 @@ title: VAULT — authored corpus format (Obsidian vault)
 version: 3.1.0
 status: living
 verified_commit: 6775a789cbbf3b56d645bcee7dc08815fbe18548
-verification_scope: ADR-2168 shared filesystem checks in V1; V10 (vocabulary 3 readers, ADR-2220) is verified by the vault-core and visionclaw-domain tests named there; other sections retain their existing evidence
+verification_scope: ADR-2168 shared filesystem checks in V1; V10 (vocabulary 3 readers, ADR-2221) is verified by the vault-core and visionclaw-domain tests named there; other sections retain their existing evidence
 owner: jjohare
 domain: VAULT-corpus-format
-ledger: [ADR-2112, ADR-2113, ADR-2114, ADR-2115, ADR-2116, ADR-2117, ADR-2118, ADR-2124, ADR-2125, ADR-2128, ADR-2168, ADR-2220]
+ledger: [ADR-2112, ADR-2113, ADR-2114, ADR-2115, ADR-2116, ADR-2117, ADR-2118, ADR-2124, ADR-2125, ADR-2128, ADR-2168, ADR-2221]
 agentbox_ledger: [ADR-2107, ADR-2108, ADR-2109, ADR-2129]
 proposed: [ADR-2126, ADR-2127]
 ---
@@ -93,7 +93,7 @@ call it; nothing else parses the corpus.
 
 | Component | Role | Contract |
 |---|---|---|
-| `vault-core::parse` | the one parser: frontmatter → `Page { type, title, resource, public, status, generated, verified, sources, relations, scalars }`. Visibility, stamps, the principal roster and recall are read by `vault_core::{visibility, okf, roster, lifecycle}`, which `visionclaw-domain` calls too, so the two parsers share one reading of both vocabulary 2 and vocabulary 3 headers (V10) | ADR-2113, ADR-2220 |
+| `vault-core::parse` | the one parser: frontmatter → `Page { type, title, resource, public, status, generated, verified, sources, relations, scalars }`. Visibility, stamps, the principal roster and recall are read by `vault_core::{visibility, okf, roster, lifecycle}`, which `visionclaw-domain` calls too, so the two parsers share one reading of both vocabulary 2 and vocabulary 3 headers (V10) | ADR-2113, ADR-2221 |
 | `vault validate` | OKF conformance + `vocabulary.yaml` + `types.json` agreement + link integrity + public gate | C2 |
 | `ontomark find / retrieve / tree` | graph over frontmatter wikilinks, per-edge-type expansion depth, `max_documents` cap (ported from `vault`, ADR-OM-005) | C2 |
 | `ontomark edit --expect docs=N blocks=M` / `create` / `apply` | guarded mutation; refused without a declared blast radius (ported from `vault`, ADR-OM-005) | C2 |
@@ -350,7 +350,7 @@ estate plan of 2026-11-25) and is **being rolled out**: ontomark's reader and
 the migration (`m0002`) are built on a branch and unreleased, and the corpus is
 still written in vocabulary 2. This section records what VisionClaw's readers do
 now, so that they accept both forms and give the same answer for a page before
-and after it is migrated (ADR-2220). It is not a statement that the corpus has
+and after it is migrated (ADR-2221). It is not a statement that the corpus has
 moved.
 
 | Fact | Vocabulary 2 | Vocabulary 3 | One reading |
@@ -404,8 +404,8 @@ Rules:
 
 What the readers do **not** yet do: the corpus sync does not honour the authored
 clocks of a page (`world-changed` / `corrected` / `withdrawn`); that is the
-planned ADR-2022 P2 amendment, scoped in ADR-2220. When the vault is fully on
-vocabulary 3 the vocabulary 2 reading paths listed in ADR-2220 are deleted.
+planned ADR-2022 P2 amendment, scoped in ADR-2221. When the vault is fully on
+vocabulary 3 the vocabulary 2 reading paths listed in ADR-2221 are deleted.
 
 ## Worked example
 
@@ -558,7 +558,7 @@ decision (V7).
 
 | Version | Date | Change |
 |---|---|---|
-| 3.1.0 | 2026-11-25 | ADR-2220: V10 records vocabulary 3 (decided, being rolled out) and how VisionClaw reads both header forms: one visibility reading, `did:nostr:` stamps with `via`, the roster and human certification by kind, typed sources, the new working kinds and per-type statuses, one recall rule, and the ontomark parity fixture. The corpus is still written in vocabulary 2; no rule of vocabulary 2 was loosened. |
+| 3.1.0 | 2026-11-25 | ADR-2221: V10 records vocabulary 3 (decided, being rolled out) and how VisionClaw reads both header forms: one visibility reading, `did:nostr:` stamps with `via`, the roster and human certification by kind, typed sources, the new working kinds and per-type statuses, one recall rule, and the ontomark parity fixture. The corpus is still written in vocabulary 2; no rule of vocabulary 2 was loosened. |
 | 3.0.0 | 2026-11-01 | ADR-2168: shared Ontomark filesystem checks reject ambiguous or escaping roots; local child symlinks are skipped. Default crate features enable the checks; runtime deployment is separate. |
 | 2.4.0 | 2026-10-20 | ADR-2147: Invariant 12 (derivation certificates and the consequence delta); `vault certify` and `vault propose --certificate-dir` added to the readers/writers table. No rule was loosened. |
 | 2.3.0 | 2026-10-19 | ADR-2124, ADR-2125 and ADR-2128 re-verified at b4a175412 and moved from "proposed, not ratified" to accepted: Invariant 6 names the `defines-as` / `disjoint-with` keys and the version IRI; Invariant 9 records the armed-gate probe. No rule was loosened. |

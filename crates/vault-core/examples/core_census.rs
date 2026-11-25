@@ -9,7 +9,7 @@
 //! answers the readers give: publication, the principal of `generated`, human
 //! certification, unreadable stamps and recall. The roster is read from
 //! `<roster-repo>` (default `<repo>`), so the same roster can judge a corpus
-//! before and after its migration. Used for the parity check of ADR-2220:
+//! before and after its migration. Used for the parity check of ADR-2221:
 //! the output of the previous reader (captured before this change) and of this
 //! one must be equal on every page of the real corpus.
 
