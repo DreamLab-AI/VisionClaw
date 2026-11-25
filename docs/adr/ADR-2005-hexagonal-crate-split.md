@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 745a46f12c3e4faed0b10cc166d0f9e09cef8f15
+verified_commit: 66326c866d9a065be79571c46f3941697b70bb3e
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -448,3 +448,7 @@ Amendment 2026-11-20, re-verified at b188b0397 (`git diff c143ef890..b188b0397` 
 ## Re-verification — 2026-11-21 (`745a46f12`)
 
 Governed-path change since `b188b0397`: `src/actors/event_coordination.rs` is deleted (CD-F1: `initialize_event_coordinator` had no caller) and `src/actors/mod.rs` drops its two lines. The 2026-clippy paragraph above that mentions an unused test import in that file is historical. No crate boundary, port or adapter in this record moved. Re-run: `git diff b188b0397..745a46f12 -- <verified_paths>`. **Decision unaffected.**
+
+## Re-verification — 2026-11-25 (stale on main, cleared)
+
+Re-verified at `66326c866` (`git diff 745a46f12..66326c866` over the governed paths). Governed changes since `745a46f12`: `Cargo.toml` (dependency bumps (`validator` 0.20, `utoipa` 6, `utoipa-swagger-ui` 10, `lru` 0.16.3, the four `solid-pod-rs` crates to 0.5.0-alpha.26, `horned-functional` removed), `shared-corpus-layout` in the default features, and the workspace members listed there. ) and `src/actors/elevation_actor.rs` (one `vault::parse` call takes a `Rules` argument; no import or crate boundary moved). **Counts moved:** the workspace now has **19** members (the 12 this record counted, plus `visionclaw-wire`, `visionclaw-integration-tests`, `visionclaw-memory-cloud`, `visionclaw-tri-layout`, `visionclaw-jev`, `visionclaw-splat`, `visionclaw-backup`); `exclude` is unchanged (`xr-client/rust`, `agentbox/crates/headroom-napi`). `layer_direction.rs` and `ci.yml` are unchanged since the stamp. The split is still partial; the decision holds.

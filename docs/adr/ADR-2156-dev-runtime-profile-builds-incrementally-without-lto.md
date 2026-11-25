@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b188b0397756517fda22fb67d17222d4cec46579
+verified_commit: 66326c866d9a065be79571c46f3941697b70bb3e
 verified_paths: [Cargo.toml, scripts/rust-backend-wrapper.sh, build.rs]
 owner: jjohare
 review_trigger: a runtime-performance regression traced to the dev-runtime profile, or a move to pre-baked dev binaries (ADR-2008)
@@ -104,3 +104,7 @@ Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `Carg
 ## Amendment — 2026-11-20
 
 Re-verified 2026-11-20 at b188b0397: `git diff 5db8ccf30..b188b0397 -- Cargo.toml` is two lines, `rusqlite` 0.31 to 0.43 and `tokio-rusqlite` 0.5 to 0.10. The `[profile.dev]` settings and the incremental, no-LTO build this record decides are untouched. The dated note above that says the crate "reuses oxigraph 0.4.11 and rusqlite 0.31.0" described `Cargo.lock` at its date; the lock now holds `rusqlite 0.43.0`. Decision holds.
+
+## Re-verification — 2026-11-25 (stale on main, cleared)
+
+Re-verified at `66326c866` (`git diff b188b0397..66326c866` over the governed paths). The only governed change since `b188b0397` is `Cargo.toml` (dependency bumps (`validator` 0.20, `utoipa` 6, `utoipa-swagger-ui` 10, `lru` 0.16.3, the four `solid-pod-rs` crates to 0.5.0-alpha.26, `horned-functional` removed), `shared-corpus-layout` in the default features, and the workspace members listed there.). `[profile.dev-runtime]` is unchanged at `Cargo.toml:327-333` (`inherits = "release"`, `debug-assertions`, `overflow-checks`, `lto = "off"`, `codegen-units = 256`, `incremental = true`); `build.rs` and `scripts/rust-backend-wrapper.sh` have no diff. The decision holds. `scripts/tests/test_dev_launcher.py` was not re-run here.

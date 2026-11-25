@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: 67318384fda1e834d84f3323745b0c1c7d296b7d
+verified_commit: 66326c866d9a065be79571c46f3941697b70bb3e
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -254,3 +254,7 @@ Re-verified 2026-11-20 at b188b0397 (record superseded by ADR-2115; note only): 
 ## Re-verification — 2026-11-21 (`67318384f`)
 
 Governed-path change since b188b0397: `client/src/features/settings/config/settings.ts` changes one doc comment on the `agentColors` field (it no longer cites the deleted `settings_handler` module). No key, type or default changed, so nothing this record states about the `knowledge` graph settings key is affected. Checked by reading the diff; no test was re-run.
+
+## Re-verification — 2026-11-25 (stale on main, cleared)
+
+Re-verified at `66326c866` (`git diff 67318384f..66326c866` over the governed paths). The one governed change since `67318384f` is `app_settings.rs:261`: `to_camel_case(field)` became `to_camel_case(&field)`, a type adjustment for the `validator` 0.20 bump. `get_physics` still routes through `normalise_graph_type` (`:159-171`) and no settings key, route or default changed. This record is superseded; nothing it records is affected.

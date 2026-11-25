@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: [ADR-2113]
-verified_commit: b188b0397756517fda22fb67d17222d4cec46579
+verified_commit: 66326c866d9a065be79571c46f3941697b70bb3e
 verified_paths: [crates/vault-migrate, Cargo.toml, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: the in-place conversion of the corpus repo is committed, after which the crate is kept only as the round-trip/no-op checker
@@ -231,3 +231,7 @@ Governed-path change on branch `feat/store-backup-and-restore` (ADR-2103): `Carg
 ## Amendment — 2026-11-20
 
 Re-verified 2026-11-20 at b188b0397: `git diff 5db8ccf30..b188b0397 -- Cargo.toml` is two lines, `rusqlite` 0.31 to 0.43 and `tokio-rusqlite` 0.5 to 0.10 (RUSTSEC-2026-0459). The converter this record decides does not use either crate; the 2026-11-16 note's "it reuses oxigraph 0.4.11 and rusqlite 0.31.0" was true of `Cargo.lock` at its date and is now `rusqlite 0.43.0`. Decision holds.
+
+## Re-verification — 2026-11-25 (stale on main, cleared)
+
+Re-verified at `66326c866` (`git diff b188b0397..66326c866` over the governed paths). Governed changes since `b188b0397`: `Cargo.toml` (dependency bumps (`validator` 0.20, `utoipa` 6, `utoipa-swagger-ui` 10, `lru` 0.16.3, the four `solid-pod-rs` crates to 0.5.0-alpha.26, `horned-functional` removed), `shared-corpus-layout` in the default features, and the workspace members listed there.) and `docs/VAULT-corpus-format.md` (3.0 to 3.1.1: the vocabulary 3 headers, the visibility rule, ADR-2221). None concerns the converter: `crates/vault-migrate` is still absent (`ls` fails) and this record stays superseded by ADR-2113.

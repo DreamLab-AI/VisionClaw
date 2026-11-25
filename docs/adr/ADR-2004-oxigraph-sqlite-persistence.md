@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 745a46f12c3e4faed0b10cc166d0f9e09cef8f15
+verified_commit: 66326c866d9a065be79571c46f3941697b70bb3e
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -326,3 +326,7 @@ Amendment 2026-11-20, re-verified at b188b0397 (`git diff 5db8ccf30..b188b0397 -
 ## Re-verification — 2026-11-21 (`745a46f12`)
 
 Governed-path change since b188b0397: `src/app_state.rs` loses the `EventBus` and the file-backed `EventStore` (`event_bus`, `event_store` fields, the handler registration block and the `EVENT_STORE_PATH` read; CD-F1, CD-F2). Neither touched the Oxigraph or SQLite adapters, the graph repository wiring or `Cargo.toml`. Re-run: `git diff b188b0397..745a46f12 -- Cargo.toml src/app_state.rs`. **Decision unaffected.**
+
+## Re-verification — 2026-11-25 (stale on main, cleared)
+
+Re-verified at `66326c866` (`git diff 745a46f12..66326c866` over the governed paths). Governed changes since `745a46f12`: `Cargo.toml` (dependency bumps (`validator` 0.20, `utoipa` 6, `utoipa-swagger-ui` 10, `lru` 0.16.3, the four `solid-pod-rs` crates to 0.5.0-alpha.26, `horned-functional` removed), `shared-corpus-layout` in the default features, and the workspace members listed there.) and `src/app_state.rs` (the read-only ADR-2219 boot guard: it calls `corpus_history::legacy_forms` and logs; it writes nothing and touches neither the Oxigraph nor the SQLite wiring). Claims re-checked: `oxigraph = { version = "0.4" }` is at `Cargo.toml:99` (it was `:82`; the line numbers above are historical); `grep -n neo4rs Cargo.toml` finds nothing; `rusqlite = 0.43` and `tokio-rusqlite = 0.10` at `:100-101`; the default features (`:275`) still include `persistence-oxigraph`. The decision holds.
