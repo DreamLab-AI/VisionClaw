@@ -406,6 +406,22 @@ impl AppState {
                 .map_err(|e| format!("Failed to open Oxigraph store: {}", e))?,
         );
         let oxigraph_store = onto_repo.store().clone();
+
+        // ADR-2219 boot guard (read-only): a provenance graph still in the pre-v2
+        // temporal form (bare `dl:validTo`, `dl:validFrom` on versions) cannot be
+        // read by the v2 readers, and the corpus sync would write a second history
+        // beside it. Corpus history stays off until the offline refit has run;
+        // nothing is written here.
+        match crate::services::corpus_history::legacy_forms(&oxigraph_store) {
+            Ok(found) if found.any() => error!(
+                "[AppState::new] provenance graph is in the pre-v2 temporal form ({}). \
+                 Corpus history is DISABLED until the refit tool has been run on this store \
+                 (docs/adr/ADR-2219-estate-temporal-contract-v2-closure-records.md).",
+                found.describe()
+            ),
+            Ok(_) => {}
+            Err(e) => warn!("[AppState::new] could not check the provenance graph form: {e}"),
+        }
         let graph_repo = Arc::new(OxigraphGraphRepository::from_store(oxigraph_store));
 
         // SQLite settings repository (ADR-11 §D5)
