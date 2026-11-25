@@ -597,7 +597,6 @@ impl DecisionService {
             predicate: RDF_TYPE.to_string(),
             object: t_decision_record(),
             valid_from: now,
-            valid_to: None,
             generated_at: now,
             activity_urn,
             agent_iri,
