@@ -1,6 +1,6 @@
 ---
 title: VAULT — authored corpus format (Obsidian vault)
-version: 3.1.0
+version: 3.1.1
 status: living
 verified_commit: 6775a789cbbf3b56d645bcee7dc08815fbe18548
 verification_scope: ADR-2168 shared filesystem checks in V1; V10 (vocabulary 3 readers, ADR-2221) is verified by the vault-core and visionclaw-domain tests named there; other sections retain their existing evidence
@@ -205,7 +205,7 @@ Rules:
 
 1. **Every relation value is a list of wikilink strings**, even a single target:
    `is-a: ["[[Algorithm]]"]`. Wikilinks in property values are quoted.
-2. `public` is a real YAML boolean, never `"true"`. Under vocabulary 3 a working page says `visibility: public` instead, and both spellings are the same fact (V10).
+2. `public` is a real YAML boolean, never `"true"`. Under vocabulary 3 a working page says `visibility: public` instead (V10); under vocabulary 2, and on every knowledge page, `visibility` is ignored.
 3. `resource` is minted once from `namespace + slug(title)` and is **immutable
    thereafter**. It is never recomputed: 412 existing IRIs come from a
    case/digit-boundary slugifier (`3D Asset` → `3-d-asset`), they are the subject
@@ -259,8 +259,8 @@ Two gates, and they are now the same gate:
    decides only whether it is *published*.
 2. **Publish.** A page publishes to narrativegoldmine.com iff `public: true`
    (Quartz ExplicitPublish) or, for a working page under vocabulary 3,
-   `visibility: public` — one reading, V10. Fail-closed: absent, unknown or
-   unreadable means private.
+   `visibility: public` — one reading, V10, chosen by vault and vocabulary
+   version. Fail-closed: absent, unknown, unreadable or contradictory means private.
 
 `working/` is never ingested into the governed graph and never published. It is
 read by `vault propose` to build proposals and by the curator in Obsidian.
@@ -355,7 +355,7 @@ moved.
 
 | Fact | Vocabulary 2 | Vocabulary 3 | One reading |
 |---|---|---|---|
-| Public | `public: true` | working pages: `visibility: public` (`private`, `shared`, default `shared`) | `vault_core::visibility::read` |
+| Public | `public: true` (every page) | working pages: `visibility: public` (`private`, `shared`, default `shared`); knowledge pages stay on `public: true` | `vault_core::visibility::read(map, Rules)` |
 | Who answers for a stamp | `by: human:<npub>`, `process:`, `agent:` | `by: did:nostr:<64 lowercase hex>`; the instrument that did the work is `via: agent:…` or `process:…` | `vault_core::okf::{Actor, Stamp}` |
 | Who is human | the `human:` prefix | the roster: a `did:nostr:` principal of `kind: human`, canonical or listed under `also` | `vault_core::roster::Roster::is_human` |
 | Sources | `{id, resource}` | `{id, resource?, rel, at, locator}`, `locator` carrying `fp:` or `sha256-v1:` pins | `vault_core::okf::Source` |
@@ -364,15 +364,23 @@ moved.
 
 Rules:
 
-1. **Both spellings of visibility are one fact.** `public: true` is
-   `visibility: public`. Where `visibility` is present and readable it decides;
-   an unknown `visibility`, or a `public` that is not a YAML boolean where
-   `visibility` is absent, is not public. Two keys that disagree are reported
-   (`Problem::Conflict`) and the publication census refuses to build over them.
-   The KG gate (`is_kg_included`), `is_publishable`, `Page::is_public` and the
-   census all call `vault_core::visibility`. A writer that re-renders a page
-   writes the key the page was authored with and never adds `public` beside
-   `visibility`.
+1. **Which key publishes a page depends on the vault and the vocabulary
+   version** (`vault_core::visibility::Rules`, the same choice as ontomark's
+   `is_public_under`). `visibility` is honoured **only** for a working page whose
+   vault vocabulary declares version 3 or later; then it decides, and `public`
+   can only veto: `public: false` with `visibility: public` is **not public**
+   (fail closed; ontomark reads that page as public, VisionClaw deliberately
+   does not) and `public: true` with `visibility: shared` or `private` is not
+   public, both reported as `Problem::Conflict`, on which the publication census
+   refuses to build. For every knowledge page, at any version, and for every page
+   under vocabulary 2 (or a source with no vocabulary), `public: true` alone
+   decides and `visibility` is ignored. The KG gate (`is_kg_included`),
+   `is_publishable`, `Page::is_public`, corpus history (through the node's
+   `public` flag), the page API and the census all take a `Rules` and call
+   `vault_core::visibility`; there is no context-free reading. A writer that
+   re-renders a page writes each key as authored, never derives one from the
+   other, and never adds `public` beside `visibility`; a conflicting page keeps
+   both keys.
 2. **Both stamp grammars name one principal.** `human:<npub>` and
    `did:nostr:<hex>` spell the same key; the roster
    (`ontology/attribution.yaml`: `principals` with `kind` and `also`, and the
@@ -463,10 +471,12 @@ leading paragraph. `resource` was copied from the fence's `@id`, not recomputed.
    surface, as is the per-generation `owl:versionIRI` header (ADR-2128); a
    property emits `rdfs:domain`/`rdfs:range` only when its vocabulary entry
    declares one.
-7. **Fail-closed publish.** `public` absent or false (under vocabulary 3,
-   `visibility` absent, `shared`, `private` or unreadable) means the page does
-   not reach narrativegoldmine.com. Removing `public` from a page that says
-   `visibility: public` does not unpublish it.
+7. **Fail-closed publish.** `public` absent or false (for a working page
+   under vocabulary 3, `visibility` absent, `shared`, `private`, unreadable or
+   contradicted by `public`) means the page does not reach narrativegoldmine.com.
+   Under vocabulary 3 removing `public` from a working page that says
+   `visibility: public` does not unpublish it; under vocabulary 2 that same
+   `visibility: public` publishes nothing.
 8. **Derived data is never stored in a page.** Inferred closure, backlinks,
    outbound wikilinks, link resolutions and the OKF index are build outputs.
 9. **Blockers are never approvable.** Whelk inconsistency, subclass cycles,
@@ -558,6 +568,7 @@ decision (V7).
 
 | Version | Date | Change |
 |---|---|---|
+| 3.1.1 | 2026-11-25 | V10 rule 1 corrected after the independent review: `visibility` is honoured only for working pages under vocabulary 3 or later; vocabulary 2 and knowledge pages read `public: true` alone, as ontomark does; a conflict fails closed. |
 | 3.1.0 | 2026-11-25 | ADR-2221: V10 records vocabulary 3 (decided, being rolled out) and how VisionClaw reads both header forms: one visibility reading, `did:nostr:` stamps with `via`, the roster and human certification by kind, typed sources, the new working kinds and per-type statuses, one recall rule, and the ontomark parity fixture. The corpus is still written in vocabulary 2; no rule of vocabulary 2 was loosened. |
 | 3.0.0 | 2026-11-01 | ADR-2168: shared Ontomark filesystem checks reject ambiguous or escaping roots; local child symlinks are skipped. Default crate features enable the checks; runtime deployment is separate. |
 | 2.4.0 | 2026-10-20 | ADR-2147: Invariant 12 (derivation certificates and the consequence delta); `vault certify` and `vault propose --certificate-dir` added to the readers/writers table. No rule was loosened. |
