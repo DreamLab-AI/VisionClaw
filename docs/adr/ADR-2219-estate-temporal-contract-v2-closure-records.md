@@ -48,7 +48,7 @@ Out of the contract: federation tombstones (cache eviction of received copies, n
 
 The two clock concepts (`memory:ValidTime`, `memory:RecordedTime`, `http://nova.dev/memory#`) and the version clock property names (`temporal:validFrom`, `temporal:recordedFrom`, `http://nova.dev/temporal#`) are taken from [eljeffeg/memory-ontology](https://github.com/eljeffeg/memory-ontology), licensed CC BY 4.0. See `NOTICE`.
 
-## Refit of the live store — applied to a copy on 2026-11-25; the live volume is the operator's step
+## Refit of the live store — applied to a copy on 2026-11-25 and put in place the same day
 
 The code and tool are on branch `feat/temporal-contract-v2`. The refit has been applied to a **copy** of the live store (record below); **nothing has been deployed, and this record does not confirm that the refitted store has been copied into place on the live volume. That step is the operator's.** Procedure, application stopped, from the host shell:
 
@@ -70,6 +70,19 @@ The code and tool are on branch `feat/temporal-contract-v2`. The refit has been 
 - A second run found nothing to do.
 
 The operator copies the refitted store into place. This record does not confirm that step: until it is done and checked, the live volume is unrefitted, and the warnings above (never boot a v2 binary on an unrefitted or restored store; never boot a pre-v2 binary on a refit one) stand. The refit is a one-off against the live store and is recorded here only; it is written into no data file. (Earlier rehearsals: synthetic stores, including one at the live size, 158,635 versions and 15 closes, replayed and verified in 41 s in memory.)
+
+**In place and checked, 2026-11-25 to 2026-11-26.** This supersedes the two statements above that the live volume is unrefitted and that this record does not confirm the copy-back.
+
+- The refitted copy was copied into the `visionclaw-data` volume on the host at about 22:30Z on 2026-11-25, with the application stopped. The pre-refit store is kept beside the volume as `oxigraph.pre-refit-20261125`. File counts and the checksums of `CURRENT` and the manifest matched the refitted copy.
+- A build of `a1b626342` booted on that store. This was the first time the root crate was compiled and run with this change; its own test targets have still not been run anywhere.
+- The corpus was then migrated to page vocabulary 3 (visionGraph `dc08376f1`) and synced: 10,375 changed files, 0 errors.
+- A store checkpoint taken at 2026-11-26T01:10:37Z was read offline. It holds 158,635 versions, all recorded `2026-11-19T13:26:13Z`; 15 closures, all closing valid time, recorded `2026-11-20T08:55:06Z`, each with an activity, an agent, a version and an end; 2 corpus-sync activities; no `dl:validTo` or `dl:validFrom` on any version; 158,620 open versions.
+- Every open version's triple is in the asserted graph, and the syncs after the refit added no version, closure or activity. That is the expected result, not a missing write: the vocabulary 3 migration changed page headers and stamps, and no tracked triple.
+- The asserted graph holds 28,785 triples with no version: `rdfs:label`, `maturity` and `sourceDomain`, 9,595 each. The first sync on 2026-11-19 did not version them either, so this predates the refit. Whether those three annotations should be versioned is open.
+
+Not checked: the knowledge-cut query through the live HTTP API, which needs a credential.
+
+**Pending upstream move of four IRIs.** The `temporal:` and `memory:` IRIs this contract uses are under `http://nova.dev/`, which memory-ontology's author has said is a placeholder he does not own. He intends to register a w3id.org namespace, and his open change (eljeffeg/memory-ontology#5, not merged as of 2026-11-26) moves the two clock concepts from `memory:` to `temporal:`. When both land, the IRIs in `temporal_vocab.rs`, in the stored versions and closures, and in the vectors' contract text change together; the refit tool's replay is the way to rewrite the store. Nothing changes until then.
 
 ## Verification
 
